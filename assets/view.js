@@ -44,6 +44,7 @@
     return modules[file];
   }
   D.nodes.forEach(function (n) {
+    if (n.kind === "system") return;
     var m = moduleFor(n.file);
     if (!n.module) m.members.push(n);
     if (n.status !== "unchanged") m.dirty = true;
@@ -124,7 +125,7 @@
   function ancestors(t) { var a = []; while (t && t !== root) { a.unshift(t); t = t.parent; } return a; }
 
   function nodeData(n, parent) {
-    return { id: n.id, label: n.name, kind: n.module ? "module" : "member", status: n.status,
+    return { id: n.id, label: n.name, kind: n.module ? "module" : n.kind === "system" ? "system" : n.kind === "route" ? "route" : "member", status: n.status,
              findings: (findingsByNode[n.id] || []).length, parent: parent };
   }
   function aggregateEdges(repOf, keep) {
@@ -147,6 +148,7 @@
   var scope = root;
   function rep(id) {
     var n = byId[id]; if (!n) return null;
+    if (n.kind === "system") return id;
     var path = ancestors(treeOf[n.file]), chain = ancestors(scope);
     for (var i = 0; i < chain.length; i++) {
       if (i >= path.length) return n.file;
@@ -155,6 +157,7 @@
     return path.length > chain.length ? path[chain.length].id : n.file;
   }
   function insideScope(repId) {
+    if (byId[repId] && byId[repId].kind === "system") return false;
     var g = groups[repId];
     if (g) return g.parent === scope;
     return treeOf[repId] === scope;
@@ -170,7 +173,10 @@
       if (shown[id]) return;
       shown[id] = true;
       var g = groups[id];
-      if (g) {
+      if (byId[id] && byId[id].kind === "system") {
+        var sd = nodeData(byId[id]); sd.kind = "system"; sd.outer = outer;
+        els.push({ group: "nodes", data: sd });
+      } else if (g) {
         els.push({ group: "nodes", data: { id: id, label: g.label + " · " + g.count, kind: g.layer ? "layer" : "dir", count: g.count,
           status: g.dirty ? "changed" : "unchanged", findings: g.findings, outer: outer } });
       } else {
@@ -210,13 +216,16 @@
     var els = [], shown = {};
     Object.keys(ids).forEach(function (id) {
       var n = byId[id]; if (!n) return;
-      if (n.module) return;
+      if (n.module || n.kind === "system") return;
       if (!shown[n.file]) { var m = byId[n.file]; els.push({ group: "nodes", data: { id: n.file, label: base(n.file), kind: "openmodule", status: m.status } }); shown[n.file] = true; }
       els.push({ group: "nodes", data: nodeData(n, n.file) }); shown[id] = true;
     });
     Object.keys(ids).forEach(function (id) {
       var n = byId[id];
-      if (n && n.module && !shown[id]) { els.push({ group: "nodes", data: nodeData(n) }); shown[id] = true; }
+      if (n && (n.module || n.kind === "system") && !shown[id]) {
+        var d = nodeData(n); if (n.kind === "system") d.kind = "system";
+        els.push({ group: "nodes", data: d }); shown[id] = true;
+      }
     });
     aggregateEdges(function (x) { return x; }, function (x) { return shown[x]; }).forEach(function (e, i) { e.id = "e" + i; els.push({ group: "edges", data: e }); });
     return els;
@@ -227,6 +236,162 @@
     D.nodes.forEach(function (n) { if (n.status !== "unchanged") changed[n.id] = ids[n.id] = true; });
     D.edges.forEach(function (e) { if (changed[e.from]) ids[e.to] = true; if (changed[e.to]) ids[e.from] = true; });
     return ids;
+  }
+
+  // ---- Blueprint: one page, then everything behind it, in swimlanes ----
+  var journey = null, uiOnly = false;
+  var lastLane = D.lanes.length - 1;
+  function laneOf(n) { return n.lane === null || n.lane === undefined ? null : n.lane; }
+  // The box a node is drawn as: endpoints and systems themselves, everything else its module.
+  function unitOf(id) {
+    var n = byId[id]; if (!n) return null;
+    return n.kind === "system" || n.kind === "route" ? id : n.file;
+  }
+  var outEdges = {};
+  D.edges.forEach(function (e) { if (e.kind !== "imports" && e.status !== "removed") (outEdges[e.from] = outEdges[e.from] || []).push(e); });
+  var membersOf = {};
+  D.nodes.forEach(function (n) { if (!n.module && n.kind !== "system") (membersOf[n.file] = membersOf[n.file] || []).push(n.id); });
+
+  // "front/app/src/pages/accounts/[id]/index.vue" → app "front/app", route "/accounts/[id]".
+  function journeyName(file) {
+    var i = file.indexOf("/pages/");
+    if (i < 0) return { app: "", route: base(file) };
+    var route = file.slice(i + 6).replace(/\.[a-z]+$/, "").replace(/\/index$/, "") || "/";
+    var app = file.slice(0, i).replace(/\/(src|app)(\/application)?$/, "");
+    return { app: app, route: route };
+  }
+
+  function journeys() {
+    return D.nodes.filter(function (n) { return n.module && n.lane === 0 && n.status !== "removed"; })
+      .sort(function (a, b) { return a.file < b.file ? -1 : 1; });
+  }
+
+  // Walks forward from the page. Lanes only go down (except within a lane), other pages are not
+  // entered, and a node counts as backstage once an http edge or a system has been reached.
+  function blueprintGraph(page) {
+    var seen = {}, backstage = {}, unitEdges = {}, order = [];
+    var queue = [page].concat(membersOf[page] || []).map(function (id) { return { id: id, back: false }; });
+    function visit(id, back) {
+      var key = id + (back ? "|b" : "");
+      if (seen[key]) return false;
+      seen[key] = true;
+      var u = unitOf(id);
+      if (u && order.indexOf(u) < 0) order.push(u);
+      if (back) backstage[u] = true;
+      return true;
+    }
+    queue.forEach(function (q) { visit(q.id, false); });
+    while (queue.length) {
+      var q = queue.shift();
+      var from = byId[q.id]; if (!from) continue;
+      var fromUnit = unitOf(q.id);
+      var next = (outEdges[q.id] || []).filter(function (e) { return byId[e.to] && !byId[e.to].test; });
+      // A function's module-level code (imports of systems, markup) belongs to the journey too.
+      if (!from.module && from.kind !== "system" && from.kind !== "route") next.push({ to: from.file, kind: "member", from: q.id });
+      next.forEach(function (e) {
+        var to = byId[e.to]; if (!to) return;
+        var lf = laneOf(byId[fromUnit] || from), lt = laneOf(to);
+        if (lt === 0 && to.file !== page) return;
+        if (lf !== null && lt !== null && lt < lf) return;
+        var back = q.back || e.kind === "http" || to.kind === "system";
+        var tu = unitOf(e.to);
+        if (fromUnit !== tu && e.kind !== "member") {
+          var k = fromUnit + "|" + tu;
+          var x = unitEdges[k] || (unitEdges[k] = { source: fromUnit, target: tu, count: 0, kind: e.kind, labels: [], violation: false });
+          x.count++; x.violation = x.violation || e.violation;
+          if (e.kind === "http") { x.kind = "http"; }
+        }
+        if (visit(e.to, back)) queue.push({ id: e.to, back: back });
+      });
+    }
+    // Keep only units that lead to the backstage (unless showing UI-only components).
+    var keep = {};
+    order.forEach(function (u) { keep[u] = uiOnly || backstage[u] || u === page; });
+    if (!uiOnly) {
+      var changed = true;
+      while (changed) {
+        changed = false;
+        Object.keys(unitEdges).forEach(function (k) {
+          var e = unitEdges[k];
+          if (keep[e.target] && !keep[e.source]) { keep[e.source] = true; changed = true; }
+        });
+      }
+    }
+    return { units: order.filter(function (u) { return keep[u]; }), edges: Object.keys(unitEdges).map(function (k) { return unitEdges[k]; }).filter(function (e) { return keep[e.source] && keep[e.target]; }) };
+  }
+
+  function blueprint() {
+    var els = [];
+    if (!journey) return els;
+    var bg = blueprintGraph(journey);
+    var rows = {}, lanes = D.lanes.concat(["Other"]), other = lanes.length - 1;
+    bg.units.forEach(function (u) {
+      var l = laneOf(byId[u]); if (l === null) l = other;
+      (rows[l] = rows[l] || []).push(u);
+    });
+    // Order each lane by the average x of what points at it, top-down, to limit crossings.
+    var x = {}, preds = {};
+    bg.edges.forEach(function (e) { (preds[e.target] = preds[e.target] || []).push(e.source); });
+    var used = Object.keys(rows).map(Number).sort(function (a, b) { return (a === other ? lastLane + 0.5 : a) - (b === other ? lastLane + 0.5 : b); });
+    var gapX = 210, gapY = 150, width = 0;
+    function labelOf(u) { var n = byId[u]; return n.kind === "route" || n.kind === "system" ? n.name : u === journey ? journeyName(u).route : base(n.file); }
+    function boxW(u) { return Math.max(150, Math.min(labelOf(u).length, 26) * 8.5 + 40); }
+    used.forEach(function (l, row) {
+      var us = rows[l];
+      us.forEach(function (u, i) {
+        var ps = (preds[u] || []).filter(function (p) { return x[p] !== undefined; });
+        us[i] = { u: u, k: ps.length ? ps.reduce(function (s, p) { return s + x[p]; }, 0) / ps.length : i * gapX };
+      });
+      us.sort(function (a, b) { return a.k - b.k; });
+      var cx = 0;
+      us.forEach(function (o) { var w = boxW(o.u); x[o.u] = cx + w / 2; cx += w; });
+      rows[l] = us.map(function (o) { return o.u; });
+      rows[l].w = cx;
+      width = Math.max(width, cx);
+    });
+    used.forEach(function (l, row) {
+      var y = row * gapY;
+      var offset = (width - rows[l].w) / 2;
+      els.push({ group: "nodes", data: { id: "lane:" + l, label: lanes[l], kind: "lane", w: width + 300 }, position: { x: width / 2 - 60, y: y }, selectable: false, grabbable: false });
+      els.push({ group: "nodes", data: { id: "lanelabel:" + l, label: lanes[l], kind: "lanelabel" }, position: { x: -150, y: y }, selectable: false, grabbable: false });
+      rows[l].forEach(function (u) {
+        var n = byId[u], d = nodeData(n);
+        d.label = labelOf(u);
+        d.findings = n.module && modules[u] ? modules[u].findings : d.findings;
+        if (n.module && modules[u] && modules[u].dirty && d.status === "unchanged") d.status = "changed";
+        d.kind = n.kind === "system" ? "system" : n.kind === "route" ? "route" : u === journey ? "journey" : "module";
+        d.bp = true;
+        if (u === journey) d.label = journeyName(u).route;
+        els.push({ group: "nodes", data: d, position: { x: x[u] + offset, y: y } });
+      });
+    });
+    bg.edges.forEach(function (e, i) {
+      e.id = "b" + i; e.status = "unchanged"; e.guessed = false;
+      els.push({ group: "edges", data: e });
+    });
+    return els;
+  }
+
+  function journeyList() {
+    side.innerHTML = "";
+    side.appendChild(el("h2", { text: "Journeys" }));
+    if (!D.lanes.length) {
+      side.appendChild(el("p", { class: "loc", text: "Add a blueprint section to ig.yaml (lanes, http, systems) to see journeys." }));
+      return;
+    }
+    var js = journeys();
+    if (!js.length) { side.appendChild(el("p", { class: "loc", text: "No module is in the first lane (" + D.lanes[0] + ")." })); return; }
+    var opt = el("label", { class: "loc" }, [el("input", { type: "checkbox", onchange: function (ev) { uiOnly = ev.target.checked; if (journey) render(); } }), " show UI-only components"]);
+    if (uiOnly) opt.firstChild.checked = true;
+    side.appendChild(opt);
+    var app = null;
+    js.forEach(function (n) {
+      var jn = journeyName(n.file);
+      if (jn.app !== app) { app = jn.app; side.appendChild(el("h2", { text: app || "pages" })); }
+      side.appendChild(el("ul", {}, [el("li", { class: "f" + (n.id === journey ? " current" : ""), onclick: function () { journey = n.id; render(); journeyList(); } }, [
+        el("strong", { text: jn.route })
+      ])]));
+    });
   }
 
   var focusId = null, focusDepth = 1;
@@ -274,6 +439,19 @@
         "shape": "round-rectangle", "background-color": panel, "background-opacity": 0.5, "border-width": 1.5, "border-style": "dashed",
         "border-color": statusColor, "text-valign": "top", "text-halign": "center", "text-margin-y": -4, "font-size": 12,
         "font-weight": 600, "padding": 14, "min-zoomed-font-size": 5 } },
+      { selector: "node[?bp]", style: { "font-size": 14, "min-zoomed-font-size": 4, "text-max-width": 230, "text-wrap": "ellipsis" } },
+      { selector: "edge[kind = 'dispatch']", style: { "line-style": "dashed" } },
+      { selector: "node[kind = 'lane']", style: {
+        "shape": "rectangle", "width": "data(w)", "height": 120, "background-color": line, "background-opacity": 0.18,
+        "border-width": 0, "label": "", "events": "no", "z-index": 0 } },
+      { selector: "node[kind = 'lanelabel']", style: {
+        "shape": "rectangle", "width": 1, "height": 1, "background-opacity": 0, "border-width": 0, "text-valign": "center",
+        "text-halign": "center", "font-size": 18, "font-weight": 700, "color": muted, "events": "no", "min-zoomed-font-size": 3 } },
+      { selector: "node[kind = 'journey']", style: { "shape": "round-rectangle", "width": 34, "height": 34, "background-color": accent, "font-size": 12, "font-weight": 700 } },
+      { selector: "node[kind = 'route']", style: { "shape": "tag", "width": 22, "height": 22, "background-color": css("--note") } },
+      { selector: "node[kind = 'system']", style: { "shape": "barrel", "width": 38, "height": 44, "background-color": css("--warning"), "font-size": 12, "font-weight": 700 } },
+      { selector: "edge[kind = 'http']", style: { "line-color": css("--note"), "target-arrow-color": css("--note"), "line-style": "dashed", "opacity": 0.95, "width": 2 } },
+      { selector: "edge[kind = 'uses']", style: { "line-color": css("--warning"), "target-arrow-color": css("--warning"), "opacity": 0.9 } },
       { selector: "node[?outer]", style: { "opacity": 0.55, "border-style": "dashed" } },
       { selector: "node[status = 'removed']", style: { "border-style": "dashed", "background-opacity": 0.35 } },
       { selector: "node[findings > 0]", style: { "border-width": 3, "border-color": err, "border-style": "solid" } },
@@ -300,7 +478,7 @@
   // the box they came out of, so opening a box doesn't reshuffle the picture. `zoomTo` fits that box.
   var lastMode = null;
   function render(zoomTo) {
-    var els = mode === "architecture" ? architecture() : mode === "focus" ? exact(focusIds()) : exact(changedIds());
+    var els = mode === "architecture" ? architecture() : mode === "focus" ? exact(focusIds()) : mode === "blueprint" ? blueprint() : exact(changedIds());
     var fresh = mode !== lastMode;
     lastMode = mode;
     var prev = {};
@@ -316,7 +494,7 @@
       if (p) n.position({ x: p.x + (prev[n.id()] ? 0 : Math.random() * 40 - 20), y: p.y + (prev[n.id()] ? 0 : Math.random() * 40 - 20) });
     });
     cy.endBatch();
-    var layout = cy.layout(window.cytoscapeFcose ? {
+    var layout = cy.layout(mode === "blueprint" ? { name: "preset", fit: false } : window.cytoscapeFcose ? {
       name: "fcose", quality: "proof", randomize: true, animate: false, fit: false,
       nodeDimensionsIncludeLabels: true, packComponents: true, nodeRepulsion: function () { return 60000; },
       idealEdgeLength: function () { return 160; }, edgeElasticity: function () { return 0.2; }, nestingFactor: 0.4,
@@ -337,7 +515,9 @@
     });
     var n = cy.nodes().length;
     crumbs();
-    hint.textContent = mode === "architecture" ? "Click a box to open it. Dimmed boxes are outside, connected context." :
+    if (mode === "blueprint") journeyList();
+    hint.textContent = mode === "blueprint" ? (journey ? "Journey " + journeyName(journey).route + ": the page and everything behind it, by lane. Dashed blue: HTTP calls." : "Pick a page on the right.") :
+      mode === "architecture" ? "Click a box to open it. Dimmed boxes are outside, connected context." :
       mode === "focus" ? "Neighbourhood of " + (byId[focusId] ? byId[focusId].name : "") + " (depth " + focusDepth + ")" :
       (n ? "" : "No changes against the base.");
   }

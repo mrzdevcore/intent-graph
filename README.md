@@ -81,7 +81,20 @@ checkers:                     # any command that prints SARIF on stdout
   - name: eslint
     run: "npx eslint -f @microsoft/eslint-formatter-sarif ."
 blockOn: error
+blueprint:                    # optional: page → front → API → use cases → adapters → systems
+  lanes:
+    - { name: User, match: ["apps/web/src/pages/**/*.vue"], exclude: ["**/components/**"] }
+    - { name: Front, layers: [ui] }
+    - { name: API, match: ["services/api/src/routes/**"] }
+    - { name: Core, layers: [core] }
+  http: { calls: [fetch, useFetch, $fetch], routes: route, prefix: /api }
+  systems:
+    PostgreSQL: [pg, knex]
+    Stripe: [stripe]
 ```
+
+The viewer (`ig view`) has four modes: **Changed**, **Architecture** (drill down by layer and directory),
+**Focus** (one node's neighbourhood) and **Blueprint** (pick a page, see everything behind it in swimlanes).
 
 All keys, with defaults, are listed in the [design](docs/specs/design.md#igyaml).
 Known findings can be accepted by adding their fingerprints to `.ig/baseline.json`.

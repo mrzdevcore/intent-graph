@@ -53,6 +53,9 @@ pub enum Callee {
     },
     /// Anything else: matched by bare name.
     Guess(String),
+    /// `x.m()` / `x.m` where `x` has a declared or constructed type: method `m` of that type (or,
+    /// for an interface, of its implementations).
+    Typed(Box<Callee>, String),
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +87,15 @@ pub struct ExportTable {
     pub stars: Vec<String>,
 }
 
+/// An HTTP client call: method and URL with dynamic parts as `:`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpCall {
+    pub from: String,
+    pub method: String,
+    pub url: String,
+    pub line: u32,
+}
+
 #[derive(Debug, Default)]
 pub struct FileFacts {
     pub file: String,
@@ -98,6 +110,11 @@ pub struct FileFacts {
     pub classes: Vec<(String, Option<Callee>)>,
     /// Source the patterns run on (the extracted script for embedded files).
     pub script: String,
+    pub http: Vec<HttpCall>,
+    /// Bare imports that resolve to no repo file: (package name, line).
+    pub packages: Vec<(String, u32)>,
+    /// `const NAME = '<url-ish string>'` anywhere in the file, for route paths built from constants.
+    pub url_consts: HashMap<String, String>,
 }
 
 pub struct FileInput<'c> {
@@ -107,6 +124,8 @@ pub struct FileInput<'c> {
     pub embedded: bool,
     pub is_test: bool,
     pub test_calls: &'c [String],
+    /// Callee names whose first argument is a URL (`blueprint.http.calls`).
+    pub http_calls: &'c [String],
 }
 
 pub struct Lines(Vec<usize>);
@@ -194,6 +213,14 @@ struct Extractor<'s, 'a> {
     pending_class: Option<String>,
     export_span: Option<Span>,
     fn_depth: u32,
+    http_calls: &'s [String],
+    url_vars: HashMap<SymbolId, String>,
+    url_consts: HashMap<String, String>,
+    /// Declared or constructed types of variables and parameters.
+    typed: HashMap<SymbolId, Pending>,
+    /// class node id → field name → type
+    fields: HashMap<String, HashMap<String, Pending>>,
+    http: Vec<HttpCall>,
     default_ident: Option<String>,
     _a: std::marker::PhantomData<&'a ()>,
 }
@@ -203,6 +230,7 @@ struct Extractor<'s, 'a> {
 enum Pending {
     Sym(SymbolId, String),
     Ready(Callee),
+    Typed(Box<Pending>, String),
 }
 
 impl<'s, 'a> Extractor<'s, 'a> {
@@ -319,6 +347,21 @@ impl<'s, 'a> Extractor<'s, 'a> {
         }
     }
 
+    /// Top-level interfaces and type aliases are not nodes, but get an id so `implements` and typed
+    /// calls can be traced to their implementations.
+    fn type_target(&mut self, id: &BindingIdentifier) {
+        if !self.at_top() {
+            return;
+        }
+        let tid = format!("{}#{}", self.file, id.name.as_str());
+        self.top_names
+            .entry(id.name.as_str().to_string())
+            .or_insert_with(|| tid.clone());
+        if let Some(s) = id.symbol_id.get() {
+            self.sym_node.entry(s).or_insert(tid);
+        }
+    }
+
     fn at_top(&self) -> bool {
         self.scopes.is_empty()
     }
@@ -332,6 +375,84 @@ impl<'s, 'a> Extractor<'s, 'a> {
         {
             Some(s) => Pending::Sym(s, name),
             None => Pending::Ready(Callee::Guess(name)),
+        }
+    }
+
+    /// The declared or constructed type of `x` or `this.f`, if known.
+    fn type_of(&self, e: &Expression) -> Option<Pending> {
+        match e {
+            Expression::Identifier(id) => {
+                let s = id
+                    .reference_id
+                    .get()
+                    .and_then(|r| self.scoping.get_reference(r).symbol_id())?;
+                self.typed.get(&s).cloned()
+            }
+            Expression::StaticMemberExpression(m)
+                if matches!(
+                    m.object.get_inner_expression(),
+                    Expression::ThisExpression(_)
+                ) =>
+            {
+                let class = self.this_ctx.last()?.as_ref()?;
+                self.fields
+                    .get(class)?
+                    .get(m.property.name.as_str())
+                    .cloned()
+            }
+            _ => None,
+        }
+    }
+
+    fn annotation_type(&self, ta: Option<&TSTypeAnnotation>) -> Option<Pending> {
+        match &ta?.type_annotation {
+            TSType::TSTypeReference(r) => self.type_name_callee(&r.type_name),
+            _ => None,
+        }
+    }
+
+    fn new_type(&self, e: Option<&Expression>) -> Option<Pending> {
+        match e?.get_inner_expression() {
+            Expression::NewExpression(n) => self.callee_of(&n.callee),
+            _ => None,
+        }
+    }
+
+    /// Field types of a class: annotated or `new`-initialised properties, and constructor
+    /// parameter properties (`private readonly repo: Repo`).
+    fn collect_fields(&mut self, class: &Class<'a>, id: &str) {
+        let mut f = HashMap::new();
+        for el in &class.body.body {
+            match el {
+                ClassElement::PropertyDefinition(p) => {
+                    if let (Some(k), Some(t)) = (
+                        p.key.static_name(),
+                        self.annotation_type(p.type_annotation.as_deref())
+                            .or_else(|| self.new_type(p.value.as_ref())),
+                    ) {
+                        f.insert(k.to_string(), t);
+                    }
+                }
+                ClassElement::MethodDefinition(m)
+                    if m.kind == MethodDefinitionKind::Constructor =>
+                {
+                    for p in &m.value.params.items {
+                        if p.accessibility.is_none() && !p.readonly {
+                            continue;
+                        }
+                        if let (BindingPattern::BindingIdentifier(b), Some(t)) = (
+                            &p.pattern,
+                            self.annotation_type(p.type_annotation.as_deref()),
+                        ) {
+                            f.insert(b.name.as_str().to_string(), t);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !f.is_empty() {
+            self.fields.insert(id.to_string(), f);
         }
     }
 
@@ -384,10 +505,16 @@ impl<'s, 'a> Extractor<'s, 'a> {
                         }
                         None => match self.import_of(o) {
                             Some((spec, n)) => Pending::Ready(Callee::ImportMember(spec, n, prop)),
-                            None => Pending::Ready(Callee::Guess(prop)),
+                            None => match self.type_of(m.object.get_inner_expression()) {
+                                Some(t) => Pending::Typed(Box::new(t), prop),
+                                None => Pending::Ready(Callee::Guess(prop)),
+                            },
                         },
                     },
-                    _ => Pending::Ready(Callee::Guess(prop)),
+                    obj => match self.type_of(obj) {
+                        Some(t) => Pending::Typed(Box::new(t), prop),
+                        None => Pending::Ready(Callee::Guess(prop)),
+                    },
                 })
             }
             _ => None,
@@ -411,6 +538,88 @@ impl<'s, 'a> Extractor<'s, 'a> {
             }
             _ => None,
         }
+    }
+
+    /// A URL-ish string from a literal, template or concatenation; dynamic parts become `:`.
+    fn url_of(&self, e: &Expression) -> Option<String> {
+        match e.get_inner_expression() {
+            Expression::StringLiteral(s) => Some(s.value.as_str().to_string()),
+            Expression::TemplateLiteral(t) => {
+                let mut out = String::new();
+                for (i, q) in t.quasis.iter().enumerate() {
+                    out.push_str(q.value.raw.as_str());
+                    if i < t.expressions.len() {
+                        out.push(':');
+                    }
+                }
+                Some(out)
+            }
+            Expression::BinaryExpression(b)
+                if b.operator == oxc_syntax::operator::BinaryOperator::Addition =>
+            {
+                let l = self.url_of(&b.left).unwrap_or_else(|| ":".into());
+                let r = self.url_of(&b.right).unwrap_or_else(|| ":".into());
+                Some(l + &r)
+            }
+            Expression::Identifier(id) => {
+                let s = id
+                    .reference_id
+                    .get()
+                    .and_then(|r| self.scoping.get_reference(r).symbol_id())?;
+                self.url_vars.get(&s).cloned()
+            }
+            _ => None,
+        }
+    }
+
+    fn http_call(&mut self, it: &CallExpression<'a>) {
+        let name = match it.callee.get_inner_expression() {
+            Expression::Identifier(id) => id.name.as_str(),
+            Expression::StaticMemberExpression(m) => m.property.name.as_str(),
+            _ => return,
+        };
+        if !self.http_calls.iter().any(|c| c == name) {
+            return;
+        }
+        let Some(url) = it
+            .arguments
+            .first()
+            .and_then(|a| a.as_expression())
+            .and_then(|a| self.url_of(a))
+        else {
+            return;
+        };
+        if !url.contains('/') {
+            return;
+        }
+        let method = it
+            .arguments
+            .get(1)
+            .and_then(|a| match a.as_expression()?.get_inner_expression() {
+                Expression::ObjectExpression(o) => o.properties.iter().find_map(|p| match p {
+                    ObjectPropertyKind::ObjectProperty(p)
+                        if p.key.static_name().as_deref() == Some("method") =>
+                    {
+                        match p.value.get_inner_expression() {
+                            Expression::StringLiteral(s) => {
+                                Some(s.value.as_str().to_ascii_uppercase())
+                            }
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .unwrap_or_else(|| "GET".into());
+        let line = self.line(it.span.start);
+        let from = self.nodes[self.innermost_node()].id.clone();
+        self.http.push(HttpCall {
+            from,
+            method,
+            url,
+            line,
+        });
     }
 
     fn add_ref(&mut self, kind: &'static str, callee: Pending, off: u32) {
@@ -614,6 +823,31 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
     }
 
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+        for d in &it.declarations {
+            if let BindingPattern::BindingIdentifier(b) = &d.id {
+                let t = self
+                    .annotation_type(d.type_annotation.as_deref())
+                    .or_else(|| self.new_type(d.init.as_ref()));
+                if let (Some(sym), Some(t)) = (b.symbol_id.get(), t) {
+                    self.typed.insert(sym, t);
+                }
+            }
+        }
+        if !self.http_calls.is_empty() {
+            for d in &it.declarations {
+                if let (BindingPattern::BindingIdentifier(b), Some(init)) = (&d.id, &d.init)
+                    && let (Some(sym), Some(url)) = (b.symbol_id.get(), self.url_of(init))
+                    && url.contains('/')
+                {
+                    if it.kind == VariableDeclarationKind::Const {
+                        self.url_consts
+                            .entry(b.name.as_str().to_string())
+                            .or_insert_with(|| url.clone());
+                    }
+                    self.url_vars.insert(sym, url);
+                }
+            }
+        }
         if it.kind != VariableDeclarationKind::Const || it.declare {
             return walk::walk_variable_declaration(self, it);
         }
@@ -665,13 +899,16 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
             let i = self.push_node("class", name, anchor, None, false);
             self.register(i, it.id.as_ref(), top);
             self.class_node(it, i);
-            self.this_ctx.push(Some(self.nodes[i].id.clone()));
+            let id = self.nodes[i].id.clone();
+            self.collect_fields(it, &id);
+            self.this_ctx.push(Some(id));
             walk::walk_class(self, it);
             self.this_ctx.pop();
             self.scopes.pop();
         } else if let Some(id) = self.pending_class.take() {
             let i = self.nodes.iter().rposition(|n| n.id == id).unwrap_or(0);
             self.class_node(it, i);
+            self.collect_fields(it, &id);
             self.this_ctx.push(Some(id));
             walk::walk_class(self, it);
             self.this_ctx.pop();
@@ -733,7 +970,43 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
         if let Some(c) = self.callee_of(&it.callee) {
             self.add_ref("calls", c, it.span.start);
         }
+        if !self.http_calls.is_empty() {
+            self.http_call(it);
+        }
         walk::walk_call_expression(self, it);
+    }
+
+    fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
+        if let (BindingPattern::BindingIdentifier(b), Some(t)) = (
+            &it.pattern,
+            self.annotation_type(it.type_annotation.as_deref()),
+        ) && let Some(sym) = b.symbol_id.get()
+        {
+            self.typed.insert(sym, t);
+        }
+        walk::walk_formal_parameter(self, it);
+    }
+
+    /// `x.m` used as a value (`handler: controller.get.bind(controller)`) is a use of `m` too.
+    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+        if let Some(t) = self.type_of(it.object.get_inner_expression()) {
+            self.add_ref(
+                "calls",
+                Pending::Typed(Box::new(t), it.property.name.as_str().to_string()),
+                it.span.start,
+            );
+        }
+        walk::walk_static_member_expression(self, it);
+    }
+
+    fn visit_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'a>) {
+        self.type_target(&it.id);
+        walk::walk_ts_interface_declaration(self, it);
+    }
+
+    fn visit_ts_type_alias_declaration(&mut self, it: &TSTypeAliasDeclaration<'a>) {
+        self.type_target(&it.id);
+        walk::walk_ts_type_alias_declaration(self, it);
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
@@ -966,6 +1239,12 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         pending_class: None,
         export_span: None,
         fn_depth: 0,
+        http_calls: input.http_calls,
+        url_vars: HashMap::new(),
+        url_consts: HashMap::new(),
+        typed: HashMap::new(),
+        fields: HashMap::new(),
+        http: vec![],
         default_ident: None,
         _a: std::marker::PhantomData,
     };
@@ -1005,9 +1284,10 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         }
     }
 
-    let finish = |p: &Pending| -> Callee {
+    fn finish(p: &Pending, x: &Extractor, scoping: &Scoping) -> Callee {
         match p {
             Pending::Ready(c) => c.clone(),
+            Pending::Typed(t, m) => Callee::Typed(Box::new(finish(t, x, scoping)), m.clone()),
             Pending::Sym(s, name) => {
                 if let Some(id) = x.sym_node.get(s) {
                     return Callee::Node(id.clone());
@@ -1022,7 +1302,8 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
                 Callee::Guess(name.clone())
             }
         }
-    };
+    }
+    let finish = |p: &Pending| finish(p, &x, &scoping);
     let refs: Vec<RawRef> = x
         .refs
         .iter()
@@ -1055,8 +1336,25 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
             resolved.insert(spec.clone(), t);
         }
     }
+    let mut packages = vec![];
+    for i in &x.import_refs {
+        let bare = !i.spec.starts_with('.') && !i.spec.starts_with('/') && !i.spec.contains(':');
+        if bare && !resolved.contains_key(&i.spec) {
+            let mut parts = i.spec.split('/');
+            let first = parts.next().unwrap_or("");
+            let name = if first.starts_with('@') {
+                format!("{first}/{}", parts.next().unwrap_or(""))
+            } else {
+                first.to_string()
+            };
+            packages.push((name, i.line));
+        }
+    }
     FileFacts {
         file: input.path.into(),
+        http: x.http,
+        url_consts: x.url_consts,
+        packages,
         nodes: x.nodes,
         parse_error,
         imports: x.import_refs,
@@ -1099,6 +1397,7 @@ mod tests {
             embedded: false,
             is_test: path.contains(".test."),
             test_calls: &tc,
+            http_calls: &[],
         };
         extract(&input, &|_| None)
     }

@@ -234,7 +234,7 @@ impl Drop for Worktree {
 }
 
 /// Bump whenever extraction or resolution changes output, so cached base graphs are rebuilt.
-const GRAPH_REVISION: u32 = 7;
+const GRAPH_REVISION: u32 = 10;
 
 pub fn cache_key(config: &Config) -> String {
     sha1_hex(&format!(

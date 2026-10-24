@@ -81,6 +81,38 @@ impl Default for ReviewConfig {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Lane {
+    pub name: String,
+    pub matches: Vec<String>,
+    pub exclude: Vec<String>,
+    pub layers: Vec<String>,
+}
+
+/// `blueprint`: swimlanes, HTTP client calls linked to route nodes, and npm packages that stand for
+/// external systems.
+#[derive(Debug, Clone)]
+pub struct Blueprint {
+    pub lanes: Vec<Lane>,
+    pub http_calls: Vec<String>,
+    pub route_kind: String,
+    /// Path prefix the client adds in front of route paths (a proxy or server prefix), e.g. `/api`.
+    pub http_prefix: String,
+    pub systems: Vec<(String, Vec<String>)>,
+}
+
+impl Default for Blueprint {
+    fn default() -> Self {
+        Blueprint {
+            lanes: vec![],
+            http_calls: vec![],
+            route_kind: "route".into(),
+            http_prefix: String::new(),
+            systems: vec![],
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub layers: Vec<(String, Vec<String>)>,
@@ -99,6 +131,7 @@ pub struct Config {
     pub hook_max_rounds: u32,
     pub entry_points: Vec<String>,
     pub review: ReviewConfig,
+    pub blueprint: Blueprint,
 }
 
 impl Default for Config {
@@ -124,6 +157,7 @@ impl Default for Config {
             hook_max_rounds: 3,
             entry_points: vec![],
             review: ReviewConfig::default(),
+            blueprint: Blueprint::default(),
         }
     }
 }
@@ -269,6 +303,7 @@ impl Config {
                         }
                     }
                 }
+                "blueprint" => c.blueprint = blueprint(v)?,
                 _ => bail!("ig.yaml: {}: unknown key", scalar(k)),
             }
         }
@@ -294,11 +329,81 @@ impl Config {
                 )
             })
             .collect();
+        let b = &self.blueprint;
         format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}",
-            self.embedded, self.ignore, self.tests, self.test_calls, pats
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}",
+            self.embedded,
+            self.ignore,
+            self.tests,
+            self.test_calls,
+            pats,
+            b.http_calls,
+            b.route_kind,
+            b.http_prefix,
+            b.systems
         )
     }
+}
+
+fn blueprint(v: &Value) -> Result<Blueprint> {
+    let mut b = Blueprint::default();
+    for (k, x) in mapping(v, "blueprint")? {
+        let k = scalar(k);
+        match k.as_str() {
+            "lanes" => {
+                for (i, l) in list(x, "blueprint.lanes")?.iter().enumerate() {
+                    let p = format!("blueprint.lanes[{i}]");
+                    let name = match l.get("name").and_then(Value::as_str) {
+                        Some(n) => n.to_string(),
+                        None => bail!("ig.yaml: {p}.name: expected a string"),
+                    };
+                    let matches = l
+                        .get("match")
+                        .map(|m| strings(m, &format!("{p}.match")))
+                        .transpose()?
+                        .unwrap_or_default();
+                    let layers = l
+                        .get("layers")
+                        .map(|m| strings(m, &format!("{p}.layers")))
+                        .transpose()?
+                        .unwrap_or_default();
+                    let exclude = l
+                        .get("exclude")
+                        .map(|m| strings(m, &format!("{p}.exclude")))
+                        .transpose()?
+                        .unwrap_or_default();
+                    if matches.is_empty() && layers.is_empty() {
+                        bail!("ig.yaml: {p}: expected match or layers");
+                    }
+                    b.lanes.push(Lane {
+                        name,
+                        matches,
+                        exclude,
+                        layers,
+                    });
+                }
+            }
+            "http" => {
+                for (hk, hv) in mapping(x, "blueprint.http")? {
+                    match scalar(hk).as_str() {
+                        "calls" => b.http_calls = strings(hv, "blueprint.http.calls")?,
+                        "routes" => b.route_kind = string(hv, "blueprint.http.routes")?,
+                        "prefix" => b.http_prefix = string(hv, "blueprint.http.prefix")?,
+                        o => bail!("ig.yaml: blueprint.http.{o}: unknown key"),
+                    }
+                }
+            }
+            "systems" => {
+                for (name, pkgs) in mapping(x, "blueprint.systems")? {
+                    let name = scalar(name);
+                    let pkgs = strings(pkgs, &format!("blueprint.systems.{name}"))?;
+                    b.systems.push((name, pkgs));
+                }
+            }
+            _ => bail!("ig.yaml: blueprint.{k}: unknown key"),
+        }
+    }
+    Ok(b)
 }
 
 fn scalar(v: &Value) -> String {
@@ -377,6 +482,18 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert_eq!(e, "ig.yaml: rules[0]: expected \"a -> b\"");
+        let b = Config::parse(
+            "blueprint:\n  lanes:\n    - { name: User, match: ['src/pages/**'] }\n  http: { calls: [fetch] }\n  systems:\n    PostgreSQL: [pg, knex]\n",
+        )
+        .unwrap()
+        .blueprint;
+        assert_eq!(b.lanes[0].name, "User");
+        assert_eq!(b.route_kind, "route");
+        assert_eq!(b.systems[0].1, ["pg", "knex"]);
+        let e = Config::parse("blueprint:\n  lanes:\n    - { name: X }\n")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(e, "ig.yaml: blueprint.lanes[0]: expected match or layers");
         let e = Config::parse("ignore: x\n").unwrap_err().to_string();
         assert_eq!(e, "ig.yaml: ignore: expected a list");
         let e = Config::parse("severity:\n  ig/arch: bad\n")

@@ -49,8 +49,8 @@ Everything else is **the author's call**, marked *(call)*. The builder can revis
 
 All JSON uses camelCase keys, and fields that are absent are omitted.
 
-- **Node:** `id`, `kind` (`module` | `component` | `class` | `function` | `method` | `test` | a pattern kind such as `route`), `name`, `file` (repo-relative posix path), `range {startLine, endLine}` (1-based, inclusive), `parent?`, `package?`, `exported?`, `hash`, `metrics {loc, complexity}`, `intents[]`.
-- **Edge:** `from`, `to`, `kind` (`imports` | `calls` | `renders` | `extends` | `implements`), `confidence` (`resolved` | `guessed`), `file`, `line`, `namespace?`, `reexport?`. Edges are deduplicated on from/kind/to, and `namespace`/`reexport` are OR-merged across duplicates.
+- **Node:** `id`, `kind` (`module` | `component` | `class` | `function` | `method` | `test` | `system` | a pattern kind such as `route`), `name`, `file` (repo-relative posix path), `range {startLine, endLine}` (1-based, inclusive), `parent?`, `package?`, `exported?`, `hash`, `metrics {loc, complexity}`, `intents[]`.
+- **Edge:** `from`, `to`, `kind` (`imports` | `calls` | `renders` | `extends` | `implements` | `dispatch` | `http` | `uses`), `confidence` (`resolved` | `guessed`), `file`, `line`, `namespace?`, `reexport?`. Edges are deduplicated on from/kind/to, and `namespace`/`reexport` are OR-merged across duplicates.
 - **Graph:** `schemaVersion: 1`, `toolVersion`, `commit` (sha or null), `nodes` (sorted by id), `edges` (sorted by from, kind, to), `parseErrors [{file, message}]`.
 - **Finding:** `ruleId`, `severity` (`error` | `warning` | `note`), `message`, `tool`, `file`, `line`, `nodeId?`, `edge? {from, to}`, `snippet?`, `fix?`, `fingerprint`.
 - **Fingerprint:** sha1 of `[ruleId, nodeId ?? file, edge.from, edge.to, message].join("|")`, where absent values are empty strings. The line number is deliberately excluded, so fingerprints survive edits above the finding.
@@ -90,6 +90,7 @@ On-disk files:
 | `hookMaxRounds` | `3` | |
 | `entryPoints` | `[]` | Globs of files used from outside the repo. |
 | `review` | see Review | Thresholds. |
+| `blueprint` | none | `lanes: [{name, match?, exclude?, layers?}]` (top to bottom, first match wins), `http: {calls, routes: route, prefix?}`, `systems: {Name: [packages]}`. See Blueprint. |
 
 Validation errors are fatal and look like `ig.yaml: rules[0]: expected "a -> b"`. List keys must be lists, and severities must be one of `error`, `warning` or `note`.
 
@@ -181,7 +182,7 @@ Resolution happens after every file's nodes are known.
 7. **JSX:** `<Foo>` and `<Foo.Bar>` give a `renders` edge to the import binding of `Foo`.
 8. Edges whose `to` is not a known node are dropped.
 
-**Known limitation:** method calls through typed variables (`repo.save()` with `repo: Repo`) are guessed, and dropped when the name is ambiguous. This lowers recall for arch findings on `calls` edges, for cohesion and for unused exports. Imports still give module-level arch coverage. *(call)* If this hurts in practice, add narrow local inference (`const x = new C()` → `x: C`), not a type checker.
+**Narrow local inference** (no type checker). A variable, parameter or class field has a type when it is declared with a type reference (`repo: Repo`, constructor parameter properties included) or initialised with `new C()`. Then `x.m()`, `this.f.m()` and the method reference `x.m` (as in `handler: c.get.bind(c)`) resolve to method `m` of that class (a `calls` edge), or, when the type is an interface or type alias, to `m` of each class that implements or extends it (a `dispatch` edge, `resolved` when there is exactly one implementation, `guessed` otherwise). Interfaces and type aliases get an internal id for this but are not nodes. `dispatch` edges stand for runtime flow, not a code dependency, so arch rules and review ignore them. Everything else stays guessed as above.
 
 ### Pattern nodes
 
@@ -248,6 +249,15 @@ Bad output becomes an `ig/checker-error` finding that includes the first 300 cha
 - **json:** the full result without the base graph.
 
 `diff` prints the changed nodes grouped by file (`+`, `~`, `-`).
+
+### Blueprint
+
+With a `blueprint` section, the graph also links the stack end to end:
+
+- **`http` edges:** a call to a name in `http.calls` (`fetch(url, {method})`, `this.fetch`, `useFetch`) whose first argument is a string, template, concatenation or a variable initialised with one is an HTTP call (method from the `method` property, default `GET`). Its path, minus `http.prefix`, is matched against nodes of kind `http.routes`, named `METHOD /path` (a pattern node). Both sides are normalised: scheme, host, query and fragment dropped, `${x}`, `{param}` and `:param` segments become wildcards. `${CONST}` in a route path is replaced by a same-file string constant, and route display names show the result. An exact match is `resolved`; a route parameter matching a literal, or a call with extra leading segments, is `guessed`.
+- **System nodes:** a bare import of a package listed under `systems` adds a node `system:<Name>` (kind `system`, no file) and a `uses` edge from the importing module.
+
+`ig view` gets a **Blueprint** mode. The journeys are the modules of the first lane (typically pages). Picking one shows, in swimlanes, the units on paths from that page into the backend: modules, with endpoints and systems as their own boxes. The walk follows every edge kind but `imports`, only goes down the lanes (or within one), never enters other pages, and by default keeps only units that lead to something reached through an `http` edge or a system. Test files are left out.
 
 ### Review
 

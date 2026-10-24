@@ -650,7 +650,7 @@
       "from": "apps/web/src/main.tsx",
       "to": "packages/core/src/repo.ts#Repo.find",
       "kind": "calls",
-      "confidence": "guessed",
+      "confidence": "resolved",
       "file": "apps/web/src/main.tsx",
       "line": 7
     },

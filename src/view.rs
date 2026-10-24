@@ -128,6 +128,29 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
             .clone()
     };
     let layers = checks::Layers::new(&run.config, &run.packages);
+    let bp = &run.config.blueprint;
+    let set = |g: &[String]| workspace::globset(g).unwrap_or_else(|_| globset::GlobSet::empty());
+    let lane_globs: Vec<(globset::GlobSet, globset::GlobSet)> = bp
+        .lanes
+        .iter()
+        .map(|l| (set(&l.matches), set(&l.exclude)))
+        .collect();
+    let test_files = set(&run.config.tests);
+    // Blueprint lane: the first lane whose globs or layers match; systems go in a last "Systems" lane.
+    let lane_of = |n: &Node| -> Option<usize> {
+        if n.kind == "system" {
+            return Some(bp.lanes.len());
+        }
+        if test_files.is_match(&n.file) {
+            return None;
+        }
+        let layer = layers.of(&n.file);
+        bp.lanes.iter().enumerate().position(|(i, l)| {
+            let (inc, exc) = &lane_globs[i];
+            !exc.is_match(&n.file)
+                && (inc.is_match(&n.file) || layer.is_some_and(|x| l.layers.iter().any(|y| y == x)))
+        })
+    };
     let base_nodes: HashMap<&str, &Node> = run
         .base_graph
         .iter()
@@ -140,7 +163,7 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
             let mut v = json!({
                 "id": n.id, "kind": n.kind, "name": n.name, "file": n.file, "line": n.range.start_line,
                 "endLine": n.range.end_line, "parent": n.parent, "status": s, "complexity": n.metrics.complexity,
-                "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file),
+                "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file), "lane": lane_of(n), "test": test_files.is_match(&n.file),
             });
             if matches!(s, Status::Added | Status::Changed) && !n.is_module() {
                 v["after"] = json!(slice(&after(&n.file), n.range.start_line, n.range.end_line));
@@ -208,6 +231,7 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
         "nodes": nodes, "edges": edges, "findings": findings, "intents": intents,
         "intentChanges": run.result.intent_changes, "notices": run.result.notices,
         "editor": run.config.editor, "root": root.to_string_lossy(), "mode": mode, "layers": layer_names,
+        "lanes": if bp.lanes.is_empty() { vec![] } else { bp.lanes.iter().map(|l| l.name.as_str()).chain(["Systems"]).collect::<Vec<_>>() },
         "blocking": run.result.blocking, "base": run.result.base, "head": run.result.head, "counts": run.result.counts,
     })
 }

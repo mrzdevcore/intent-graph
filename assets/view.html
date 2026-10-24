@@ -41,6 +41,7 @@ aside { border-left: 1px solid var(--line); background: var(--panel); overflow: 
 .btns button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
 .crumbs { font-size: 13px; color: var(--muted); }
 .crumbs strong { color: var(--fg); }
+li.f.current { border-left: 3px solid var(--accent); padding-left: 8px; }
 aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
 ul { list-style: none; padding: 0; margin: 0; }
 li.f { padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
@@ -71,6 +72,7 @@ a { color: var(--accent); }
     <button data-mode="changed" title="Changed nodes and their direct neighbours">Changed</button>
     <button data-mode="architecture" title="Layers, then directories, modules and members. Click a box to open it.">Architecture</button>
     <button data-mode="focus" title="The neighbourhood of the selected node">Focus</button>
+    <button data-mode="blueprint" title="A page and everything behind it: front, API, use cases, adapters, systems">Blueprint</button>
   </div>
   <input id="search" type="search" placeholder="Find a node…" aria-label="Find a node" list="ids" autocomplete="off">
   <datalist id="ids"></datalist>
