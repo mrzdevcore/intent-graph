@@ -1,0 +1,3 @@
+layers:
+  a: ["src/a/**"]
+  b: ["src/b/**"]

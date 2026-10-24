@@ -1,0 +1,874 @@
+{
+  "schemaVersion": 1,
+  "toolVersion": null,
+  "commit": null,
+  "nodes": [
+    {
+      "id": "apps/web/src/main.tsx",
+      "kind": "module",
+      "name": "main.tsx",
+      "file": "apps/web/src/main.tsx",
+      "range": {
+        "startLine": 1,
+        "endLine": 8
+      },
+      "package": "web",
+      "hash": "b2dc392d2419093bf41c088e13a619e81bb2e51a",
+      "metrics": {
+        "loc": 8,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "apps/web/src/main.tsx#App",
+      "kind": "function",
+      "name": "App",
+      "file": "apps/web/src/main.tsx",
+      "range": {
+        "startLine": 5,
+        "endLine": 5
+      },
+      "parent": "apps/web/src/main.tsx",
+      "package": "web",
+      "exported": true,
+      "hash": "4da6714a76afd1d12275b12bd073e5def952e157",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "apps/web/src/routes.ts",
+      "kind": "module",
+      "name": "routes.ts",
+      "file": "apps/web/src/routes.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 8
+      },
+      "package": "web",
+      "hash": "3831f300013a24c871da06b4edfd7c8af0ddd1c1",
+      "metrics": {
+        "loc": 8,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "apps/web/src/routes.ts#GET /users",
+      "kind": "route",
+      "name": "GET /users",
+      "file": "apps/web/src/routes.ts",
+      "range": {
+        "startLine": 4,
+        "endLine": 4
+      },
+      "parent": "apps/web/src/routes.ts",
+      "package": "web",
+      "hash": "c142223a2b45284ba6fda81ebfc9f18e76b90a1e",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": [
+        "WEB-1"
+      ]
+    },
+    {
+      "id": "apps/web/src/routes.ts#POST /users",
+      "kind": "route",
+      "name": "POST /users",
+      "file": "apps/web/src/routes.ts",
+      "range": {
+        "startLine": 5,
+        "endLine": 5
+      },
+      "parent": "apps/web/src/routes.ts",
+      "package": "web",
+      "hash": "974c5313ec807b9f31be7171cf73098353bffad8",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "apps/web/src/routes.ts#handler",
+      "kind": "function",
+      "name": "handler",
+      "file": "apps/web/src/routes.ts",
+      "range": {
+        "startLine": 8,
+        "endLine": 8
+      },
+      "parent": "apps/web/src/routes.ts",
+      "package": "web",
+      "hash": "9c39dbe5dbae4c804d162f44777272e8d65d2e76",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "apps/web/src/routes.ts#list",
+      "kind": "function",
+      "name": "list",
+      "file": "apps/web/src/routes.ts",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "parent": "apps/web/src/routes.ts",
+      "package": "web",
+      "hash": "ac84a551a699bc946fa8c9aeb65aef364b2165b9",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/index.ts",
+      "kind": "module",
+      "name": "index.ts",
+      "file": "packages/core/src/index.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 3
+      },
+      "package": "@acme/core",
+      "hash": "91e49865119226cf9ed87dd6916d08bd41803688",
+      "metrics": {
+        "loc": 3,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/leak.ts",
+      "kind": "module",
+      "name": "leak.ts",
+      "file": "packages/core/src/leak.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 3
+      },
+      "package": "@acme/core",
+      "hash": "e823e9e4ecfd59828f98bbffcc36f6c118ed0a6d",
+      "metrics": {
+        "loc": 3,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/leak.ts#leak",
+      "kind": "function",
+      "name": "leak",
+      "file": "packages/core/src/leak.ts",
+      "range": {
+        "startLine": 3,
+        "endLine": 3
+      },
+      "parent": "packages/core/src/leak.ts",
+      "package": "@acme/core",
+      "exported": true,
+      "hash": "74859a44a25de481100a3a2bc8eeb2a7d71ad5cb",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/math.test.ts",
+      "kind": "module",
+      "name": "math.test.ts",
+      "file": "packages/core/src/math.test.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 11
+      },
+      "package": "@acme/core",
+      "hash": "5872c53ae0b0dc6f87321bf3b41ce9bd63a0d233",
+      "metrics": {
+        "loc": 11,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/math.test.ts#math",
+      "kind": "test",
+      "name": "math",
+      "file": "packages/core/src/math.test.ts",
+      "range": {
+        "startLine": 2,
+        "endLine": 8
+      },
+      "parent": "packages/core/src/math.test.ts",
+      "package": "@acme/core",
+      "hash": "6d607d5138b549a828bc9e02876f7e1d352c72a5",
+      "metrics": {
+        "loc": 7,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/math.test.ts#math > adds",
+      "kind": "test",
+      "name": "adds",
+      "file": "packages/core/src/math.test.ts",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "parent": "packages/core/src/math.test.ts#math",
+      "package": "@acme/core",
+      "hash": "d52aad0cfc2fc774d8b8400070434343f9948f37",
+      "metrics": {
+        "loc": 4,
+        "complexity": 1
+      },
+      "intents": [
+        "CORE-1"
+      ]
+    },
+    {
+      "id": "packages/core/src/math.test.ts#math > adds~2",
+      "kind": "test",
+      "name": "adds",
+      "file": "packages/core/src/math.test.ts",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "parent": "packages/core/src/math.test.ts#math",
+      "package": "@acme/core",
+      "hash": "ba09fa667ce3923bcc5a165b9f1689890b99317f",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/math.test.ts#math~2",
+      "kind": "test",
+      "name": "math",
+      "file": "packages/core/src/math.test.ts",
+      "range": {
+        "startLine": 9,
+        "endLine": 11
+      },
+      "parent": "packages/core/src/math.test.ts",
+      "package": "@acme/core",
+      "hash": "95142975555ac973eaa7898f71d240104cff1255",
+      "metrics": {
+        "loc": 3,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/math.test.ts#math~2 > nested twice",
+      "kind": "test",
+      "name": "nested twice",
+      "file": "packages/core/src/math.test.ts",
+      "range": {
+        "startLine": 10,
+        "endLine": 10
+      },
+      "parent": "packages/core/src/math.test.ts#math~2",
+      "package": "@acme/core",
+      "hash": "5a94c40ee54fce5e5d3fabe81a7f03c7f3b0ede4",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/math.ts",
+      "kind": "module",
+      "name": "math.ts",
+      "file": "packages/core/src/math.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 12
+      },
+      "package": "@acme/core",
+      "hash": "ea433e717825dc192f8a674733550a7b489c608e",
+      "metrics": {
+        "loc": 12,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/math.ts#add",
+      "kind": "function",
+      "name": "add",
+      "file": "packages/core/src/math.ts",
+      "range": {
+        "startLine": 2,
+        "endLine": 4
+      },
+      "parent": "packages/core/src/math.ts",
+      "package": "@acme/core",
+      "exported": true,
+      "hash": "a9bfa8dd197fb3b459668130fb89a07b386ceb66",
+      "metrics": {
+        "loc": 3,
+        "complexity": 1
+      },
+      "intents": [
+        "CORE-1"
+      ]
+    },
+    {
+      "id": "packages/core/src/math.ts#double",
+      "kind": "function",
+      "name": "double",
+      "file": "packages/core/src/math.ts",
+      "range": {
+        "startLine": 6,
+        "endLine": 6
+      },
+      "parent": "packages/core/src/math.ts",
+      "package": "@acme/core",
+      "exported": true,
+      "hash": "40bf39046b015adfdef9caad20a104bbf356b4fc",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/math.ts#overloaded",
+      "kind": "function",
+      "name": "overloaded",
+      "file": "packages/core/src/math.ts",
+      "range": {
+        "startLine": 10,
+        "endLine": 12
+      },
+      "parent": "packages/core/src/math.ts",
+      "package": "@acme/core",
+      "hash": "dd6f2d4776eaed1e259d7d109cace9c9c3cbf461",
+      "metrics": {
+        "loc": 3,
+        "complexity": 2
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/repo.ts",
+      "kind": "module",
+      "name": "repo.ts",
+      "file": "packages/core/src/repo.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 16
+      },
+      "package": "@acme/core",
+      "hash": "a7c37d2b451e109413621103aed16d220f3b7e88",
+      "metrics": {
+        "loc": 16,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/repo.ts#Base",
+      "kind": "class",
+      "name": "Base",
+      "file": "packages/core/src/repo.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 3
+      },
+      "parent": "packages/core/src/repo.ts",
+      "package": "@acme/core",
+      "exported": true,
+      "hash": "486b3162f6fd4cdd22996324144278da823db3ae",
+      "metrics": {
+        "loc": 3,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/repo.ts#Base.save",
+      "kind": "method",
+      "name": "save",
+      "file": "packages/core/src/repo.ts",
+      "range": {
+        "startLine": 2,
+        "endLine": 2
+      },
+      "parent": "packages/core/src/repo.ts#Base",
+      "package": "@acme/core",
+      "hash": "444e249812ca7c99f8f2c39cc6125f9a8696c224",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/repo.ts#Repo",
+      "kind": "class",
+      "name": "Repo",
+      "file": "packages/core/src/repo.ts",
+      "range": {
+        "startLine": 5,
+        "endLine": 11
+      },
+      "parent": "packages/core/src/repo.ts",
+      "package": "@acme/core",
+      "exported": true,
+      "hash": "b6953f7ab9a7663f10616698dcc78e0d24dfb6e3",
+      "metrics": {
+        "loc": 7,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/repo.ts#Repo.find",
+      "kind": "method",
+      "name": "find",
+      "file": "packages/core/src/repo.ts",
+      "range": {
+        "startLine": 6,
+        "endLine": 9
+      },
+      "parent": "packages/core/src/repo.ts#Repo",
+      "package": "@acme/core",
+      "hash": "ea1b2fb4a8f45b4e7f5fd7ee6d682c72a89d17d7",
+      "metrics": {
+        "loc": 4,
+        "complexity": 2
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/repo.ts#Repo.save",
+      "kind": "method",
+      "name": "save",
+      "file": "packages/core/src/repo.ts",
+      "range": {
+        "startLine": 10,
+        "endLine": 10
+      },
+      "parent": "packages/core/src/repo.ts#Repo",
+      "package": "@acme/core",
+      "hash": "75c113b37a7fc3b66d6f92b47307433e2406f9b6",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/repo.ts#handlers.onLoad",
+      "kind": "method",
+      "name": "onLoad",
+      "file": "packages/core/src/repo.ts",
+      "range": {
+        "startLine": 14,
+        "endLine": 14
+      },
+      "parent": "packages/core/src/repo.ts",
+      "package": "@acme/core",
+      "hash": "00f9e6ec6281baab47c145ccdc52a1a735c2c22e",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/repo.ts#handlers.onSave",
+      "kind": "method",
+      "name": "onSave",
+      "file": "packages/core/src/repo.ts",
+      "range": {
+        "startLine": 15,
+        "endLine": 15
+      },
+      "parent": "packages/core/src/repo.ts",
+      "package": "@acme/core",
+      "hash": "c7719c4df796fca57358d1390baaf624e265fe95",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/util/strings.ts",
+      "kind": "module",
+      "name": "strings.ts",
+      "file": "packages/core/src/util/strings.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 1
+      },
+      "package": "@acme/core",
+      "hash": "c721560e7784c2b45be95240d1dd47ec08c3fca6",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/core/src/util/strings.ts#upper",
+      "kind": "function",
+      "name": "upper",
+      "file": "packages/core/src/util/strings.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 1
+      },
+      "parent": "packages/core/src/util/strings.ts",
+      "package": "@acme/core",
+      "exported": true,
+      "hash": "54ea153a493eb1ed6ab7cee76c17b3318af8bc35",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/ui/src/Button.tsx",
+      "kind": "module",
+      "name": "Button.tsx",
+      "file": "packages/ui/src/Button.tsx",
+      "range": {
+        "startLine": 1,
+        "endLine": 4
+      },
+      "package": "@acme/ui",
+      "hash": "2d997020d6773518542bf206472c8afa41eec01e",
+      "metrics": {
+        "loc": 4,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/ui/src/Button.tsx#Button",
+      "kind": "function",
+      "name": "Button",
+      "file": "packages/ui/src/Button.tsx",
+      "range": {
+        "startLine": 2,
+        "endLine": 4
+      },
+      "parent": "packages/ui/src/Button.tsx",
+      "package": "@acme/ui",
+      "exported": true,
+      "hash": "b6a0ce2ac4ec8e56ed4a99b9b0ccb8e360bfee83",
+      "metrics": {
+        "loc": 3,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/ui/src/Card.vue",
+      "kind": "component",
+      "name": "Card.vue",
+      "file": "packages/ui/src/Card.vue",
+      "range": {
+        "startLine": 1,
+        "endLine": 8
+      },
+      "package": "@acme/ui",
+      "hash": "adb4bba0f467c6bd5fb128af058e6576bb9bee11",
+      "metrics": {
+        "loc": 8,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/ui/src/Card.vue#bump",
+      "kind": "function",
+      "name": "bump",
+      "file": "packages/ui/src/Card.vue",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "parent": "packages/ui/src/Card.vue",
+      "package": "@acme/ui",
+      "hash": "896a045a0c065fd4dc65067958b04ddffa791b13",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "packages/ui/src/index.ts",
+      "kind": "module",
+      "name": "index.ts",
+      "file": "packages/ui/src/index.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 2
+      },
+      "package": "@acme/ui",
+      "hash": "4a7a32d9eb5036cbe2a55bf5027a977525adb561",
+      "metrics": {
+        "loc": 2,
+        "complexity": 1
+      },
+      "intents": []
+    }
+  ],
+  "edges": [
+    {
+      "from": "apps/web/src/main.tsx",
+      "to": "packages/core/src/repo.ts#Repo",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "apps/web/src/main.tsx",
+      "line": 6
+    },
+    {
+      "from": "apps/web/src/main.tsx",
+      "to": "packages/core/src/repo.ts#Repo.find",
+      "kind": "calls",
+      "confidence": "guessed",
+      "file": "apps/web/src/main.tsx",
+      "line": 7
+    },
+    {
+      "from": "apps/web/src/main.tsx",
+      "to": "packages/core/src/index.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "apps/web/src/main.tsx",
+      "line": 2,
+      "namespace": true
+    },
+    {
+      "from": "apps/web/src/main.tsx",
+      "to": "packages/ui/src/index.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "apps/web/src/main.tsx",
+      "line": 1
+    },
+    {
+      "from": "apps/web/src/main.tsx#App",
+      "to": "packages/core/src/math.ts#add",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "apps/web/src/main.tsx",
+      "line": 5
+    },
+    {
+      "from": "apps/web/src/main.tsx#App",
+      "to": "packages/ui/src/Button.tsx#Button",
+      "kind": "renders",
+      "confidence": "resolved",
+      "file": "apps/web/src/main.tsx",
+      "line": 5
+    },
+    {
+      "from": "apps/web/src/main.tsx#App",
+      "to": "packages/ui/src/Card.vue",
+      "kind": "renders",
+      "confidence": "resolved",
+      "file": "apps/web/src/main.tsx",
+      "line": 5
+    },
+    {
+      "from": "apps/web/src/routes.ts#GET /users",
+      "to": "apps/web/src/routes.ts#list",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "apps/web/src/routes.ts",
+      "line": 4
+    },
+    {
+      "from": "packages/core/src/index.ts",
+      "to": "packages/core/src/math.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/core/src/index.ts",
+      "line": 1,
+      "reexport": true
+    },
+    {
+      "from": "packages/core/src/index.ts",
+      "to": "packages/core/src/repo.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/core/src/index.ts",
+      "line": 2,
+      "reexport": true
+    },
+    {
+      "from": "packages/core/src/index.ts",
+      "to": "packages/core/src/util/strings.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/core/src/index.ts",
+      "line": 3,
+      "namespace": true,
+      "reexport": true
+    },
+    {
+      "from": "packages/core/src/leak.ts",
+      "to": "packages/ui/src/index.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/core/src/leak.ts",
+      "line": 1
+    },
+    {
+      "from": "packages/core/src/leak.ts#leak",
+      "to": "packages/ui/src/Button.tsx#Button",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/core/src/leak.ts",
+      "line": 3
+    },
+    {
+      "from": "packages/core/src/math.test.ts",
+      "to": "packages/core/src/math.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/core/src/math.test.ts",
+      "line": 1
+    },
+    {
+      "from": "packages/core/src/math.test.ts#math > adds",
+      "to": "packages/core/src/math.ts#add",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/core/src/math.test.ts",
+      "line": 5
+    },
+    {
+      "from": "packages/core/src/math.ts#double",
+      "to": "packages/core/src/math.ts#add",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/core/src/math.ts",
+      "line": 6
+    },
+    {
+      "from": "packages/core/src/repo.ts#Repo",
+      "to": "packages/core/src/repo.ts#Base",
+      "kind": "extends",
+      "confidence": "resolved",
+      "file": "packages/core/src/repo.ts",
+      "line": 5
+    },
+    {
+      "from": "packages/core/src/repo.ts#Repo.find",
+      "to": "packages/core/src/repo.ts#Base.save",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/core/src/repo.ts",
+      "line": 8
+    },
+    {
+      "from": "packages/core/src/repo.ts#Repo.find",
+      "to": "packages/core/src/repo.ts#Repo.save",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/core/src/repo.ts",
+      "line": 7
+    },
+    {
+      "from": "packages/ui/src/Button.tsx",
+      "to": "packages/core/src/index.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/ui/src/Button.tsx",
+      "line": 1
+    },
+    {
+      "from": "packages/ui/src/Button.tsx#Button",
+      "to": "packages/core/src/math.ts#double",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/ui/src/Button.tsx",
+      "line": 3
+    },
+    {
+      "from": "packages/ui/src/Button.tsx#Button",
+      "to": "packages/core/src/util/strings.ts#upper",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/ui/src/Button.tsx",
+      "line": 3
+    },
+    {
+      "from": "packages/ui/src/Card.vue",
+      "to": "packages/ui/src/Button.tsx#Button",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/ui/src/Card.vue",
+      "line": 2
+    },
+    {
+      "from": "packages/ui/src/Card.vue",
+      "to": "packages/ui/src/Card.vue#bump",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "packages/ui/src/Card.vue",
+      "line": 2
+    },
+    {
+      "from": "packages/ui/src/Card.vue",
+      "to": "packages/ui/src/Button.tsx",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/ui/src/Card.vue",
+      "line": 5
+    },
+    {
+      "from": "packages/ui/src/Card.vue",
+      "to": "packages/ui/src/Button.tsx#Button",
+      "kind": "renders",
+      "confidence": "resolved",
+      "file": "packages/ui/src/Card.vue",
+      "line": 2
+    },
+    {
+      "from": "packages/ui/src/index.ts",
+      "to": "packages/ui/src/Button.tsx",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/ui/src/index.ts",
+      "line": 1,
+      "reexport": true
+    },
+    {
+      "from": "packages/ui/src/index.ts",
+      "to": "packages/ui/src/Card.vue",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "packages/ui/src/index.ts",
+      "line": 2,
+      "reexport": true
+    }
+  ],
+  "parseErrors": []
+}

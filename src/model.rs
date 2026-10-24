@@ -91,7 +91,14 @@ pub struct Graph {
 
 impl Graph {
     pub fn empty() -> Graph {
-        Graph { schema_version: 1, tool_version: TOOL_VERSION.into(), commit: None, nodes: vec![], edges: vec![], parse_errors: vec![] }
+        Graph {
+            schema_version: 1,
+            tool_version: TOOL_VERSION.into(),
+            commit: None,
+            nodes: vec![],
+            edges: vec![],
+            parse_errors: vec![],
+        }
     }
 }
 
@@ -122,7 +129,14 @@ pub struct Finding {
 }
 
 impl Finding {
-    pub fn new(rule_id: &str, severity: Severity, tool: &str, file: &str, line: u32, message: String) -> Finding {
+    pub fn new(
+        rule_id: &str,
+        severity: Severity,
+        tool: &str,
+        file: &str,
+        line: u32,
+        message: String,
+    ) -> Finding {
         Finding {
             rule_id: rule_id.into(),
             severity,
@@ -142,7 +156,10 @@ impl Finding {
         self
     }
     pub fn edge(mut self, from: &str, to: &str) -> Finding {
-        self.edge = Some(EdgeRef { from: from.into(), to: to.into() });
+        self.edge = Some(EdgeRef {
+            from: from.into(),
+            to: to.into(),
+        });
         self
     }
     pub fn fix(mut self, fix: impl Into<String>) -> Finding {
@@ -151,9 +168,22 @@ impl Finding {
     }
     /// sha1 of `ruleId|nodeId ?? file|edge.from|edge.to|message`. The line is deliberately excluded.
     pub fn fingerprinted(mut self) -> Finding {
-        let (ef, et) = self.edge.as_ref().map(|e| (e.from.as_str(), e.to.as_str())).unwrap_or(("", ""));
+        let (ef, et) = self
+            .edge
+            .as_ref()
+            .map(|e| (e.from.as_str(), e.to.as_str()))
+            .unwrap_or(("", ""));
         let subject = self.node_id.as_deref().unwrap_or(&self.file);
-        self.fingerprint = sha1_hex(&[self.rule_id.as_str(), subject, ef, et, self.message.as_str()].join("|"));
+        self.fingerprint = sha1_hex(
+            &[
+                self.rule_id.as_str(),
+                subject,
+                ef,
+                et,
+                self.message.as_str(),
+            ]
+            .join("|"),
+        );
         self
     }
 }
@@ -173,8 +203,12 @@ mod tests {
 
     #[test]
     fn fingerprint_ignores_line() {
-        let a = Finding::new("ig/arch", Severity::Error, "ig", "a.ts", 3, "m".into()).node("a.ts#f").fingerprinted();
-        let b = Finding::new("ig/arch", Severity::Error, "ig", "a.ts", 30, "m".into()).node("a.ts#f").fingerprinted();
+        let a = Finding::new("ig/arch", Severity::Error, "ig", "a.ts", 3, "m".into())
+            .node("a.ts#f")
+            .fingerprinted();
+        let b = Finding::new("ig/arch", Severity::Error, "ig", "a.ts", 30, "m".into())
+            .node("a.ts#f")
+            .fingerprinted();
         assert_eq!(a.fingerprint, b.fingerprint);
         assert_eq!(a.fingerprint, sha1_hex("ig/arch|a.ts#f|||m"));
     }

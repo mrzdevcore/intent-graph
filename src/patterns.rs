@@ -15,7 +15,10 @@ pub struct Compiled {
 }
 
 pub fn compile(patterns: &[config::Pattern]) -> Compiled {
-    let mut c = Compiled { pats: vec![], errors: vec![] };
+    let mut c = Compiled {
+        pats: vec![],
+        errors: vec![],
+    };
     for (i, p) in patterns.iter().enumerate() {
         let r = (|| -> Result<[Pattern; 3], String> {
             let e = |e: ast_grep_core::PatternError| e.to_string();
@@ -55,7 +58,13 @@ struct Hit {
     text: String,
 }
 
-fn find<L: Language + LanguageExt>(lang: L, code: &str, cfg: &config::Pattern, pat: &Pattern, out: &mut Vec<Hit>) {
+fn find<L: Language + LanguageExt>(
+    lang: L,
+    code: &str,
+    cfg: &config::Pattern,
+    pat: &Pattern,
+    out: &mut Vec<Hit>,
+) {
     let grep = lang.ast_grep(code);
     for m in grep.root().find_all(pat) {
         let env = m.get_env();
@@ -72,10 +81,14 @@ fn find<L: Language + LanguageExt>(lang: L, code: &str, cfg: &config::Pattern, p
         let mut missing = false;
         while let Some(open) = rest.find('{') {
             id.push_str(&rest[..open]);
-            let Some(close) = rest[open..].find('}') else { break };
+            let Some(close) = rest[open..].find('}') else {
+                break;
+            };
             let var = &rest[open + 1..open + close];
             match text_of(var) {
-                Some(t) if cfg.where_.iter().any(|(v, _)| v == var) => id.push_str(&strip_quotes(&t).to_uppercase()),
+                Some(t) if cfg.where_.iter().any(|(v, _)| v == var) => {
+                    id.push_str(&strip_quotes(&t).to_uppercase())
+                }
                 Some(t) => id.push_str(strip_quotes(&t)),
                 None => missing = true,
             }
@@ -151,7 +164,10 @@ pub fn apply(c: &Compiled, file: &str, code: &str, facts: &mut FileFacts) {
         if facts.nodes.iter().any(|x| x.id == id) {
             continue;
         }
-        let range = Range { start_line: h.start_line, end_line: h.end_line };
+        let range = Range {
+            start_line: h.start_line,
+            end_line: h.end_line,
+        };
         let parent = facts
             .nodes
             .iter()
@@ -182,7 +198,10 @@ pub fn apply(c: &Compiled, file: &str, code: &str, facts: &mut FileFacts) {
             package,
             exported: false,
             hash: normalized_hash(&h.text),
-            metrics: Metrics { loc: h.end_line - h.start_line + 1, complexity: 1 },
+            metrics: Metrics {
+                loc: h.end_line - h.start_line + 1,
+                complexity: 1,
+            },
             intents,
         });
     }

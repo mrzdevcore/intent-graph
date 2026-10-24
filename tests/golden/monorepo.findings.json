@@ -1,0 +1,67 @@
+[
+  {
+    "ruleId": "ig/intent-unimplemented",
+    "severity": "error",
+    "message": "intent WEB-2 has no implementation: nobody implemented this",
+    "tool": "ig",
+    "file": "intents.md",
+    "line": 5,
+    "snippet": "  3 | - CORE-1: add numbers\n  4 | - WEB-1: list users over HTTP\n> 5 | - WEB-2: nobody implemented this",
+    "fix": "Tag the implementing code with `// @intent WEB-2`.",
+    "fingerprint": "4f96ecdc84bf032f70be3cc79b19bb453947a9e6"
+  },
+  {
+    "ruleId": "ig/arch",
+    "severity": "error",
+    "message": "layer core must not depend on ui: packages/core/src/leak.ts imports packages/ui/src/index.ts",
+    "tool": "ig",
+    "file": "packages/core/src/leak.ts",
+    "line": 1,
+    "nodeId": "packages/core/src/leak.ts",
+    "edge": {
+      "from": "packages/core/src/leak.ts",
+      "to": "packages/ui/src/index.ts"
+    },
+    "snippet": "> 1 | import { Button } from '@acme/ui';\n  2 | \n  3 | export const leak = () => Button({ n: 1 });",
+    "fix": "Remove this dependency, or move the code so core no longer imports ui.",
+    "fingerprint": "a9566965aa36d475f30cbe6b5fc3e806959d083c"
+  },
+  {
+    "ruleId": "ig/arch",
+    "severity": "error",
+    "message": "layer core must not depend on ui: packages/core/src/leak.ts#leak calls packages/ui/src/Button.tsx#Button",
+    "tool": "ig",
+    "file": "packages/core/src/leak.ts",
+    "line": 3,
+    "nodeId": "packages/core/src/leak.ts#leak",
+    "edge": {
+      "from": "packages/core/src/leak.ts#leak",
+      "to": "packages/ui/src/Button.tsx#Button"
+    },
+    "snippet": "  1 | import { Button } from '@acme/ui';\n  2 | \n> 3 | export const leak = () => Button({ n: 1 });",
+    "fix": "Remove this dependency, or move the code so core no longer calls ui.",
+    "fingerprint": "3638c6207e39aac54a32ac11d2e959ab3644d865"
+  },
+  {
+    "ruleId": "ig/intent-untested",
+    "severity": "warning",
+    "message": "intent WEB-1 has no test: list users over HTTP",
+    "tool": "ig",
+    "file": "intents.md",
+    "line": 4,
+    "snippet": "  2 | \n  3 | - CORE-1: add numbers\n> 4 | - WEB-1: list users over HTTP\n  5 | - WEB-2: nobody implemented this",
+    "fix": "Tag a test with `// @intent WEB-1`.",
+    "fingerprint": "440c1babb2a72c0fa483fd9efbc66dc296dab306"
+  },
+  {
+    "ruleId": "ig/intent-untested",
+    "severity": "warning",
+    "message": "intent WEB-2 has no test: nobody implemented this",
+    "tool": "ig",
+    "file": "intents.md",
+    "line": 5,
+    "snippet": "  3 | - CORE-1: add numbers\n  4 | - WEB-1: list users over HTTP\n> 5 | - WEB-2: nobody implemented this",
+    "fix": "Tag a test with `// @intent WEB-2`.",
+    "fingerprint": "43c8db901e2936e6dba2901d300411011d2c6bec"
+  }
+]

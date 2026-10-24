@@ -9,20 +9,44 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().context("running git")?;
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .context("running git")?;
     if !out.status.success() {
-        bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
+        bail!(
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
 }
 
 pub fn git_bytes(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().ok()?;
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .ok()?;
     out.status.success().then_some(out.stdout)
 }
 
 pub fn verify(dir: &Path, rev: &str) -> Option<String> {
-    git(dir, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")]).ok().filter(|s| !s.is_empty())
+    git(
+        dir,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{rev}^{{commit}}"),
+        ],
+    )
+    .ok()
+    .filter(|s| !s.is_empty())
 }
 
 /// The git checkout `root` lives in, and `root`'s path relative to its top level.
@@ -34,19 +58,32 @@ pub struct Repo {
 
 impl Repo {
     pub fn open(root: &Path) -> Option<Repo> {
-        let top = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"]).ok()?).canonicalize().ok()?;
+        let top = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"]).ok()?)
+            .canonicalize()
+            .ok()?;
         let root = root.canonicalize().ok()?;
-        let prefix = root.strip_prefix(&top).ok()?.to_string_lossy().replace('\\', "/");
+        let prefix = root
+            .strip_prefix(&top)
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/");
         Some(Repo { top, prefix })
     }
 
     /// `path` relative to the ig root, as a path under the repo top level.
     pub fn top_path(&self, path: &str) -> String {
-        if self.prefix.is_empty() { path.to_string() } else { format!("{}/{path}", self.prefix) }
+        if self.prefix.is_empty() {
+            path.to_string()
+        } else {
+            format!("{}/{path}", self.prefix)
+        }
     }
 
     pub fn show(&self, rev: &str, path: &str) -> Option<String> {
-        let b = git_bytes(&self.top, &["show", &format!("{rev}:{}", self.top_path(path))])?;
+        let b = git_bytes(
+            &self.top,
+            &["show", &format!("{rev}:{}", self.top_path(path))],
+        )?;
         Some(String::from_utf8_lossy(&b).into_owned())
     }
 
@@ -55,32 +92,39 @@ impl Repo {
     }
 
     pub fn is_clean(&self) -> bool {
-        git(&self.top, &["status", "--porcelain"]).map(|s| s.is_empty()).unwrap_or(false)
+        git(&self.top, &["status", "--porcelain"])
+            .map(|s| s.is_empty())
+            .unwrap_or(false)
     }
 
     /// Picks the base commit; pushes notices for fallbacks.
-    pub fn resolve_base(&self, base: Option<&str>, notices: &mut Vec<String>) -> Result<Option<String>> {
+    pub fn resolve_base(
+        &self,
+        base: Option<&str>,
+        notices: &mut Vec<String>,
+    ) -> Result<Option<String>> {
         if let Some(b) = base {
             return match verify(&self.top, b) {
                 Some(s) => Ok(Some(s)),
                 None => bail!("--base {b}: not a commit"),
             };
         }
-        if let Ok(env) = std::env::var("CI_MERGE_REQUEST_DIFF_BASE_SHA") {
-            if !env.is_empty() {
-                match verify(&self.top, &env) {
-                    Some(s) => return Ok(Some(s)),
-                    None => notices.push(format!("CI_MERGE_REQUEST_DIFF_BASE_SHA {env} does not verify; falling back")),
-                }
+        if let Ok(env) = std::env::var("CI_MERGE_REQUEST_DIFF_BASE_SHA")
+            && !env.is_empty()
+        {
+            match verify(&self.top, &env) {
+                Some(s) => return Ok(Some(s)),
+                None => notices.push(format!(
+                    "CI_MERGE_REQUEST_DIFF_BASE_SHA {env} does not verify; falling back"
+                )),
             }
         }
         for r in ["origin/HEAD", "main", "master"] {
-            if verify(&self.top, r).is_some() {
-                if let Ok(mb) = git(&self.top, &["merge-base", "HEAD", r]) {
-                    if !mb.is_empty() {
-                        return Ok(Some(mb));
-                    }
-                }
+            if verify(&self.top, r).is_some()
+                && let Ok(mb) = git(&self.top, &["merge-base", "HEAD", r])
+                && !mb.is_empty()
+            {
+                return Ok(Some(mb));
             }
         }
         match self.head() {
@@ -110,11 +154,19 @@ impl Worktree {
         let dir = std::env::temp_dir().join(format!("ig-wt-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let d = dir.to_string_lossy().to_string();
-        git(&repo.top, &["worktree", "add", "--detach", "--quiet", &d, rev])?;
-        let wt = Worktree { top: repo.top.clone(), dir: dir.canonicalize().unwrap_or(dir) };
+        git(
+            &repo.top,
+            &["worktree", "add", "--detach", "--quiet", &d, rev],
+        )?;
+        let wt = Worktree {
+            top: repo.top.clone(),
+            dir: dir.canonicalize().unwrap_or(dir),
+        };
         for src in link_node_modules_from {
             let nm = src.join("node_modules");
-            let Ok(rel) = src.strip_prefix(&repo.top) else { continue };
+            let Ok(rel) = src.strip_prefix(&repo.top) else {
+                continue;
+            };
             let target_dir = wt.dir.join(rel);
             if nm.is_dir() && target_dir.is_dir() && !target_dir.join("node_modules").exists() {
                 #[cfg(unix)]
@@ -126,7 +178,11 @@ impl Worktree {
 
     /// The ig root inside this worktree.
     pub fn root(&self, repo: &Repo) -> PathBuf {
-        if repo.prefix.is_empty() { self.dir.clone() } else { self.dir.join(&repo.prefix) }
+        if repo.prefix.is_empty() {
+            self.dir.clone()
+        } else {
+            self.dir.join(&repo.prefix)
+        }
     }
 }
 
@@ -148,7 +204,12 @@ pub fn node_modules_sources(root: &Path, config: &Config) -> Vec<PathBuf> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let mut v = vec![root.clone()];
     if let Ok(ws) = crate::workspace::Workspace::discover(&root, config) {
-        v.extend(ws.packages.iter().filter(|p| p.dir != ".").map(|p| root.join(&p.dir)));
+        v.extend(
+            ws.packages
+                .iter()
+                .filter(|p| p.dir != ".")
+                .map(|p| root.join(&p.dir)),
+        );
     }
     v
 }
@@ -157,14 +218,18 @@ pub fn node_modules_sources(root: &Path, config: &Config) -> Vec<PathBuf> {
 pub fn base_graph(root: &Path, repo: &Repo, sha: &str, config: &Config) -> Result<Graph> {
     let cache_dir = root.join(".ig/cache");
     let path = cache_dir.join(format!("{sha}-{}.json", cache_key(config)));
-    if let Ok(text) = std::fs::read_to_string(&path) {
-        if let Ok(g) = serde_json::from_str::<Graph>(&text) {
-            return Ok(g);
-        }
+    if let Ok(text) = std::fs::read_to_string(&path)
+        && let Ok(g) = serde_json::from_str::<Graph>(&text)
+    {
+        return Ok(g);
     }
     let g = graph_at(root, repo, sha, config)?;
     std::fs::create_dir_all(&cache_dir)?;
-    let tmp = cache_dir.join(format!(".tmp-{}-{}", std::process::id(), WT_COUNTER.fetch_add(1, Ordering::SeqCst)));
+    let tmp = cache_dir.join(format!(
+        ".tmp-{}-{}",
+        std::process::id(),
+        WT_COUNTER.fetch_add(1, Ordering::SeqCst)
+    ));
     std::fs::write(&tmp, serde_json::to_vec(&g)?)?;
     std::fs::rename(&tmp, &path)?;
     Ok(g)
@@ -181,4 +246,51 @@ pub fn graph_at(root: &Path, repo: &Repo, sha: &str, config: &Config) -> Result<
         return Ok(g);
     }
     Ok(graph::build(&r, config, Some(sha.to_string()))?.graph)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base_resolution() {
+        let dir = std::env::temp_dir().join(format!("ig-base-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let g = |args: &[&str]| {
+            git(
+                &dir,
+                &[&["-c", "user.email=t@t", "-c", "user.name=t"][..], args].concat(),
+            )
+            .unwrap()
+        };
+        g(&["init", "-q", "-b", "trunk"]);
+        let repo = Repo::open(&dir).unwrap();
+        let mut notices = vec![];
+        assert_eq!(repo.resolve_base(None, &mut notices).unwrap(), None);
+        assert!(notices[0].contains("no commits"));
+        g(&["commit", "-q", "--allow-empty", "-m", "one"]);
+        let one = repo.head().unwrap();
+        notices.clear();
+        assert_eq!(
+            repo.resolve_base(None, &mut notices).unwrap(),
+            Some(one.clone())
+        );
+        assert!(notices[0].contains("comparing against HEAD"));
+        g(&["branch", "main"]);
+        g(&["commit", "-q", "--allow-empty", "-m", "two"]);
+        notices.clear();
+        assert_eq!(
+            repo.resolve_base(None, &mut notices).unwrap(),
+            Some(one.clone()),
+            "merge-base with main"
+        );
+        assert!(notices.is_empty());
+        assert_eq!(
+            repo.resolve_base(Some("HEAD"), &mut notices).unwrap(),
+            repo.head()
+        );
+        assert!(repo.resolve_base(Some("nope"), &mut notices).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

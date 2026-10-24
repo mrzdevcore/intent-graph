@@ -4,7 +4,9 @@ use anyhow::{Result, bail};
 use serde_yaml_ng::{Mapping, Value};
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Note,
@@ -108,7 +110,11 @@ impl Default for Config {
             complexity_max_increase: 5,
             embedded: vec![],
             ignore: vec![],
-            tests: vec!["**/*.test.*".into(), "**/*.spec.*".into(), "**/__tests__/**".into()],
+            tests: vec![
+                "**/*.test.*".into(),
+                "**/*.spec.*".into(),
+                "**/__tests__/**".into(),
+            ],
             test_calls: vec!["describe".into(), "it".into(), "test".into()],
             patterns: vec![],
             checkers: vec![],
@@ -132,7 +138,8 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Config> {
-        let doc: Value = serde_yaml_ng::from_str(text).map_err(|e| anyhow::anyhow!("ig.yaml: {e}"))?;
+        let doc: Value =
+            serde_yaml_ng::from_str(text).map_err(|e| anyhow::anyhow!("ig.yaml: {e}"))?;
         let mut c = Config::default();
         let map = match doc {
             Value::Null => return Ok(c),
@@ -144,7 +151,10 @@ impl Config {
             match key {
                 "layers" => {
                     for (name, entries) in mapping(v, "layers")? {
-                        let name = name.as_str().map(str::to_string).unwrap_or_else(|| scalar(name));
+                        let name = name
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| scalar(name));
                         let p = format!("layers.{name}");
                         c.layers.push((name, strings(entries, &p)?));
                     }
@@ -174,7 +184,13 @@ impl Config {
                 "embedded" => {
                     c.embedded = strings(v, "embedded")?
                         .into_iter()
-                        .map(|e| if e.starts_with('.') { e } else { format!(".{e}") })
+                        .map(|e| {
+                            if e.starts_with('.') {
+                                e
+                            } else {
+                                format!(".{e}")
+                            }
+                        })
                         .collect()
                 }
                 "ignore" => c.ignore = strings(v, "ignore")?,
@@ -198,7 +214,12 @@ impl Config {
                                 where_.push((var, allowed));
                             }
                         }
-                        c.patterns.push(Pattern { kind: field("kind")?, matcher: field("match")?, where_, id: field("id")? });
+                        c.patterns.push(Pattern {
+                            kind: field("kind")?,
+                            matcher: field("match")?,
+                            where_,
+                            id: field("id")?,
+                        });
                     }
                 }
                 "checkers" => {
@@ -210,13 +231,17 @@ impl Config {
                                 None => bail!("ig.yaml: {path}.{f}: expected a string"),
                             }
                         };
-                        c.checkers.push(Checker { name: get("name")?, run: get("run")? });
+                        c.checkers.push(Checker {
+                            name: get("name")?,
+                            run: get("run")?,
+                        });
                     }
                 }
                 "severity" => {
                     for (rule, sev) in mapping(v, "severity")? {
                         let rule = scalar(rule);
-                        c.severity.push((rule.clone(), severity(sev, &format!("severity.{rule}"))?));
+                        c.severity
+                            .push((rule.clone(), severity(sev, &format!("severity.{rule}"))?));
                     }
                 }
                 "blockOn" => c.block_on = severity(v, "blockOn")?,
@@ -251,7 +276,10 @@ impl Config {
     }
 
     pub fn severity_for(&self, rule: &str) -> Option<Severity> {
-        self.severity.iter().find(|(r, _)| r == rule).map(|(_, s)| *s)
+        self.severity
+            .iter()
+            .find(|(r, _)| r == rule)
+            .map(|(_, s)| *s)
     }
 
     /// Hash input for the base-graph cache key: everything that changes graph output.
@@ -259,9 +287,17 @@ impl Config {
         let pats: Vec<String> = self
             .patterns
             .iter()
-            .map(|p| format!("{}\u{1}{}\u{1}{:?}\u{1}{}", p.kind, p.matcher, p.where_, p.id))
+            .map(|p| {
+                format!(
+                    "{}\u{1}{}\u{1}{:?}\u{1}{}",
+                    p.kind, p.matcher, p.where_, p.id
+                )
+            })
             .collect();
-        format!("{:?}|{:?}|{:?}|{:?}|{:?}", self.embedded, self.ignore, self.tests, self.test_calls, pats)
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}",
+            self.embedded, self.ignore, self.tests, self.test_calls, pats
+        )
     }
 }
 
@@ -337,11 +373,15 @@ mod tests {
         assert_eq!(c.layers.len(), 2);
         assert_eq!(c.rules, vec![("core".into(), "ui".into())]);
         assert_eq!(c.block_on, Severity::Warning);
-        let e = Config::parse("rules:\n  - forbid: nope\n").unwrap_err().to_string();
+        let e = Config::parse("rules:\n  - forbid: nope\n")
+            .unwrap_err()
+            .to_string();
         assert_eq!(e, "ig.yaml: rules[0]: expected \"a -> b\"");
         let e = Config::parse("ignore: x\n").unwrap_err().to_string();
         assert_eq!(e, "ig.yaml: ignore: expected a list");
-        let e = Config::parse("severity:\n  ig/arch: bad\n").unwrap_err().to_string();
+        let e = Config::parse("severity:\n  ig/arch: bad\n")
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("expected one of"));
     }
 }

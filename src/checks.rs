@@ -56,13 +56,26 @@ pub fn arch(graph: &Graph, config: &Config, packages: &[Package]) -> Vec<Finding
         return vec![];
     }
     let layers = Layers::new(config, packages);
-    let files: HashMap<&str, &str> = graph.nodes.iter().map(|n| (n.id.as_str(), n.file.as_str())).collect();
-    let layer_of: HashMap<&str, Option<&str>> = files.values().map(|f| (*f, layers.of(f))).collect();
+    let files: HashMap<&str, &str> = graph
+        .nodes
+        .iter()
+        .map(|n| (n.id.as_str(), n.file.as_str()))
+        .collect();
+    let layer_of: HashMap<&str, Option<&str>> =
+        files.values().map(|f| (*f, layers.of(f))).collect();
     let layer = |f: &str| layer_of.get(f).copied().flatten();
     let mut out = vec![];
-    for e in graph.edges.iter().filter(|e| e.resolved() && matches!(e.kind.as_str(), "imports" | "calls" | "renders")) {
-        let (Some(ff), Some(tf)) = (files.get(e.from.as_str()), files.get(e.to.as_str())) else { continue };
-        let (Some(a), Some(b)) = (layer(ff), layer(tf)) else { continue };
+    for e in graph
+        .edges
+        .iter()
+        .filter(|e| e.resolved() && matches!(e.kind.as_str(), "imports" | "calls" | "renders"))
+    {
+        let (Some(ff), Some(tf)) = (files.get(e.from.as_str()), files.get(e.to.as_str())) else {
+            continue;
+        };
+        let (Some(a), Some(b)) = (layer(ff), layer(tf)) else {
+            continue;
+        };
         if a == b || !config.rules.iter().any(|(x, y)| x == a && y == b) {
             continue;
         }
@@ -73,18 +86,31 @@ pub fn arch(graph: &Graph, config: &Config, packages: &[Package]) -> Vec<Finding
                 "ig",
                 &e.file,
                 e.line,
-                format!("layer {a} must not depend on {b}: {} {} {}", e.from, e.kind, e.to),
+                format!(
+                    "layer {a} must not depend on {b}: {} {} {}",
+                    e.from, e.kind, e.to
+                ),
             )
             .node(&e.from)
             .edge(&e.from, &e.to)
-            .fix(format!("Remove this dependency, or move the code so {a} no longer {} {b}.", e.kind)),
+            .fix(format!(
+                "Remove this dependency, or move the code so {a} no longer {} {b}.",
+                e.kind
+            )),
         );
     }
     out
 }
 
-pub fn complexity(head: &Graph, base: Option<&Graph>, diff: &GraphDiff, config: &Config) -> Vec<Finding> {
-    let before: HashMap<&str, &Node> = base.map(|b| b.nodes.iter().map(|n| (n.id.as_str(), n)).collect()).unwrap_or_default();
+pub fn complexity(
+    head: &Graph,
+    base: Option<&Graph>,
+    diff: &GraphDiff,
+    config: &Config,
+) -> Vec<Finding> {
+    let before: HashMap<&str, &Node> = base
+        .map(|b| b.nodes.iter().map(|n| (n.id.as_str(), n)).collect())
+        .unwrap_or_default();
     let (max, inc) = (config.complexity_max, config.complexity_max_increase);
     let mut out = vec![];
     for n in head.nodes.iter().filter(|n| !n.is_module()) {
@@ -92,25 +118,45 @@ pub fn complexity(head: &Graph, base: Option<&Graph>, diff: &GraphDiff, config: 
         let msg = match (diff.status(&n.id), before.get(n.id.as_str())) {
             (Status::Added, _) if c > max => format!("{} has complexity {c} (max {max})", n.name),
             (Status::Changed, Some(b)) if c > max && c > b.metrics.complexity => {
-                format!("{} has complexity {c} (max {max}, was {})", n.name, b.metrics.complexity)
+                format!(
+                    "{} has complexity {c} (max {max}, was {})",
+                    n.name, b.metrics.complexity
+                )
             }
             (Status::Changed, Some(b)) if c > b.metrics.complexity + inc => {
-                format!("{} complexity rose from {} to {c} (max increase {inc})", n.name, b.metrics.complexity)
+                format!(
+                    "{} complexity rose from {} to {c} (max increase {inc})",
+                    n.name, b.metrics.complexity
+                )
             }
-            (Status::Unchanged, _) if c > max => format!("{} has complexity {c} (max {max})", n.name),
+            (Status::Unchanged, _) if c > max => {
+                format!("{} has complexity {c} (max {max})", n.name)
+            }
             _ => continue,
         };
         out.push(
-            Finding::new("ig/complexity", Severity::Error, "ig", &n.file, n.range.start_line, msg)
-                .node(&n.id)
-                .fix("Split it into smaller functions or flatten the branching."),
+            Finding::new(
+                "ig/complexity",
+                Severity::Error,
+                "ig",
+                &n.file,
+                n.range.start_line,
+                msg,
+            )
+            .node(&n.id)
+            .fix("Split it into smaller functions or flatten the branching."),
         );
     }
     out
 }
 
 /// `scope`: the intents in scope (changed in intents.md, or all with `--all`).
-pub fn intents(head: &Graph, declared: &[Intent], scope: &BTreeSet<String>, tests: &globset::GlobSet) -> Vec<Finding> {
+pub fn intents(
+    head: &Graph,
+    declared: &[Intent],
+    scope: &BTreeSet<String>,
+    tests: &globset::GlobSet,
+) -> Vec<Finding> {
     let mut implemented: HashSet<&str> = HashSet::new();
     let mut tested: HashSet<&str> = HashSet::new();
     let ids: HashSet<&str> = declared.iter().map(|i| i.id.as_str()).collect();
@@ -125,9 +171,18 @@ pub fn intents(head: &Graph, declared: &[Intent], scope: &BTreeSet<String>, test
             }
             if !ids.contains(t.as_str()) {
                 out.push(
-                    Finding::new("ig/intent-unknown", Severity::Error, "ig", &n.file, n.range.start_line, format!("@intent {t} is not declared in intents.md"))
-                        .node(&n.id)
-                        .fix(format!("Add `- {t}: <one line>` to intents.md, or fix the tag.")),
+                    Finding::new(
+                        "ig/intent-unknown",
+                        Severity::Error,
+                        "ig",
+                        &n.file,
+                        n.range.start_line,
+                        format!("@intent {t} is not declared in intents.md"),
+                    )
+                    .node(&n.id)
+                    .fix(format!(
+                        "Add `- {t}: <one line>` to intents.md, or fix the tag."
+                    )),
                 );
             }
         }
@@ -135,14 +190,31 @@ pub fn intents(head: &Graph, declared: &[Intent], scope: &BTreeSet<String>, test
     for i in declared.iter().filter(|i| scope.contains(&i.id)) {
         if !implemented.contains(i.id.as_str()) {
             out.push(
-                Finding::new("ig/intent-unimplemented", Severity::Error, "ig", "intents.md", i.line, format!("intent {} has no implementation: {}", i.id, i.text))
-                    .fix(format!("Tag the implementing code with `// @intent {}`.", i.id)),
+                Finding::new(
+                    "ig/intent-unimplemented",
+                    Severity::Error,
+                    "ig",
+                    "intents.md",
+                    i.line,
+                    format!("intent {} has no implementation: {}", i.id, i.text),
+                )
+                .fix(format!(
+                    "Tag the implementing code with `// @intent {}`.",
+                    i.id
+                )),
             );
         }
         if !tested.contains(i.id.as_str()) {
             out.push(
-                Finding::new("ig/intent-untested", Severity::Warning, "ig", "intents.md", i.line, format!("intent {} has no test: {}", i.id, i.text))
-                    .fix(format!("Tag a test with `// @intent {}`.", i.id)),
+                Finding::new(
+                    "ig/intent-untested",
+                    Severity::Warning,
+                    "ig",
+                    "intents.md",
+                    i.line,
+                    format!("intent {} has no test: {}", i.id, i.text),
+                )
+                .fix(format!("Tag a test with `// @intent {}`.", i.id)),
             );
         }
     }
@@ -250,9 +322,17 @@ fn urlish_decode(s: &str) -> Result<String, ()> {
     String::from_utf8(out).map_err(|_| ())
 }
 
-pub fn parse_sarif(root: &Path, tool: &str, bytes: &[u8], head: &Graph) -> Result<Vec<Finding>, String> {
+pub fn parse_sarif(
+    root: &Path,
+    tool: &str,
+    bytes: &[u8],
+    head: &Graph,
+) -> Result<Vec<Finding>, String> {
     let v: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    let runs = v.get("runs").and_then(|r| r.as_array()).ok_or("no runs[]")?;
+    let runs = v
+        .get("runs")
+        .and_then(|r| r.as_array())
+        .ok_or("no runs[]")?;
     let mut by_file: HashMap<&str, Vec<Node>> = HashMap::new();
     for n in &head.nodes {
         by_file.entry(n.file.as_str()).or_default().push(n.clone());
@@ -262,26 +342,45 @@ pub fn parse_sarif(root: &Path, tool: &str, bytes: &[u8], head: &Graph) -> Resul
     }
     let mut out = vec![];
     for run in runs {
-        for r in run.get("results").and_then(|r| r.as_array()).into_iter().flatten() {
+        for r in run
+            .get("results")
+            .and_then(|r| r.as_array())
+            .into_iter()
+            .flatten()
+        {
             let loc = r.pointer("/locations/0/physicalLocation");
-            let uri = loc.and_then(|l| l.pointer("/artifactLocation/uri")).and_then(|u| u.as_str()).unwrap_or("");
+            let uri = loc
+                .and_then(|l| l.pointer("/artifactLocation/uri"))
+                .and_then(|u| u.as_str())
+                .unwrap_or("");
             let file = repo_path(root, uri);
-            let line = loc.and_then(|l| l.pointer("/region/startLine")).and_then(|x| x.as_u64()).unwrap_or(1) as u32;
+            let line = loc
+                .and_then(|l| l.pointer("/region/startLine"))
+                .and_then(|x| x.as_u64())
+                .unwrap_or(1) as u32;
             let sev = match r.get("level").and_then(|l| l.as_str()) {
                 Some("error") => Severity::Error,
                 Some("note") | Some("none") => Severity::Note,
                 _ => Severity::Warning,
             };
             let rule = r.get("ruleId").and_then(|x| x.as_str()).unwrap_or(tool);
-            let msg = r.pointer("/message/text").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let msg = r
+                .pointer("/message/text")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             let mut f = Finding::new(rule, sev, tool, &file, line, msg);
-            if let Some(fix) = r.pointer("/fixes/0/description/text").and_then(|x| x.as_str()) {
+            if let Some(fix) = r
+                .pointer("/fixes/0/description/text")
+                .and_then(|x| x.as_str())
+            {
                 f = f.fix(fix);
             }
-            if let Some(nodes) = by_file.get(file.as_str()) {
-                if !nodes.is_empty() && nodes[0].is_module() {
-                    f = f.node(innermost_at(nodes, line));
-                }
+            if let Some(nodes) = by_file.get(file.as_str())
+                && !nodes.is_empty()
+                && nodes[0].is_module()
+            {
+                f = f.node(innermost_at(nodes, line));
             }
             out.push(f);
         }
@@ -295,13 +394,28 @@ pub fn checkers(root: &Path, config: &Config, head: &Graph) -> CheckerOutput {
     let results: Vec<(String, Result<Vec<Finding>, String>)> = config
         .checkers
         .par_iter()
-        .map(|c| (c.name.clone(), run_checker(root, &c.run).and_then(|b| parse_sarif(root, &c.name, &b, head))))
+        .map(|c| {
+            (
+                c.name.clone(),
+                run_checker(root, &c.run).and_then(|b| parse_sarif(root, &c.name, &b, head)),
+            )
+        })
         .collect();
-    let mut out = CheckerOutput { findings: vec![], errors: vec![] };
+    let mut out = CheckerOutput {
+        findings: vec![],
+        errors: vec![],
+    };
     for (name, r) in results {
         match r {
             Ok(f) => out.findings.extend(f),
-            Err(e) => out.errors.push(Finding::new("ig/checker-error", Severity::Warning, &name, "ig.yaml", 1, format!("checker {name}: {e}"))),
+            Err(e) => out.errors.push(Finding::new(
+                "ig/checker-error",
+                Severity::Warning,
+                &name,
+                "ig.yaml",
+                1,
+                format!("checker {name}: {e}"),
+            )),
         }
     }
     out
@@ -316,10 +430,16 @@ pub fn load_baseline(root: &Path) -> HashSet<String> {
         .collect()
 }
 
-pub fn write_baseline(root: &Path, fingerprints: impl IntoIterator<Item = String>) -> anyhow::Result<()> {
+pub fn write_baseline(
+    root: &Path,
+    fingerprints: impl IntoIterator<Item = String>,
+) -> anyhow::Result<()> {
     let set: BTreeSet<String> = fingerprints.into_iter().collect();
     std::fs::create_dir_all(root.join(".ig"))?;
-    std::fs::write(root.join(".ig/baseline.json"), serde_json::to_string_pretty(&set)? + "\n")?;
+    std::fs::write(
+        root.join(".ig/baseline.json"),
+        serde_json::to_string_pretty(&set)? + "\n",
+    )?;
     Ok(())
 }
 
@@ -329,7 +449,10 @@ mod tests {
 
     #[test]
     fn layers_most_specific_wins() {
-        let c = Config::parse("layers:\n  a: ['packages/**']\n  b: ['packages/core/**']\n  c: ['packages/core/**']\n").unwrap();
+        let c = Config::parse(
+            "layers:\n  a: ['packages/**']\n  b: ['packages/core/**']\n  c: ['packages/core/**']\n",
+        )
+        .unwrap();
         let l = Layers::new(&c, &[]);
         assert_eq!(l.of("packages/core/x.ts"), Some("b"));
         assert_eq!(l.of("packages/ui/x.ts"), Some("a"));

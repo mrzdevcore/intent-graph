@@ -1,0 +1,2 @@
+# Fixtures are test inputs, not this repo's code.
+ignore: ["tests/fixtures/**", "assets/**"]

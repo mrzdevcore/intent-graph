@@ -14,26 +14,53 @@ pub fn claude(root: &Path) {
 }
 
 fn session_file(root: &Path, session: &str) -> std::path::PathBuf {
-    let safe: String = session.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
-    root.join(".ig/hook").join(if safe.is_empty() { "default".into() } else { safe })
+    let safe: String = session
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    root.join(".ig/hook").join(if safe.is_empty() {
+        "default".into()
+    } else {
+        safe
+    })
 }
 
 fn run(root: &Path) -> anyhow::Result<Value> {
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
-    let v: Value = if input.trim().is_empty() { json!({}) } else { serde_json::from_str(&input)? };
-    let session = v.get("session_id").and_then(Value::as_str).unwrap_or("default");
+    let v: Value = if input.trim().is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(&input)?
+    };
+    let session = v
+        .get("session_id")
+        .and_then(Value::as_str)
+        .unwrap_or("default");
     let file = session_file(root, session);
     let run = check::run(root, &check::Opts::default())?;
     if !run.result.blocking {
         let _ = std::fs::remove_file(&file);
         return Ok(json!({}));
     }
-    Ok(decide(&file, run.config.hook_max_rounds, check::agent_text(&run.result, run.config.block_on))?)
+    decide(
+        &file,
+        run.config.hook_max_rounds,
+        check::agent_text(&run.result, run.config.block_on),
+    )
 }
 
 fn decide(file: &Path, max: u32, reason: String) -> anyhow::Result<Value> {
-    let rounds: u32 = std::fs::read_to_string(file).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+    let rounds: u32 = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0);
     if rounds >= max {
         let _ = std::fs::remove_file(file);
         return Ok(json!({

@@ -29,7 +29,16 @@ const HOOK: &str = r#"{
 
 fn layer_name(s: &str) -> String {
     let base = s.rsplit('/').next().unwrap_or(s);
-    let n: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    let n: String = base
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
     if n.is_empty() { "root".into() } else { n }
 }
 
@@ -39,10 +48,15 @@ fn yaml_str(s: &str) -> String {
 
 /// Extensions that relative imports point at, are not JS/TS, and look like single-file components.
 fn detect_embedded(root: &Path, ws: &Workspace) -> Vec<String> {
-    let re = Regex::new(r#"(?:from\s+|import\s*\(\s*|import\s+)["'](\.{1,2}/[^"']+?(\.[A-Za-z0-9]+))["']"#).unwrap();
+    let re = Regex::new(
+        r#"(?:from\s+|import\s*\(\s*|import\s+)["'](\.{1,2}/[^"']+?(\.[A-Za-z0-9]+))["']"#,
+    )
+    .unwrap();
     let mut out = BTreeSet::new();
     for f in &ws.files {
-        let Ok(src) = std::fs::read_to_string(root.join(&f.path)) else { continue };
+        let Ok(src) = std::fs::read_to_string(root.join(&f.path)) else {
+            continue;
+        };
         let dir = f.path.rsplit_once('/').map(|(d, _)| d).unwrap_or(".");
         for c in re.captures_iter(&src) {
             let ext = c[2].to_ascii_lowercase();
@@ -66,7 +80,12 @@ fn create(root: &Path, path: &Path, content: &str, created: &mut Vec<String>) ->
         std::fs::create_dir_all(p)?;
     }
     std::fs::write(path, content)?;
-    created.push(path.strip_prefix(root).unwrap_or(path).to_string_lossy().to_string());
+    created.push(
+        path.strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string(),
+    );
     Ok(true)
 }
 
@@ -81,28 +100,53 @@ pub fn run(root: &Path) -> Result<()> {
         let ws = if embedded.is_empty() {
             first
         } else {
-            Workspace::discover(root, &Config { embedded: embedded.clone(), ..Config::default() })?
+            Workspace::discover(
+                root,
+                &Config {
+                    embedded: embedded.clone(),
+                    ..Config::default()
+                },
+            )?
         };
         let mut layers = String::new();
         if ws.packages.len() > 1 || ws.packages[0].dir != "." {
             for p in &ws.packages {
-                layers.push_str(&format!("  {}: [{}]\n", layer_name(&p.name), yaml_str(&p.name)));
+                layers.push_str(&format!(
+                    "  {}: [{}]\n",
+                    layer_name(&p.name),
+                    yaml_str(&p.name)
+                ));
             }
         } else {
             let mut dirs = BTreeSet::new();
             for f in &ws.files {
-                if let Some(rest) = f.path.strip_prefix("src/") {
-                    if let Some((d, _)) = rest.split_once('/') {
-                        dirs.insert(d.to_string());
-                    }
+                if let Some(rest) = f.path.strip_prefix("src/")
+                    && let Some((d, _)) = rest.split_once('/')
+                {
+                    dirs.insert(d.to_string());
                 }
             }
             for d in dirs {
-                layers.push_str(&format!("  {}: [{}]\n", layer_name(&d), yaml_str(&format!("src/{d}/**"))));
+                layers.push_str(&format!(
+                    "  {}: [{}]\n",
+                    layer_name(&d),
+                    yaml_str(&format!("src/{d}/**"))
+                ));
             }
         }
-        let layers = if layers.is_empty() { "layers: {}\n".to_string() } else { format!("layers:\n{layers}") };
-        let embedded = format!("[{}]", embedded.iter().map(|e| yaml_str(e)).collect::<Vec<_>>().join(", "));
+        let layers = if layers.is_empty() {
+            "layers: {}\n".to_string()
+        } else {
+            format!("layers:\n{layers}")
+        };
+        let embedded = format!(
+            "[{}]",
+            embedded
+                .iter()
+                .map(|e| yaml_str(e))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         let text = format!(
             "# ig (intent-graph) config. See docs for every key.\n\
              {layers}\
@@ -141,7 +185,13 @@ pub fn run(root: &Path) -> Result<()> {
     let agents = root.join("AGENTS.md");
     let existing = std::fs::read_to_string(&agents).unwrap_or_default();
     if !existing.contains(AGENTS_MARKER) {
-        let sep = if existing.is_empty() || existing.ends_with("\n\n") { "" } else if existing.ends_with('\n') { "\n" } else { "\n\n" };
+        let sep = if existing.is_empty() || existing.ends_with("\n\n") {
+            ""
+        } else if existing.ends_with('\n') {
+            "\n"
+        } else {
+            "\n\n"
+        };
         std::fs::write(&agents, format!("{existing}{sep}{AGENTS_SNIPPET}"))?;
         created.push("AGENTS.md (snippet)".into());
     }
@@ -155,7 +205,13 @@ pub fn run(root: &Path) -> Result<()> {
     }
 
     if !root.join(".ig/baseline.json").exists() {
-        let run = check::run(root, &check::Opts { all: true, ..Default::default() })?;
+        let run = check::run(
+            root,
+            &check::Opts {
+                all: true,
+                ..Default::default()
+            },
+        )?;
         let fps = run
             .result
             .findings
@@ -163,7 +219,10 @@ pub fn run(root: &Path) -> Result<()> {
             .filter(|f| f.rule_id != "ig/checker-error" && f.rule_id != "ig/parse-error")
             .map(|f| f.fingerprint.clone());
         crate::checks::write_baseline(root, fps)?;
-        created.push(format!(".ig/baseline.json ({} findings)", run.result.findings.len()));
+        created.push(format!(
+            ".ig/baseline.json ({} findings)",
+            run.result.findings.len()
+        ));
     }
     for c in &created {
         println!("created {c}");
@@ -203,7 +262,10 @@ mod tests {
 
     #[test]
     fn gitignore_rewrites_and_is_idempotent() {
-        assert_eq!(gitignore("node_modules\n.ig/\n"), "node_modules\n.ig/*\n!.ig/baseline.json\n");
+        assert_eq!(
+            gitignore("node_modules\n.ig/\n"),
+            "node_modules\n.ig/*\n!.ig/baseline.json\n"
+        );
         let once = gitignore("target\n");
         assert_eq!(gitignore(&once), once);
     }
@@ -215,12 +277,18 @@ mod tests {
         std::fs::write(dir.join("src/core/a.ts"), "export const a = () => 1;\n").unwrap();
         std::fs::write(dir.join("intents.md"), "mine\n").unwrap();
         run(&dir).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("intents.md")).unwrap(), "mine\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("intents.md")).unwrap(),
+            "mine\n"
+        );
         let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap();
         assert!(cfg.contains("core: [\"src/core/**\"]"));
         std::fs::write(dir.join("ig.yaml"), "rules: []\n").unwrap();
         run(&dir).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("ig.yaml")).unwrap(), "rules: []\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("ig.yaml")).unwrap(),
+            "rules: []\n"
+        );
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert_eq!(agents.matches(AGENTS_MARKER).count(), 1);
         let _ = std::fs::remove_dir_all(dir);

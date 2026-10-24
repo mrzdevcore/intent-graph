@@ -47,7 +47,9 @@ pub fn globset(patterns: &[String]) -> Result<GlobSet> {
 pub fn read_jsonc(path: &Path) -> Option<Value> {
     let text = std::fs::read_to_string(path).ok()?;
     let mut stripped = String::new();
-    json_comments::StripComments::new(text.as_bytes()).read_to_string(&mut stripped).ok()?;
+    json_comments::StripComments::new(text.as_bytes())
+        .read_to_string(&mut stripped)
+        .ok()?;
     serde_json::from_str(&strip_trailing_commas(&stripped)).ok()
 }
 
@@ -84,7 +86,11 @@ pub fn rel(root: &Path, p: &Path) -> Option<String> {
 }
 
 pub fn join(dir: &str, path: &str) -> String {
-    if dir == "." { path.to_string() } else { format!("{dir}/{path}") }
+    if dir == "." {
+        path.to_string()
+    } else {
+        format!("{dir}/{path}")
+    }
 }
 
 /// Lexically normalises a posix path ("a/./b/../c" → "a/c").
@@ -99,19 +105,33 @@ pub fn normalize(p: &str) -> String {
             s => parts.push(s),
         }
     }
-    if parts.is_empty() { ".".into() } else { parts.join("/") }
+    if parts.is_empty() {
+        ".".into()
+    } else {
+        parts.join("/")
+    }
 }
 
 fn workspace_patterns(root: &Path) -> Option<Vec<String>> {
     if let Ok(text) = std::fs::read_to_string(root.join("pnpm-workspace.yaml")) {
         let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&text).ok()?;
         let pkgs = v.get("packages")?.as_sequence()?;
-        return Some(pkgs.iter().filter_map(|x| x.as_str().map(str::to_string)).collect());
+        return Some(
+            pkgs.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect(),
+        );
     }
     let pj = read_jsonc(&root.join("package.json"))?;
     let ws = pj.get("workspaces")?;
-    let arr = ws.as_array().or_else(|| ws.get("packages").and_then(Value::as_array))?;
-    Some(arr.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+    let arr = ws
+        .as_array()
+        .or_else(|| ws.get("packages").and_then(Value::as_array))?;
+    Some(
+        arr.iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect(),
+    )
 }
 
 fn find_package_dirs(root: &Path, patterns: &[String]) -> Result<Vec<String>> {
@@ -126,10 +146,15 @@ fn find_package_dirs(root: &Path, patterns: &[String]) -> Result<Vec<String>> {
     let mut out = vec![];
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     while let Some((dir, depth)) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if name == "node_modules" || name.starts_with('.') || !e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            if name == "node_modules"
+                || name.starts_with('.')
+                || !e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+            {
                 continue;
             }
             let p = e.path();
@@ -169,19 +194,39 @@ fn source_entry(root: &Path, dir: &str, pj: &Value, tsconfig: Option<&Value>) ->
     .or_else(|| pj.get("main").and_then(Value::as_str).map(str::to_string));
     let exists = |p: &str| root.join(p).is_file();
     let fallback = join(dir, "src/index.ts");
-    let Some(raw) = raw else { return exists(&fallback).then_some(fallback) };
+    let Some(raw) = raw else {
+        return exists(&fallback).then_some(fallback);
+    };
     let mut p = normalize(raw.trim_start_matches("./"));
     let co = tsconfig.and_then(|t| t.get("compilerOptions"));
-    let out_dir = co.and_then(|c| c.get("outDir")).and_then(Value::as_str).map(|s| normalize(s));
-    let root_dir = co.and_then(|c| c.get("rootDir")).and_then(Value::as_str).map(|s| normalize(s));
+    let out_dir = co
+        .and_then(|c| c.get("outDir"))
+        .and_then(Value::as_str)
+        .map(normalize);
+    let root_dir = co
+        .and_then(|c| c.get("rootDir"))
+        .and_then(Value::as_str)
+        .map(normalize);
     let full = join(dir, &p);
-    let is_source = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].iter().any(|e| p.ends_with(e)) && !p.ends_with(".d.ts");
-    if is_source && exists(&full) && out_dir.as_deref().is_none_or(|o| !(p.starts_with(&format!("{o}/")))) {
+    let is_source = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
+        .iter()
+        .any(|e| p.ends_with(e))
+        && !p.ends_with(".d.ts");
+    if is_source
+        && exists(&full)
+        && out_dir
+            .as_deref()
+            .is_none_or(|o| !(p.starts_with(&format!("{o}/"))))
+    {
         return Some(full);
     }
     if let (Some(o), Some(r)) = (out_dir, root_dir) {
         if let Some(rest) = p.strip_prefix(&format!("{o}/")) {
-            p = if r == "." { rest.to_string() } else { format!("{r}/{rest}") };
+            p = if r == "." {
+                rest.to_string()
+            } else {
+                format!("{r}/{rest}")
+            };
         }
         let stem = [".d.ts", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"]
             .iter()
@@ -212,17 +257,32 @@ impl Workspace {
         for dir in &dirs {
             let abs = root.join(dir);
             let pj = read_jsonc(&abs.join("package.json")).unwrap_or(Value::Null);
-            let name = pj.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| {
-                abs.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| ".".into())
-            });
+            let name = pj
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    abs.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| ".".into())
+                });
             let ts_path = abs.join("tsconfig.json");
             let ts = ts_path.is_file().then_some(ts_path);
             let ts_val = ts.as_deref().and_then(read_jsonc);
             let source_entry = source_entry(&root, dir, &pj, ts_val.as_ref());
-            packages.push(Package { name, dir: dir.clone(), tsconfig: ts, source_entry });
+            packages.push(Package {
+                name,
+                dir: dir.clone(),
+                tsconfig: ts,
+                source_entry,
+            });
         }
         let files = discover_files(&root, &packages, config)?;
-        Ok(Workspace { root, packages, files })
+        Ok(Workspace {
+            root,
+            packages,
+            files,
+        })
     }
 
     /// `pkg` or `pkg/sub` → a repo-relative file.
@@ -250,8 +310,12 @@ pub fn is_source_ext(name: &str, embedded: &[String]) -> bool {
     if lower.ends_with(".d.ts") || lower.ends_with(".d.mts") || lower.ends_with(".d.cts") {
         return false;
     }
-    [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"].iter().any(|e| lower.ends_with(e))
-        || embedded.iter().any(|e| lower.ends_with(&e.to_ascii_lowercase()))
+    [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]
+        .iter()
+        .any(|e| lower.ends_with(e))
+        || embedded
+            .iter()
+            .any(|e| lower.ends_with(&e.to_ascii_lowercase()))
 }
 
 fn discover_files(root: &Path, packages: &[Package], config: &Config) -> Result<Vec<SourceFile>> {
@@ -261,7 +325,9 @@ fn discover_files(root: &Path, packages: &[Package], config: &Config) -> Result<
     for (pi, pkg) in packages.iter().enumerate() {
         let mut stack = vec![root.join(&pkg.dir)];
         while let Some(dir) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             for e in rd.flatten() {
                 let name = e.file_name().to_string_lossy().to_string();
                 let p = e.path();
@@ -278,8 +344,14 @@ fn discover_files(root: &Path, packages: &[Package], config: &Config) -> Result<
                         continue;
                     }
                     stack.push(p);
-                } else if ft.is_file() && is_source_ext(&name, &config.embedded) && !ignore.is_match(&r) {
-                    files.push(SourceFile { path: r, package: pi });
+                } else if ft.is_file()
+                    && is_source_ext(&name, &config.embedded)
+                    && !ignore.is_match(&r)
+                {
+                    files.push(SourceFile {
+                        path: r,
+                        package: pi,
+                    });
                 }
             }
         }
@@ -295,7 +367,10 @@ mod tests {
 
     #[test]
     fn jsonc_and_normalize() {
-        assert_eq!(strip_trailing_commas("{\"a\": [1, 2,], \"b\": \",]\",}"), "{\"a\": [1, 2], \"b\": \",]\"}");
+        assert_eq!(
+            strip_trailing_commas("{\"a\": [1, 2,], \"b\": \",]\",}"),
+            "{\"a\": [1, 2], \"b\": \",]\"}"
+        );
         assert_eq!(normalize("a/./b/../c"), "a/c");
     }
 }

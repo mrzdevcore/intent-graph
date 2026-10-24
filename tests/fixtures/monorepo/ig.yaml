@@ -6,3 +6,8 @@ layers:
 rules:
   - forbid: "core -> ui"
   - forbid: "ui -> app"
+patterns:
+  - kind: route
+    match: "app.$METHOD($PATH, $$$)"
+    where: { METHOD: [get, post] }
+    id: "{METHOD} {PATH}"

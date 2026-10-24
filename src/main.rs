@@ -21,7 +21,8 @@ use anyhow::{Result, bail};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: ig [--version] | init | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
+const USAGE: &str =
+    "usage: ig [--version] | init | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] | report --gitlab | mcp | hook claude
    (all accept --root <dir>)";
@@ -71,7 +72,11 @@ fn parse_args() -> Result<Args> {
 }
 
 fn opts(a: &Args) -> check::Opts {
-    check::Opts { base: a.base.clone(), head: a.head.clone(), all: a.all }
+    check::Opts {
+        base: a.base.clone(),
+        head: a.head.clone(),
+        all: a.all,
+    }
 }
 
 fn real_main() -> Result<u8> {
@@ -99,7 +104,13 @@ fn real_main() -> Result<u8> {
             Ok(if r.blocking { 1 } else { 0 })
         }
         "diff" => {
-            let run = check::run(&root, &check::Opts { all: false, ..opts(&a) })?;
+            let run = check::run(
+                &root,
+                &check::Opts {
+                    all: false,
+                    ..opts(&a)
+                },
+            )?;
             if a.json {
                 let lookup: std::collections::HashMap<&str, &model::Node> = run
                     .result
@@ -175,7 +186,12 @@ fn review_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
     let built = graph::build(root, &cfg, repo_head)?;
     let tests = workspace::globset(&cfg.tests)?;
     let eps = workspace::globset(&cfg.entry_points)?;
-    let ctx = review::Ctx { config: &cfg, tests: &tests, packages: &built.workspace.packages, entry_points: &eps };
+    let ctx = review::Ctx {
+        config: &cfg,
+        tests: &tests,
+        packages: &built.workspace.packages,
+        entry_points: &eps,
+    };
     let items = review::review(&built.graph, &ctx, root);
     let (head, rest) = review::rank(items, cfg.review.top);
     let dir = root.join(".ig");
@@ -185,12 +201,19 @@ fn review_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
     if a.json {
         println!("{}", serde_json::to_string_pretty(&all)?);
     } else if a.agent {
-        let shown: Vec<&review::ReviewItem> = if a.all { all.clone() } else { head.iter().collect() };
+        let shown: Vec<&review::ReviewItem> = if a.all {
+            all.clone()
+        } else {
+            head.iter().collect()
+        };
         if shown.is_empty() {
             println!("ig review: no structural problems found");
         }
         for it in shown {
-            println!("- [{}] {}: {} Fix: {}", it.rule_id, it.title, it.evidence, it.fix);
+            println!(
+                "- [{}] {}: {} Fix: {}",
+                it.rule_id, it.title, it.evidence, it.fix
+            );
         }
     } else {
         review::print(&head, rest.len(), a.all, &rest);

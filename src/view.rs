@@ -35,18 +35,49 @@ pub fn changed_set<'a>(run: &'a Run, all_edges: &[(&'a str, &'a str)]) -> BTreeS
 
 /// Head nodes plus removed base nodes, with their status.
 pub fn all_nodes(run: &Run) -> Vec<(&Node, Status)> {
-    let mut v: Vec<(&Node, Status)> = run.result.graph.nodes.iter().map(|n| (n, run.diff.status(&n.id))).collect();
+    let mut v: Vec<(&Node, Status)> = run
+        .result
+        .graph
+        .nodes
+        .iter()
+        .map(|n| (n, run.diff.status(&n.id)))
+        .collect();
     if let Some(b) = &run.base_graph {
-        v.extend(b.nodes.iter().filter(|n| run.diff.status(&n.id) == Status::Removed).map(|n| (n, Status::Removed)));
+        v.extend(
+            b.nodes
+                .iter()
+                .filter(|n| run.diff.status(&n.id) == Status::Removed)
+                .map(|n| (n, Status::Removed)),
+        );
     }
     v
 }
 
 /// Head edges plus removed base edges: (edge, status).
 pub fn all_edges(run: &Run) -> Vec<(&crate::model::Edge, Status)> {
-    let mut v: Vec<_> = run.result.graph.edges.iter().map(|e| (e, run.diff.edges.get(&e.key()).copied().unwrap_or(Status::Unchanged))).collect();
+    let mut v: Vec<_> = run
+        .result
+        .graph
+        .edges
+        .iter()
+        .map(|e| {
+            (
+                e,
+                run.diff
+                    .edges
+                    .get(&e.key())
+                    .copied()
+                    .unwrap_or(Status::Unchanged),
+            )
+        })
+        .collect();
     if let Some(b) = &run.base_graph {
-        v.extend(b.edges.iter().filter(|e| run.diff.edges.get(&e.key()) == Some(&Status::Removed)).map(|e| (e, Status::Removed)));
+        v.extend(
+            b.edges
+                .iter()
+                .filter(|e| run.diff.edges.get(&e.key()) == Some(&Status::Removed))
+                .map(|e| (e, Status::Removed)),
+        );
     }
     v
 }
@@ -90,7 +121,12 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
             })
             .clone()
     };
-    let base_nodes: HashMap<&str, &Node> = run.base_graph.iter().flat_map(|b| b.nodes.iter()).map(|n| (n.id.as_str(), n)).collect();
+    let base_nodes: HashMap<&str, &Node> = run
+        .base_graph
+        .iter()
+        .flat_map(|b| b.nodes.iter())
+        .map(|n| (n.id.as_str(), n))
+        .collect();
     let nodes: Vec<Value> = all_nodes(run)
         .into_iter()
         .map(|(n, s)| {
@@ -102,11 +138,10 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
             if matches!(s, Status::Added | Status::Changed) && !n.is_module() {
                 v["after"] = json!(slice(&after(&n.file), n.range.start_line, n.range.end_line));
             }
-            if matches!(s, Status::Changed | Status::Removed) && !n.is_module() {
-                if let Some(b) = base_nodes.get(n.id.as_str()) {
+            if matches!(s, Status::Changed | Status::Removed) && !n.is_module()
+                && let Some(b) = base_nodes.get(n.id.as_str()) {
                     v["before"] = json!(slice(&before(&b.file), b.range.start_line, b.range.end_line));
                 }
-            }
             v
         })
         .collect();
@@ -118,14 +153,24 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
                    "violation": viol.contains(&(e.from.clone(), e.to.clone()))})
         })
         .collect();
-    let node_ids: HashSet<&str> = run.result.graph.nodes.iter().map(|n| n.id.as_str()).collect();
+    let node_ids: HashSet<&str> = run
+        .result
+        .graph
+        .nodes
+        .iter()
+        .map(|n| n.id.as_str())
+        .collect();
     let findings: Vec<Value> = run
         .result
         .findings
         .iter()
         .map(|f| {
             let mut v = serde_json::to_value(f).unwrap();
-            let pinned = f.node_id.clone().filter(|n| node_ids.contains(n.as_str())).or_else(|| node_ids.contains(f.file.as_str()).then(|| f.file.clone()));
+            let pinned = f
+                .node_id
+                .clone()
+                .filter(|n| node_ids.contains(n.as_str()))
+                .or_else(|| node_ids.contains(f.file.as_str()).then(|| f.file.clone()));
             v["pinned"] = json!(pinned);
             v
         })
@@ -141,9 +186,16 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
                    "testedBy": t.iter().map(|n| &n.id).collect::<Vec<_>>()})
         })
         .collect();
-    let pairs: Vec<(&str, &str)> = all_edges(run).into_iter().map(|(e, _)| (e.from.as_str(), e.to.as_str())).collect();
+    let pairs: Vec<(&str, &str)> = all_edges(run)
+        .into_iter()
+        .map(|(e, _)| (e.from.as_str(), e.to.as_str()))
+        .collect();
     let set = changed_set(run, &pairs);
-    let mode = if set.is_empty() || set.len() > 800 { "modules" } else { "changed" };
+    let mode = if set.is_empty() || set.len() > 800 {
+        "modules"
+    } else {
+        "changed"
+    };
     json!({
         "nodes": nodes, "edges": edges, "findings": findings, "intents": intents,
         "intentChanges": run.result.intent_changes, "notices": run.result.notices,
@@ -191,12 +243,21 @@ fn open_str(target: &str) {
     } else {
         vec!["xdg-open", target]
     };
-    let _ = std::process::Command::new(cmd[0]).args(&cmd[1..]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+    let _ = std::process::Command::new(cmd[0])
+        .args(&cmd[1..])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 fn ignored(root: &Path, p: &Path) -> bool {
     let rel = p.strip_prefix(root).unwrap_or(p);
-    rel.components().any(|c| matches!(c.as_os_str().to_str(), Some(".ig" | ".git" | "node_modules")))
+    rel.components().any(|c| {
+        matches!(
+            c.as_os_str().to_str(),
+            Some(".ig" | ".git" | "node_modules")
+        )
+    })
 }
 
 type Clients = Arc<Mutex<Vec<Box<dyn Write + Send>>>>;
@@ -208,13 +269,19 @@ pub fn watch(root: &Path, opts: &Opts, open_browser: bool) -> Result<()> {
         let opts = &opts;
         let run = check::run(root, opts)?;
         let html = render(&run, root, opts, true);
-        let _ = check::write_atomic(&root.join(".ig/view.html"), render(&run, root, opts, false).as_bytes());
+        let _ = check::write_atomic(
+            &root.join(".ig/view.html"),
+            render(&run, root, opts, false).as_bytes(),
+        );
         Ok(html)
     };
     let page_html: Arc<Mutex<String>> = Arc::new(Mutex::new(build(root)?));
     let clients: Clients = Arc::new(Mutex::new(vec![]));
     let server = tiny_http::Server::http("127.0.0.1:0").map_err(|e| anyhow::anyhow!("{e}"))?;
-    let addr = server.server_addr().to_ip().ok_or_else(|| anyhow::anyhow!("no address"))?;
+    let addr = server
+        .server_addr()
+        .to_ip()
+        .ok_or_else(|| anyhow::anyhow!("no address"))?;
     let url = format!("http://{addr}/");
     eprintln!("ig: serving {url} (Ctrl-C to stop)");
     if open_browser {
@@ -227,23 +294,37 @@ pub fn watch(root: &Path, opts: &Opts, open_browser: bool) -> Result<()> {
     })?;
     watcher.watch(root, notify::RecursiveMode::Recursive)?;
     {
-        let (root, page_html, clients, build) = (root.to_path_buf(), page_html.clone(), clients.clone(), build.clone());
+        let (root, page_html, clients, build) = (
+            root.to_path_buf(),
+            page_html.clone(),
+            clients.clone(),
+            build.clone(),
+        );
         std::thread::spawn(move || {
-            let relevant = |e: &notify::Result<notify::Event>| e.as_ref().is_ok_and(|e| e.paths.iter().any(|p| !ignored(&root, p)));
+            let relevant = |e: &notify::Result<notify::Event>| {
+                e.as_ref()
+                    .is_ok_and(|e| e.paths.iter().any(|p| !ignored(&root, p)))
+            };
             while let Ok(e) = rx.recv() {
                 if !relevant(&e) {
                     continue;
                 }
                 // Debounce: wait for 300 ms of quiet.
-                while let Ok(_) = rx.recv_timeout(Duration::from_millis(300)) {}
+                while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
                 match build(&root) {
                     Ok(html) => {
                         *page_html.lock().unwrap() = html;
                         let mut cs = clients.lock().unwrap();
-                        cs.retain_mut(|w| w.write_all(b"data: reload\n\n").and_then(|_| w.flush()).is_ok());
+                        cs.retain_mut(|w| {
+                            w.write_all(b"data: reload\n\n")
+                                .and_then(|_| w.flush())
+                                .is_ok()
+                        });
                         eprintln!("ig: rebuilt");
                     }
-                    Err(err) => eprintln!("ig: rebuild failed, keeping the last good page: {err:#}"),
+                    Err(err) => {
+                        eprintln!("ig: rebuild failed, keeping the last good page: {err:#}")
+                    }
                 }
             }
         });
@@ -262,11 +343,13 @@ pub fn watch(root: &Path, opts: &Opts, open_browser: bool) -> Result<()> {
             }
             "/" | "/index.html" => {
                 let html = page_html.lock().unwrap().clone();
-                let h = tiny_http::Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap();
+                let h = tiny_http::Header::from_bytes("Content-Type", "text/html; charset=utf-8")
+                    .unwrap();
                 let _ = req.respond(tiny_http::Response::from_string(html).with_header(h));
             }
             _ => {
-                let _ = req.respond(tiny_http::Response::from_string("not found").with_status_code(404));
+                let _ = req
+                    .respond(tiny_http::Response::from_string("not found").with_status_code(404));
             }
         }
     }

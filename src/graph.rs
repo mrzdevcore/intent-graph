@@ -6,7 +6,9 @@ use crate::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
 use crate::patterns;
 use crate::workspace::{self, Workspace};
 use anyhow::Result;
-use oxc_resolver::{ResolveOptions, Resolver, TsconfigDiscovery, TsconfigOptions, TsconfigReferences};
+use oxc_resolver::{
+    ResolveOptions, Resolver, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
+};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -15,15 +17,27 @@ fn resolver_options(tsconfig: Option<PathBuf>) -> ResolveOptions {
     let exts = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
     ResolveOptions {
         tsconfig: tsconfig.map(|config_file| {
-            TsconfigDiscovery::Manual(TsconfigOptions { config_file, references: TsconfigReferences::Auto })
+            TsconfigDiscovery::Manual(TsconfigOptions {
+                config_file,
+                references: TsconfigReferences::Auto,
+            })
         }),
         extensions: exts.iter().map(|s| s.to_string()).collect(),
         extension_alias: vec![
-            (".js".into(), vec![".ts".into(), ".tsx".into(), ".js".into(), ".jsx".into()]),
+            (
+                ".js".into(),
+                vec![".ts".into(), ".tsx".into(), ".js".into(), ".jsx".into()],
+            ),
             (".mjs".into(), vec![".mts".into(), ".mjs".into()]),
             (".cjs".into(), vec![".cts".into(), ".cjs".into()]),
         ],
-        condition_names: vec!["types".into(), "import".into(), "require".into(), "node".into(), "default".into()],
+        condition_names: vec![
+            "types".into(),
+            "import".into(),
+            "require".into(),
+            "node".into(),
+            "default".into(),
+        ],
         main_files: vec!["index".into()],
         ..ResolveOptions::default()
     }
@@ -32,16 +46,26 @@ fn resolver_options(tsconfig: Option<PathBuf>) -> ResolveOptions {
 /// The tsconfig to configure resolution from: a solution-style config (no paths/baseUrl, only
 /// references) defers to its first reference.
 fn effective_tsconfig(path: &Path) -> PathBuf {
-    let Some(v) = workspace::read_jsonc(path) else { return path.to_path_buf() };
+    let Some(v) = workspace::read_jsonc(path) else {
+        return path.to_path_buf();
+    };
     let co = v.get("compilerOptions");
     let has_paths = co.is_some_and(|c| c.get("paths").is_some() || c.get("baseUrl").is_some());
-    if !has_paths {
-        if let Some(r) = v.get("references").and_then(|r| r.get(0)).and_then(|r| r.get("path")).and_then(|p| p.as_str()) {
-            let p = path.parent().unwrap_or(Path::new(".")).join(r);
-            let p = if p.is_dir() { p.join("tsconfig.json") } else { p };
-            if p.is_file() {
-                return p;
-            }
+    if !has_paths
+        && let Some(r) = v
+            .get("references")
+            .and_then(|r| r.get(0))
+            .and_then(|r| r.get("path"))
+            .and_then(|p| p.as_str())
+    {
+        let p = path.parent().unwrap_or(Path::new(".")).join(r);
+        let p = if p.is_dir() {
+            p.join("tsconfig.json")
+        } else {
+            p
+        };
+        if p.is_file() {
+            return p;
         }
     }
     path.to_path_buf()
@@ -61,7 +85,11 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     let resolvers: Vec<Resolver> = ws
         .packages
         .iter()
-        .map(|p| base.clone_with_options(resolver_options(p.tsconfig.as_deref().map(effective_tsconfig))))
+        .map(|p| {
+            base.clone_with_options(resolver_options(
+                p.tsconfig.as_deref().map(effective_tsconfig),
+            ))
+        })
         .collect();
     let file_set: HashSet<&str> = ws.files.iter().map(|f| f.path.as_str()).collect();
     let compiled = patterns::compile(&config.patterns);
@@ -73,8 +101,14 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
         .par_iter()
         .map(|f| {
             let abs = ws.root.join(&f.path);
-            let source = std::fs::read(&abs).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
-            let embedded = config.embedded.iter().any(|e| f.path.to_ascii_lowercase().ends_with(&e.to_ascii_lowercase()));
+            let source = std::fs::read(&abs)
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
+                .unwrap_or_default();
+            let embedded = config.embedded.iter().any(|e| {
+                f.path
+                    .to_ascii_lowercase()
+                    .ends_with(&e.to_ascii_lowercase())
+            });
             let pkg = &ws.packages[f.package];
             let input = FileInput {
                 path: &f.path,
@@ -86,12 +120,15 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
             };
             let dir = abs.parent().unwrap_or(&ws.root).to_path_buf();
             let resolve = |spec: &str| -> Option<String> {
-                if !spec.starts_with('.') && !spec.starts_with('/') {
-                    if let Some(t) = ws.resolve_workspace_import(spec) {
-                        return file_set.contains(t.as_str()).then_some(t);
-                    }
+                if !spec.starts_with('.')
+                    && !spec.starts_with('/')
+                    && let Some(t) = ws.resolve_workspace_import(spec)
+                {
+                    return file_set.contains(t.as_str()).then_some(t);
                 }
-                if spec.starts_with('.') && config.embedded.iter().any(|e| spec.ends_with(e.as_str())) {
+                if spec.starts_with('.')
+                    && config.embedded.iter().any(|e| spec.ends_with(e.as_str()))
+                {
                     let dir_rel = f.path.rsplit_once('/').map(|(d, _)| d).unwrap_or(".");
                     let t = workspace::normalize(&workspace::join(dir_rel, spec));
                     return file_set.contains(t.as_str()).then_some(t);
@@ -101,14 +138,21 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
                 file_set.contains(t.as_str()).then_some(t)
             };
             let mut facts = extract::extract(&input, &resolve);
-            let code = if embedded { facts.script.clone() } else { source };
+            let code = if embedded {
+                facts.script.clone()
+            } else {
+                source
+            };
             patterns::apply(&compiled, &f.path, &code, &mut facts);
             facts
         })
         .collect();
     facts.sort_by(|a, b| a.file.cmp(&b.file));
     for (i, msg) in &compiled.errors {
-        parse_errors.push(ParseError { file: "ig.yaml".into(), message: format!("patterns[{i}]: {msg}") });
+        parse_errors.push(ParseError {
+            file: "ig.yaml".into(),
+            message: format!("patterns[{i}]: {msg}"),
+        });
     }
 
     // Pass 2.
@@ -118,7 +162,10 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     let mut nodes: Vec<Node> = vec![];
     for f in &mut facts {
         if let Some(m) = &f.parse_error {
-            parse_errors.push(ParseError { file: f.file.clone(), message: m.clone() });
+            parse_errors.push(ParseError {
+                file: f.file.clone(),
+                message: m.clone(),
+            });
         }
         nodes.append(&mut f.nodes);
     }
@@ -149,8 +196,18 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     }
     let edges = merged.into_values().collect();
     parse_errors.sort_by(|a, b| (&a.file, &a.message).cmp(&(&b.file, &b.message)));
-    let graph = Graph { schema_version: 1, tool_version: TOOL_VERSION.into(), commit, nodes, edges, parse_errors };
-    Ok(Built { graph, workspace: ws })
+    let graph = Graph {
+        schema_version: 1,
+        tool_version: TOOL_VERSION.into(),
+        commit,
+        nodes,
+        edges,
+        parse_errors,
+    };
+    Ok(Built {
+        graph,
+        workspace: ws,
+    })
 }
 
 struct Index<'f> {
@@ -165,14 +222,21 @@ struct Index<'f> {
 
 impl<'f> Index<'f> {
     fn new(facts: &'f [FileFacts]) -> Index<'f> {
-        let mut ix = Index { files: HashMap::new(), children: HashMap::new(), by_name: HashMap::new(), classes: HashMap::new() };
+        let mut ix = Index {
+            files: HashMap::new(),
+            children: HashMap::new(),
+            by_name: HashMap::new(),
+            classes: HashMap::new(),
+        };
         for f in facts {
             ix.files.insert(&f.file, f);
             for n in &f.nodes {
-                if let Some(p) = &n.parent {
-                    if n.kind == "method" {
-                        ix.children.entry((p.as_str(), n.name.as_str())).or_insert(&n.id);
-                    }
+                if let Some(p) = &n.parent
+                    && n.kind == "method"
+                {
+                    ix.children
+                        .entry((p.as_str(), n.name.as_str()))
+                        .or_insert(&n.id);
                 }
                 if !n.is_module() && n.kind != "test" {
                     ix.by_name
@@ -188,7 +252,12 @@ impl<'f> Index<'f> {
         ix
     }
 
-    fn export(&self, file: &str, name: &ImportName, seen: &mut HashSet<(String, String)>) -> Option<String> {
+    fn export(
+        &self,
+        file: &str,
+        name: &ImportName,
+        seen: &mut HashSet<(String, String)>,
+    ) -> Option<String> {
         let key = match name {
             ImportName::Named(n) => n.as_str(),
             ImportName::Default => "default",
@@ -207,9 +276,13 @@ impl<'f> Index<'f> {
         }
         if key == "default" {
             // A single-file component without an explicit default export is the component itself.
-            return (f.nodes.first().is_some_and(|m| m.kind == "component")).then(|| file.to_string());
+            return (f.nodes.first().is_some_and(|m| m.kind == "component"))
+                .then(|| file.to_string());
         }
-        f.exports.stars.iter().find_map(|spec| self.export(f.resolved.get(spec)?, name, seen))
+        f.exports
+            .stars
+            .iter()
+            .find_map(|spec| self.export(f.resolved.get(spec)?, name, seen))
     }
 
     fn import(&self, f: &FileFacts, spec: &str, name: &ImportName) -> Option<String> {
@@ -228,7 +301,11 @@ impl<'f> Index<'f> {
 
     fn method(&self, class: &str, name: &str, skip_self: bool) -> Option<String> {
         let mut seen = HashSet::new();
-        let mut cur = if skip_self { self.base_of(class)? } else { class.to_string() };
+        let mut cur = if skip_self {
+            self.base_of(class)?
+        } else {
+            class.to_string()
+        };
         loop {
             if !seen.insert(cur.clone()) {
                 return None;
@@ -262,13 +339,32 @@ impl<'f> Index<'f> {
                 Callee::Node(id) => (Some(id.clone()), "resolved"),
                 Callee::Import(spec, n) => (self.import(f, spec, n), "resolved"),
                 Callee::ImportMember(spec, n, prop) => match self.import(f, spec, n) {
-                    Some(t) if self.files.contains_key(t.as_str()) => {
-                        (self.export(&t, &ImportName::named(prop), &mut HashSet::new()), "resolved")
-                    }
-                    _ => (self.by_name.get(prop.as_str()).copied().flatten().map(str::to_string), "guessed"),
+                    Some(t) if self.files.contains_key(t.as_str()) => (
+                        self.export(&t, &ImportName::named(prop), &mut HashSet::new()),
+                        "resolved",
+                    ),
+                    _ => (
+                        self.by_name
+                            .get(prop.as_str())
+                            .copied()
+                            .flatten()
+                            .map(str::to_string),
+                        "guessed",
+                    ),
                 },
-                Callee::Member { class, name, skip_self } => (self.method(class, name, *skip_self), "resolved"),
-                Callee::Guess(name) => (self.by_name.get(name.as_str()).copied().flatten().map(str::to_string), "guessed"),
+                Callee::Member {
+                    class,
+                    name,
+                    skip_self,
+                } => (self.method(class, name, *skip_self), "resolved"),
+                Callee::Guess(name) => (
+                    self.by_name
+                        .get(name.as_str())
+                        .copied()
+                        .flatten()
+                        .map(str::to_string),
+                    "guessed",
+                ),
             };
             if let Some(to) = to {
                 out.push(Edge {

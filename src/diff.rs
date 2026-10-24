@@ -73,7 +73,12 @@ impl GraphDiff {
         for k in be.difference(&he) {
             edges.insert(k.clone(), Status::Removed);
         }
-        GraphDiff { nodes, edges, new_pairs, touched_files }
+        GraphDiff {
+            nodes,
+            edges,
+            new_pairs,
+            touched_files,
+        }
     }
 
     pub fn status(&self, id: &str) -> Status {
@@ -100,12 +105,18 @@ mod tests {
             kind: "function".into(),
             name: id.into(),
             file: "a.ts".into(),
-            range: Range { start_line: 1, end_line: 1 },
+            range: Range {
+                start_line: 1,
+                end_line: 1,
+            },
             parent: None,
             package: None,
             exported: false,
             hash: hash.into(),
-            metrics: Metrics { loc: 1, complexity: 1 },
+            metrics: Metrics {
+                loc: 1,
+                complexity: 1,
+            },
             intents: vec![],
         }
     }

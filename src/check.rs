@@ -80,27 +80,61 @@ pub fn trees(root: &Path, opts: &Opts) -> Result<Trees> {
             bail!("--base/--head need a git repository");
         }
         notices.push("not a git repository: every node counts as added".into());
-        return Ok(Trees { head_root: root.into(), head_commit: None, base: None, repo: None, config: work_cfg, notices, _wt: None });
+        return Ok(Trees {
+            head_root: root.into(),
+            head_commit: None,
+            base: None,
+            repo: None,
+            config: work_cfg,
+            notices,
+            _wt: None,
+        });
     };
     let base = repo.resolve_base(opts.base.as_deref(), &mut notices)?;
     let head_sha = repo.head();
     let (head_root, head_commit, wt, config) = match &opts.head {
         None => (root.to_path_buf(), head_sha, None, work_cfg),
         Some(h) => {
-            let Some(sha) = git::verify(&repo.top, h) else { bail!("--head {h}: not a commit") };
+            let Some(sha) = git::verify(&repo.top, h) else {
+                bail!("--head {h}: not a commit")
+            };
             if Some(&sha) == head_sha.as_ref() && repo.is_clean() {
                 (root.to_path_buf(), Some(sha), None, work_cfg)
             } else {
                 let wt = Worktree::add(&repo, &sha, &git::node_modules_sources(root, &work_cfg))?;
                 let r = wt.root(&repo);
                 // Trust boundary: checkers always come from the working tree's ig.yaml.
-                let mut cfg = if r.is_dir() { Config::load(&r)? } else { Config::default() };
+                let mut cfg = if r.is_dir() {
+                    Config::load(&r)?
+                } else {
+                    Config::default()
+                };
                 cfg.checkers = work_cfg.checkers.clone();
                 (r, Some(sha), Some(wt), cfg)
             }
         }
     };
-    Ok(Trees { head_root, head_commit, base, repo: Some(repo), config, notices, _wt: wt })
+    Ok(Trees {
+        head_root,
+        head_commit,
+        base,
+        repo: Some(repo),
+        config,
+        notices,
+        _wt: wt,
+    })
+}
+
+/// A scoped finding counts if its edge is new, else if its node is added or changed, else if its
+/// file has an added or changed node.
+pub fn in_scope(f: &Finding, diff: &GraphDiff) -> bool {
+    if let Some(e) = &f.edge {
+        return diff.new_pairs.contains(&(e.from.clone(), e.to.clone()));
+    }
+    if let Some(n) = &f.node_id {
+        return diff.is_touched(n);
+    }
+    diff.touched_files.contains(&f.file)
 }
 
 fn snippet(lines: &[&str], line: u32) -> Option<String> {
@@ -112,7 +146,14 @@ fn snippet(lines: &[&str], line: u32) -> Option<String> {
     let w = hi.to_string().len();
     Some(
         (lo..=hi)
-            .map(|i| format!("{} {:>w$} | {}", if i == line { ">" } else { " " }, i, lines[i as usize - 1]))
+            .map(|i| {
+                format!(
+                    "{} {:>w$} | {}",
+                    if i == line { ">" } else { " " },
+                    i,
+                    lines[i as usize - 1]
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n"),
     )
@@ -133,44 +174,64 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
     let tests = workspace::globset(&config.tests)?;
 
     // Intents.
-    let head_intents = intents::parse(&std::fs::read_to_string(t.head_root.join("intents.md")).unwrap_or_default());
+    let head_intents = intents::parse(
+        &std::fs::read_to_string(t.head_root.join("intents.md")).unwrap_or_default(),
+    );
     let base_intents = match (&t.repo, &t.base) {
-        (Some(repo), Some(sha)) => intents::parse(&repo.show(sha, "intents.md").unwrap_or_default()),
+        (Some(repo), Some(sha)) => {
+            intents::parse(&repo.show(sha, "intents.md").unwrap_or_default())
+        }
         _ => vec![],
     };
     let intent_changes = intents::changes(&base_intents, &head_intents);
     let scope: BTreeSet<String> = if opts.all {
         head_intents.iter().map(|i| i.id.clone()).collect()
     } else {
-        intent_changes.iter().filter(|c| c.status != Status::Removed).map(|c| c.id.clone()).collect()
+        intent_changes
+            .iter()
+            .filter(|c| c.status != Status::Removed)
+            .map(|c| c.id.clone())
+            .collect()
     };
 
     // Scoped findings.
     let mut scoped = checks::arch(&head, &config, &packages);
-    scoped.extend(checks::complexity(&head, base_graph.as_ref(), &diff, &config));
+    scoped.extend(checks::complexity(
+        &head,
+        base_graph.as_ref(),
+        &diff,
+        &config,
+    ));
     let ch = checks::checkers(&t.head_root, &config, &head);
     scoped.extend(ch.findings);
-    let in_scope = |f: &Finding| -> bool {
-        if let Some(e) = &f.edge {
-            return diff.new_pairs.contains(&(e.from.clone(), e.to.clone()));
-        }
-        if let Some(n) = &f.node_id {
-            return diff.is_touched(n);
-        }
-        diff.touched_files.contains(&f.file)
-    };
-    let mut findings: Vec<Finding> = scoped.into_iter().filter(|f| opts.all || in_scope(f)).collect();
+    let mut findings: Vec<Finding> = scoped
+        .into_iter()
+        .filter(|f| opts.all || in_scope(f, &diff))
+        .collect();
 
     // Always-on findings.
     for e in &head.parse_errors {
-        findings.push(Finding::new("ig/parse-error", Severity::Warning, "ig", &e.file, 1, e.message.clone()));
+        findings.push(Finding::new(
+            "ig/parse-error",
+            Severity::Warning,
+            "ig",
+            &e.file,
+            1,
+            e.message.clone(),
+        ));
     }
     findings.extend(ch.errors);
     findings.extend(checks::intents(&head, &head_intents, &scope, &tests));
-    let mut fingerprinted: Vec<Finding> = findings.into_iter().map(Finding::fingerprinted).collect();
+    let mut fingerprinted: Vec<Finding> =
+        findings.into_iter().map(Finding::fingerprinted).collect();
     if let Some(b) = &base_graph {
         let eps = workspace::globset(&config.entry_points)?;
-        let ctx = review::Ctx { config: &config, tests: &tests, packages: &packages, entry_points: &eps };
+        let ctx = review::Ctx {
+            config: &config,
+            tests: &tests,
+            packages: &packages,
+            entry_points: &eps,
+        };
         fingerprinted.extend(review::regressions(b, &head, &ctx));
     }
 
@@ -185,15 +246,28 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
         if baseline.contains(&f.fingerprint) {
             continue;
         }
-        let text = files
-            .entry(f.file.clone())
-            .or_insert_with(|| std::fs::read_to_string(t.head_root.join(&f.file)).unwrap_or_default());
+        let text = files.entry(f.file.clone()).or_insert_with(|| {
+            std::fs::read_to_string(t.head_root.join(&f.file)).unwrap_or_default()
+        });
         let lines: Vec<&str> = text.lines().collect();
         f.snippet = snippet(&lines, f.line);
         out.push(f);
     }
     out.sort_by(|a, b| {
-        (std::cmp::Reverse(a.severity), &a.file, a.line, &a.rule_id, &a.message).cmp(&(std::cmp::Reverse(b.severity), &b.file, b.line, &b.rule_id, &b.message))
+        (
+            std::cmp::Reverse(a.severity),
+            &a.file,
+            a.line,
+            &a.rule_id,
+            &a.message,
+        )
+            .cmp(&(
+                std::cmp::Reverse(b.severity),
+                &b.file,
+                b.line,
+                &b.rule_id,
+                &b.message,
+            ))
     });
     let blocking = out.iter().any(|f| f.severity >= config.block_on);
     for n in &notices {
@@ -215,13 +289,31 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
             removed: diff.count(Status::Removed),
             unchanged: diff.count(Status::Unchanged),
         },
-        changes: diff.nodes.iter().filter(|(_, s)| **s != Status::Unchanged).map(|(k, v)| (k.clone(), *v)).collect(),
-        edge_changes: diff.edges.iter().filter(|(_, s)| **s != Status::Unchanged).map(|(k, v)| (k.clone(), *v)).collect(),
+        changes: diff
+            .nodes
+            .iter()
+            .filter(|(_, s)| **s != Status::Unchanged)
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
+        edge_changes: diff
+            .edges
+            .iter()
+            .filter(|(_, s)| **s != Status::Unchanged)
+            .map(|(k, v)| (k.clone(), *v))
+            .collect(),
         findings: out,
         graph: head,
     };
     write_state(root, &result)?;
-    Ok(Run { result, base_graph, diff, config, packages, repo: t.repo, intents: head_intents })
+    Ok(Run {
+        result,
+        base_graph,
+        diff,
+        config,
+        packages,
+        repo: t.repo,
+        intents: head_intents,
+    })
 }
 
 pub fn write_state(root: &Path, r: &CheckResult) -> Result<()> {
@@ -248,7 +340,10 @@ pub fn summary_text(r: &CheckResult) -> String {
         }
     }
     let c = &r.counts;
-    s.push_str(&format!("nodes: {} added, {} changed, {} removed, {} unchanged\n", c.added, c.changed, c.removed, c.unchanged));
+    s.push_str(&format!(
+        "nodes: {} added, {} changed, {} removed, {} unchanged\n",
+        c.added, c.changed, c.removed, c.unchanged
+    ));
     if r.findings.is_empty() {
         s.push_str("no findings\n");
     }
@@ -259,21 +354,43 @@ pub fn summary_text(r: &CheckResult) -> String {
         }
         s.push_str(&format!("{}s ({}):\n", sev.as_str(), fs.len()));
         for f in fs {
-            s.push_str(&format!("  {}:{}  {}  {}\n", f.file, f.line, f.rule_id, f.message));
+            s.push_str(&format!(
+                "  {}:{}  {}  {}\n",
+                f.file, f.line, f.rule_id, f.message
+            ));
         }
     }
     s
 }
 
 pub fn agent_text(r: &CheckResult, block_on: Severity) -> String {
-    let blocking: Vec<&Finding> = r.findings.iter().filter(|f| f.severity >= block_on).collect();
+    let blocking: Vec<&Finding> = r
+        .findings
+        .iter()
+        .filter(|f| f.severity >= block_on)
+        .collect();
     if blocking.is_empty() {
-        let w = r.findings.iter().filter(|f| f.severity == Severity::Warning).count();
+        let w = r
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .count();
         return format!("ig check: no blocking findings ({w} warnings)\n");
     }
-    let mut s = format!("ig check: {} blocking finding{}\n\n", blocking.len(), if blocking.len() == 1 { "" } else { "s" });
+    let mut s = format!(
+        "ig check: {} blocking finding{}\n\n",
+        blocking.len(),
+        if blocking.len() == 1 { "" } else { "s" }
+    );
     for f in blocking {
-        s.push_str(&format!("{}:{} {} [{}] {}\n", f.file, f.line, f.severity.as_str(), f.rule_id, f.message));
+        s.push_str(&format!(
+            "{}:{} {} [{}] {}\n",
+            f.file,
+            f.line,
+            f.severity.as_str(),
+            f.rule_id,
+            f.message
+        ));
         if let Some(sn) = &f.snippet {
             s.push_str(sn);
             s.push('\n');
@@ -289,11 +406,19 @@ pub fn agent_text(r: &CheckResult, block_on: Severity) -> String {
 
 pub fn diff_text(r: &CheckResult, base: Option<&Graph>) -> String {
     let mut by_file: BTreeMap<&str, Vec<(Status, &str, &str)>> = BTreeMap::new();
-    let lookup: HashMap<&str, &crate::model::Node> =
-        r.graph.nodes.iter().chain(base.map(|b| b.nodes.iter()).into_iter().flatten()).map(|n| (n.id.as_str(), n)).collect();
+    let lookup: HashMap<&str, &crate::model::Node> = r
+        .graph
+        .nodes
+        .iter()
+        .chain(base.map(|b| b.nodes.iter()).into_iter().flatten())
+        .map(|n| (n.id.as_str(), n))
+        .collect();
     for (id, s) in &r.changes {
         if let Some(n) = lookup.get(id.as_str()) {
-            by_file.entry(&n.file).or_default().push((*s, &n.name, &n.kind));
+            by_file
+                .entry(&n.file)
+                .or_default()
+                .push((*s, &n.name, &n.kind));
         }
     }
     if by_file.is_empty() {
@@ -313,6 +438,61 @@ pub fn diff_text(r: &CheckResult, base: Option<&Graph>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scoping() {
+        use crate::model::{Edge, Metrics, Node, Range};
+        let node = |id: &str, file: &str, hash: &str| Node {
+            id: id.into(),
+            kind: "function".into(),
+            name: id.into(),
+            file: file.into(),
+            range: Range {
+                start_line: 1,
+                end_line: 1,
+            },
+            parent: None,
+            package: None,
+            exported: false,
+            hash: hash.into(),
+            metrics: Metrics {
+                loc: 1,
+                complexity: 1,
+            },
+            intents: vec![],
+        };
+        let edge = |f: &str, t: &str| Edge {
+            from: f.into(),
+            to: t.into(),
+            kind: "calls".into(),
+            confidence: "resolved".into(),
+            file: "a.ts".into(),
+            line: 1,
+            namespace: false,
+            reexport: false,
+        };
+        let mut base = Graph::empty();
+        base.nodes = vec![
+            node("a", "a.ts", "1"),
+            node("b", "b.ts", "1"),
+            node("c", "c.ts", "1"),
+        ];
+        base.edges = vec![edge("a", "b")];
+        let mut head = base.clone();
+        head.nodes[1].hash = "2".into();
+        head.edges.push(edge("c", "a"));
+        let d = GraphDiff::new(Some(&base), &head);
+        let f = |file: &str| Finding::new("r", Severity::Error, "t", file, 1, "m".into());
+        assert!(in_scope(&f("a.ts").edge("c", "a"), &d), "new edge");
+        assert!(
+            !in_scope(&f("b.ts").node("b").edge("a", "b"), &d),
+            "old edge wins over changed node"
+        );
+        assert!(in_scope(&f("b.ts").node("b"), &d), "changed node");
+        assert!(!in_scope(&f("a.ts").node("a"), &d), "unchanged node");
+        assert!(in_scope(&f("b.ts"), &d), "file with a changed node");
+        assert!(!in_scope(&f("c.ts"), &d), "untouched file");
+    }
 
     #[test]
     fn snippet_marks_line() {

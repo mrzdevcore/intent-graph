@@ -4,10 +4,13 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-static SCRIPT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<script\b([^>]*)>(.*?)</script\s*>").unwrap());
-static LANG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)\blang\s*=\s*["']?(tsx?)["']?"#).unwrap());
+static SCRIPT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<script\b([^>]*)>(.*?)</script\s*>").unwrap());
+static LANG: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)\blang\s*=\s*["']?(tsx?)["']?"#).unwrap());
 static MASK: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?is)<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>|<!--.*?-->").unwrap()
+    Regex::new(r"(?is)<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>|<!--.*?-->")
+        .unwrap()
 });
 static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<([A-Za-z][\w.-]*)[\s/>]").unwrap());
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z_$][\w$]*").unwrap());
@@ -37,7 +40,9 @@ pub fn extract_script(src: &str) -> Script {
             tsx |= l[1].eq_ignore_ascii_case("tsx");
         }
         let body = c.get(2).unwrap();
-        keep[body.start()..body.end()].iter_mut().for_each(|k| *k = true);
+        keep[body.start()..body.end()]
+            .iter_mut()
+            .for_each(|k| *k = true);
     }
     for (b, k) in out.iter_mut().zip(&keep) {
         if !*k && *b != b'\n' && *b != b'\r' {
@@ -91,7 +96,9 @@ pub fn pascal(tag: &str) -> String {
     tag.split('-')
         .map(|p| {
             let mut c = p.chars();
-            c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default()
+            c.next()
+                .map(|f| f.to_uppercase().chain(c).collect::<String>())
+                .unwrap_or_default()
         })
         .collect()
 }
@@ -111,9 +118,16 @@ mod tests {
         assert!(!s.source.contains("template"));
         let refs = scan_markup(src);
         assert!(refs.contains(&(MarkupRef::Tag("MyBtn".into()), 14)));
-        assert!(refs.iter().any(|(r, _)| *r == MarkupRef::Tag("x-card".into())));
+        assert!(
+            refs.iter()
+                .any(|(r, _)| *r == MarkupRef::Tag("x-card".into()))
+        );
         assert!(refs.iter().any(|(r, _)| *r == MarkupRef::Word("go".into())));
-        assert!(!refs.iter().any(|(r, _)| *r == MarkupRef::Word("import".into())));
+        assert!(
+            !refs
+                .iter()
+                .any(|(r, _)| *r == MarkupRef::Word("import".into()))
+        );
         assert_eq!(pascal("x-card"), "XCard");
     }
 }

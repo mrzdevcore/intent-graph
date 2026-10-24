@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "toolVersion": null,
+  "commit": null,
+  "nodes": [
+    {
+      "id": "src/a/one.ts",
+      "kind": "module",
+      "name": "one.ts",
+      "file": "src/a/one.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 2
+      },
+      "package": "cycle",
+      "hash": "70ff627abd7ecbe709a9d0980e98bba6471ea640",
+      "metrics": {
+        "loc": 2,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "src/a/one.ts#one",
+      "kind": "function",
+      "name": "one",
+      "file": "src/a/one.ts",
+      "range": {
+        "startLine": 2,
+        "endLine": 2
+      },
+      "parent": "src/a/one.ts",
+      "package": "cycle",
+      "exported": true,
+      "hash": "658c4cfb4c229d6b658505327f1d0c80afcc7576",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "src/b/two.ts",
+      "kind": "module",
+      "name": "two.ts",
+      "file": "src/b/two.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 3
+      },
+      "package": "cycle",
+      "hash": "f3e0ba471492fd1e8a9908c721d2acd6a70c95e6",
+      "metrics": {
+        "loc": 3,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "src/b/two.ts#back",
+      "kind": "function",
+      "name": "back",
+      "file": "src/b/two.ts",
+      "range": {
+        "startLine": 3,
+        "endLine": 3
+      },
+      "parent": "src/b/two.ts",
+      "package": "cycle",
+      "exported": true,
+      "hash": "f153f0252b6d7e02616b6f5b9f927071117961b1",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "src/b/two.ts#two",
+      "kind": "function",
+      "name": "two",
+      "file": "src/b/two.ts",
+      "range": {
+        "startLine": 2,
+        "endLine": 2
+      },
+      "parent": "src/b/two.ts",
+      "package": "cycle",
+      "exported": true,
+      "hash": "beb1c4bd1eff2ab3bb9f7d4529582be73aac0b54",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "src/main.ts",
+      "kind": "module",
+      "name": "main.ts",
+      "file": "src/main.ts",
+      "range": {
+        "startLine": 1,
+        "endLine": 2
+      },
+      "package": "cycle",
+      "hash": "533fb922d86e8b0995bad41b3b363c21f0540a8d",
+      "metrics": {
+        "loc": 2,
+        "complexity": 1
+      },
+      "intents": []
+    },
+    {
+      "id": "src/main.ts#main",
+      "kind": "function",
+      "name": "main",
+      "file": "src/main.ts",
+      "range": {
+        "startLine": 2,
+        "endLine": 2
+      },
+      "parent": "src/main.ts",
+      "package": "cycle",
+      "exported": true,
+      "hash": "2c8a1fd17e53d7a9a387a7ff64f5d5546f20d040",
+      "metrics": {
+        "loc": 1,
+        "complexity": 1
+      },
+      "intents": []
+    }
+  ],
+  "edges": [
+    {
+      "from": "src/a/one.ts",
+      "to": "src/b/two.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "src/a/one.ts",
+      "line": 1
+    },
+    {
+      "from": "src/a/one.ts#one",
+      "to": "src/b/two.ts#two",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "src/a/one.ts",
+      "line": 2
+    },
+    {
+      "from": "src/b/two.ts",
+      "to": "src/a/one.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "src/b/two.ts",
+      "line": 1
+    },
+    {
+      "from": "src/b/two.ts#back",
+      "to": "src/a/one.ts#one",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "src/b/two.ts",
+      "line": 3
+    },
+    {
+      "from": "src/main.ts",
+      "to": "src/b/two.ts",
+      "kind": "imports",
+      "confidence": "resolved",
+      "file": "src/main.ts",
+      "line": 1
+    },
+    {
+      "from": "src/main.ts#main",
+      "to": "src/b/two.ts#back",
+      "kind": "calls",
+      "confidence": "resolved",
+      "file": "src/main.ts",
+      "line": 2
+    }
+  ],
+  "parseErrors": []
+}

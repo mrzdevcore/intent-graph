@@ -1,6 +1,6 @@
 # `ig` (intent-graph) in Rust: design
 
-Date: 2026-10-24. Status: draft. No implementation yet.
+Date: 2026-10-24. Status: implemented (v0.1.0).
 
 ## Intent
 

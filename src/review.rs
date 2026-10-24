@@ -27,6 +27,12 @@ pub struct ModuleGraph<'g> {
     pub nodes: HashMap<&'g str, &'g Node>,
     pub dir: HashMap<&'g str, String>,
     pub source_roots: HashSet<String>,
+    /// parent id → child nodes
+    pub children: HashMap<&'g str, Vec<&'g Node>>,
+    /// file → nodes
+    pub by_file: HashMap<&'g str, Vec<&'g Node>>,
+    /// file of `to` → non-import edges into it
+    pub into_file: HashMap<&'g str, Vec<&'g crate::model::Edge>>,
 }
 
 const USES: [&str; 4] = ["calls", "renders", "extends", "implements"];
@@ -34,8 +40,12 @@ const USES: [&str; 4] = ["calls", "renders", "extends", "implements"];
 impl<'g> ModuleGraph<'g> {
     pub fn new(graph: &'g Graph, ctx: &Ctx) -> ModuleGraph<'g> {
         let nodes: HashMap<&str, &Node> = graph.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-        let modules: Vec<&str> =
-            graph.nodes.iter().filter(|n| n.is_module() && !ctx.tests.is_match(&n.file)).map(|n| n.id.as_str()).collect();
+        let modules: Vec<&str> = graph
+            .nodes
+            .iter()
+            .filter(|n| n.is_module() && !ctx.tests.is_match(&n.file))
+            .map(|n| n.id.as_str())
+            .collect();
         let mset: HashSet<&str> = modules.iter().copied().collect();
         let mut mg = ModuleGraph {
             graph,
@@ -47,7 +57,21 @@ impl<'g> ModuleGraph<'g> {
             nodes,
             dir: HashMap::new(),
             source_roots: HashSet::new(),
+            children: HashMap::new(),
+            by_file: HashMap::new(),
+            into_file: HashMap::new(),
         };
+        for n in &graph.nodes {
+            if let Some(p) = &n.parent {
+                mg.children.entry(p.as_str()).or_default().push(n);
+            }
+            mg.by_file.entry(n.file.as_str()).or_default().push(n);
+        }
+        for e in graph.edges.iter().filter(|e| e.kind != "imports") {
+            if let Some(t) = mg.nodes.get(e.to.as_str()) {
+                mg.into_file.entry(t.file.as_str()).or_default().push(e);
+            }
+        }
         for m in &modules {
             mg.out.insert(m, BTreeSet::new());
             mg.inn.insert(m, BTreeSet::new());
@@ -55,7 +79,10 @@ impl<'g> ModuleGraph<'g> {
             mg.use_in.insert(m, BTreeSet::new());
         }
         for e in graph.edges.iter().filter(|e| e.resolved()) {
-            let (Some(f), Some(t)) = (mg.nodes.get(e.from.as_str()), mg.nodes.get(e.to.as_str())) else { continue };
+            let (Some(f), Some(t)) = (mg.nodes.get(e.from.as_str()), mg.nodes.get(e.to.as_str()))
+            else {
+                continue;
+            };
             let (f, t) = (f.file.as_str(), t.file.as_str());
             if f == t || !mset.contains(f) || !mset.contains(t) {
                 continue;
@@ -83,7 +110,11 @@ impl<'g> ModuleGraph<'g> {
                 .find(|(d, _)| d == "." || m.starts_with(&format!("{d}/")))
                 .map(|(_, r)| r.clone())
                 .unwrap_or_else(|| ".".into());
-            let rest = if root == "." { m.to_string() } else { m.strip_prefix(&format!("{root}/")).unwrap_or(m).to_string() };
+            let rest = if root == "." {
+                m.to_string()
+            } else {
+                m.strip_prefix(&format!("{root}/")).unwrap_or(m).to_string()
+            };
             let d = match rest.split_once('/') {
                 Some((seg, _)) => crate::workspace::join(&root, seg),
                 None => root.clone(),
@@ -99,8 +130,17 @@ impl<'g> ModuleGraph<'g> {
 
     /// Strongly connected components of size ≥ 2 over `out` (iterative Tarjan), each sorted.
     pub fn sccs(&self) -> Vec<Vec<&'g str>> {
-        let idx: HashMap<&str, usize> = self.modules.iter().enumerate().map(|(i, m)| (*m, i)).collect();
-        let adj: Vec<Vec<usize>> = self.modules.iter().map(|m| self.out[m].iter().map(|t| idx[t]).collect()).collect();
+        let idx: HashMap<&str, usize> = self
+            .modules
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (*m, i))
+            .collect();
+        let adj: Vec<Vec<usize>> = self
+            .modules
+            .iter()
+            .map(|m| self.out[m].iter().map(|t| idx[t]).collect())
+            .collect();
         tarjan(&adj)
             .into_iter()
             .filter(|c| c.len() >= 2)
@@ -143,8 +183,12 @@ impl<'g> ModuleGraph<'g> {
 
     /// Hub thresholds (fan-in, fan-out) over active modules.
     pub fn hub_thresholds(&self, r: &ReviewConfig) -> (usize, usize) {
-        let active: Vec<&str> =
-            self.modules.iter().copied().filter(|m| !self.use_in[m].is_empty() || !self.use_out[m].is_empty()).collect();
+        let active: Vec<&str> = self
+            .modules
+            .iter()
+            .copied()
+            .filter(|m| !self.use_in[m].is_empty() || !self.use_out[m].is_empty())
+            .collect();
         let pct = |mut v: Vec<usize>| -> usize {
             if v.is_empty() {
                 return r.hub_min;
@@ -153,11 +197,18 @@ impl<'g> ModuleGraph<'g> {
             let i = ((r.hub_percentile * v.len() as f64).ceil() as usize).clamp(1, v.len()) - 1;
             v[i].max(r.hub_min)
         };
-        (pct(active.iter().map(|m| self.use_in[m].len()).collect()), pct(active.iter().map(|m| self.use_out[m].len()).collect()))
+        (
+            pct(active.iter().map(|m| self.use_in[m].len()).collect()),
+            pct(active.iter().map(|m| self.use_out[m].len()).collect()),
+        )
     }
 
     pub fn hubs(&self, th: (usize, usize)) -> Vec<&'g str> {
-        self.modules.iter().copied().filter(|m| self.use_in[m].len() >= th.0 && self.use_out[m].len() >= th.1).collect()
+        self.modules
+            .iter()
+            .copied()
+            .filter(|m| self.use_in[m].len() >= th.0 && self.use_out[m].len() >= th.1)
+            .collect()
     }
 
     fn top_level(&self, id: &'g str) -> Option<&'g str> {
@@ -175,10 +226,11 @@ impl<'g> ModuleGraph<'g> {
     /// Cohesion: (members, jobs) of module `m`.
     pub fn cohesion(&self, m: &str, ctx: &Ctx) -> (usize, usize) {
         let members: Vec<&str> = self
-            .graph
-            .nodes
-            .iter()
-            .filter(|n| n.parent.as_deref() == Some(m) && n.kind != "test")
+            .children
+            .get(m)
+            .into_iter()
+            .flatten()
+            .filter(|n| n.kind != "test")
             .map(|n| n.id.as_str())
             .collect();
         if members.len() < 2 {
@@ -186,7 +238,7 @@ impl<'g> ModuleGraph<'g> {
         }
         let ix: HashMap<&str, usize> = members.iter().enumerate().map(|(i, x)| (*x, i)).collect();
         let mut uf: Vec<usize> = (0..members.len()).collect();
-        fn find(uf: &mut Vec<usize>, x: usize) -> usize {
+        fn find(uf: &mut [usize], x: usize) -> usize {
             let mut r = x;
             while uf[r] != r {
                 r = uf[r];
@@ -200,12 +252,16 @@ impl<'g> ModuleGraph<'g> {
             r
         }
         let mut callers: HashMap<&str, usize> = HashMap::new();
-        for e in &self.graph.edges {
-            if e.kind == "imports" || e.from == m {
+        for e in self.into_file.get(m).into_iter().flatten() {
+            if e.from == m {
                 continue;
             }
-            let Some(to) = self.top_level(&e.to).filter(|t| ix.contains_key(t)) else { continue };
-            let Some(from_node) = self.nodes.get(e.from.as_str()) else { continue };
+            let Some(to) = self.top_level(&e.to).filter(|t| ix.contains_key(t)) else {
+                continue;
+            };
+            let Some(from_node) = self.nodes.get(e.from.as_str()) else {
+                continue;
+            };
             if from_node.file == m {
                 if let Some(f) = self.top_level(&e.from).filter(|f| ix.contains_key(f)) {
                     let (a, b) = (find(&mut uf, ix[f]), find(&mut uf, ix[to]));
@@ -310,7 +366,16 @@ pub fn fingerprint(rule: &str, modules: &[String]) -> String {
     sha1_hex(&format!("{rule}|{}", m.join(",")))
 }
 
-fn item(mg: &ModuleGraph, rule: &str, affected: usize, modules: Vec<String>, title: String, evidence: String, why: &str, fix: &str) -> ReviewItem {
+fn item(
+    mg: &ModuleGraph,
+    rule: &str,
+    affected: usize,
+    modules: Vec<String>,
+    title: String,
+    evidence: String,
+    why: &str,
+    fix: &str,
+) -> ReviewItem {
     let mut modules = modules;
     modules.sort();
     modules.dedup();
@@ -366,7 +431,10 @@ pub fn review(graph: &Graph, ctx: &Ctx, root: &Path) -> Vec<ReviewItem> {
             i + o,
             vec![h.to_string()],
             format!("{h} is a hub"),
-            format!("used by {i} modules and uses {o} (thresholds {} / {})", th.0, th.1),
+            format!(
+                "used by {i} modules and uses {o} (thresholds {} / {})",
+                th.0, th.1
+            ),
             "A module that many depend on and that depends on many spreads every change.",
             "Split it by job, so callers depend only on the part they use.",
         ));
@@ -387,7 +455,10 @@ pub fn review(graph: &Graph, ctx: &Ctx, root: &Path) -> Vec<ReviewItem> {
         }
     }
     let inst = |d: &str| -> f64 {
-        let (i, o) = (*dir_in.get(d).unwrap_or(&0) as f64, *dir_out.get(d).unwrap_or(&0) as f64);
+        let (i, o) = (
+            *dir_in.get(d).unwrap_or(&0) as f64,
+            *dir_out.get(d).unwrap_or(&0) as f64,
+        );
         if i + o == 0.0 { 0.0 } else { o / (i + o) }
     };
     for ((a, b), es) in &dir_edges {
@@ -395,7 +466,10 @@ pub fn review(graph: &Graph, ctx: &Ctx, root: &Path) -> Vec<ReviewItem> {
             continue;
         }
         if inst(b) >= inst(a) + r.instability_gap {
-            let mods: Vec<String> = es.iter().flat_map(|(f, t)| [f.to_string(), t.to_string()]).collect();
+            let mods: Vec<String> = es
+                .iter()
+                .flat_map(|(f, t)| [f.to_string(), t.to_string()])
+                .collect();
             items.push(item(
                 &mg,
                 "struct/unstable-dependency",
@@ -441,10 +515,10 @@ pub fn review(graph: &Graph, ctx: &Ctx, root: &Path) -> Vec<ReviewItem> {
     // Oversized.
     for m in &mg.modules {
         let n = mg.nodes[m];
-        let big: Vec<&Node> = graph
-            .nodes
+        let big: Vec<&Node> = mg.by_file[n.file.as_str()]
             .iter()
-            .filter(|x| x.file == n.file && !x.is_module() && x.metrics.complexity as usize >= r.oversized_complexity)
+            .copied()
+            .filter(|x| !x.is_module() && x.metrics.complexity as usize >= r.oversized_complexity)
             .collect();
         if n.metrics.loc as usize >= r.oversized_loc || !big.is_empty() {
             let mut ev = vec![];
@@ -452,7 +526,10 @@ pub fn review(graph: &Graph, ctx: &Ctx, root: &Path) -> Vec<ReviewItem> {
                 ev.push(format!("{} lines", n.metrics.loc));
             }
             for b in big.iter().take(3) {
-                ev.push(format!("{} has complexity {}", b.name, b.metrics.complexity));
+                ev.push(format!(
+                    "{} has complexity {}",
+                    b.name, b.metrics.complexity
+                ));
             }
             items.push(item(
                 &mg,
@@ -467,7 +544,12 @@ pub fn review(graph: &Graph, ctx: &Ctx, root: &Path) -> Vec<ReviewItem> {
         }
     }
 
-    items.sort_by(|a, b| b.score.cmp(&a.score).then(b.fan_in.cmp(&a.fan_in)).then(a.fingerprint.cmp(&b.fingerprint)));
+    items.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then(b.fan_in.cmp(&a.fan_in))
+            .then(a.fingerprint.cmp(&b.fingerprint))
+    });
     items
 }
 
@@ -509,7 +591,11 @@ fn layer_cycles(mg: &ModuleGraph, ctx: &Ctx) -> Vec<ReviewItem> {
     let mut out = vec![];
     for comp in tarjan(&adj).into_iter().filter(|c| c.len() >= 2) {
         let set: HashSet<usize> = comp.iter().copied().collect();
-        let dirs: Vec<(usize, usize)> = edges.keys().copied().filter(|(a, b)| set.contains(a) && set.contains(b)).collect();
+        let dirs: Vec<(usize, usize)> = edges
+            .keys()
+            .copied()
+            .filter(|(a, b)| set.contains(a) && set.contains(b))
+            .collect();
         let cnt = |d: &(usize, usize)| edges[d].len();
         // Back edges: in each two-way pair the cheaper direction (tie: later-declared source layer).
         let mut back: Vec<(usize, usize)> = vec![];
@@ -521,10 +607,10 @@ fn layer_cycles(mg: &ModuleGraph, ctx: &Ctx) -> Vec<ReviewItem> {
                 }
             }
         }
-        if back.is_empty() {
-            if let Some(w) = dirs.iter().min_by_key(|d| (cnt(d), std::cmp::Reverse(d.0))) {
-                back.push(*w);
-            }
+        if back.is_empty()
+            && let Some(w) = dirs.iter().min_by_key(|d| (cnt(d), std::cmp::Reverse(d.0)))
+        {
+            back.push(*w);
         }
         let mut sorted = dirs.clone();
         sorted.sort_by_key(|d| (!back.contains(d), cnt(d), *d));
@@ -533,12 +619,23 @@ fn layer_cycles(mg: &ModuleGraph, ctx: &Ctx) -> Vec<ReviewItem> {
         let ev: Vec<String> = shown
             .iter()
             .map(|d| {
-                let ex: Vec<String> = edges[d].iter().take(3).map(|(f, t)| {
-                    modules.push(f.to_string());
-                    modules.push(t.to_string());
-                    format!("{f} → {t}")
-                }).collect();
-                format!("{} → {} ({} edges{}): {}", names[d.0], names[d.1], cnt(d), if back.contains(d) { ", back edge" } else { "" }, ex.join(", "))
+                let ex: Vec<String> = edges[d]
+                    .iter()
+                    .take(3)
+                    .map(|(f, t)| {
+                        modules.push(f.to_string());
+                        modules.push(t.to_string());
+                        format!("{f} → {t}")
+                    })
+                    .collect();
+                format!(
+                    "{} → {} ({} edges{}): {}",
+                    names[d.0],
+                    names[d.1],
+                    cnt(d),
+                    if back.contains(d) { ", back edge" } else { "" },
+                    ex.join(", ")
+                )
             })
             .collect();
         let mut lnames: Vec<&str> = comp.iter().map(|i| names[*i]).collect();
@@ -560,12 +657,28 @@ fn layer_cycles(mg: &ModuleGraph, ctx: &Ctx) -> Vec<ReviewItem> {
 
 fn change_coupling(mg: &ModuleGraph, r: &ReviewConfig, root: &Path) -> Vec<ReviewItem> {
     let n = r.history_commits.to_string();
-    let Ok(log) = crate::git::git(root, &["log", "--relative", "--name-only", "--format=%x00", "-n", &n]) else { return vec![] };
+    let Ok(log) = crate::git::git(
+        root,
+        &[
+            "log",
+            "--relative",
+            "--name-only",
+            "--format=%x00",
+            "-n",
+            &n,
+        ],
+    ) else {
+        return vec![];
+    };
     let mods: HashSet<&str> = mg.modules.iter().copied().collect();
     let mut changes: HashMap<&str, usize> = HashMap::new();
     let mut pairs: HashMap<(&str, &str), usize> = HashMap::new();
     for commit in log.split('\0') {
-        let files: Vec<&str> = commit.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        let files: Vec<&str> = commit
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
         if files.len() > 50 {
             continue;
         }
@@ -610,23 +723,49 @@ fn unused_exports(mg: &ModuleGraph, ctx: &Ctx) -> Vec<ReviewItem> {
     let g = mg.graph;
     // Skip package entries and everything they re-export (transitively), and entryPoints.
     let mut skip: HashSet<&str> = HashSet::new();
-    let mut q: Vec<&str> = ctx.packages.iter().filter_map(|p| p.source_entry.as_deref()).collect();
-    q.extend(mg.modules.iter().copied().filter(|m| ctx.entry_points.is_match(m)));
+    let mut q: Vec<&str> = ctx
+        .packages
+        .iter()
+        .filter_map(|p| p.source_entry.as_deref())
+        .collect();
+    q.extend(
+        mg.modules
+            .iter()
+            .copied()
+            .filter(|m| ctx.entry_points.is_match(m)),
+    );
+    let mut reexports: HashMap<&str, Vec<&str>> = HashMap::new();
+    for e in g.edges.iter().filter(|e| e.kind == "imports" && e.reexport) {
+        reexports
+            .entry(e.from.as_str())
+            .or_default()
+            .push(e.to.as_str());
+    }
     while let Some(m) = q.pop() {
-        if !skip.insert(m) {
-            continue;
-        }
-        for e in g.edges.iter().filter(|e| e.from == m && e.kind == "imports" && e.reexport) {
-            q.push(&e.to);
+        if skip.insert(m) {
+            q.extend(reexports.get(m).into_iter().flatten());
         }
     }
-    let ns_imported: HashSet<&str> = g.edges.iter().filter(|e| e.kind == "imports" && e.namespace).map(|e| e.to.as_str()).collect();
-    let is_test = |id: &str| mg.nodes.get(id).is_some_and(|n| n.kind == "test" || ctx.tests.is_match(&n.file));
+    let ns_imported: HashSet<&str> = g
+        .edges
+        .iter()
+        .filter(|e| e.kind == "imports" && e.namespace)
+        .map(|e| e.to.as_str())
+        .collect();
+    let is_test = |id: &str| {
+        mg.nodes
+            .get(id)
+            .is_some_and(|n| n.kind == "test" || ctx.tests.is_match(&n.file))
+    };
     let mut used: HashSet<&str> = HashSet::new();
     let mut test_used: HashSet<&str> = HashSet::new();
     for e in g.edges.iter().filter(|e| USES.contains(&e.kind.as_str())) {
-        let Some(to) = mg.top_level(&e.to) else { continue };
-        let (Some(fnode), Some(tnode)) = (mg.nodes.get(e.from.as_str()), mg.nodes.get(to)) else { continue };
+        let Some(to) = mg.top_level(&e.to) else {
+            continue;
+        };
+        let (Some(fnode), Some(tnode)) = (mg.nodes.get(e.from.as_str()), mg.nodes.get(to)) else {
+            continue;
+        };
         if fnode.file == tnode.file {
             continue;
         }
@@ -641,16 +780,23 @@ fn unused_exports(mg: &ModuleGraph, ctx: &Ctx) -> Vec<ReviewItem> {
         if skip.contains(m) || ns_imported.contains(m) {
             continue;
         }
-        let unused: Vec<&Node> = g
-            .nodes
-            .iter()
-            .filter(|n| n.parent.as_deref() == Some(m) && n.exported && !used.contains(n.id.as_str()))
+        let unused: Vec<&Node> = mg
+            .children
+            .get(m)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|n| n.exported && !used.contains(n.id.as_str()))
             .collect();
         if unused.is_empty() {
             continue;
         }
         let names: Vec<&str> = unused.iter().map(|n| n.name.as_str()).collect();
-        let tests_only: Vec<&str> = unused.iter().filter(|n| test_used.contains(n.id.as_str())).map(|n| n.name.as_str()).collect();
+        let tests_only: Vec<&str> = unused
+            .iter()
+            .filter(|n| test_used.contains(n.id.as_str()))
+            .map(|n| n.name.as_str())
+            .collect();
         let mut ev = format!("unused: {}", names.join(", "));
         if !tests_only.is_empty() {
             ev.push_str(&format!("; used only by tests: {}", tests_only.join(", ")));
@@ -660,7 +806,11 @@ fn unused_exports(mg: &ModuleGraph, ctx: &Ctx) -> Vec<ReviewItem> {
             "struct/unused-export",
             unused.len(),
             vec![m.to_string()],
-            format!("{m} exports {} unused symbol{}", unused.len(), if unused.len() == 1 { "" } else { "s" }),
+            format!(
+                "{m} exports {} unused symbol{}",
+                unused.len(),
+                if unused.len() == 1 { "" } else { "s" }
+            ),
             ev,
             "Exports nobody uses are dead weight and widen the module's surface.",
             "Remove them, or drop the export keyword if they are used locally.",
@@ -682,12 +832,20 @@ pub fn regressions(base: &Graph, head: &Graph, ctx: &Ctx) -> Vec<Finding> {
         f.fingerprint = fingerprint(rule, &mods);
         f
     };
-    let base_sccs: Vec<HashSet<&str>> = bg.sccs().into_iter().map(|c| c.into_iter().collect()).collect();
+    let base_sccs: Vec<HashSet<&str>> = bg
+        .sccs()
+        .into_iter()
+        .map(|c| c.into_iter().collect())
+        .collect();
     for c in hg.sccs() {
         if !base_sccs.iter().any(|b| c.iter().all(|m| b.contains(m))) {
             let within: HashSet<&str> = c.iter().copied().collect();
             let lp = hg.shortest_loop(c[0], &within);
-            out.push(mk("struct/new-cycle", c.iter().map(|s| s.to_string()).collect(), format!("new import cycle: {}", chain(&lp))));
+            out.push(mk(
+                "struct/new-cycle",
+                c.iter().map(|s| s.to_string()).collect(),
+                format!("new import cycle: {}", chain(&lp)),
+            ));
         }
     }
     let r = &ctx.config.review;
@@ -698,7 +856,11 @@ pub fn regressions(base: &Graph, head: &Graph, ctx: &Ctx) -> Vec<Finding> {
             out.push(mk(
                 "struct/new-hub",
                 vec![h.to_string()],
-                format!("{h} became a hub: used by {} modules, uses {}", hg.use_in[h].len(), hg.use_out[h].len()),
+                format!(
+                    "{h} became a hub: used by {} modules, uses {}",
+                    hg.use_in[h].len(),
+                    hg.use_out[h].len()
+                ),
             ));
         }
     }
@@ -712,7 +874,11 @@ pub fn regressions(base: &Graph, head: &Graph, ctx: &Ctx) -> Vec<Finding> {
             jobs >= r.cohesion_groups && size >= r.cohesion_min_members
         };
         if drop {
-            out.push(mk("struct/cohesion-drop", vec![m.to_string()], format!("{m} now does {jobs} unrelated jobs")));
+            out.push(mk(
+                "struct/cohesion-drop",
+                vec![m.to_string()],
+                format!("{m} now does {jobs} unrelated jobs"),
+            ));
         }
     }
     out
@@ -744,6 +910,273 @@ pub fn print(head: &[ReviewItem], rest: usize, all: bool, rest_items: &[ReviewIt
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{Edge, Metrics, Range};
+
+    /// Modules "m/x.ts" with members "m/x.ts#f"; edges as (from node, to node, kind).
+    fn graph(nodes: &[(&str, u32)], edges: &[(&str, &str, &str)]) -> Graph {
+        let mut g = Graph::empty();
+        for (id, cx) in nodes {
+            let (file, member) = id
+                .split_once('#')
+                .map(|(f, m)| (f, Some(m)))
+                .unwrap_or((id, None));
+            g.nodes.push(Node {
+                id: id.to_string(),
+                kind: if member.is_some() {
+                    "function"
+                } else {
+                    "module"
+                }
+                .into(),
+                name: member.unwrap_or(file).into(),
+                file: file.into(),
+                range: Range {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                parent: member.map(|_| file.to_string()),
+                package: None,
+                exported: member.is_some(),
+                hash: String::new(),
+                metrics: Metrics {
+                    loc: if member.is_some() { 1 } else { *cx },
+                    complexity: *cx,
+                },
+                intents: vec![],
+            });
+        }
+        for (f, t, k) in edges {
+            g.edges.push(Edge {
+                from: f.to_string(),
+                to: t.to_string(),
+                kind: k.to_string(),
+                confidence: "resolved".into(),
+                file: f.split('#').next().unwrap().into(),
+                line: 1,
+                namespace: false,
+                reexport: false,
+            });
+        }
+        g
+    }
+
+    fn with_ctx<T>(cfg: &str, f: impl FnOnce(&Ctx) -> T) -> T {
+        let config = Config::parse(cfg).unwrap();
+        let tests = crate::workspace::globset(&config.tests).unwrap();
+        let eps = crate::workspace::globset(&config.entry_points).unwrap();
+        let pkgs = [Package {
+            name: "p".into(),
+            dir: ".".into(),
+            tsconfig: None,
+            source_entry: None,
+        }];
+        f(&Ctx {
+            config: &config,
+            tests: &tests,
+            packages: &pkgs,
+            entry_points: &eps,
+        })
+    }
+
+    fn rules(items: &[ReviewItem]) -> Vec<&str> {
+        items.iter().map(|i| i.rule_id.as_str()).collect()
+    }
+
+    #[test]
+    fn cycle_and_unused_and_oversized() {
+        let g = graph(
+            &[
+                ("a.ts", 600),
+                ("a.ts#f", 30),
+                ("a.ts#g", 1),
+                ("b.ts", 1),
+                ("b.ts#h", 1),
+                ("b.test.ts", 1),
+            ],
+            &[
+                ("a.ts", "b.ts", "imports"),
+                ("b.ts", "a.ts", "imports"),
+                ("b.ts#h", "a.ts#f", "calls"),
+                ("b.test.ts", "a.ts#g", "calls"),
+            ],
+        );
+        let items = with_ctx("{}", |ctx| review(&g, ctx, Path::new("/nonexistent")));
+        let cyc = items.iter().find(|i| i.rule_id == "struct/cycle").unwrap();
+        assert_eq!(cyc.evidence, "a.ts → b.ts → a.ts");
+        let unused = items
+            .iter()
+            .find(|i| i.rule_id == "struct/unused-export" && i.modules == ["a.ts"])
+            .unwrap();
+        assert_eq!(unused.evidence, "unused: g; used only by tests: g");
+        let big = items
+            .iter()
+            .find(|i| i.rule_id == "struct/oversized")
+            .unwrap();
+        assert_eq!(big.evidence, "600 lines; f has complexity 30");
+    }
+
+    #[test]
+    fn hubs_and_regressions() {
+        // h is used by 5 modules and uses 5.
+        let mut nodes = vec![("h.ts", 1), ("h.ts#h", 1)];
+        let names: Vec<String> = (0..10).map(|i| format!("m{i}.ts")).collect();
+        let fns: Vec<String> = names.iter().map(|n| format!("{n}#f")).collect();
+        for (n, f) in names.iter().zip(&fns) {
+            nodes.push((n, 1));
+            nodes.push((f, 1));
+        }
+        let mut edges = vec![];
+        for f in &fns[..5] {
+            edges.push((f.as_str(), "h.ts#h", "calls"));
+        }
+        for f in &fns[5..] {
+            edges.push(("h.ts#h", f.as_str(), "calls"));
+        }
+        let head = graph(&nodes, &edges);
+        let base = graph(&nodes, &edges[..4]);
+        with_ctx("review: { hubMin: 5, hubPercentile: 0.5 }", |ctx| {
+            let items = review(&head, ctx, Path::new("/nonexistent"));
+            assert!(rules(&items).contains(&"struct/hub"));
+            let reg = regressions(&base, &head, ctx);
+            assert_eq!(
+                reg.iter().map(|f| f.rule_id.as_str()).collect::<Vec<_>>(),
+                ["struct/new-hub"]
+            );
+            assert_eq!(
+                reg[0].fingerprint,
+                fingerprint("struct/new-hub", &["h.ts".to_string()])
+            );
+        });
+    }
+
+    #[test]
+    fn new_cycle_only_when_not_in_base_scc() {
+        let n = [("a.ts", 1), ("b.ts", 1), ("c.ts", 1)];
+        let base = graph(
+            &n,
+            &[("a.ts", "b.ts", "imports"), ("b.ts", "a.ts", "imports")],
+        );
+        let same = graph(
+            &n,
+            &[
+                ("a.ts", "b.ts", "imports"),
+                ("b.ts", "a.ts", "imports"),
+                ("c.ts", "a.ts", "imports"),
+            ],
+        );
+        let grown = graph(
+            &n,
+            &[
+                ("a.ts", "b.ts", "imports"),
+                ("b.ts", "c.ts", "imports"),
+                ("c.ts", "a.ts", "imports"),
+                ("b.ts", "a.ts", "imports"),
+            ],
+        );
+        with_ctx("{}", |ctx| {
+            assert!(regressions(&base, &same, ctx).is_empty());
+            assert_eq!(
+                regressions(&base, &grown, ctx)[0].rule_id,
+                "struct/new-cycle"
+            );
+        });
+    }
+
+    #[test]
+    fn cohesion_groups() {
+        // Members a,b call each other; c,d share an outside caller; e alone.
+        let g = graph(
+            &[
+                ("m.ts", 1),
+                ("m.ts#a", 1),
+                ("m.ts#b", 1),
+                ("m.ts#c", 1),
+                ("m.ts#d", 1),
+                ("m.ts#e", 1),
+                ("o.ts", 1),
+                ("o.ts#x", 1),
+            ],
+            &[
+                ("m.ts#a", "m.ts#b", "calls"),
+                ("o.ts#x", "m.ts#c", "calls"),
+                ("o.ts#x", "m.ts#d", "calls"),
+                ("m.ts", "m.ts#e", "calls"),
+            ],
+        );
+        with_ctx("{}", |ctx| {
+            let mg = ModuleGraph::new(&g, ctx);
+            assert_eq!(mg.cohesion("m.ts", ctx), (5, 2));
+        });
+        let items = with_ctx(
+            "review: { cohesionGroups: 2, cohesionMinMembers: 5 }",
+            |ctx| review(&g, ctx, Path::new("/nonexistent")),
+        );
+        assert!(rules(&items).contains(&"struct/low-cohesion"));
+    }
+
+    #[test]
+    fn unstable_dependency() {
+        // Dir "s" is stable (5 dirs depend on it) and depends on dir "u", which only depends outward.
+        let mut nodes = vec![("src/s/a.ts", 1), ("src/u/b.ts", 1), ("src/z/z.ts", 1)];
+        let users: Vec<String> = (0..5).map(|i| format!("src/d{i}/x.ts")).collect();
+        for u in &users {
+            nodes.push((u, 1));
+        }
+        let mut edges = vec![
+            ("src/s/a.ts", "src/u/b.ts", "imports"),
+            ("src/u/b.ts", "src/z/z.ts", "imports"),
+        ];
+        for u in &users {
+            edges.push((u.as_str(), "src/s/a.ts", "imports"));
+        }
+        let g = graph(&nodes, &edges);
+        let items = with_ctx("{}", |ctx| review(&g, ctx, Path::new("/nonexistent")));
+        let it = items
+            .iter()
+            .find(|i| i.rule_id == "struct/unstable-dependency")
+            .unwrap();
+        assert_eq!(it.title, "Stable src/s depends on unstable src/u");
+    }
+
+    #[test]
+    fn change_coupling_from_history() {
+        let dir = std::env::temp_dir().join(format!("ig-coupling-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src/a")).unwrap();
+        std::fs::create_dir_all(dir.join("src/b")).unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                ok.status.success(),
+                "{}",
+                String::from_utf8_lossy(&ok.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        for i in 0..5 {
+            std::fs::write(dir.join("src/a/x.ts"), format!("// {i}")).unwrap();
+            std::fs::write(dir.join("src/b/y.ts"), format!("// {i}")).unwrap();
+            git(&["add", "-A"]);
+            git(&["commit", "-qm", "c"]);
+        }
+        let g = graph(&[("src/a/x.ts", 1), ("src/b/y.ts", 1)], &[]);
+        let items = with_ctx("{}", |ctx| review(&g, ctx, &dir));
+        let it = items
+            .iter()
+            .find(|i| i.rule_id == "struct/change-coupling")
+            .unwrap();
+        assert_eq!(
+            it.evidence,
+            "5 shared commits out of 5, with no dependency between them"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn tarjan_finds_cycles() {

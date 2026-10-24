@@ -54,7 +54,9 @@ pub fn serve(root: &Path) -> anyhow::Result<()> {
         }
         let resp = match serde_json::from_str::<Value>(&line) {
             Ok(msg) => handle(root, &msg),
-            Err(e) => Some(json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": e.to_string()}})),
+            Err(e) => Some(
+                json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": e.to_string()}}),
+            ),
         };
         if let Some(r) = resp {
             writeln!(stdout, "{r}")?;
@@ -87,14 +89,18 @@ pub fn handle(root: &Path, msg: &Value) -> Option<Value> {
                     }
                     r
                 }
-                Err(e) => json!({"content": [{"type": "text", "text": format!("ig: {e:#}")}], "isError": true}),
+                Err(e) => {
+                    json!({"content": [{"type": "text", "text": format!("ig: {e:#}")}], "isError": true})
+                }
             })
         }
         _ => Err((-32601, format!("method not found: {method}"))),
     };
     Some(match result {
         Ok(r) => json!({"jsonrpc": "2.0", "id": id, "result": r}),
-        Err((code, m)) => json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": m}}),
+        Err((code, m)) => {
+            json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": m}})
+        }
     })
 }
 
@@ -107,12 +113,24 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
     match name {
         "check" => {
             let all = args.get("all").and_then(Value::as_bool).unwrap_or(false);
-            let run = check::run(root, &check::Opts { all, ..Default::default() })?;
+            let run = check::run(
+                root,
+                &check::Opts {
+                    all,
+                    ..Default::default()
+                },
+            )?;
             let text = check::agent_text(&run.result, run.config.block_on);
-            Ok((text, Some(json!({"blocking": run.result.blocking, "findings": run.result.findings}))))
+            Ok((
+                text,
+                Some(json!({"blocking": run.result.blocking, "findings": run.result.findings})),
+            ))
         }
         "get_findings" => {
-            let v: Value = match std::fs::read_to_string(root.join(".ig/findings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+            let v: Value = match std::fs::read_to_string(root.join(".ig/findings.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+            {
                 Some(v) => v,
                 None => {
                     let run = check::run(root, &check::Opts::default())?;
@@ -126,7 +144,9 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
             let cfg = Config::load(root)?;
             let g = graph::build(root, &cfg, None)?.graph;
             let tests = workspace::globset(&cfg.tests)?;
-            let declared = intents::parse(&std::fs::read_to_string(root.join("intents.md")).unwrap_or_default());
+            let declared = intents::parse(
+                &std::fs::read_to_string(root.join("intents.md")).unwrap_or_default(),
+            );
             let list: Vec<Value> = declared
                 .iter()
                 .map(|i| {
@@ -143,10 +163,23 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
             Ok((serde_json::to_string_pretty(&s)?, Some(s)))
         }
         "graph_query" => {
-            let id = args.get("id").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("graph_query: id is required"))?;
-            let dir = args.get("direction").and_then(Value::as_str).unwrap_or("both");
-            let depth = args.get("depth").and_then(Value::as_u64).unwrap_or(1).clamp(1, 3) as usize;
-            let g = match std::fs::read_to_string(root.join(".ig/graph.json")).ok().and_then(|t| serde_json::from_str::<Graph>(&t).ok()) {
+            let id = args
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("graph_query: id is required"))?;
+            let dir = args
+                .get("direction")
+                .and_then(Value::as_str)
+                .unwrap_or("both");
+            let depth = args
+                .get("depth")
+                .and_then(Value::as_u64)
+                .unwrap_or(1)
+                .clamp(1, 3) as usize;
+            let g = match std::fs::read_to_string(root.join(".ig/graph.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str::<Graph>(&t).ok())
+            {
                 Some(g) => g,
                 None => head_graph(root)?,
             };
@@ -159,7 +192,12 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
 
 pub fn query(g: &Graph, id: &str, dir: &str, depth: usize) -> Value {
     if !g.nodes.iter().any(|n| n.id == id) {
-        let mut sugg: Vec<&str> = g.nodes.iter().map(|n| n.id.as_str()).filter(|n| n.contains(id)).collect();
+        let mut sugg: Vec<&str> = g
+            .nodes
+            .iter()
+            .map(|n| n.id.as_str())
+            .filter(|n| n.contains(id))
+            .collect();
         sugg.sort_by_key(|s| (s.len(), *s));
         sugg.truncate(5);
         return json!({"error": format!("unknown node {id}"), "suggestions": sugg});
@@ -212,9 +250,19 @@ mod tests {
     #[test]
     fn protocol_basics() {
         let root = Path::new(".");
-        let r = handle(root, &json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})).unwrap();
+        let r = handle(
+            root,
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+        )
+        .unwrap();
         assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 4);
-        assert!(handle(root, &json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).is_none());
+        assert!(
+            handle(
+                root,
+                &json!({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            )
+            .is_none()
+        );
         let r = handle(root, &json!({"jsonrpc": "2.0", "id": 2, "method": "nope"})).unwrap();
         assert_eq!(r["error"]["code"], -32601);
     }
@@ -227,12 +275,18 @@ mod tests {
             kind: "function".into(),
             name: id.into(),
             file: "a.ts".into(),
-            range: crate::model::Range { start_line: 1, end_line: 1 },
+            range: crate::model::Range {
+                start_line: 1,
+                end_line: 1,
+            },
             parent: None,
             package: None,
             exported: false,
             hash: String::new(),
-            metrics: crate::model::Metrics { loc: 1, complexity: 1 },
+            metrics: crate::model::Metrics {
+                loc: 1,
+                complexity: 1,
+            },
             intents: vec![],
         };
         g.nodes = vec![n("a.ts#foobar"), n("a.ts#foo")];
