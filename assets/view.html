@@ -23,7 +23,8 @@
   --error: #ff6b6b; --warning: #fcc419; --note: #748ffc; --code: #262624; --accent: #748ffc;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+html, body { margin: 0; height: 100%; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
 header h1 { font-size: 15px; margin: 0; font-weight: 600; }
 .status { font-weight: 600; }
@@ -32,9 +33,14 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; }
 .modes button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
 .modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .counts { color: var(--muted); }
-main { display: grid; grid-template-columns: 1fr 380px; height: calc(100% - 52px); }
-#cy { min-height: 300px; }
-aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 12px 16px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; flex: 1; min-height: 0; }
+#cy { min-height: 300px; min-width: 0; }
+aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 12px 16px; min-width: 0; overflow-wrap: anywhere; }
+#search { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 220px; }
+.btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.btns button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+.crumbs { font-size: 13px; color: var(--muted); }
+.crumbs strong { color: var(--fg); }
 aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
 ul { list-style: none; padding: 0; margin: 0; }
 li.f { padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
@@ -49,7 +55,9 @@ pre { background: var(--code); padding: 8px; border-radius: 6px; overflow: auto;
 code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-all; }
 a { color: var(--accent); }
 @media (max-width: 760px) {
-  main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; }
+  body { display: block; height: auto; }
+  main { grid-template-columns: minmax(0, 1fr); grid-template-rows: 55vh auto; }
+  #search { width: 100%; }
   aside { border-left: 0; border-top: 1px solid var(--line); }
   header { padding: 10px 16px; }
 }
@@ -60,11 +68,15 @@ a { color: var(--accent); }
   <h1>ig</h1>
   <span id="status" class="status"></span>
   <div class="modes" role="group" aria-label="View mode">
-    <button data-mode="changed">Changed</button>
-    <button data-mode="all">Whole system</button>
-    <button data-mode="modules">Modules only</button>
+    <button data-mode="changed" title="Changed nodes and their direct neighbours">Changed</button>
+    <button data-mode="architecture" title="Layers, then directories, modules and members. Click a box to open it.">Architecture</button>
+    <button data-mode="focus" title="The neighbourhood of the selected node">Focus</button>
   </div>
+  <input id="search" type="search" placeholder="Find a node…" aria-label="Find a node" list="ids" autocomplete="off">
+  <datalist id="ids"></datalist>
   <span id="counts" class="counts"></span>
+  <span id="crumbs" class="crumbs"></span>
+  <span id="hint" class="counts"></span>
 </header>
 <main>
   <div id="cy" role="img" aria-label="Code graph"></div>

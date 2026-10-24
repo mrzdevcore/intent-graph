@@ -81,19 +81,30 @@ pub struct Built {
 pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Built> {
     let ws = Workspace::discover(root, config)?;
     let tests = workspace::globset(&config.tests)?;
-    let base = Resolver::new(resolver_options(None));
+    let flattened = crate::tsconfig::Flattened::new();
+    let mut tsconfig_errors = vec![];
     let resolvers: Vec<Resolver> = ws
         .packages
         .iter()
-        .map(|p| {
-            base.clone_with_options(resolver_options(
-                p.tsconfig.as_deref().map(effective_tsconfig),
-            ))
+        .enumerate()
+        .map(|(i, p)| {
+            // Separate resolvers, not `clone_with_options`: a manual tsconfig is cached in the
+            // shared cache, so clones would all use whichever package's tsconfig loaded first.
+            let Some(ts) = p.tsconfig.as_deref().map(effective_tsconfig) else {
+                return Resolver::new(resolver_options(None));
+            };
+            let (flat, warnings) = flattened.flatten(i, &ts, &ws);
+            for (file, message) in warnings {
+                let file =
+                    workspace::rel(&ws.root, &file).unwrap_or_else(|| file.display().to_string());
+                tsconfig_errors.push(ParseError { file, message });
+            }
+            Resolver::new(resolver_options(flat))
         })
         .collect();
     let file_set: HashSet<&str> = ws.files.iter().map(|f| f.path.as_str()).collect();
     let compiled = patterns::compile(&config.patterns);
-    let mut parse_errors = vec![];
+    let mut parse_errors = tsconfig_errors;
 
     // Pass 1.
     let mut facts: Vec<FileFacts> = ws
@@ -196,6 +207,7 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     }
     let edges = merged.into_values().collect();
     parse_errors.sort_by(|a, b| (&a.file, &a.message).cmp(&(&b.file, &b.message)));
+    parse_errors.dedup();
     let graph = Graph {
         schema_version: 1,
         tool_version: TOOL_VERSION.into(),
@@ -380,5 +392,53 @@ impl<'f> Index<'f> {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each package resolves with its own tsconfig (a shared resolver cache once made every package
+    /// use whichever tsconfig loaded first).
+    #[test]
+    fn per_package_tsconfig_paths() {
+        let dir = std::env::temp_dir().join(format!("ig-paths-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let w = |p: &str, s: &str| {
+            let f = dir.join(p);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, s).unwrap();
+        };
+        w("pnpm-workspace.yaml", "packages: ['pkgs/*']\n");
+        for (p, alias) in [("a", "@x"), ("b", "@y")] {
+            w(
+                &format!("pkgs/{p}/package.json"),
+                &format!(r#"{{"name":"{p}"}}"#),
+            );
+            w(
+                &format!("pkgs/{p}/tsconfig.json"),
+                &format!(
+                    r#"{{"extends":"./.nuxt/missing.json","compilerOptions":{{"paths":{{"{alias}/*":["./src/*"]}}}}}}"#
+                ),
+            );
+            w(&format!("pkgs/{p}/src/util.ts"), "export const u = 1;\n");
+            w(
+                &format!("pkgs/{p}/src/main.ts"),
+                &format!("import {{ u }} from '{alias}/util';\n"),
+            );
+        }
+        let g = build(&dir, &Config::default(), None).unwrap().graph;
+        for p in ["a", "b"] {
+            let from = format!("pkgs/{p}/src/main.ts");
+            assert!(
+                g.edges
+                    .iter()
+                    .any(|e| e.from == from && e.to == format!("pkgs/{p}/src/util.ts")),
+                "{p} alias unresolved"
+            );
+        }
+        assert_eq!(g.parse_errors.len(), 2, "{:?}", g.parse_errors);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

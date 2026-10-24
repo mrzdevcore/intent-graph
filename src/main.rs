@@ -14,6 +14,7 @@ mod model;
 mod patterns;
 mod report;
 mod review;
+mod tsconfig;
 mod view;
 mod workspace;
 

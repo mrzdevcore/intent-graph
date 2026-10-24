@@ -307,8 +307,12 @@ Their fingerprint = the rule plus the sorted module set. The file is the first s
 **`ig view`** writes a self-contained `.ig/view.html` and opens it with `open`, `xdg-open` or `start` (skipped with `--no-open`). The page embeds:
 
 - **Data JSON:** nodes with their status and their before/after source slices (before from `git show base:file`; after from the tree or the head commit), edges with status and an arch-violation flag, findings pinned to a node, intents with coverage, changed intents, notices and the editor config. `<` is escaped as `<`.
-- **The default mode:** "changed" (the changed nodes plus their direct neighbours). It is "modules" when that set is empty or larger than 800 nodes.
-- **Assets:** a vendored Cytoscape bundle and a small client script that lays out the graph, handles the Changed / Whole system / Modules only modes, and shows a side panel for findings and intents, plus a before/after pane per node. Both are embedded in the binary via `include_str!` *(call: keep them under `assets/`)*.
+- **The default mode:** "changed" (the changed nodes plus their direct neighbours). It is "architecture" when that set is empty or larger than 300 nodes.
+- **Modes:**
+  - *Changed*: the changed nodes and their neighbours, boxed by module.
+  - *Architecture*: a flat, scoped drill-down. The scope's children (layers, then directories, then modules; single-child directory chains are merged and single-module directories show as the module) are the main nodes, and the siblings at every level above that connect to the scope are dimmed context. Edges are aggregated with counts, and arch violations are red. A breadcrumb leads back up.
+  - *Focus*: the depth-1 or depth-2 neighbourhood of one node, reached by clicking a node, a finding or the search box.
+- **Assets:** vendored Cytoscape and fcose (compound-aware layout) bundles, plus a small client script with the side panel for findings, intents, used-by/uses lists and a before/after pane per node. All are embedded in the binary via `include_str!` *(call: keep them under `assets/`)*.
 
 **`ig view --watch`** serves `/` and `/events` (server-sent events) on `127.0.0.1` at a random port, and rebuilds on file changes:
 

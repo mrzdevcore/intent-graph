@@ -16,6 +16,12 @@ use std::time::Duration;
 const TEMPLATE: &str = include_str!("../assets/view.html");
 const SCRIPT: &str = include_str!("../assets/view.js");
 const CYTOSCAPE: &str = include_str!("../assets/cytoscape.min.js");
+// fcose (compound-aware layout) and its dependencies, loaded after Cytoscape.
+const FCOSE: [&str; 3] = [
+    include_str!("../assets/layout-base.js"),
+    include_str!("../assets/cose-base.js"),
+    include_str!("../assets/cytoscape-fcose.js"),
+];
 const MAX_SLICE_LINES: usize = 300;
 
 /// Node ids of the changed nodes plus their direct neighbours.
@@ -121,6 +127,7 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
             })
             .clone()
     };
+    let layers = checks::Layers::new(&run.config, &run.packages);
     let base_nodes: HashMap<&str, &Node> = run
         .base_graph
         .iter()
@@ -133,7 +140,7 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
             let mut v = json!({
                 "id": n.id, "kind": n.kind, "name": n.name, "file": n.file, "line": n.range.start_line,
                 "endLine": n.range.end_line, "parent": n.parent, "status": s, "complexity": n.metrics.complexity,
-                "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(),
+                "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file),
             });
             if matches!(s, Status::Added | Status::Changed) && !n.is_module() {
                 v["after"] = json!(slice(&after(&n.file), n.range.start_line, n.range.end_line));
@@ -191,15 +198,16 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
         .map(|(e, _)| (e.from.as_str(), e.to.as_str()))
         .collect();
     let set = changed_set(run, &pairs);
-    let mode = if set.is_empty() || set.len() > 800 {
-        "modules"
+    let mode = if set.is_empty() || set.len() > 300 {
+        "architecture"
     } else {
         "changed"
     };
+    let layer_names: Vec<&str> = run.config.layers.iter().map(|(n, _)| n.as_str()).collect();
     json!({
         "nodes": nodes, "edges": edges, "findings": findings, "intents": intents,
         "intentChanges": run.result.intent_changes, "notices": run.result.notices,
-        "editor": run.config.editor, "root": root.to_string_lossy(), "mode": mode,
+        "editor": run.config.editor, "root": root.to_string_lossy(), "mode": mode, "layers": layer_names,
         "blocking": run.result.blocking, "base": run.result.base, "head": run.result.head, "counts": run.result.counts,
     })
 }
@@ -211,7 +219,10 @@ pub fn render(run: &Run, root: &Path, opts: &Opts, live: bool) -> String {
 
 fn page(data_json: &str, live: bool) -> String {
     TEMPLATE
-        .replace("/*IG_CYTOSCAPE*/", CYTOSCAPE)
+        .replace(
+            "/*IG_CYTOSCAPE*/",
+            &[CYTOSCAPE, FCOSE[0], FCOSE[1], FCOSE[2]].join("\n;\n"),
+        )
         .replace("/*IG_SCRIPT*/", SCRIPT)
         .replace("/*IG_LIVE*/", if live { "true" } else { "false" })
         .replace("/*IG_DATA*/", data_json)

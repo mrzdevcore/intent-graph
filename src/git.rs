@@ -172,6 +172,7 @@ impl Worktree {
                 #[cfg(unix)]
                 let _ = std::os::unix::fs::symlink(&nm, target_dir.join("node_modules"));
             }
+            link_missing_extends(src, &target_dir);
         }
         Ok(wt)
     }
@@ -186,6 +187,43 @@ impl Worktree {
     }
 }
 
+/// A tsconfig often extends or references generated, gitignored files (Nuxt's `.nuxt/`). When one is
+/// missing from the worktree but present in the working tree, link the missing top-level entry.
+fn link_missing_extends(src: &Path, target: &Path) {
+    let Some(ts) = crate::workspace::read_jsonc(&target.join("tsconfig.json")) else {
+        return;
+    };
+    let mut extends: Vec<&str> = match ts.get("extends") {
+        Some(serde_json::Value::String(s)) => vec![s.as_str()],
+        Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect(),
+        _ => vec![],
+    };
+    if let Some(refs) = ts.get("references").and_then(|r| r.as_array()) {
+        extends.extend(
+            refs.iter()
+                .filter_map(|r| r.get("path").and_then(|p| p.as_str())),
+        );
+    }
+    for e in extends.into_iter().filter(|e| e.starts_with('.')) {
+        if target.join(e).exists() || !src.join(e).exists() {
+            continue;
+        }
+        let first = Path::new(e)
+            .components()
+            .find(|c| matches!(c, std::path::Component::Normal(_)));
+        let Some(first) = first else { continue };
+        let prefix: PathBuf = Path::new(e)
+            .components()
+            .take_while(|c| *c != first)
+            .chain([first])
+            .collect();
+        if !target.join(&prefix).exists() {
+            #[cfg(unix)]
+            let _ = std::os::unix::fs::symlink(src.join(&prefix), target.join(&prefix));
+        }
+    }
+}
+
 impl Drop for Worktree {
     fn drop(&mut self) {
         let d = self.dir.to_string_lossy().to_string();
@@ -195,8 +233,15 @@ impl Drop for Worktree {
     }
 }
 
+/// Bump whenever extraction or resolution changes output, so cached base graphs are rebuilt.
+const GRAPH_REVISION: u32 = 7;
+
 pub fn cache_key(config: &Config) -> String {
-    sha1_hex(&format!("{TOOL_VERSION}|{}", config.graph_key_input()))[..12].to_string()
+    sha1_hex(&format!(
+        "{TOOL_VERSION}|{GRAPH_REVISION}|{}",
+        config.graph_key_input()
+    ))[..12]
+        .to_string()
 }
 
 /// node_modules dirs to link into worktrees: the root and every package dir.
