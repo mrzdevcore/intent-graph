@@ -1,0 +1,8 @@
+embedded: [".vue"]
+layers:
+  core: ["@acme/core"]
+  ui: ["@acme/ui"]
+  app: ["apps/**"]
+rules:
+  - forbid: "core -> ui"
+  - forbid: "ui -> app"

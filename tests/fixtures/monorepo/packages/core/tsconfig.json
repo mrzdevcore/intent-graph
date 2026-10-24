@@ -1,0 +1,4 @@
+{
+  // comment
+  "compilerOptions": { "outDir": "dist", "rootDir": "src", },
+}

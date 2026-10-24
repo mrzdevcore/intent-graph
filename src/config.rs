@@ -1,0 +1,347 @@
+//! `ig.yaml` → `Config`.
+
+use anyhow::{Result, bail};
+use serde_yaml_ng::{Mapping, Value};
+use std::path::Path;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Note,
+    Warning,
+    Error,
+}
+
+impl Severity {
+    pub fn parse(s: &str) -> Option<Severity> {
+        match s {
+            "error" => Some(Severity::Error),
+            "warning" => Some(Severity::Warning),
+            "note" => Some(Severity::Note),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+            Severity::Note => "note",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Pattern {
+    pub kind: String,
+    pub matcher: String,
+    pub where_: Vec<(String, Vec<String>)>,
+    pub id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Checker {
+    pub name: String,
+    pub run: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReviewConfig {
+    pub hub_percentile: f64,
+    pub hub_min: usize,
+    pub instability_gap: f64,
+    pub stable_fan_in: usize,
+    pub cohesion_groups: usize,
+    pub cohesion_min_members: usize,
+    pub coupling_ratio: f64,
+    pub coupling_min: usize,
+    pub history_commits: usize,
+    pub oversized_loc: usize,
+    pub oversized_complexity: usize,
+    pub top: usize,
+}
+
+impl Default for ReviewConfig {
+    fn default() -> Self {
+        ReviewConfig {
+            hub_percentile: 0.95,
+            hub_min: 5,
+            instability_gap: 0.3,
+            stable_fan_in: 5,
+            cohesion_groups: 3,
+            cohesion_min_members: 8,
+            coupling_ratio: 0.6,
+            coupling_min: 5,
+            history_commits: 500,
+            oversized_loc: 500,
+            oversized_complexity: 25,
+            top: 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub layers: Vec<(String, Vec<String>)>,
+    pub rules: Vec<(String, String)>,
+    pub complexity_max: u32,
+    pub complexity_max_increase: u32,
+    pub embedded: Vec<String>,
+    pub ignore: Vec<String>,
+    pub tests: Vec<String>,
+    pub test_calls: Vec<String>,
+    pub patterns: Vec<Pattern>,
+    pub checkers: Vec<Checker>,
+    pub severity: Vec<(String, Severity)>,
+    pub block_on: Severity,
+    pub editor: String,
+    pub hook_max_rounds: u32,
+    pub entry_points: Vec<String>,
+    pub review: ReviewConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            layers: vec![],
+            rules: vec![],
+            complexity_max: 15,
+            complexity_max_increase: 5,
+            embedded: vec![],
+            ignore: vec![],
+            tests: vec!["**/*.test.*".into(), "**/*.spec.*".into(), "**/__tests__/**".into()],
+            test_calls: vec!["describe".into(), "it".into(), "test".into()],
+            patterns: vec![],
+            checkers: vec![],
+            severity: vec![],
+            block_on: Severity::Error,
+            editor: "zed {file}:{line}".into(),
+            hook_max_rounds: 3,
+            entry_points: vec![],
+            review: ReviewConfig::default(),
+        }
+    }
+}
+
+impl Config {
+    pub fn load(root: &Path) -> Result<Config> {
+        match std::fs::read_to_string(root.join("ig.yaml")) {
+            Ok(text) => Config::parse(&text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
+            Err(e) => bail!("ig.yaml: {e}"),
+        }
+    }
+
+    pub fn parse(text: &str) -> Result<Config> {
+        let doc: Value = serde_yaml_ng::from_str(text).map_err(|e| anyhow::anyhow!("ig.yaml: {e}"))?;
+        let mut c = Config::default();
+        let map = match doc {
+            Value::Null => return Ok(c),
+            Value::Mapping(m) => m,
+            _ => bail!("ig.yaml: expected a mapping"),
+        };
+        for (k, v) in &map {
+            let key = k.as_str().unwrap_or("");
+            match key {
+                "layers" => {
+                    for (name, entries) in mapping(v, "layers")? {
+                        let name = name.as_str().map(str::to_string).unwrap_or_else(|| scalar(name));
+                        let p = format!("layers.{name}");
+                        c.layers.push((name, strings(entries, &p)?));
+                    }
+                }
+                "rules" => {
+                    for (i, r) in list(v, "rules")?.iter().enumerate() {
+                        let p = format!("rules[{i}]");
+                        let forbid = r.get("forbid").and_then(Value::as_str);
+                        let pair = forbid.and_then(|f| f.split_once("->"));
+                        match pair {
+                            Some((a, b)) if !a.trim().is_empty() && !b.trim().is_empty() => {
+                                c.rules.push((a.trim().into(), b.trim().into()))
+                            }
+                            _ => bail!("ig.yaml: {p}: expected \"a -> b\""),
+                        }
+                    }
+                }
+                "complexity" => {
+                    let m = mapping(v, "complexity")?;
+                    if let Some(x) = m.get("max") {
+                        c.complexity_max = uint(x, "complexity.max")? as u32;
+                    }
+                    if let Some(x) = m.get("maxIncrease") {
+                        c.complexity_max_increase = uint(x, "complexity.maxIncrease")? as u32;
+                    }
+                }
+                "embedded" => {
+                    c.embedded = strings(v, "embedded")?
+                        .into_iter()
+                        .map(|e| if e.starts_with('.') { e } else { format!(".{e}") })
+                        .collect()
+                }
+                "ignore" => c.ignore = strings(v, "ignore")?,
+                "tests" => c.tests = strings(v, "tests")?,
+                "testCalls" => c.test_calls = strings(v, "testCalls")?,
+                "entryPoints" => c.entry_points = strings(v, "entryPoints")?,
+                "patterns" => {
+                    for (i, p) in list(v, "patterns")?.iter().enumerate() {
+                        let path = format!("patterns[{i}]");
+                        let field = |f: &str| -> Result<String> {
+                            match p.get(f).and_then(Value::as_str) {
+                                Some(s) => Ok(s.to_string()),
+                                None => bail!("ig.yaml: {path}.{f}: expected a string"),
+                            }
+                        };
+                        let mut where_ = vec![];
+                        if let Some(w) = p.get("where") {
+                            for (var, allowed) in mapping(w, &format!("{path}.where"))? {
+                                let var = scalar(var);
+                                let allowed = strings(allowed, &format!("{path}.where.{var}"))?;
+                                where_.push((var, allowed));
+                            }
+                        }
+                        c.patterns.push(Pattern { kind: field("kind")?, matcher: field("match")?, where_, id: field("id")? });
+                    }
+                }
+                "checkers" => {
+                    for (i, ch) in list(v, "checkers")?.iter().enumerate() {
+                        let path = format!("checkers[{i}]");
+                        let get = |f: &str| -> Result<String> {
+                            match ch.get(f).and_then(Value::as_str) {
+                                Some(s) => Ok(s.to_string()),
+                                None => bail!("ig.yaml: {path}.{f}: expected a string"),
+                            }
+                        };
+                        c.checkers.push(Checker { name: get("name")?, run: get("run")? });
+                    }
+                }
+                "severity" => {
+                    for (rule, sev) in mapping(v, "severity")? {
+                        let rule = scalar(rule);
+                        c.severity.push((rule.clone(), severity(sev, &format!("severity.{rule}"))?));
+                    }
+                }
+                "blockOn" => c.block_on = severity(v, "blockOn")?,
+                "editor" => c.editor = string(v, "editor")?,
+                "hookMaxRounds" => c.hook_max_rounds = uint(v, "hookMaxRounds")? as u32,
+                "review" => {
+                    let r = &mut c.review;
+                    for (k, x) in mapping(v, "review")? {
+                        let k = scalar(k);
+                        let p = format!("review.{k}");
+                        match k.as_str() {
+                            "hubPercentile" => r.hub_percentile = float(x, &p)?,
+                            "hubMin" => r.hub_min = uint(x, &p)?,
+                            "instabilityGap" => r.instability_gap = float(x, &p)?,
+                            "stableFanIn" => r.stable_fan_in = uint(x, &p)?,
+                            "cohesionGroups" => r.cohesion_groups = uint(x, &p)?,
+                            "cohesionMinMembers" => r.cohesion_min_members = uint(x, &p)?,
+                            "couplingRatio" => r.coupling_ratio = float(x, &p)?,
+                            "couplingMin" => r.coupling_min = uint(x, &p)?,
+                            "historyCommits" => r.history_commits = uint(x, &p)?,
+                            "oversizedLoc" => r.oversized_loc = uint(x, &p)?,
+                            "oversizedComplexity" => r.oversized_complexity = uint(x, &p)?,
+                            "top" => r.top = uint(x, &p)?,
+                            _ => bail!("ig.yaml: {p}: unknown key"),
+                        }
+                    }
+                }
+                _ => bail!("ig.yaml: {}: unknown key", scalar(k)),
+            }
+        }
+        Ok(c)
+    }
+
+    pub fn severity_for(&self, rule: &str) -> Option<Severity> {
+        self.severity.iter().find(|(r, _)| r == rule).map(|(_, s)| *s)
+    }
+
+    /// Hash input for the base-graph cache key: everything that changes graph output.
+    pub fn graph_key_input(&self) -> String {
+        let pats: Vec<String> = self
+            .patterns
+            .iter()
+            .map(|p| format!("{}\u{1}{}\u{1}{:?}\u{1}{}", p.kind, p.matcher, p.where_, p.id))
+            .collect();
+        format!("{:?}|{:?}|{:?}|{:?}|{:?}", self.embedded, self.ignore, self.tests, self.test_calls, pats)
+    }
+}
+
+fn scalar(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn mapping<'a>(v: &'a Value, path: &str) -> Result<&'a Mapping> {
+    match v {
+        Value::Mapping(m) => Ok(m),
+        _ => bail!("ig.yaml: {path}: expected a mapping"),
+    }
+}
+
+fn list<'a>(v: &'a Value, path: &str) -> Result<&'a Vec<Value>> {
+    match v {
+        Value::Sequence(s) => Ok(s),
+        _ => bail!("ig.yaml: {path}: expected a list"),
+    }
+}
+
+fn string(v: &Value, path: &str) -> Result<String> {
+    match v {
+        Value::String(s) => Ok(s.clone()),
+        _ => bail!("ig.yaml: {path}: expected a string"),
+    }
+}
+
+fn strings(v: &Value, path: &str) -> Result<Vec<String>> {
+    list(v, path)?
+        .iter()
+        .enumerate()
+        .map(|(i, x)| match x {
+            Value::String(_) | Value::Number(_) | Value::Bool(_) => Ok(scalar(x)),
+            _ => bail!("ig.yaml: {path}[{i}]: expected a string"),
+        })
+        .collect()
+}
+
+fn uint(v: &Value, path: &str) -> Result<usize> {
+    match v.as_u64() {
+        Some(n) => Ok(n as usize),
+        None => bail!("ig.yaml: {path}: expected a non-negative integer"),
+    }
+}
+
+fn float(v: &Value, path: &str) -> Result<f64> {
+    match v.as_f64() {
+        Some(n) => Ok(n),
+        None => bail!("ig.yaml: {path}: expected a number"),
+    }
+}
+
+fn severity(v: &Value, path: &str) -> Result<Severity> {
+    match v.as_str().and_then(Severity::parse) {
+        Some(s) => Ok(s),
+        None => bail!("ig.yaml: {path}: expected one of error, warning, note"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_and_validates() {
+        let c = Config::parse("layers:\n  ui: [apps/web]\n  core: ['packages/core/**']\nrules:\n  - forbid: \"core -> ui\"\nblockOn: warning\n").unwrap();
+        assert_eq!(c.layers.len(), 2);
+        assert_eq!(c.rules, vec![("core".into(), "ui".into())]);
+        assert_eq!(c.block_on, Severity::Warning);
+        let e = Config::parse("rules:\n  - forbid: nope\n").unwrap_err().to_string();
+        assert_eq!(e, "ig.yaml: rules[0]: expected \"a -> b\"");
+        let e = Config::parse("ignore: x\n").unwrap_err().to_string();
+        assert_eq!(e, "ig.yaml: ignore: expected a list");
+        let e = Config::parse("severity:\n  ig/arch: bad\n").unwrap_err().to_string();
+        assert!(e.contains("expected one of"));
+    }
+}
