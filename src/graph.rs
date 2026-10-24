@@ -64,7 +64,8 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
         .map(|p| base.clone_with_options(resolver_options(p.tsconfig.as_deref().map(effective_tsconfig))))
         .collect();
     let file_set: HashSet<&str> = ws.files.iter().map(|f| f.path.as_str()).collect();
-    let (compiled, mut parse_errors) = patterns::compile(&config.patterns);
+    let compiled = patterns::compile(&config.patterns);
+    let mut parse_errors = vec![];
 
     // Pass 1.
     let mut facts: Vec<FileFacts> = ws

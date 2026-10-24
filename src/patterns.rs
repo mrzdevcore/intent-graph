@@ -14,13 +14,17 @@ pub struct Compiled {
     pub errors: Vec<(usize, String)>,
 }
 
-pub fn compile(patterns: &[config::Pattern]) -> (Compiled, Vec<crate::model::ParseError>) {
+pub fn compile(patterns: &[config::Pattern]) -> Compiled {
     let mut c = Compiled { pats: vec![], errors: vec![] };
     for (i, p) in patterns.iter().enumerate() {
         let r = (|| -> Result<[Pattern; 3], String> {
             let e = |e: ast_grep_core::PatternError| e.to_string();
+            let ts = Pattern::try_new(&p.matcher, TypeScript).map_err(e)?;
+            if ts.has_error() {
+                return Err(format!("pattern does not parse: `{}`", p.matcher));
+            }
             Ok([
-                Pattern::try_new(&p.matcher, TypeScript).map_err(e)?,
+                ts,
                 Pattern::try_new(&p.matcher, Tsx).map_err(e)?,
                 Pattern::try_new(&p.matcher, JavaScript).map_err(e)?,
             ])
@@ -30,7 +34,7 @@ pub fn compile(patterns: &[config::Pattern]) -> (Compiled, Vec<crate::model::Par
             Err(m) => c.errors.push((i, m)),
         }
     }
-    (c, vec![])
+    c
 }
 
 fn strip_quotes(s: &str) -> &str {

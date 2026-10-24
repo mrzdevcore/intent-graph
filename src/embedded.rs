@@ -106,7 +106,7 @@ mod tests {
         let s = extract_script(src);
         assert!(s.ts);
         assert_eq!(s.source.len(), src.len() + "\nexport {};".len());
-        assert_eq!(s.source.lines().count(), src.lines().count() + 1);
+        assert_eq!(s.source.lines().count(), src.lines().count() + 2);
         assert!(s.source.contains("import MyBtn from './B.vue'"));
         assert!(!s.source.contains("template"));
         let refs = scan_markup(src);

@@ -88,7 +88,6 @@ pub struct FileFacts {
     pub classes: Vec<(String, Option<Callee>)>,
     /// Source the patterns run on (the extracted script for embedded files).
     pub script: String,
-    pub is_test: bool,
 }
 
 pub struct FileInput<'c> {
@@ -915,7 +914,6 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         refs,
         classes,
         script: script.map(|s| s.source).unwrap_or_default(),
-        is_test: input.is_test,
     }
 }
 
