@@ -107,6 +107,9 @@ pub fn install(root: &Path, agent: &Agent) -> Result<Vec<PathBuf>> {
     if agent.name == "claude" {
         write_missing(base.join("agents/reviewer.md"), REVIEWER, &mut written)?;
     }
+    if agent.name != "claude" {
+        write_missing(base.join("ig-apply/reviewer.md"), REVIEWER, &mut written)?;
+    }
     for s in SKILLS {
         if agent.name == "claude" {
             write_missing(
@@ -171,6 +174,7 @@ mod tests {
         );
         assert!(dir.join(".claude/skills/ig/agents/reviewer.md").is_file());
         assert!(dir.join(".agents/skills/ig-apply/SKILL.md").is_file());
+        assert!(dir.join(".agents/skills/ig-apply/reviewer.md").is_file());
         assert!(dir.join(".agents/skills/ig-setup/SKILL.md").is_file());
         assert!(
             std::fs::read_to_string(dir.join(".agents/skills/ig-setup/SKILL.md"))

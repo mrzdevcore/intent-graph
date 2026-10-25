@@ -301,13 +301,17 @@ pub fn review_ingest(root: &Path, json: &str) -> Result<usize> {
     Ok(items.len())
 }
 
-/// Reviewer findings, when the stored review matches the current change.
-fn reviewed(root: &Path, run: &Run) -> Vec<Finding> {
-    let Some(v) = std::fs::read_to_string(root.join(REVIEW))
+/// The stored review, when it matches the current change.
+fn stored_review(root: &Path, run: &Run) -> Option<Value> {
+    std::fs::read_to_string(root.join(REVIEW))
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .filter(|v| v["change"].as_str() == Some(change_hash(run).as_str()))
-    else {
+}
+
+/// Reviewer findings for the current change, minus excepted (baselined) ones.
+fn reviewed(root: &Path, run: &Run) -> Vec<Finding> {
+    let Some(v) = stored_review(root, run) else {
         return vec![];
     };
     let found = v["findings"]
@@ -326,7 +330,12 @@ fn reviewed(root: &Path, run: &Run) -> Vec<Finding> {
             )
         })
         .collect();
+    let baseline = checks::load_baseline(root);
     checks::attach_nodes(&run.result.graph, found)
+        .into_iter()
+        .map(Finding::fingerprinted)
+        .filter(|f| !baseline.contains(&f.fingerprint))
+        .collect()
 }
 
 /// Apply findings: unplanned (and, when `final_`, missing) `ig/plan`, plus `ig/tamper`.
@@ -377,10 +386,7 @@ pub fn finish(root: &Path) -> Result<u8> {
         .filter(|f| !seen.contains(&f.fingerprint))
         .collect();
     run.result.findings.extend(extra);
-    let has_review = std::fs::read_to_string(root.join(REVIEW))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .is_some_and(|v| v["change"].as_str() == Some(change_hash(&run).as_str()));
+    let has_review = stored_review(root, &run).is_some();
     if !has_review {
         run.result.findings.push(
             err(
@@ -676,5 +682,36 @@ mod tests {
                 .iter()
                 .any(|f| f.rule_id == "review/R-PURE")
         );
+    }
+
+    #[test]
+    fn excepted_review_finding_disappears_and_bad_input_errors() {
+        let dir = git_fixture("monorepo");
+        write(&dir, "plans/x.md", PLAN);
+        start(&dir, &dir.join("plans/x.md")).unwrap();
+        write(
+            &dir,
+            "packages/core/src/export.ts",
+            "export const exportRows = () => 1;\n",
+        );
+        review_ingest(&dir, "[{\"rule\":\"R-PURE\",\"file\":\"packages/core/src/export.ts\",\"line\":1,\"message\":\"m\",\"severity\":\"error\"}]").unwrap();
+        let run = check::run(&dir, &Default::default()).unwrap();
+        let f = run
+            .result
+            .findings
+            .iter()
+            .find(|f| f.rule_id == "review/R-PURE")
+            .unwrap();
+        except(&dir, &f.fingerprint.clone(), "false alarm").unwrap();
+        let run = check::run(&dir, &Default::default()).unwrap();
+        assert!(
+            !run.result
+                .findings
+                .iter()
+                .any(|f| f.rule_id == "review/R-PURE")
+        );
+        assert_eq!(review_ingest(&dir, "all clean: []").unwrap(), 0);
+        assert!(review_ingest(&dir, "no array here").is_err());
+        assert!(review_ingest(&dir, "] oops [").is_err());
     }
 }
