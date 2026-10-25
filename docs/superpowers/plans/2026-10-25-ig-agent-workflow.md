@@ -644,3 +644,91 @@ fn reviewer_findings_block_until_the_change_moves() {
   Then run `cargo test && cargo clippy --all-targets -- -D warnings`. Expected: PASS.
 
 - [ ] **Step 5: Docs.** The README gets a "Workflow" section with the command table from the spec, and `docs/specs/design.md` is updated. Commit: `git commit -am "/ig:view states and focus; workflow docs"`
+
+---
+
+### Task 9: Layered architecture view, system icons, hide links
+
+Added on 2026-10-25 at the user's request, after viewing the maite Architecture screenshot. The request: make the view more structural, organised by layers like the blueprint, with all external services at the bottom; give systems different icons (Postgres, Mongo, Elastic APM, Auth0, Contentful…); and add a way to hide the arrows.
+
+**Files:**
+- Modify: `assets/view.js` (architecture layout, system icons, links toggle), `assets/view.html` (toggle control, CSS), `src/view.rs` (a system `category` in the node data)
+- Test: `src/view.rs` tests
+
+**Interfaces:**
+- Consumes: the node data from `view::data`; `run.config.layers` (declaration order) and `run.config.blueprint.systems` (name → packages).
+- Produces:
+  - `pub fn system_category(name: &str, packages: &[String]) -> &'static str` in `src/view.rs`. It returns the first category whose keyword list matches, case-insensitive, as a substring of the name or of any package:
+    - `database`: postgres, pg, mysql, mariadb, mongo, mongoose, prisma, typeorm, knex, sequelize, sqlite, redis, ioredis, dynamo, firestore, supabase, cassandra
+    - `search`: elastic search, elasticsearch, @elastic/elasticsearch, algolia, meili, typesense, opensearch
+    - `monitoring`: apm, datadog, sentry, newrelic, opentelemetry, grafana, prometheus, logrocket
+    - `auth`: auth0, okta, keycloak, cognito, clerk, firebase-auth, next-auth, passport
+    - `cms`: contentful, strapi, sanity, prismic, storyblok, directus, ghost
+    - `analytics`: power bi, powerbi, segment, mixpanel, amplitude, google-analytics, gtag, matomo, posthog
+    - `queue`: kafka, rabbit, amqp, sqs, bull, nats
+    - `storage`: s3, @aws-sdk/client-s3, minio, cloudinary, blob
+    - `payment`: stripe, paypal, adyen
+    - `email`: sendgrid, mailgun, nodemailer, postmark, ses
+    - else `service`
+    
+    The order is the list order above. "Elastic APM" must give `monitoring`, not `search`, so `search` matches "elasticsearch" and "elastic search" only, never plain "elastic".
+  - Each `system` node in `view::data` gets `"category": <system_category(name, packages from config.blueprint.systems[name])>`.
+  - JS, Architecture mode:
+    - The layout is rows, top to bottom, in this order:
+      1. one row per layer, in `ig.yaml` declaration order (`D.layers`);
+      2. a row for nodes without a layer;
+      3. a last row, "External services", holding every `system` node.
+    - Each row is a lane with its name on the left, drawn like Blueprint's swimlanes (reuse its lane-band code and `preset` positioning).
+    - Nodes are spread evenly in their row. A row wider than the viewport wraps onto extra lines inside its lane.
+    - Dimmed context nodes go in the row of their own layer.
+    - When the scope holds a single layer (the user drilled into one), keep the rows too: the scope's children fill their layer's row, and the context and systems keep theirs.
+  - JS, system nodes:
+    - Each is drawn with an inline SVG icon for its category, as a `data:image/svg+xml` background, with the name below. Icons:
+      - `database`: a cylinder
+      - `search`: a magnifier
+      - `monitoring`: a pulse line
+      - `auth`: a key/lock
+      - `cms`: a document with lines
+      - `analytics`: bar chart
+      - `queue`: stacked bars with an arrow
+      - `storage`: a box/bucket
+      - `payment`: a card
+      - `email`: an envelope
+      - `service`: a cloud
+    - Icons are drawn in-house, simple monochrome strokes in `--system` colour. No brand logos: trademarks, and no external assets.
+  - JS, links toggle:
+    - A header button "Links" (`aria-pressed`) shows or hides all edges in every mode.
+    - While hidden, the selected node's own edges stay visible.
+    - The choice persists in `localStorage` key `ig.links`, wrapped in try/catch.
+
+- [ ] **Step 1: Write the failing test** in `view.rs`:
+
+```rust
+#[test]
+fn system_categories() {
+    let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(system_category("PostgreSQL", &p(&["pg"])), "database");
+    assert_eq!(system_category("MongoDB", &p(&["mongoose"])), "database");
+    assert_eq!(system_category("Elastic APM", &p(&["elastic-apm-node"])), "monitoring");
+    assert_eq!(system_category("Search", &p(&["@elastic/elasticsearch"])), "search");
+    assert_eq!(system_category("Auth0", &p(&["@auth0/auth0-react"])), "auth");
+    assert_eq!(system_category("Contentful", &p(&["contentful"])), "cms");
+    assert_eq!(system_category("Power BI", &p(&["powerbi-client"])), "analytics");
+    assert_eq!(system_category("Maite BFF", &p(&["@maite/sdk"])), "service");
+}
+```
+
+Also check that `data()` on the monorepo fixture with a `systems:` entry gives the system node a `category`.
+
+- [ ] **Step 2: Run** `cargo test view::system_categories`. Expected: FAIL.
+
+- [ ] **Step 3: Implement** `system_category`, the `category` field, and the JS/CSS.
+
+- [ ] **Step 4: Check by hand.**
+  1. In a scratch copy of the monorepo fixture with a `blueprint.systems` entry, run `ig view --no-open`.
+  2. Run the page's script through `node --check` (extract it).
+  3. Open the HTML. Architecture should show layer rows with systems at the bottom, each with its icon, and the Links toggle should hide edges.
+  
+  Then run `cargo test && cargo clippy --all-targets -- -D warnings` (no new errors).
+
+- [ ] **Step 5: Commit** (explicit paths): `git commit -m "Viewer: layered Architecture with an External services row, system icons, Links toggle"`
