@@ -148,7 +148,10 @@ These shapes are the target. Exact field names follow the existing code (`FileFa
 ### Task 5: Adapters: `ig-fs`, `ig-git`, `ig-checkers`
 
 - **`ig-fs`:** workspace discovery (packages, files, jsonc, globs, `normalize`, `rel`, `is_source_ext`) and `FsFiles: Files`.
-- **`ig-git`:** `GitVcs: Vcs`, from today's `git.rs`. Worktrees, `link_missing_extends`, auto-import linking, `cache_key` and `GRAPH_REVISION` all move. Add a **pinned-key test**: a fixed config and declaration file contents give a known key string, so the move can't change it silently (Review Focus 2).
+- **`ig-git`:** `GitVcs: Vcs`, from today's `git.rs`. It holds **pure git only**: open, head, resolve_base, verify, show, changed_files, history, is_clean, `at(root)`, and checkout (worktree add/remove).
+  - *Amended after the Task 4 review:* `cache_key` is a pure `ig-core` function (with `GRAPH_REVISION` 14, and a **pinned-key test**, Review Focus 2).
+  - The base-graph cache read and write moves to `ig-app` through `Files`.
+  - The TS-specific checkout preparation (node_modules links, missing tsconfig `extends`, auto-import declarations) moves behind `LanguageFrontend::prepare_checkout` in Task 6.
 - **`ig-checkers`:** `ProcessRunner: CheckerRunner`, from today's `checks.rs` runner (spawn, 120 s timeout, 64 MB cap, `{files}` expansion and quoting) and the output-format parsers (`formats.rs`).
 
 **Steps:**
@@ -163,6 +166,7 @@ These shapes are the target. Exact field names follow the existing code (`FileFa
   - `extract.rs` (1,579 lines), split into `extract/visitor.rs`, `extract/callee.rs`, `extract/http.rs` and `extract/mod.rs`;
   - `embedded.rs`, `patterns.rs`, `tsconfig.rs` and `autoimports.rs`;
   - the TS-specific resolution half of `graph.rs`: oxc_resolver per package, exports and imports, Free/Auto/stale/external, typed members, implementers.
+- **The frontend port is a batch call** (*amended after the Task 4 review*): `build(files, ws, config) -> FrontendOutput`, plus `prepare_checkout`. Patterns and resolvers are compiled once per build.
 - **What becomes language-neutral:** graph assembly (merging nodes and edges, the test-target filter, blueprint systems and http links through `ig_core::http`) becomes `ig_app::build::build_graph(frontends: &[&dyn LanguageFrontend], files: &dyn Files, config)`.
 - `TsFrontend::handles` covers today's source extensions plus `embedded`.
 
