@@ -58,6 +58,7 @@ pub fn fingerprint(rule: &str, modules: &[String]) -> String {
     sha1_hex(&format!("{rule}|{}", m.join(",")))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn item(
     mg: &ModuleGraph,
     rule: &str,
