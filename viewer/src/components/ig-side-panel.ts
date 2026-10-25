@@ -4,7 +4,7 @@
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
-import type { ViewEdge, ViewFinding, ViewNode } from "../data";
+import type { Note, ViewEdge, ViewFinding, ViewNode } from "../data";
 import { ancestors, type Index } from "../model/graph";
 import { journeyName, journeys } from "../model/blueprint";
 import { sequence, toMermaid, toPlantUml } from "../model/sequence";
@@ -23,6 +23,8 @@ export class IgSidePanel extends LitElement {
   @property({ attribute: false }) focusDepth = 1;
   @property({ attribute: false }) journey: string | null = null;
   @property({ attribute: false }) uiOnly = false;
+  /** Plan notes from `ig serve`; empty when not live. */
+  @property({ attribute: false }) notes: Note[] = [];
 
   createRenderRoot() {
     return this;
@@ -56,7 +58,7 @@ export class IgSidePanel extends LitElement {
     const mark = { added: "+", changed: "~", removed: "-", unchanged: "" };
     return html`
       ${D.notices.map((n) => html`<p class="notice">${n}</p>`)}
-      ${D.plan ? html`<ig-plan-panel .data=${D} .known=${this.ix.byId}></ig-plan-panel>` : null}
+      ${D.plan ? html`<ig-plan-panel .data=${D} .known=${this.ix.byId} .notes=${this.notes}></ig-plan-panel>` : null}
       ${D.intentChanges.length
         ? html`<h2>Intent changes</h2><ul>${D.intentChanges.map((c) => html`<li class=${c.status}>${mark[c.status] + " " + c.id + ": " + c.text}</li>`)}</ul>`
         : null}

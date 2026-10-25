@@ -32,6 +32,9 @@ pub const SKILLS: &[Skill] = &[
     },
 ];
 
+const MCP_JSON: &str =
+    "{\n  \"mcpServers\": {\n    \"ig\": { \"command\": \"ig\", \"args\": [\"mcp\"] }\n  }\n}\n";
+
 pub const REVIEWER: &str = include_str!("../assets/agents/reviewer.md");
 
 const LEGACY_EXPLORE: &str = include_str!("../assets/legacy/ig-explore-v1.md");
@@ -110,6 +113,8 @@ pub fn install(root: &Path, agent: &Agent) -> Result<Vec<PathBuf>> {
     }
     if agent.name == "claude" {
         write_missing(base.join("agents/reviewer.md"), REVIEWER, &mut written)?;
+        // The ig MCP server (tools mcp__plugin_ig_ig__*, and the viewer's notes channel).
+        write_missing(base.join(".mcp.json"), MCP_JSON, &mut written)?;
     }
     if agent.name != "claude" {
         write_missing(base.join("ig-apply/reviewer.md"), REVIEWER, &mut written)?;
@@ -177,6 +182,14 @@ mod tests {
                 .is_file()
         );
         assert!(dir.join(".claude/skills/ig/agents/reviewer.md").is_file());
+        let mcp: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join(".claude/skills/ig/.mcp.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            mcp,
+            serde_json::json!({"mcpServers": {"ig": {"command": "ig", "args": ["mcp"]}}})
+        );
         assert!(dir.join(".agents/skills/ig-apply/SKILL.md").is_file());
         assert!(dir.join(".agents/skills/ig-apply/reviewer.md").is_file());
         assert!(dir.join(".agents/skills/ig-setup/SKILL.md").is_file());

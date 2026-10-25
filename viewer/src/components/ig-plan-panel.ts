@@ -2,7 +2,8 @@
 
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import type { ViewData } from "../data";
+import type { Note, ViewData } from "../data";
+import { noteLine } from "../model/notes";
 import { findingItem } from "./shared";
 
 const pairs = (ps: [string, string][]) => (ps && ps.length ? ps.map((p) => p[0] + " → " + p[1]).join(", ") : "none");
@@ -16,6 +17,7 @@ export class IgPlanPanel extends LitElement {
   @property({ attribute: false }) data!: ViewData;
   /** Ids of the nodes in the graph, to pin plan findings to. */
   @property({ attribute: false }) known: Record<string, unknown> = {};
+  @property({ attribute: false }) notes: Note[] = [];
 
   createRenderRoot() {
     return this;
@@ -41,6 +43,11 @@ export class IgPlanPanel extends LitElement {
       ${p.findings.length
         ? html`<ul>${p.findings.map((f) => findingItem(this, this.data, { ...f, pinned: f.nodeId && this.known[f.nodeId] ? f.nodeId : null }))}</ul>`
         : html`<p class="loc">None.</p>`}
+      ${this.notes.length
+        ? html`<h2>Notes (${this.notes.filter((n) => !n.done).length} open)</h2>
+          <ul class="notes">${this.notes.map((n) => html`<li class=${n.done ? "done" : ""}>
+            <strong>${n.id}</strong> ${n.done ? "✓ " : ""}${noteLine(n)}${n.reply ? html`<div class="loc">↳ ${n.reply}</div>` : null}</li>`)}</ul>`
+        : null}
     </details>`;
   }
 }

@@ -6,6 +6,7 @@ import "./styles/app.css";
 import "./components/ig-app";
 import type { IgApp } from "./components/ig-app";
 import type { ViewData } from "./data";
+import { client } from "./model/notes";
 
 async function load(): Promise<ViewData> {
   const raw = document.getElementById("ig-data")!.textContent!.trim();
@@ -13,11 +14,17 @@ async function load(): Promise<ViewData> {
   return JSON.parse(raw);
 }
 
-const live = document.getElementById("ig-live")!.textContent!.trim() === "true";
+const app = document.querySelector("ig-app") as IgApp;
+const liveRaw = document.getElementById("ig-live")!.textContent!.trim();
+const live: { token: string } | false = liveRaw.startsWith("{") ? JSON.parse(liveRaw) : false;
 load().then((data) => {
-  (document.querySelector("ig-app") as IgApp).data = data;
+  app.data = data;
+  if (live) app.live(client(live.token));
 });
 
 if (live && window.EventSource) {
-  new EventSource("/events").onmessage = () => location.reload();
+  const es = new EventSource("/api/events");
+  es.addEventListener("rebuild", () => location.reload());
+  es.addEventListener("note", () => app.refreshNotes());
+  es.addEventListener("focus", (e) => app.focusAll(JSON.parse((e as MessageEvent).data)));
 }

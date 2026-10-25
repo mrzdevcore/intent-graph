@@ -6,6 +6,7 @@ import { customElement, property } from "lit/decorators.js";
 import cytoscape from "cytoscape";
 import fcose from "cytoscape-fcose";
 import { iconFor, iconUri } from "../icons";
+import type { Lane } from "../model/architecture";
 import { applyLinks, type El } from "../model/graph";
 import { emit } from "./shared";
 
@@ -70,6 +71,11 @@ function stylesheet(): cytoscape.Stylesheet[] {
     { selector: "edge[?ctx]", style: { "opacity": 0.22 } },
     { selector: "edge[?violation]", style: { "line-color": err, "target-arrow-color": err, "opacity": 1, "width": "mapData(count, 1, 40, 2.5, 8)" } },
     { selector: ".faded", style: { "opacity": 0.12 } },
+    { selector: "node[?pinned]", style: { "border-width": 3, "border-color": accent, "border-style": "solid", "color": accent } },
+    { selector: "node[?ghost]", style: { "opacity": 0.4, "border-style": "dotted", "border-width": 2, "border-color": accent } },
+    { selector: "node[kind = 'laneadd']", style: {
+      "shape": "ellipse", "width": 22, "height": 22, "background-color": accent, "color": "#fff", "label": "+", "text-valign": "center",
+      "text-margin-y": 0, "font-size": 16, "font-weight": 700, "min-zoomed-font-size": 3 } },
     { selector: "edge.nolink", style: { "display": "none" } },
   ];
   return s as unknown as cytoscape.Stylesheet[];
@@ -106,6 +112,29 @@ export class IgGraph extends LitElement {
         if (t.isNode()) emit(this, "ig-tap", { id: t.id(), kind: t.data("kind") });
       });
       cy.on("select unselect", "node", () => this.applyLinks());
+      // Planning gestures, turned into notes by <ig-app>: right-click, drop, shift-drag a link.
+      cy.on("cxttap", "node, edge", (e) => {
+        const t = e.target;
+        const o = e.originalEvent as MouseEvent;
+        emit(this, "ig-context", { id: t.id(), edge: t.isEdge(), source: t.data("source"), target: t.data("target"), x: o.clientX, y: o.clientY });
+      });
+      cy.on("dragfree", "node", (e) => emit(this, "ig-drop", { id: e.target.id(), y: e.target.position().y }));
+      const shift = (e: KeyboardEvent) => e.key === "Shift" && cy.autoungrabify(e.type === "keydown");
+      window.addEventListener("keydown", shift);
+      window.addEventListener("keyup", shift);
+      let linkFrom: string | null = null;
+      cy.on("tapstart", "node", (e) => void (linkFrom = (e.originalEvent as MouseEvent)?.shiftKey ? e.target.id() : null));
+      cy.on("tapend", (e) => {
+        const from = linkFrom;
+        linkFrom = null;
+        if (!from) return;
+        const p = e.position;
+        const hit = cy.nodes().filter((n) => {
+          const b = n.boundingBox({});
+          return !String(n.data("kind")).startsWith("lane") && n.id() !== from && p.x >= b.x1 && p.x <= b.x2 && p.y >= b.y1 && p.y <= b.y2;
+        });
+        if (hit.length) emit(this, "ig-link", { from, to: hit.last().id() });
+      });
     }
     return this._cy;
   }
@@ -153,6 +182,25 @@ export class IgGraph extends LitElement {
       if (cy.zoom() > 1.4) cy.zoom({ level: 1.4, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
     });
     layout.run();
+  }
+
+  /** Shows note pins (ids after the label) and ghosts (open moves) on the drawn nodes. */
+  decorate(pins: Record<string, string[]>, ghosts: Set<string>) {
+    this.cy.nodes().forEach((n) => {
+      if (n.data("base") === undefined) n.data("base", n.data("label") ?? "");
+      const p = pins[n.id()];
+      n.data({ label: p ? n.data("base") + "  ◉ " + p.join(" ") : n.data("base"), pinned: !!p, ghost: ghosts.has(n.id()) });
+    });
+  }
+
+  /** The drawn layer rows (Architecture), for drops. */
+  lanes(layers: string[]): Lane[] {
+    return this.cy.nodes("[kind = 'lane']").map((n) => {
+      const y = n.position().y;
+      const h = n.data("h") as number;
+      const name = n.data("label") as string;
+      return { row: 0, name, kind: layers.includes(name) ? "layer" : "other", top: y - h / 2, bottom: y + h / 2 };
+    });
   }
 
   ids(): string[] {

@@ -45,10 +45,13 @@ ig view            # open the change as a graph in the browser
 | `ig review [--all] [--json] [--agent]` | Ranked structural problems: cycles, hubs, unstable dependencies, low cohesion, change coupling, unused exports, oversized modules. |
 | `ig query <id> [--in\|--out\|--both] [--depth N] [--json]` | Neighbours of a node (default both, depth 2) as `kind id (file:line)` and `from -kind-> to`. Unknown id: suggestions, exit 1. |
 | `ig plan check <file> [--json]` | Checks a plan file before any code is written (see [Plans](#plans)). Exit 1 if it has errors. |
+| `ig plan notes [--wait] [--json]` | The open notes on the current plan (`plans/<slug>.notes.md`). `--wait` blocks until a new one arrives (exit 1 after 30 min without one). |
 | `ig focus <id>...` | Writes `.ig/focus.json`, the ids the viewer should highlight. |
-| `ig view [--watch] [--no-open] [--json]` | Writes `.ig/view.html`. `--watch` serves it on localhost and reloads on every save. `--json` prints the page's data instead. |
+| `ig view [--watch] [--no-open] [--json]` | Writes `.ig/view.html`. `--watch` is `ig serve` that also opens the browser. `--json` prints the page's data instead. |
+| `ig serve [--port N]` | The live viewer on `http://127.0.0.1:7420/` (see [Live plan co-design](#live-plan-co-design)). |
+| `ig serve claude` | Starts `claude --dangerously-load-development-channels server:ig`, so viewer notes reach the session. |
 | `ig report --gitlab` | Checks `HEAD` and creates or updates one MR note (needs `IG_GITLAB_TOKEN` or `GITLAB_TOKEN`). |
-| `ig mcp` | MCP server on stdio with `check`, `get_findings`, `get_intents` and `graph_query`. |
+| `ig mcp` | MCP server on stdio with `check`, `get_findings`, `get_intents` and `graph_query`, plus `ig_state`, `ig_notes`, `ig_note_done`, `ig_focus` and `ig_wait_notes`, which talk to a running `ig serve`. |
 | `ig hook claude` | Claude Code Stop hook: blocks the agent on blocking findings, up to `hookMaxRounds`. |
 | `ig init [claude\|codex\|all]` | Scaffolding, including the `ig-setup` skill for the chosen agents (default all). Never overwrites anything. |
 | `ig setup [--json]` | Facts for writing `ig.yaml`: packages, directories, page candidates, unlayered modules, unmapped external packages, HTTP calls, arch violations. |
@@ -110,6 +113,32 @@ skill runs `ig check --agent` itself before ending a turn.
 planned), `Applying` (`ig apply start` ran: solid nodes are built, dashed ones are still missing),
 `Done` (the plan has `Status: done`: code diffs) or no plan. `ig focus <ids>` makes the next
 `ig view` open in Focus mode on those ids, once. `ig view --watch` follows plan and apply changes.
+
+### Live plan co-design
+
+`ig serve [--port N]` (default 7420) serves the viewer on loopback and rebuilds on every save,
+re-reading the current plan, its notes and the apply state. In the Planning state you can
+right-click a box or link to comment on it or remove it, drag a box into another layer row,
+shift-drag from one box to another to draw a link, and press `+` on a layer row to add a box.
+Each of these is a note: one line in `plans/<slug>.notes.md`, committed with the plan:
+
+```md
+- [ ] N1 comment on <id>: <text>
+- [ ] N2 move <id> to layer <layer>
+- [ ] N3 link <from> -> <to> (<kind>)
+- [ ] N4 remove <id>
+- [ ] N5 add <kind> <name> in <file or layer>
+```
+
+The agent applies a note to the plan, ticks it (`- [x]`) and may append ` — <reply>`. It reaches
+the server through `ig mcp` (the plugin's `.mcp.json`, written by `ig init claude`). Started with
+`ig serve claude`, Claude Code also gets each new note pushed into the session as a channel event
+(a research preview; interactive sessions only). Otherwise the plan skill waits with `ig_wait_notes`.
+
+The API (`GET /api/state`, `GET /api/notes`, `POST /api/notes`, `POST /api/notes/<id>`,
+`POST /api/focus`, `GET /api/events`) answers only on `127.0.0.1` or `localhost`. Every POST needs
+the `X-IG-Token` of the run (in `.ig/serve.json` and in the served page) and a local `Origin`, so
+other web pages cannot post notes to your agent.
 
 ## Intents
 
@@ -178,7 +207,7 @@ Known findings can be accepted by adding their fingerprints to `.ig/baseline.jso
 { "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "ig hook claude", "timeout": 300 }] }] } }
 ```
 
-**MCP:** `claude mcp add ig -- ig mcp`
+**MCP:** `ig init claude` adds `.claude/skills/ig/.mcp.json`; without the plugin, `claude mcp add ig -- ig mcp`
 
 **GitLab CI:**
 

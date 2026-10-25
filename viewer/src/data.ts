@@ -114,3 +114,22 @@ export interface ViewData {
   /** Node ids to start in Focus mode on (from `ig focus`). */
   focus?: string[];
 }
+
+// Plan notes (src/notes.rs), from `ig serve`'s /api/notes.
+export type NoteKind = "comment" | "move" | "link" | "remove" | "add";
+
+/** comment: target (to for an edge), text · move: target, layer · link: target → to, text = edge kind ·
+ *  remove: target (to for an edge) · add: text = node kind, target = name, layer = file or layer. */
+export interface NoteInput {
+  kind: NoteKind;
+  target: string;
+  to?: string | null;
+  layer?: string | null;
+  text?: string | null;
+}
+
+export interface Note extends NoteInput {
+  id: string;
+  done: boolean;
+  reply: string | null;
+}
