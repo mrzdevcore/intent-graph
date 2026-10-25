@@ -595,24 +595,34 @@ pub fn checkers(root: &Path, config: &Config, head: &Graph) -> CheckerOutput {
     out
 }
 
-pub fn load_baseline(root: &Path) -> HashSet<String> {
+/// Baseline entries: fingerprint strings, or `{"fingerprint", "reason"}` exceptions.
+fn baseline_items(root: &Path) -> Vec<serde_json::Value> {
     std::fs::read_to_string(root.join(".ig/baseline.json"))
         .ok()
-        .and_then(|t| serde_json::from_str::<Vec<String>>(&t).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default()
-        .into_iter()
+}
+
+pub fn load_baseline(root: &Path) -> HashSet<String> {
+    baseline_items(root)
+        .iter()
+        .filter_map(|v| v.as_str().or_else(|| v["fingerprint"].as_str()))
+        .map(String::from)
         .collect()
 }
 
+/// Writes `fingerprints` as strings, keeping existing exception objects.
 pub fn write_baseline(
     root: &Path,
     fingerprints: impl IntoIterator<Item = String>,
 ) -> anyhow::Result<()> {
     let set: BTreeSet<String> = fingerprints.into_iter().collect();
+    let mut items: Vec<serde_json::Value> = set.into_iter().map(Into::into).collect();
+    items.extend(baseline_items(root).into_iter().filter(|v| v.is_object()));
     std::fs::create_dir_all(root.join(".ig"))?;
     std::fs::write(
         root.join(".ig/baseline.json"),
-        serde_json::to_string_pretty(&set)? + "\n",
+        serde_json::to_string_pretty(&items)? + "\n",
     )?;
     Ok(())
 }
