@@ -1,10 +1,10 @@
-//! `ig explore`: facts an agent needs to write ig.yaml, and `ig explore <agent>`, which starts that
-//! coding agent on the ig-explore skill.
+//! `ig setup`: facts an agent needs to write ig.yaml, and `ig setup <agent>`, which starts that
+//! coding agent on the ig-setup skill.
 
 use crate::checks::{self, Layers};
 use crate::config::Config;
 use crate::graph::{self, Built};
-use crate::init;
+use crate::skills;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -46,46 +46,15 @@ const NODE_BUILTINS: &[&str] = &[
 
 const PAGE_DIRS: &[&str] = &["pages", "views", "routes", "screens"];
 
-pub struct Agent {
-    pub name: &'static str,
-    pub skill_dir: &'static str,
-    pub bin: &'static str,
-    pub invoke: &'static str,
-}
-
-pub const AGENTS: &[Agent] = &[
-    Agent {
-        name: "claude",
-        skill_dir: ".claude/skills",
-        bin: "claude",
-        invoke: "/ig-explore",
-    },
-    Agent {
-        name: "codex",
-        skill_dir: ".agents/skills",
-        bin: "codex",
-        invoke: "$ig-explore",
-    },
-];
-
-pub fn agent(name: &str) -> Result<&'static Agent> {
-    match AGENTS.iter().find(|a| a.name == name) {
-        Some(a) => Ok(a),
-        None => bail!(
-            "unknown agent {name:?}; expected one of: {}",
-            AGENTS.iter().map(|a| a.name).collect::<Vec<_>>().join(", ")
-        ),
-    }
-}
-
 /// Installs the skill if needed, then hands the terminal to the agent with the skill invoked.
 pub fn run_agent(root: &Path, name: &str) -> Result<u8> {
-    let a = agent(name)?;
-    if let Some(p) = init::install_skill(root, a)? {
+    let a = skills::agent(name)?;
+    for p in skills::install(root, a)? {
         eprintln!("ig: installed {}", p.display());
     }
+    let invoke = skills::invoke(a, "setup");
     let status = std::process::Command::new(a.bin)
-        .arg(a.invoke)
+        .arg(&invoke)
         .current_dir(root)
         .status();
     match status {
@@ -95,7 +64,7 @@ pub fn run_agent(root: &Path, name: &str) -> Result<u8> {
                 "{} is not on PATH; install it, or open your agent in {} and run {}",
                 a.bin,
                 root.display(),
-                a.invoke
+                invoke
             )
         }
         Err(e) => Err(e.into()),
@@ -261,7 +230,7 @@ fn table(out: &mut String, rows: &[Value], cols: &[(&str, &str)], limit: usize) 
 
 pub fn report(f: &Value) -> String {
     let mut s = String::from(
-        "# ig explore\n\nFacts for writing ig.yaml. See the ig-explore skill for how to use them.\n\n",
+        "# ig setup\n\nFacts for writing ig.yaml. See the ig-setup skill for how to use them.\n\n",
     );
     let c = &f["config"];
     s.push_str("## Config\n\n");
@@ -406,7 +375,6 @@ mod tests {
         );
         let r = report(&f);
         assert!(r.contains("## External packages"));
-        assert!(agent("cursor").is_err());
-        assert_eq!(agent("codex").unwrap().invoke, "$ig-explore");
+        assert!(skills::agent("cursor").is_err());
     }
 }
