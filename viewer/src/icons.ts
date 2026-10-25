@@ -50,10 +50,13 @@ export function iconFor(name: string, packages: string[], category: string): Ico
   return { brand: false, svg: BY_CATEGORY[category] || Cloud };
 }
 
-/** A data URI for the icon: brands in their colour, lucide icons stroked in `fg`. */
+/** A data URI for the icon: brands in their colour on their own light tile (dark logos stay visible
+ *  in both themes), lucide icons stroked in `fg`. */
 export function iconUri(icon: Icon, fg: string): string {
   const svg = icon.brand
-    ? `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="${icon.color}" d="${icon.path}"/></svg>`
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">` +
+      `<rect width="24" height="24" rx="5" fill="#fff" stroke="#d4d4d8" stroke-width="0.5"/>` +
+      `<path fill="${icon.color}" d="${icon.path}" transform="translate(4.5 4.5) scale(0.625)"/></svg>`
     : icon.svg.replace(/currentColor/g, fg);
   return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
 }

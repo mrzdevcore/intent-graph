@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { ViewData, ViewEdge, ViewNode } from "../src/data";
-import { architecture, initialScope } from "../src/model/architecture";
+import { architecture, assignRows, initialScope, placeRows, rowAt } from "../src/model/architecture";
 import { index } from "../src/model/graph";
 import fixture from "./fixture-data.json";
 
@@ -50,4 +50,18 @@ test("inside one layer its children fill its row, context and systems keep their
   expect(lane(wide, "External services")).toBeTruthy();
   const outer = wide.filter((e) => e.data.outer && e.data.kind === "layer");
   outer.forEach((e) => expect(e.position!.y).toBe(lane(wide, e.data.id.slice("g:/L:".length)).position!.y));
+});
+
+test("rowAt names the layer row under a y, nothing for Other, External services or the gaps", () => {
+  const ix = index(withSystem());
+  const nodes = architecture(ix, ix.root).filter((e) => e.group === "nodes" && !String(e.data.kind).startsWith("lane"));
+  const of = assignRows(ix, nodes);
+  expect(of["g:/L:ui"]).toEqual({ row: 1, name: "ui", kind: "layer" });
+  expect(of["system:PostgreSQL"]).toEqual({ row: D.layers.length + 1, name: "External services", kind: "external" });
+  const { lanes } = placeRows(nodes, of, 1200);
+  const y = (id: string) => nodes.find((e) => e.data.id === id)!.position!.y;
+  D.layers.forEach((l) => expect(rowAt(lanes, y("g:/L:" + l))).toBe(l));
+  expect(rowAt(lanes, y("system:PostgreSQL"))).toBeUndefined();
+  expect(rowAt(lanes, lanes[0].bottom + 1)).toBeUndefined();
+  expect(rowAt(lanes, -1000)).toBeUndefined();
 });
