@@ -180,6 +180,7 @@ rules:
   - forbid: "core -> ui"      # core must not import, call or render ui
 complexity: { max: 15, maxIncrease: 5 }
 embedded: [".vue"]            # single-file components
+autoImports: [".nuxt/imports.d.ts", ".nuxt/components.d.ts"] # framework auto-imports (generated d.ts; run `nuxt prepare`)
 patterns:                     # ast-grep patterns that become graph nodes
   - kind: route
     match: "app.$METHOD($PATH, $$$)"

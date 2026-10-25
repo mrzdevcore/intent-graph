@@ -1,4 +1,5 @@
 mod apply;
+mod autoimports;
 mod brief;
 mod check;
 mod checks;

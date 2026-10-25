@@ -1,5 +1,6 @@
 //! Two-pass graph build: pass 1 extracts per file, pass 2 resolves edges against the global index.
 
+use crate::autoimports::AutoImports;
 use crate::config::Config;
 use crate::extract::{self, Callee, ExportTarget, FileFacts, FileInput, ImportName};
 use crate::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
@@ -179,7 +180,9 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     }
 
     // Pass 2.
-    let index = Index::new(&facts);
+    let (auto, auto_errors) = crate::autoimports::load(root, &config.auto_imports, &ws);
+    parse_errors.extend(auto_errors);
+    let index = Index::new(&facts, &auto);
     let mut edge_lists: Vec<Vec<Edge>> = facts.par_iter().map(|f| index.edges_of(f)).collect();
     let (system_nodes, blueprint_edges, renames, http_unmatched) = blueprint_links(&facts, config);
     let mut extras = Extras {
@@ -471,16 +474,18 @@ struct Index<'f> {
     classes: HashMap<&'f str, (&'f FileFacts, Option<&'f Callee>)>,
     /// interface or class id → classes that implement or extend it
     implementers: HashMap<String, Vec<String>>,
+    auto: &'f AutoImports,
 }
 
 impl<'f> Index<'f> {
-    fn new(facts: &'f [FileFacts]) -> Index<'f> {
+    fn new(facts: &'f [FileFacts], auto: &'f AutoImports) -> Index<'f> {
         let mut ix = Index {
             files: HashMap::new(),
             children: HashMap::new(),
             by_name: HashMap::new(),
             classes: HashMap::new(),
             implementers: HashMap::new(),
+            auto,
         };
         for f in facts {
             ix.files.insert(&f.file, f);
@@ -593,6 +598,12 @@ impl<'f> Index<'f> {
             .find_map(|spec| self.export(f.resolved.get(spec)?, name, seen))
     }
 
+    /// The node an `autoImports` name stands for.
+    fn auto(&self, name: &str) -> Option<String> {
+        let (file, export) = self.auto.get(name)?;
+        self.export(file, &ImportName::named(export), &mut HashSet::new())
+    }
+
     fn import(&self, f: &FileFacts, spec: &str, name: &ImportName) -> Option<String> {
         let target = f.resolved.get(spec)?;
         self.export(target, name, &mut HashSet::new())
@@ -681,14 +692,18 @@ impl<'f> Index<'f> {
                     skip_self,
                 } => (self.method(class, name, *skip_self), "resolved"),
                 Callee::Typed(..) => unreachable!(),
-                Callee::Guess(name) => (
-                    self.by_name
-                        .get(name.as_str())
-                        .copied()
-                        .flatten()
-                        .map(str::to_string),
-                    "guessed",
-                ),
+                Callee::Auto(name) => (self.auto(name), "resolved"),
+                Callee::Guess(name) => match self.auto(name) {
+                    Some(t) => (Some(t), "resolved"),
+                    None => (
+                        self.by_name
+                            .get(name.as_str())
+                            .copied()
+                            .flatten()
+                            .map(str::to_string),
+                        "guessed",
+                    ),
+                },
             };
             if let Some(to) = to {
                 out.push(Edge {
@@ -808,6 +823,84 @@ mod tests {
         // Interfaces are not nodes, and edges to them are dropped.
         assert!(!g.nodes.iter().any(|n| n.id == "src/domain/repo.ts#Repo"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A page calling an auto-imported composable resolves.
+    #[test]
+    fn auto_imported_calls_resolve() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "ig.yaml",
+                "embedded: ['.vue']\nautoImports: ['.nuxt/imports.d.ts']\n",
+            ),
+            (
+                ".nuxt/imports.d.ts",
+                "export { useCatalog } from '../src/composables/catalog';\n",
+            ),
+            (
+                "src/composables/catalog.ts",
+                "export const useCatalog = () => 1;\n",
+            ),
+            (
+                "src/pages/index.vue",
+                "<script setup lang=\"ts\">\nconst c = useCatalog();\n</script>\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.from.starts_with("src/pages/index.vue")
+                    && e.to == "src/composables/catalog.ts#useCatalog"
+                    && e.kind == "calls"
+                    && e.confidence == "resolved"),
+            "{:#?}",
+            g.edges
+        );
+    }
+
+    // An auto-imported component tag renders the component; an unknown tag adds nothing.
+    #[test]
+    fn auto_imported_components_render() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "ig.yaml",
+                "embedded: ['.vue']\nautoImports: ['.nuxt/components.d.ts']\n",
+            ),
+            (
+                ".nuxt/components.d.ts",
+                "export const DashboardReport: typeof import(\"../src/components/DashboardReport.vue\")['default']\n",
+            ),
+            (
+                "src/components/DashboardReport.vue",
+                "<template><div/></template>\n",
+            ),
+            (
+                "src/pages/index.vue",
+                "<template><dashboard-report /><other-thing /></template>\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        let from_page: Vec<_> = g
+            .edges
+            .iter()
+            .filter(|e| e.from == "src/pages/index.vue")
+            .collect();
+        assert!(
+            from_page
+                .iter()
+                .any(|e| e.to == "src/components/DashboardReport.vue"
+                    && e.kind == "renders"
+                    && e.confidence == "resolved"),
+            "{from_page:#?}"
+        );
+        assert_eq!(from_page.len(), 1, "{from_page:#?}");
     }
 
     #[test]

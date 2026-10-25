@@ -224,6 +224,22 @@ fn link_missing_extends(src: &Path, target: &Path) {
     }
 }
 
+/// `autoImports` declaration files are generated and usually gitignored (`.nuxt/`): link the
+/// working tree's copies into the worktree when missing there.
+fn link_missing_auto_imports(src: &Path, target: &Path, config: &Config) {
+    for f in crate::autoimports::files(src, &config.auto_imports).0 {
+        let t = target.join(&f);
+        if t.exists() {
+            continue;
+        }
+        if let Some(parent) = t.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        #[cfg(unix)]
+        let _ = std::os::unix::fs::symlink(src.join(&f), &t);
+    }
+}
+
 impl Drop for Worktree {
     fn drop(&mut self) {
         let d = self.dir.to_string_lossy().to_string();
@@ -234,7 +250,7 @@ impl Drop for Worktree {
 }
 
 /// Bump whenever extraction or resolution changes output, so cached base graphs are rebuilt.
-const GRAPH_REVISION: u32 = 10;
+const GRAPH_REVISION: u32 = 11;
 
 pub fn cache_key(config: &Config) -> String {
     sha1_hex(&format!(
@@ -290,12 +306,25 @@ pub fn graph_at(root: &Path, repo: &Repo, sha: &str, config: &Config) -> Result<
         g.commit = Some(sha.to_string());
         return Ok(g);
     }
+    link_missing_auto_imports(root, &r, config);
     Ok(graph::build(&r, config, Some(sha.to_string()))?.graph)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_missing_auto_import_files() {
+        let src = crate::autoimports::tmp_with(&[(".nuxt/imports.d.ts", "export {}\n")]);
+        let target = crate::autoimports::tmp_with(&[("src/a.ts", "")]);
+        let config = Config {
+            auto_imports: vec![".nuxt/*.d.ts".into()],
+            ..Config::default()
+        };
+        link_missing_auto_imports(&src, &target, &config);
+        assert!(target.join(".nuxt/imports.d.ts").is_file());
+    }
 
     #[test]
     fn base_resolution() {
