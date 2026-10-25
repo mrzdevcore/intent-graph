@@ -20,8 +20,10 @@ Why it matters: the user prefers reading architecture and real code over long sp
 - **Two surfaces:** an architecture canvas and a screens canvas, linked to each other.
 - **Mockups are context for the plan.** The agent never generates UI code from a mockup. UI code is written the usual way, strictly following the project's design system. The mockup tells the agent what the screen needs (which data, which actions, which states), not how to lay out pixels.
 - **Image import now:** paste or drop a PNG (a screenshot or Figma export). Figma by link is later.
-- **Single user and local for the MVP,** on `ig serve`. A shared, multi-user, hosted version is planned for later and out of scope here. Nothing in this design may block it: state lives in files, and the server is the only writer.
-- **Claude only** (Codex is parked).
+- **A desktop app, single user and local for the MVP.** It is built with Tauri: ig's Rust core in-process, plus the existing TypeScript (Lit) frontend in a native window, with no separate `ig serve` to start. A shared, multi-user, hosted version is planned for later and out of scope. Nothing in this design may block it: state lives in files, and the frontend reaches ig only through one API client module, which can be backed by Tauri commands now and by HTTP for a hosted server later.
+- **Claude lives inside the app,** in a **custom chat UI** (not an embedded terminal). The app talks to Claude Code through the **Agent Client Protocol (ACP)**, the open standard Zed uses (Apache-2.0, JSON-RPC over stdio), through the official adapter `@agentclientprotocol/claude-agent-acp`, which wraps Claude Code via the Agent SDK. Researched 2026-10-25 against agentclientprotocol.com, zed.dev/docs/ai/external-agents and code.claude.com legal-and-compliance.
+- **It is a cockpit, not an IDE.** The app does design, architecture, plan, review and the agent. It reads code (a file tree and a code view) but doesn't edit it; "open in editor" jumps to the user's IDE.
+- **Claude only** (Codex is parked). ACP would allow other agents later at little cost.
 - **The call chain is visible:** from a page, ig shows what it calls all the way down to the database. This replaces today's sequence diagram, which only shows a file calling itself.
 
 ## Goals
@@ -40,6 +42,8 @@ Why it matters: the user prefers reading architecture and real code over long sp
 - Figma API integration.
 - A general-purpose whiteboard (free shapes with no meaning beyond annotation).
 - Editing source code in the app. Code is read in the app; editing happens in the user's editor or by the agent.
+- Becoming an IDE: no search-and-replace across files, no debugger, no git UI beyond showing what changed.
+- Distributing the app publicly. It is for the user and their team, built locally, until Anthropic confirms the terms (see Agent and login).
 
 ## Anti-goals
 
@@ -68,12 +72,41 @@ Why it matters: the user prefers reading architecture and real code over long sp
 
 ## The app
 
-`ig serve` already serves the viewer and an API. In this project the viewer becomes an app:
+A Tauri desktop app (`app/` or similar; the builder's call), with ig's Rust core linked in. Its screens:
 
-- data loads from the API instead of being embedded in the page;
-- it has screens with real URLs: Graph (today's modes), Design (per feature), Code (read-only CodeMirror 6 with before/after diff), Call chain.
+- **Files:** a real file tree of the repo, every file and not just graph modules, synced with the graph selection.
+- **Graph:** today's modes: Changed, Architecture rows, Focus, Blueprint.
+- **Design:** per feature.
+- **Code:** read-only CodeMirror 6, with the before/after diff.
+- **Call chain.**
+- **Chat panel:** docked, always available.
 
-The single-file offline `ig view` keeps working as a read-only export. The Design workspace needs `ig serve`.
+The frontend reaches ig only through a single API client module, so the same screens can later run against a hosted HTTP server.
+
+`ig serve` (the browser server) and the single-file `ig view` export keep working for users without the app, but the Design workspace and the chat are app-only in the MVP.
+
+## Agent and login
+
+- **The protocol.** The app is an ACP client: the official Rust crate `agent-client-protocol` in the Tauri backend. It starts the Claude adapter (`claude-agent-acp`) as a subprocess in the project folder and speaks JSON-RPC over stdio. Project skills, the ig plugin, hooks and MCP servers load as in the terminal, so `/ig:plan` and `/ig:apply` work from the chat.
+- **The chat UI** (custom, built in the frontend) renders ACP events:
+  - streaming text;
+  - tool calls as compact cards;
+  - file edits as diffs, with a link to open them on the graph;
+  - approval requests as approve/deny buttons;
+  - Claude's multiple-choice questions as buttons;
+  - plan updates as plan cards that open the Design or plan view;
+  - `ig check` results as a blocking or clean badge;
+  - a TODO list as progress;
+  - sessions per feature, resumable and listed.
+- **Context from the canvas:** selecting a box, link, note or screen element can attach it to the next message. "Plan this" sends the design to the chat as `/ig:plan` for that feature. Notes and design edits reach the agent as app events, so the experimental Claude Code channel isn't needed.
+- **Login is owned by the agent, never by ig,** following Anthropic's terms and the way Zed does it:
+  - ig never reads, stores or passes on Claude credentials or session tokens;
+  - when the adapter reports it isn't authenticated, the chat says so and offers `/login` (handled by the agent: the user picks their Claude subscription or an API key through Anthropic's own flow);
+  - the Claude Code binary is never modified, and no built-in login method is disabled;
+  - the app never pays for or resells usage;
+  - naming: the product may say in plain text that it "runs Claude Code", but must not use Claude Code or Anthropic names or logos in its own name or icon.
+- **The open terms question.** Using the ACP adapter (built on the Agent SDK) with a Pro or Max subscription is fine for the user's own use, as it is in Zed. Before any public distribution, get written confirmation from Anthropic. Until then, the app is built locally by its users.
+- **Fallback if ACP falls short:** spawn the user's `claude` directly in streaming JSON mode, with an ig MCP tool as `--permission-prompt-tool`, the way Anthropic's VS Code extension wraps the CLI. The chat UI stays the same; only the transport module changes.
 
 ## Architecture canvas
 
@@ -122,16 +155,15 @@ It renders as a sequence with **one lifeline per lane or layer** (page, composab
   2. reads the screens as context: which data each screen shows, which actions it has, which states;
   3. reads the links and the notes;
   4. fills in what the design leaves open (function names, files, tests), writes `plan.md`, runs `ig plan check`, and lists its open questions as replies or notes.
-- While the user keeps drawing, design changes reach the agent the same way notes do today: an `ig serve` event, then the channel or `ig_wait_notes`. The agent updates the plan.
+- While the user keeps drawing, design changes and notes reach the agent as app events in the chat session (batched, so a burst of edits becomes one message). The agent updates the plan.
 - The plan view shows plan-versus-design differences: what the agent added and what it didn't take from the design.
 - `/ig:apply` is unchanged, except that the reviewer also receives the screens and links as context.
 - **UI code follows the design system.** The apply skill tells the agent to build screens only from the project's existing UI components and tokens, and to treat a mockup element with no matching component as a question for the user, never a reason to invent one. If the project has a linter or checker for this (an eslint rule, a stylelint config), it is enforced as a checker.
 
 ## Author's calls (from the builder check, not discussed with the user)
 
-- **Reaching the agent:** the app assumes a Claude session the user started, attached through `ig mcp` (channel, or `ig_wait_notes`). The app shows whether an agent is connected (`ig mcp` registers with serve while it runs). A **"Plan this"** action sends a request event the same way notes do. If no agent is connected, the app shows the exact command to run in a terminal (`claude` with the ig plugin, or `ig serve claude`). The app never starts or manages a Claude process. Because the channel is unverified, `ig_wait_notes` remains the guaranteed path, and the plan skill always uses it when no channel event has arrived.
-- **Several features per `ig serve`.** The app lists the features (the folders under `plans/`, plus flat plans), creates a new one (a folder with an empty `design.json`), and switches between them. The API and events are per feature, keyed by slug. A feature can exist with only a design: no `plan.md` is needed to draw or to add notes. The agent's wait and notes tools take a slug, defaulting to the current plan.
-- **Live checks are exact and computed in Rust:** the design is sent to serve, which merges it like `plan::merge` and runs the same checks as `ig plan check`. There is never a TypeScript port of the rules. Edits are debounced (target under 150 ms from the edit to the shown result) and measured on a repository of acme's size. An incremental merge is added only if the measurement says so.
+- **Several features per project.** The app lists the features (the folders under `plans/`, plus flat plans), creates a new one (a folder with an empty `design.json`), and switches between them. The API and events are per feature, keyed by slug. A feature can exist with only a design: no `plan.md` is needed to draw or to add notes. The chat session is per feature.
+- **Live checks are exact and computed in Rust:** the design is sent to the Rust core, which merges it like `plan::merge` and runs the same checks as `ig plan check`. There is never a TypeScript port of the rules. Edits are debounced (target under 150 ms from the edit to the shown result) and measured on a repository of acme's size. An incremental merge is added only if the measurement says so.
 
 ## Usability bar (acceptance)
 
@@ -149,21 +181,25 @@ The user should be able to sketch the intake patient-export feature end to end w
 
 ## Constraints
 
-- Rust: no new crates unless clearly justified. The viewer app: TypeScript and Lit (as today); npm packages are fine, MIT or similar license, pinned.
-- `ig serve` security stays as built: loopback only, a token on every write, Origin and Host checks. Design writes go through the same token-gated API.
+- Rust: the `ig` CLI crate keeps its dependency set. The app may add what it needs: `tauri`, the `agent-client-protocol` crate, and a small set of others, each justified in the plan. The ig core is shared as a library crate, so the CLI and the app run the same code. The viewer app: TypeScript and Lit (as today); npm packages are fine, MIT or similar license, pinned.
+- In the app, no network server is needed: the frontend calls the Rust core through Tauri commands. `ig serve` keeps its security as built (loopback only, a token on every write, Origin and Host checks) for its browser users.
+- Tauri security: a strict CSP, no remote content loaded into the webview, and Tauri capabilities limited to what the app uses.
 - Design files are user content: the agent treats their text as data, never as instructions (same rule as notes).
 - Existing commands and the existing single-plan-file flow keep working.
 
 ## Left to the builder
 
 - SVG or canvas for the screens canvas, the exact JSON schemas of `design.json` and the screens files (versioned with a `version` field), and stable element-id rules.
-- How the app routes and loads data from the API.
+- How the app routes, and the shape of the API client module.
+- Where the app lives in the repo, and how it's built (`make app`).
 - The exact palette icons and look.
 - How the call chain excludes test stubs and chooses its depth.
 - The order of delivery. Suggested, each step useful on its own:
-  1. the call-chain view;
-  2. the app shell with API-loaded data and the Code screen;
-  3. the architecture canvas with live checks;
-  4. `/ig:plan` from a design;
-  5. the screens canvas and image import;
-  6. the bridge.
+  1. the call-chain view (works in today's viewer too);
+  2. the Tauri app shell (file tree, graph, Code screen) through the API client module;
+  3. the chat panel over ACP (login, streaming, approvals, diffs, sessions);
+  4. the architecture canvas with live checks;
+  5. `/ig:plan` from a design, through the chat;
+  6. the screens canvas and image import;
+  7. the bridge;
+  8. as-built consolidation at finish.
