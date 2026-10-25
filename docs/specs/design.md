@@ -174,7 +174,7 @@ Resolution happens after every file's nodes are known.
    | `ns.f()` where `ns` is a namespace import | export `f` of that module | resolved |
    | `this.m()` / `super.m()` in a class | method `m` of that class or of its resolved base | resolved |
    | `extends C` / `implements I` | same as identifiers | resolved |
-   | a name listed in an `autoImports` file (`useX()`, a template tag or word) | that file's export, via the export table (`default` → the default export) | resolved |
+   | a free identifier (bound nowhere in the file: `useX()`, `extends X`) or an unresolved template tag or word, listed in an `autoImports` file | that file's export, via the export table (`default` → the default export) | resolved |
    | anything else (`obj.m()`, parameters, destructured values) | the bare name | guessed |
 
    A guessed edge is kept only if exactly one non-module, non-test node has that name. Otherwise it is dropped.
@@ -184,7 +184,7 @@ Resolution happens after every file's nodes are known.
 7. **JSX:** `<Foo>` and `<Foo.Bar>` give a `renders` edge to the import binding of `Foo`.
 8. Edges whose `to` is not a known node are dropped.
 
-**Auto-imports.** Each `autoImports` file is read line by line (no TypeScript parse) for `export { a, b as c } from '<spec>'`, `const a: typeof import('<spec>').a` / `['a']`, and `'Name': typeof import('<spec>')['default']`. A relative `<spec>` resolves from the declaration file's directory, probing `.ts`, `.tsx`, `.vue`, `.js`, `.jsx`, `.mts`, `.mjs` and `/index.*` against the source files. A bare package, `#alias` or path outside the repo gives no entry, so the call stays guessed. An unresolved template tag (as PascalCase) or word resolves only through these entries. Base-graph worktrees link missing (gitignored) `autoImports` files from the working tree.
+**Auto-imports.** Each `autoImports` file is read line by line (no TypeScript parse) for `export { a, b as c } from '<spec>'`, `const a: typeof import('<spec>').a` / `['a']`, and `'Name': typeof import('<spec>')['default']`. A relative `<spec>` resolves from the declaration file's directory, probing `.ts`, `.tsx`, `.vue`, `.js`, `.jsx`, `.mts`, `.mjs` and `/index.*` against the source files. A bare package, `#alias` or path outside the repo gives no entry, so the call stays guessed. Only free identifiers use these entries (a member `obj.useX()`, a parameter or local named `useX` stays guessed); an unresolved template tag (as PascalCase) or word resolves only through them. Nuxt's lazy entries (`LazyX: LazyComponent<typeof import(...)>`) are not parsed yet, so `<LazyX>` stays unresolved. Base-graph worktrees link missing (gitignored) `autoImports` files from the working tree.
 
 **Narrow local inference** (no type checker). A variable, parameter or class field has a type when it is declared with a type reference (`repo: Repo`, constructor parameter properties included) or initialised with `new C()`. Then `x.m()`, `this.f.m()` and the method reference `x.m` (as in `handler: c.get.bind(c)`) resolve to method `m` of that class (a `calls` edge), or, when the type is an interface or type alias, to `m` of each class that implements or extends it (a `dispatch` edge, `resolved` when there is exactly one implementation, `guessed` otherwise). Interfaces and type aliases get an internal id for this but are not nodes. `dispatch` edges stand for runtime flow, not a code dependency, so arch rules and review ignore them. Everything else stays guessed as above.
 

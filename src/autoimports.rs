@@ -27,8 +27,14 @@ pub fn files(root: &Path, patterns: &[String]) -> (Vec<String>, Vec<String>) {
     if patterns.iter().any(|p| is_glob(p)) {
         // ponytail: walks the whole tree (generated dirs are hidden, so source discovery skips
         // them), skipping only node_modules and .git.
+        // Symlinked dirs are followed, each real dir once (no cycles): a base-graph worktree
+        // links a missing `.nuxt/` as a dir symlink (`link_missing_extends`).
+        let mut seen = HashSet::new();
         let mut stack = vec![root.to_path_buf()];
         while let Some(dir) = stack.pop() {
+            if !dir.canonicalize().is_ok_and(|c| seen.insert(c)) {
+                continue;
+            }
             for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
                 let p = e.path();
                 if p.is_dir() {
@@ -213,6 +219,17 @@ mod tests {
             Some(("src/components/DashboardReport.vue", "default"))
         );
         assert_eq!(ai.get("useI18n"), None); // Review Focus 2
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn glob_walk_follows_symlinked_dirs_without_looping() {
+        let dir = tmp_with(&[("real/.nuxt/imports.d.ts", "export {}\n")]);
+        std::os::unix::fs::symlink(dir.join("real/.nuxt"), dir.join(".nuxt")).unwrap();
+        std::os::unix::fs::symlink(&dir, dir.join("real/loop")).unwrap();
+        let (found, unmatched) = files(&dir, &[".nuxt/*.d.ts".into()]);
+        assert_eq!(found, [".nuxt/imports.d.ts"]);
+        assert!(unmatched.is_empty());
     }
 
     #[test]
