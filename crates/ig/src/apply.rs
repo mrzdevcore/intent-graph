@@ -119,7 +119,7 @@ pub fn start(root: &Path, plan_path: &Path) -> Result<()> {
     let Some(base) = Repo::open(root).and_then(|r| r.head()) else {
         bail!("apply start: needs a git repository with at least one commit");
     };
-    let hashes = hashes(root, &rel, &Config::load(root)?);
+    let hashes = hashes(root, &rel, &crate::config::load(root)?);
     let baseline = checks::load_baseline(root).into_iter().collect();
     save(
         root,
@@ -156,7 +156,7 @@ pub fn accept(root: &Path) -> Result<()> {
     let Some(mut st) = load(root) else {
         bail!("no apply in progress");
     };
-    st.hashes = hashes(root, &st.plan, &Config::load(root)?);
+    st.hashes = hashes(root, &st.plan, &crate::config::load(root)?);
     save(root, &st)
 }
 

@@ -1,7 +1,7 @@
 //! Plan files (`plans/*.md` with an `ig-plan` block) and `ig plan check`.
 
 use crate::checks::{self, Layers};
-use crate::config::{Config, Severity};
+use crate::config::Severity;
 use crate::diff::Status;
 use crate::model::{Edge, Finding, Graph, Metrics, Node, Range};
 use crate::view::LaneMap;
@@ -348,7 +348,7 @@ fn new_pairs(
 /// `check` on plan text: tests use it so they need not write files.
 pub fn check_text(root: &Path, path: &str, text: &str) -> Result<Value> {
     let plan = parse(path, text)?;
-    let cfg = Config::load(root)?;
+    let cfg = crate::config::load(root)?;
     let built = graph::build(root, &cfg, None)?;
     let (head, packages) = (&built.graph, &built.workspace.packages);
     let (merged, added, merge_findings) = merge(head, &plan);
@@ -565,7 +565,7 @@ pub(crate) mod tests {
 
     fn fixture_graph(name: &str) -> Graph {
         let dir = fixture_dir(name);
-        crate::graph::build(&dir, &crate::config::Config::load(&dir).unwrap(), None)
+        crate::graph::build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph
     }

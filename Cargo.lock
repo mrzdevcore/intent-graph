@@ -684,6 +684,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-core"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_yaml_ng",
+ "sha1",
+ "thiserror",
+]
+
+[[package]]
 name = "ignore"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -739,6 +750,7 @@ dependencies = [
  "ast-grep-core",
  "ast-grep-language",
  "globset",
+ "ig-core",
  "json_comments",
  "lexopt",
  "notify",
