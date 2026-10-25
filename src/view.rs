@@ -339,10 +339,8 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
     if let Some(p) = &run.plan {
         out["plan"] = p.clone();
     }
-    let applying =
-        crate::apply::load(root).is_some_and(|st| crate::apply::stale(root, &st).is_none());
     out["state"] = json!(match &run.plan {
-        _ if applying => "applying",
+        Some(p) if p["applying"] == true => "applying",
         Some(p) if p["done"] == true => "done",
         Some(_) => "planned",
         None => "plain",
@@ -367,11 +365,14 @@ pub fn pick_plan(root: &Path, explicit: Option<&Path>, no_plan: bool) -> Picked 
         return (None, false);
     }
     let st = crate::apply::load(root).filter(|st| crate::apply::stale(root, st).is_none());
+    let applied = st.as_ref().map(|st| root.join(&st.plan));
     let plan = explicit
         .map(Path::to_path_buf)
-        .or_else(|| st.as_ref().map(|st| root.join(&st.plan)))
+        .or_else(|| applied.clone())
         .or_else(|| plan::current(root));
-    (plan, st.is_some())
+    // Applying only when the plan shown is the one being applied.
+    let applying = applied.is_some() && plan == applied;
+    (plan, applying)
 }
 
 pub fn render(run: &Run, root: &Path, opts: &Opts, live: bool) -> String {
@@ -480,11 +481,7 @@ pub fn watch(
     let build = move |root: &Path| -> Result<String> {
         let opts = &opts;
         // Re-pick the plan on every rebuild so the view follows plan and apply changes.
-        let run = run_with_plan(
-            root,
-            opts,
-            &pick_plan(root, plan.as_deref(), no_plan),
-        )?;
+        let run = run_with_plan(root, opts, &pick_plan(root, plan.as_deref(), no_plan))?;
         let html = render(&run, root, opts, true);
         let _ = check::write_atomic(
             &root.join(".ig/view.html"),
@@ -684,6 +681,17 @@ mod tests {
         assert_eq!(
             (p, s),
             ((Some(dir.join("plans/other.md")), true), json!("applying"))
+        );
+        assert_eq!(pick_plan(&dir, None, true), (None, false));
+        let nop = pick_plan(&dir, None, true);
+        assert_eq!(
+            json(&dir, &Opts::default(), &nop).unwrap()["state"],
+            "plain"
+        );
+        let other = pick_plan(&dir, Some(&dir.join("plans/export.md")), false);
+        assert_eq!(
+            json(&dir, &Opts::default(), &other).unwrap()["state"],
+            "planned"
         );
         std::fs::remove_file(dir.join("plans/other.md")).unwrap();
         let (p, s) = state(&dir);
