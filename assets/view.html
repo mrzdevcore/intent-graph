@@ -49,7 +49,13 @@ main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; flex: 1
 .dot.added { background: var(--added); } .dot.changed { background: var(--changed); } .dot.removed { background: var(--removed); }
 .row .nf { margin-left: auto; font-size: 11px; color: var(--error); flex: none; }
 .row.dir .name { font-weight: 600; }
-pre.pseudo { white-space: pre-wrap; max-height: 520px; }
+pre.code { max-height: 560px; padding: 6px 0; }
+.cl { display: flex; white-space: pre; padding-right: 8px; }
+.cl .ln { width: 3.2em; flex: none; text-align: right; color: var(--muted); padding-right: 6px; user-select: none; }
+.cl .op { width: 1.2em; flex: none; color: var(--muted); user-select: none; }
+.overlay pre.code.wide { flex: 1; max-height: none; margin-top: 10px; font-size: 13px; }
+.cl.add { background: color-mix(in srgb, var(--added) 18%, transparent); }
+.cl.del { background: color-mix(in srgb, var(--removed) 18%, transparent); }
 .seq { overflow: auto; background: var(--code); border-radius: 6px; padding: 6px; margin: 4px 0; }
 .seq svg { max-width: none; height: auto; }
 .overlay { position: fixed; inset: 24px; z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -72,7 +78,6 @@ li.f { padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .sev.error { color: var(--error); } .sev.warning { color: var(--warning); } .sev.note { color: var(--note); }
 .loc { color: var(--muted); font-size: 12px; word-break: break-all; }
 pre { background: var(--code); padding: 8px; border-radius: 6px; overflow: auto; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 4px 0; max-height: 320px; }
-.panes { display: grid; grid-template-columns: 1fr; gap: 6px; }
 .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 10px; border: 1px solid var(--line); margin: 0 4px 4px 0; }
 .added { color: var(--added); } .changed { color: var(--changed); } .removed { color: var(--removed); }
 .notice { color: var(--warning); font-size: 13px; }

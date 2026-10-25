@@ -86,8 +86,6 @@ pub struct Extras {
     pub url_callees: BTreeMap<String, u32>,
     /// HTTP client calls that matched no route: (file, line, method, url).
     pub http_unmatched: Vec<(String, u32, String, String)>,
-    /// Function or method node id → pseudo-code (not part of the graph: viewer and brief only).
-    pub pseudo: HashMap<String, String>,
 }
 
 /// Builds the graph of the tree at `root` (which may be a worktree).
@@ -188,9 +186,6 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
         http_unmatched,
         ..Extras::default()
     };
-    for f in &mut facts {
-        extras.pseudo.extend(std::mem::take(&mut f.pseudo));
-    }
     for f in facts.iter().filter(|f| !tests.is_match(&f.file)) {
         let mut seen = HashSet::new();
         for (p, _) in &f.packages {

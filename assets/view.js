@@ -421,8 +421,7 @@
       seen[id] = true;
       var n = byId[id]; if (!n) return;
       var from = part(id);
-      // Guessed edges and error construction (already visible as `require … else` in the
-      // pseudo-code) only add noise to a sequence.
+      // Guessed edges and error construction only add noise to a sequence.
       var out = (outEdges[id] || []).filter(function (e) {
         var t = byId[e.to];
         return SEQ_KINDS[e.kind] && t && !t.test && e.confidence !== "guessed" && !(t.kind === "class" && /(Error|Exception)$/.test(t.name));
@@ -476,19 +475,46 @@
         function () { window.prompt("Copy:", text); });
     } });
   }
-  function overlay(title, mm, pu) {
-    var box = el("div", { class: "seq" });
+  function showOverlay(title, content, buttons) {
     var close = function () { o.remove(); document.removeEventListener("keydown", esc); };
     var esc = function (e) { if (e.key === "Escape") close(); };
     var o = el("div", { class: "overlay", role: "dialog", "aria-label": title }, [
-      el("div", { class: "overlay-bar" }, [el("strong", { text: title }), el("span", { class: "btns" }, [
-        copyButton("Copy Mermaid", mm), copyButton("Copy PlantUML", pu), el("button", { text: "Close", onclick: close })])]),
-      box
+      el("div", { class: "overlay-bar" }, [el("strong", { text: title }), el("span", { class: "btns" },
+        buttons.concat([el("button", { text: "Close", onclick: close })]))]),
+      content
     ]);
     document.body.appendChild(o);
     document.addEventListener("keydown", esc);
+  }
+  function overlay(title, mm, pu) {
+    var box = el("div", { class: "seq" });
+    showOverlay(title, box, [copyButton("Copy Mermaid", mm), copyButton("Copy PlantUML", pu)]);
     renderSequence(box, mm);
   }
+  // The function's code: its diff when it changed, its text when it is new or removed.
+  function codeSection(n) {
+    var rows = [];
+    if (n.diff) n.diff.forEach(function (d) { rows.push([d[0], d[0] === "-" ? d[1] : d[2], d[3]]); });
+    else if (n.code) n.code.text.split("\n").forEach(function (t, i) { rows.push([n.code.op, n.code.line + i, t]); });
+    if (!rows.length) return;
+    var title = n.diff ? "Code (before → after)" : n.code.op === "+" ? "Code (new)" : "Code (removed)";
+    function block() {
+      var pre = el("pre", { class: "code" });
+      rows.forEach(function (r) {
+        pre.appendChild(el("div", { class: "cl" + (r[0] === "+" ? " add" : r[0] === "-" ? " del" : "") }, [
+          el("span", { class: "ln", text: String(r[1] || "") }), el("span", { class: "op", text: r[0] }), el("span", { text: r[2] })
+        ]));
+      });
+      return pre;
+    }
+    side.appendChild(el("h2", { text: title }));
+    side.appendChild(el("div", { class: "btns" }, [el("button", { text: "Open wide", onclick: function () {
+      var pre = block(); pre.classList.add("wide");
+      showOverlay(n.name + " · " + n.file + ":" + n.line, pre, []);
+    } })]));
+    side.appendChild(block());
+  }
+
   function sequenceSection(id) {
     var sq = sequence(id);
     if (!sq.msgs.length) return;
@@ -723,10 +749,7 @@
     }
     side.appendChild(btns);
     if (n.intents.length) side.appendChild(el("p", {}, n.intents.map(function (t) { return el("span", { class: "tag", text: t }); })));
-    if (n.pseudo) {
-      side.appendChild(el("h2", { text: "Pseudo-code" }));
-      side.appendChild(el("pre", { class: "pseudo", text: n.pseudo }));
-    }
+    codeSection(n);
     sequenceSection(id);
     var fs = n.module ? D.findings.filter(function (f) { return f.file === n.file; }) : (findingsByNode[id] || []);
     if (fs.length) { side.appendChild(el("h2", { text: "Findings" })); side.appendChild(el("ul", {}, fs.map(findingItem))); }
@@ -746,13 +769,7 @@
     }
     edgeList("Used by", ins, "from");
     edgeList("Uses", outs, "to");
-    if (n.before !== undefined || n.after !== undefined) {
-      side.appendChild(el("h2", { text: "Before / after" }));
-      var panes = el("div", { class: "panes" });
-      if (n.before !== undefined) panes.appendChild(el("div", {}, [el("div", { class: "loc removed", text: "before" }), el("pre", { text: n.before })]));
-      if (n.after !== undefined) panes.appendChild(el("div", {}, [el("div", { class: "loc added", text: "after" }), el("pre", { text: n.after })]));
-      side.appendChild(panes);
-    }
+
   }
 
   // ---- Search ----

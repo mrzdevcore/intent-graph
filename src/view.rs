@@ -157,41 +157,107 @@ fn slice(text: &str, start: u32, end: u32) -> String {
         .join("\n")
 }
 
-pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
-    let base_sha = run.result.base.clone();
-    let head_ref = opts.head.as_ref().and(run.result.head.clone());
-    let mut after_files: HashMap<String, String> = HashMap::new();
-    let mut before_files: HashMap<String, String> = HashMap::new();
-    let mut after = |file: &str| -> String {
-        after_files
+/// Before/after source of changed nodes: the base from `git show`, the head from the tree or the
+/// head commit.
+pub struct Sources<'r> {
+    run: &'r Run,
+    root: &'r Path,
+    head_ref: Option<String>,
+    base_nodes: HashMap<&'r str, &'r Node>,
+    before_files: HashMap<String, String>,
+    after_files: HashMap<String, String>,
+}
+
+/// The code of a node: its new text, its old text, and their line diff when it changed.
+pub struct Code {
+    pub after: Option<(u32, String)>,
+    pub before: Option<(u32, String)>,
+    pub diff: Option<Vec<crate::linediff::Line>>,
+}
+
+impl<'r> Sources<'r> {
+    pub fn new(run: &'r Run, root: &'r Path, opts: &Opts) -> Sources<'r> {
+        Sources {
+            run,
+            root,
+            head_ref: opts.head.as_ref().and(run.result.head.clone()),
+            base_nodes: run
+                .base_graph
+                .iter()
+                .flat_map(|b| b.nodes.iter())
+                .map(|n| (n.id.as_str(), n))
+                .collect(),
+            before_files: HashMap::new(),
+            after_files: HashMap::new(),
+        }
+    }
+
+    fn after_file(&mut self, file: &str) -> &str {
+        let (run, root, head) = (self.run, self.root, &self.head_ref);
+        self.after_files
             .entry(file.to_string())
-            .or_insert_with(|| match (&head_ref, &run.repo) {
+            .or_insert_with(|| match (head, &run.repo) {
                 (Some(h), Some(r)) => r.show(h, file).unwrap_or_default(),
                 _ => std::fs::read_to_string(root.join(file)).unwrap_or_default(),
             })
-            .clone()
-    };
-    let mut before = |file: &str| -> String {
-        before_files
+    }
+
+    fn before_file(&mut self, file: &str) -> &str {
+        let run = self.run;
+        self.before_files
             .entry(file.to_string())
-            .or_insert_with(|| match (&base_sha, &run.repo) {
+            .or_insert_with(|| match (&run.result.base, &run.repo) {
                 (Some(b), Some(r)) => r.show(b, file).unwrap_or_default(),
                 _ => String::new(),
             })
-            .clone()
-    };
+    }
+
+    pub fn code(&mut self, n: &Node, s: Status) -> Code {
+        let mut c = Code {
+            after: None,
+            before: None,
+            diff: None,
+        };
+        if n.is_module() || n.kind == "system" {
+            return c;
+        }
+        if matches!(s, Status::Added | Status::Changed) {
+            c.after = Some((
+                n.range.start_line,
+                slice(
+                    self.after_file(&n.file),
+                    n.range.start_line,
+                    n.range.end_line,
+                ),
+            ));
+        }
+        if matches!(s, Status::Changed | Status::Removed) {
+            if let Some(b) = self.base_nodes.get(n.id.as_str()).copied() {
+                c.before = Some((
+                    b.range.start_line,
+                    slice(
+                        self.before_file(&b.file),
+                        b.range.start_line,
+                        b.range.end_line,
+                    ),
+                ));
+            }
+        }
+        if let (Some((a0, a)), Some((b0, b))) = (&c.before, &c.after) {
+            c.diff = Some(crate::linediff::diff(a, *a0, b, *b0));
+        }
+        c
+    }
+}
+
+pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
+    let mut sources = Sources::new(run, root, opts);
     let layers = checks::Layers::new(&run.config, &run.packages);
     let bp = &run.config.blueprint;
     let lanes = LaneMap::new(&run.config, &layers);
     let test_files =
         workspace::globset(&run.config.tests).unwrap_or_else(|_| globset::GlobSet::empty());
     let lane_of = |n: &Node| lanes.of(n);
-    let base_nodes: HashMap<&str, &Node> = run
-        .base_graph
-        .iter()
-        .flat_map(|b| b.nodes.iter())
-        .map(|n| (n.id.as_str(), n))
-        .collect();
     let nodes: Vec<Value> = all_nodes(run)
         .into_iter()
         .map(|(n, s)| {
@@ -200,16 +266,13 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
                 "endLine": n.range.end_line, "parent": n.parent, "status": s, "complexity": n.metrics.complexity,
                 "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file), "lane": lane_of(n), "test": test_files.is_match(&n.file),
             });
-            if let Some(p) = run.pseudo.get(&n.id) {
-                v["pseudo"] = json!(p);
+            let code = sources.code(n, s);
+            match (code.diff, code.after, code.before) {
+                (Some(d), _, _) => v["diff"] = json!(d),
+                (None, Some((l, t)), _) => v["code"] = json!({"line": l, "text": t, "op": "+"}),
+                (None, None, Some((l, t))) => v["code"] = json!({"line": l, "text": t, "op": "-"}),
+                _ => {}
             }
-            if matches!(s, Status::Added | Status::Changed) && !n.is_module() {
-                v["after"] = json!(slice(&after(&n.file), n.range.start_line, n.range.end_line));
-            }
-            if matches!(s, Status::Changed | Status::Removed) && !n.is_module()
-                && let Some(b) = base_nodes.get(n.id.as_str()) {
-                    v["before"] = json!(slice(&before(&b.file), b.range.start_line, b.range.end_line));
-                }
             v
         })
         .collect();

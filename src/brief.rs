@@ -1,4 +1,4 @@
-//! `ig brief`: a change read as architecture and pseudo-code instead of a diff or a long spec.
+//! `ig brief`: a change read as architecture and per-function code diffs, in architecture order.
 
 use crate::check::Run;
 use crate::checks::Layers;
@@ -168,7 +168,7 @@ pub fn mermaid_sequence(parts: &[(String, bool)], msgs: &[(usize, usize, String,
     out.join("\n")
 }
 
-pub fn brief(run: &Run, md: bool) -> String {
+pub fn brief(run: &Run, root: &std::path::Path, opts: &crate::check::Opts, md: bool) -> String {
     let r = &run.result;
     let layers = Layers::new(&run.config, &run.packages);
     let lanes = LaneMap::new(&run.config, &layers);
@@ -341,10 +341,23 @@ pub fn brief(run: &Run, md: bool) -> String {
         ));
     }
 
-    // 2. Pseudo-code of added and changed functions, in lane order.
+    // 2. Code: each changed function as its own before/after diff, new functions in full, in lane
+    // order. A node whose changed parts are shown on their own (methods, nested functions) is skipped.
+    let changed_set: HashSet<&str> = changed.iter().map(|(n, _)| n.id.as_str()).collect();
+    let mut has_changed_child: HashSet<&str> = HashSet::new();
+    for (n, _) in &changed {
+        let mut p = n.parent.as_deref();
+        while let Some(id) = p {
+            if !changed_set.contains(id) {
+                break;
+            }
+            has_changed_child.insert(id);
+            p = g.nodes.get(id).and_then(|x| x.parent.as_deref());
+        }
+    }
     let mut fns: Vec<&(&Node, Status)> = changed
         .iter()
-        .filter(|(n, st)| *st != Status::Removed && run.pseudo.contains_key(&n.id))
+        .filter(|(n, _)| !has_changed_child.contains(n.id.as_str()))
         .collect();
     fns.sort_by(|a, b| {
         (group_of(a.0).0, &a.0.file, a.0.range.start_line).cmp(&(
@@ -354,21 +367,22 @@ pub fn brief(run: &Run, md: bool) -> String {
         ))
     });
     if !fns.is_empty() {
-        h(&mut s, 2, "Pseudo-code");
+        h(&mut s, 2, "Code");
+        let mut sources = crate::view::Sources::new(run, root, opts);
         for (n, st) in fns.iter().take(MAX_FUNCTIONS) {
-            let what = if *st == Status::Added {
-                "new"
-            } else {
-                "changed"
+            let what = match st {
+                Status::Added => "new",
+                Status::Removed => "removed",
+                _ => "changed",
             };
+            let code = sources.code(n, *st);
             if md {
                 s.push_str(&format!(
-                    "**{} {}** ({what}) · `{}:{}`\n\n```text\n{}\n```\n\n",
+                    "**{} {}** ({what}) · `{}:{}`\n\n",
                     mark(*st),
                     n.name,
                     n.file,
-                    n.range.start_line,
-                    run.pseudo[&n.id]
+                    n.range.start_line
                 ));
             } else {
                 s.push_str(&format!(
@@ -378,8 +392,42 @@ pub fn brief(run: &Run, md: bool) -> String {
                     n.file,
                     n.range.start_line
                 ));
-                for l in run.pseudo[&n.id].lines() {
-                    s.push_str(&format!("    {l}\n"));
+            }
+            let lines: Vec<(char, Option<u32>, String)> =
+                match (&code.diff, &code.after, &code.before) {
+                    (Some(d), _, _) => crate::linediff::hunks(d, 3)
+                        .into_iter()
+                        .map(|l| match l {
+                            Some((op, old, new, t)) => (op.mark(), new.or(*old), t.clone()),
+                            None => ('…', None, String::new()),
+                        })
+                        .collect(),
+                    (None, Some((l0, t)), _) | (None, None, Some((l0, t))) => {
+                        let m = if code.after.is_some() { '+' } else { '-' };
+                        t.lines()
+                            .enumerate()
+                            .take(80)
+                            .map(|(i, l)| (m, Some(l0 + i as u32), l.to_string()))
+                            .collect()
+                    }
+                    _ => vec![],
+                };
+            if md {
+                s.push_str("```diff\n");
+                for (m, _, t) in &lines {
+                    if *m == '…' {
+                        s.push_str("@@ … @@\n");
+                    } else {
+                        s.push_str(&format!("{m}{t}\n"));
+                    }
+                }
+                s.push_str("```\n\n");
+            } else {
+                for (m, l, t) in &lines {
+                    match l {
+                        Some(l) => s.push_str(&format!("  {m}{l:>5} │ {t}\n")),
+                        None => s.push_str("        ┆\n"),
+                    }
                 }
                 s.push('\n');
             }
@@ -485,13 +533,17 @@ mod tests {
         );
         // Outside git everything is added.
         let run = crate::check::run(&dir, &crate::check::Opts::default()).unwrap();
-        let md = brief(&run, true);
+        let md = brief(&run, &dir, &crate::check::Opts::default(), true);
         assert!(md.contains("## Architecture"));
         assert!(md.contains("+ GET /users (route)"));
-        assert!(md.contains("**+ add** (new) · `packages/core/src/math.ts:2`"));
+        assert!(md.contains(
+            "**+ add** (new) · `packages/core/src/math.ts:2`\n\n```diff\n+export function add("
+        ));
+        // A class whose methods are shown on their own is not repeated.
+        assert!(!md.contains("**+ Repo** (new)"));
         assert!(md.contains("```mermaid\nsequenceDiagram"));
         assert!(md.contains("New links between layers:") && md.contains("core → ui (1)"));
-        let text = brief(&run, false);
+        let text = brief(&run, &dir, &crate::check::Opts::default(), false);
         assert!(text.starts_with("CHANGE BRIEF"));
         let _ = std::fs::remove_dir_all(&dir);
     }

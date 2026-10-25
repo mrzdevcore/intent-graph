@@ -11,10 +11,10 @@ mod graph;
 mod hook;
 mod init;
 mod intents;
+mod linediff;
 mod mcp;
 mod model;
 mod patterns;
-mod pseudo;
 mod report;
 mod review;
 mod tsconfig;
@@ -148,7 +148,7 @@ fn real_main() -> Result<u8> {
         "review" => review_cmd(&root, &a),
         "brief" => {
             let run = check::run(&root, &opts(&a))?;
-            let text = brief::brief(&run, a.md || a.out.is_some());
+            let text = brief::brief(&run, &root, &opts(&a), a.md || a.out.is_some());
             match &a.out {
                 Some(path) => {
                     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
