@@ -34,7 +34,7 @@ const USAGE: &str =
     "usage: ig [--version] | init [claude|codex|all] | setup [--json] | setup claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
-   | plan check <file> [--json] | plan notes [--wait] [--json] | apply start [<plan>] | apply accept | apply review | apply finish
+   | plan check <file> [--json] | plan notes [--wait] [--json] | apply start [<plan>] | apply accept | apply review | apply finish | apply abort
    | except <fingerprint> --reason <text>
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
@@ -235,8 +235,12 @@ fn real_main() -> Result<u8> {
                 Ok(0)
             }
             (Some("finish"), []) => apply::finish(&root),
+            (Some("abort"), []) => {
+                println!("apply aborted: {}", apply::abort(&root)?);
+                Ok(0)
+            }
             _ => bail!(
-                "apply: expected `apply start [<plan>]`, `apply accept`, `apply review` or `apply finish`"
+                "apply: expected `apply start [<plan>]`, `apply accept`, `apply review`, `apply finish` or `apply abort`"
             ),
         },
         "except" => match (a.sub.as_deref(), a.reason.as_deref()) {
@@ -280,10 +284,9 @@ fn real_main() -> Result<u8> {
                 if a.head.is_some() {
                     bail!("view --watch: --head is not supported");
                 }
-                let port = a.port.unwrap_or(serve::PORT);
                 serve::run(
                     &root,
-                    port,
+                    a.port,
                     &opts(&a),
                     a.plan.clone(),
                     a.no_plan,
@@ -309,14 +312,16 @@ fn real_main() -> Result<u8> {
                 if a.head.is_some() {
                     bail!("serve: --head is not supported");
                 }
-                let port = a.port.unwrap_or(serve::PORT);
-                serve::run(&root, port, &opts(&a), a.plan.clone(), a.no_plan, false)?;
+                serve::run(&root, a.port, &opts(&a), a.plan.clone(), a.no_plan, false)?;
                 Ok(0)
             }
             Some("claude") => {
-                // Channels are a research preview: a custom channel needs this flag.
+                // Channels are a research preview: a custom channel needs this flag (unverified;
+                // from the plugin alone the value may be `plugin:ig:ig`).
+                let args = ["--dangerously-load-development-channels", "server:ig"];
+                eprintln!("ig: running claude {}", args.join(" "));
                 let status = std::process::Command::new("claude")
-                    .args(["--dangerously-load-development-channels", "server:ig"])
+                    .args(args)
                     .current_dir(&root)
                     .status()
                     .map_err(|e| anyhow::anyhow!("serve claude: cannot run claude: {e}"))?;

@@ -19,12 +19,20 @@ pub struct ApplyState {
     pub plan: String,
     pub base: String,
     pub hashes: BTreeMap<String, String>,
+    /// The baseline's fingerprints at start, so finish can list the exceptions added since.
+    #[serde(default)]
+    pub baseline: Vec<String>,
 }
 
 const STATE: &str = ".ig/apply.json";
 
 pub fn load(root: &Path) -> Option<ApplyState> {
     serde_json::from_str(&std::fs::read_to_string(root.join(STATE)).ok()?).ok()
+}
+
+/// The apply in progress, when it is usable and no explicit `base` overrides it.
+pub fn active(root: &Path, base: Option<&str>) -> Option<ApplyState> {
+    load(root).filter(|st| base.is_none() && stale(root, st).is_none())
 }
 
 /// Why `st` can't be used (its plan or base commit is gone), or None when it is usable.
@@ -112,14 +120,36 @@ pub fn start(root: &Path, plan_path: &Path) -> Result<()> {
         bail!("apply start: needs a git repository with at least one commit");
     };
     let hashes = hashes(root, &rel, &Config::load(root)?);
+    let baseline = checks::load_baseline(root).into_iter().collect();
     save(
         root,
         &ApplyState {
             plan: rel,
             base,
             hashes,
+            baseline,
         },
     )
+}
+
+/// `ig apply abort`: drops the apply state; returns the plan it was for.
+pub fn abort(root: &Path) -> Result<String> {
+    let Some(st) = load(root) else {
+        bail!("no apply in progress");
+    };
+    std::fs::remove_file(root.join(STATE))?;
+    Ok(st.plan)
+}
+
+/// Exceptions (baseline entries with a reason) added since `ig apply start`: (fingerprint, reason).
+pub fn exceptions_since(root: &Path, st: &ApplyState) -> Vec<(String, String)> {
+    checks::read_baseline(root)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| Some((v["fingerprint"].as_str()?, v["reason"].as_str()?)))
+        .filter(|(fp, _)| !st.baseline.iter().any(|b| b == fp))
+        .map(|(fp, r)| (fp.to_string(), r.to_string()))
+        .collect()
 }
 
 pub fn accept(root: &Path) -> Result<()> {
@@ -131,9 +161,25 @@ pub fn accept(root: &Path) -> Result<()> {
 }
 
 /// `ig except`: records an exception with its reason in the baseline. During apply only the
-/// baseline's hash is re-recorded, so other pending tamper stays visible.
+/// baseline's hash is re-recorded, so other pending tamper stays visible. Refuses `ig/plan` and
+/// `ig/tamper` findings of the last check: those are never baselined.
 pub fn except(root: &Path, fingerprint: &str, reason: &str) -> Result<()> {
     const BASELINE: &str = ".ig/baseline.json";
+    let last: Value = std::fs::read_to_string(root.join(".ig/findings.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let rule = last["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|f| f["fingerprint"].as_str() == Some(fingerprint))
+        .and_then(|f| f["ruleId"].as_str());
+    if let Some(rule @ ("ig/plan" | "ig/tamper")) = rule {
+        bail!(
+            "except: {fingerprint} is an {rule} finding; exceptions are for tool and review findings only. Update the plan (with the user's yes), then run `ig apply accept`"
+        );
+    }
     let mut items = checks::read_baseline(root)?;
     items.retain(|v| v.as_str().or_else(|| v["fingerprint"].as_str()) != Some(fingerprint));
     items.push(json!({"fingerprint": fingerprint, "reason": reason}));
@@ -292,6 +338,11 @@ pub fn review_ingest(root: &Path, json: &str) -> Result<usize> {
     };
     let items: Vec<Value> = serde_json::from_str(&json[a..=b.max(a)])
         .context("apply review: the reviewer output is not a JSON array")?;
+    for (i, it) in items.iter().enumerate() {
+        if !it["rule"].is_string() || !it["message"].is_string() {
+            bail!("apply review: item {i} needs a string `rule` and `message`: {it}");
+        }
+    }
     let run = check::run(root, &check::Opts::default())?;
     std::fs::create_dir_all(root.join(".ig"))?;
     check::write_atomic(
@@ -374,6 +425,9 @@ pub fn finish(root: &Path) -> Result<u8> {
     let Some(st) = load(root) else {
         bail!("no apply in progress");
     };
+    if let Some(r) = stale(root, &st) {
+        bail!("stale apply state ({r}): run ig apply abort");
+    }
     let mut run = check::run(root, &check::Opts::default())?;
     let seen: HashSet<String> = run
         .result
@@ -401,11 +455,19 @@ pub fn finish(root: &Path) -> Result<u8> {
     }
     let block_on = run.config.block_on;
     run.result.blocking = run.result.findings.iter().any(|f| f.severity >= block_on);
+    // The last check result, so `ig except` sees the final ig/plan findings too.
+    check::write_state(root, &run.result)?;
+    let excepted = exceptions_since(root, &st);
+    if !excepted.is_empty() {
+        println!("exceptions added during this apply:");
+        for (fp, reason) in &excepted {
+            println!("- {fp}: {reason}");
+        }
+    }
     if run.result.blocking {
         print!("{}", check::agent_text(&run.result, block_on));
         return Ok(1);
     }
-    std::fs::remove_file(root.join(STATE))?;
     let path = root.join(&st.plan);
     let text = std::fs::read_to_string(&path).with_context(|| st.plan.clone())?;
     if !plan::parse(&st.plan, &text)?.done {
@@ -417,6 +479,7 @@ pub fn finish(root: &Path) -> Result<u8> {
         lines.insert(at, "Status: done");
         std::fs::write(&path, lines.join("\n") + "\n")?;
     }
+    std::fs::remove_file(root.join(STATE))?;
     println!("apply finished");
     Ok(0)
 }
@@ -601,6 +664,54 @@ mod tests {
     }
 
     #[test]
+    fn except_refuses_apply_findings_and_finish_lists_exceptions() {
+        let dir = git_fixture("monorepo");
+        write(&dir, "plans/x.md", PLAN);
+        start(&dir, &dir.join("plans/x.md")).unwrap();
+        write(
+            &dir,
+            "packages/core/src/extra.ts",
+            "export const extra = () => 1;\n",
+        );
+        let run = check::run(&dir, &Default::default()).unwrap();
+        let fp = run
+            .result
+            .findings
+            .iter()
+            .find(|f| f.rule_id == "ig/plan")
+            .unwrap()
+            .fingerprint
+            .clone();
+        let e = except(&dir, &fp, "nope").unwrap_err().to_string();
+        assert!(e.contains("ig apply accept"), "{e}");
+        assert!(!checks::load_baseline(&dir).contains(&fp));
+        except(&dir, "tool-fp", "user said fine").unwrap();
+        let st = load(&dir).unwrap();
+        assert_eq!(
+            exceptions_since(&dir, &st),
+            vec![("tool-fp".to_string(), "user said fine".to_string())]
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn abort_clears_state_and_finish_on_stale_points_to_it() {
+        let dir = git_fixture("monorepo");
+        write(&dir, "plans/x.md", PLAN);
+        start(&dir, &dir.join("plans/x.md")).unwrap();
+        std::fs::remove_file(dir.join("plans/x.md")).unwrap();
+        let e = finish(&dir).unwrap_err().to_string();
+        assert!(
+            e.contains("stale apply state (plan plans/x.md is missing): run ig apply abort"),
+            "{e}"
+        );
+        assert_eq!(abort(&dir).unwrap(), "plans/x.md");
+        assert!(load(&dir).is_none());
+        assert!(abort(&dir).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn except_refuses_corrupt_baseline() {
         let dir = git_fixture("monorepo");
         write(&dir, ".ig/baseline.json", "{not json");
@@ -713,5 +824,8 @@ mod tests {
         assert_eq!(review_ingest(&dir, "all clean: []").unwrap(), 0);
         assert!(review_ingest(&dir, "no array here").is_err());
         assert!(review_ingest(&dir, "] oops [").is_err());
+        assert!(review_ingest(&dir, "[1]").is_err());
+        assert!(review_ingest(&dir, "[{\"rule\":\"R\"}]").is_err());
+        assert!(review_ingest(&dir, "[{\"rule\":3,\"message\":\"m\"}]").is_err());
     }
 }

@@ -315,29 +315,43 @@ mod on_exit {
     }
 }
 
-/// Serves `root` on 127.0.0.1:`port` (0: any free port) until killed. If the port is taken by an
-/// `ig serve` for the same root, prints its URL and returns.
+/// Binds 127.0.0.1:`port`. None: our `ig serve` for this root already holds it. Another program
+/// on it is an error for an `explicit` port; otherwise any free port is taken, with a notice.
+fn bind(root: &Path, port: u16, explicit: bool) -> Result<Option<tiny_http::Server>> {
+    match tiny_http::Server::http(("127.0.0.1", port)) {
+        Ok(s) => Ok(Some(s)),
+        Err(_) if discover(root).is_some_and(|i| i.port == port) => Ok(None),
+        Err(e) if explicit => {
+            bail!("port {port} is in use by another program ({e}); pick another with --port")
+        }
+        Err(_) => {
+            eprintln!("ig: port {port} is in use by another program; using a free port");
+            tiny_http::Server::http(("127.0.0.1", 0))
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .map(Some)
+        }
+    }
+}
+
+/// Serves `root` on 127.0.0.1:`port` (default 7420; 0: any free port) until killed. If the port is
+/// taken by an `ig serve` for the same root, prints its URL and returns.
 pub fn run(
     root: &Path,
-    port: u16,
+    port: Option<u16>,
     opts: &Opts,
     plan: Option<PathBuf>,
     no_plan: bool,
     open_browser: bool,
 ) -> Result<()> {
     use notify::Watcher;
-    let http = match tiny_http::Server::http(("127.0.0.1", port)) {
-        Ok(s) => s,
-        Err(e) => {
-            if let Some(info) = discover(root).filter(|i| i.port == port) {
-                println!("ig serve is already running: {}", info.url("/"));
-                if open_browser {
-                    view::open_str(&info.url("/"));
-                }
-                return Ok(());
+    let Some(http) = bind(root, port.unwrap_or(PORT), port.is_some())? else {
+        if let Some(info) = discover(root) {
+            println!("ig serve is already running: {}", info.url("/"));
+            if open_browser {
+                view::open_str(&info.url("/"));
             }
-            bail!("port {port} is in use by another program ({e}); pick another with --port");
         }
+        return Ok(());
     };
     let port = http
         .server_addr()
@@ -449,7 +463,7 @@ pub(crate) mod tests {
         std::fs::write(dir.join("plans/export.md"), crate::plan::tests::PLAN).unwrap();
         crate::plan::check(&dir, &dir.join("plans/export.md")).unwrap();
         let d = dir.clone();
-        std::thread::spawn(move || run(&d, 0, &Opts::default(), None, false, false));
+        std::thread::spawn(move || run(&d, Some(0), &Opts::default(), None, false, false));
         let end = Instant::now() + Duration::from_secs(60);
         loop {
             if let Some(info) = discover(&dir) {
@@ -496,6 +510,16 @@ pub(crate) mod tests {
             ": connected"
         );
         rx
+    }
+
+    #[test]
+    fn a_taken_default_port_falls_back_but_an_explicit_one_errors() {
+        let dir = crate::view::tests::scratch("bind");
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let p = held.local_addr().unwrap().port();
+        assert!(bind(&dir, p, true).is_err());
+        let s = bind(&dir, p, false).unwrap().unwrap();
+        assert_ne!(s.server_addr().to_ip().unwrap().port(), p);
     }
 
     pub(crate) const COMMENT: &str = "packages/core/src/repo.ts#Repo.find";

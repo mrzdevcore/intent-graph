@@ -395,7 +395,7 @@ pub fn pick_plan(root: &Path, explicit: Option<&Path>, no_plan: bool) -> Picked 
     if no_plan {
         return (None, false);
     }
-    let st = crate::apply::load(root).filter(|st| crate::apply::stale(root, st).is_none());
+    let st = crate::apply::active(root, None);
     let applied = st.as_ref().map(|st| root.join(&st.plan));
     let plan = explicit
         .map(Path::to_path_buf)
