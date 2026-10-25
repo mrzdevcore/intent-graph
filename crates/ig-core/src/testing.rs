@@ -310,7 +310,7 @@ pub fn runner_contract(r: &dyn CheckerRunner, root: &Path, checker: &Checker) {
 
 /// `fe` handles `path`, whose `source` parses.
 pub fn frontend_contract(fe: &dyn LanguageFrontend, path: &str, source: &str) {
-    assert!(fe.handles(path));
+    assert!(fe.handles(path, &Config::default()));
     let file = SourceFile {
         path: path.into(),
         package: 0,
@@ -406,7 +406,7 @@ mod tests {
     /// One module node per file; exercises `frontend_contract` itself.
     struct OneNode;
     impl LanguageFrontend for OneNode {
-        fn handles(&self, path: &str) -> bool {
+        fn handles(&self, path: &str, _: &Config) -> bool {
             path.ends_with(".x")
         }
         fn build(

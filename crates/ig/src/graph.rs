@@ -10,8 +10,7 @@ pub use ig_app::build::Built;
 
 /// Builds the graph of the tree at `root` (which may be a worktree).
 pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Built> {
-    let ts = TsFrontend::new(config);
-    let mut built = ig_app::build::build_graph(&[&ts], &FsFiles::new(root), config)?;
+    let mut built = ig_app::build::build_graph(&[&TsFrontend], &FsFiles::new(root), config)?;
     built.graph.commit = commit;
     Ok(built)
 }

@@ -157,7 +157,7 @@ pub fn trees(root: &Path, opts: &Opts) -> Result<Trees> {
                     // The ig root did not exist at that commit: the graph build fails on it.
                     return Err(std::io::Error::from_raw_os_error(2).into());
                 };
-                TsFrontend::new(&work_cfg).prepare_checkout(
+                TsFrontend.prepare_checkout(
                     &git::work_info(root, &work_cfg),
                     &r,
                     &work_cfg,

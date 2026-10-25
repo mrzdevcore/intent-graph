@@ -17,7 +17,8 @@ static TMP_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// The base-graph cache key of the working tree at `root` (`ig_core::cache::cache_key`).
 pub fn base_cache_key(root: &Path, config: &Config) -> String {
-    let decls: Vec<(String, String)> = TsFrontend::declaration_files(root, config)
+    let decls: Vec<(String, String)> = TsFrontend
+        .cache_inputs(root, config)
         .into_iter()
         .map(|f| {
             let text = std::fs::read_to_string(root.join(&f)).unwrap_or_default();
@@ -67,7 +68,7 @@ fn graph_at(root: &Path, repo: &GitVcs, sha: &str, config: &Config) -> Result<Gr
         g.commit = Some(sha.to_string());
         return Ok(g);
     };
-    TsFrontend::new(config).prepare_checkout(&work_info(root, config), r, config, true)?;
+    TsFrontend.prepare_checkout(&work_info(root, config), r, config, true)?;
     Ok(graph::build(r, config, Some(sha.to_string()))?.graph)
 }
 

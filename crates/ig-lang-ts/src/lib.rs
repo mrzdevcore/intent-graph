@@ -15,27 +15,11 @@ use ig_core::ports::{FrontendOutput, LanguageFrontend, PortError};
 use ig_core::workspace::{SourceFile, WorkspaceInfo, is_source_ext};
 use std::path::Path;
 
-pub struct TsFrontend {
-    embedded: Vec<String>,
-}
-
-impl TsFrontend {
-    pub fn new(config: &Config) -> TsFrontend {
-        TsFrontend {
-            embedded: config.embedded.clone(),
-        }
-    }
-
-    /// The `autoImports` declaration files under `root`, sorted: their contents key the
-    /// base-graph cache.
-    pub fn declaration_files(root: &Path, config: &Config) -> Vec<String> {
-        autoimports::files(root, &config.auto_imports).0
-    }
-}
+pub struct TsFrontend;
 
 impl LanguageFrontend for TsFrontend {
-    fn handles(&self, path: &str) -> bool {
-        is_source_ext(path, &self.embedded)
+    fn handles(&self, path: &str, config: &Config) -> bool {
+        is_source_ext(path, &config.embedded)
     }
 
     fn build(
@@ -62,6 +46,11 @@ impl LanguageFrontend for TsFrontend {
         }
         Ok(())
     }
+
+    /// The `autoImports` declaration files.
+    fn cache_inputs(&self, root: &Path, config: &Config) -> Vec<String> {
+        autoimports::files(root, &config.auto_imports).0
+    }
 }
 
 #[cfg(test)]
@@ -72,7 +61,7 @@ mod tests {
     fn ts_frontend_meets_the_contract() {
         let config = Config::default();
         ig_core::testing::frontend_contract(
-            &TsFrontend::new(&config),
+            &TsFrontend,
             "src/a.ts",
             "export function f() { return g(); }\nfunction g() { return 1; }\n",
         );
@@ -84,8 +73,8 @@ mod tests {
             embedded: vec![".vue".into()],
             ..Config::default()
         };
-        let ts = TsFrontend::new(&config);
-        assert!(ts.handles("a.ts") && ts.handles("b/C.vue") && ts.handles("x.mjs"));
-        assert!(!ts.handles("a.d.ts") && !ts.handles("a.css"));
+        let h = |p: &str| TsFrontend.handles(p, &config);
+        assert!(h("a.ts") && h("b/C.vue") && h("x.mjs"));
+        assert!(!h("a.d.ts") && !h("a.css"));
     }
 }
