@@ -575,6 +575,14 @@ impl<'s, 'a> Extractor<'s, 'a> {
                     .and_then(|r| self.scoping.get_reference(r).symbol_id())?;
                 self.url_vars.get(&s).cloned()
             }
+            // ponytail: a plain-function call whose first argument is a URL (`withQuery('/x', id)`)
+            // is taken to decorate that URL; a helper that maps it elsewhere would mislink.
+            Expression::CallExpression(c) if matches!(c.callee, Expression::Identifier(_)) => c
+                .arguments
+                .first()
+                .and_then(|a| a.as_expression())
+                .and_then(|a| self.url_of(a))
+                .filter(|u| u.starts_with('/') || u.contains("://")),
             _ => None,
         }
     }

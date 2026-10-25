@@ -12,11 +12,24 @@ use std::sync::LazyLock;
 pub struct AutoImports {
     /// Global name → (repo-relative file, export name).
     names: HashMap<String, (String, String)>,
+    /// Names declared from a package (`export { useI18n } from 'vue-i18n'`): nothing in the repo.
+    external: HashSet<String>,
+    /// Source dir a declaration file's entries point into → that declaration file.
+    dirs: HashMap<String, String>,
 }
 
 impl AutoImports {
     pub fn get(&self, name: &str) -> Option<(&str, &str)> {
         self.names.get(name).map(|(f, e)| (f.as_str(), e.as_str()))
+    }
+
+    pub fn is_external(&self, name: &str) -> bool {
+        self.external.contains(name) && !self.names.contains_key(name)
+    }
+
+    /// The declaration file whose entries point into `dir`, if any.
+    pub fn covering(&self, dir: &str) -> Option<&str> {
+        self.dirs.get(dir).map(String::as_str)
     }
 }
 
@@ -103,7 +116,14 @@ pub fn load(root: &Path, patterns: &[String], ws: &Workspace) -> (AutoImports, V
         };
         let dir = decl.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
         let mut add = |name: &str, spec: &str, export: &str| {
+            if !spec.starts_with('.') {
+                ai.external.insert(name.to_string());
+            }
             if let Some(file) = resolve(dir, spec, &known) {
+                let src = file.rsplit_once('/').map_or("", |(d, _)| d);
+                ai.dirs
+                    .entry(src.to_string())
+                    .or_insert_with(|| decl.clone());
                 ai.names
                     .entry(name.to_string())
                     .or_insert((file, export.to_string()));

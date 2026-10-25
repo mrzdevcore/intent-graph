@@ -184,6 +184,25 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     parse_errors.extend(auto_errors);
     let index = Index::new(&facts, &auto);
     let mut edge_lists: Vec<Vec<Edge>> = facts.par_iter().map(|f| index.edges_of(f)).collect();
+    let mut stale: BTreeMap<&str, std::collections::BTreeSet<&str>> = BTreeMap::new();
+    for r in facts.iter().flat_map(|f| &f.refs) {
+        if let Callee::Free(name) = &r.callee
+            && let Some((_, decl)) = index.stale_hit(name)
+        {
+            stale.entry(decl).or_default().insert(name);
+        }
+    }
+    for (decl, names) in stale {
+        let list: Vec<&str> = names.iter().take(10).copied().collect();
+        parse_errors.push(ParseError {
+            file: decl.into(),
+            message: format!(
+                "autoImports: {} names not in {decl} resolved from its directories (run nuxt prepare): {}",
+                names.len(),
+                list.join(", ")
+            ),
+        });
+    }
     let (system_nodes, blueprint_edges, renames, http_unmatched) = blueprint_links(&facts, config);
     let mut extras = Extras {
         http_unmatched,
@@ -328,7 +347,7 @@ fn blueprint_links(
     };
     if !bp.http_calls.is_empty() {
         // Route node names are "METHOD /path" (or just "/path" for any method).
-        // `${NAME}` in a route path is replaced by a same-file string constant.
+        // `${NAME}` (or a bare `NAME`) in a route path is replaced by a same-file string constant.
         let substitute = |path: &str, consts: &HashMap<String, String>| -> String {
             let mut out = String::new();
             let mut rest = path;
@@ -354,7 +373,17 @@ fn blueprint_links(
                     }
                     _ => ("*".to_string(), n.name.as_str()),
                 };
-                let p = substitute(p.trim().trim_matches(['\'', '"', '`']), &f.url_consts);
+                let p = p.trim();
+                // A bare identifier path (`path: BASE_PATH`) is a same-file constant too.
+                let p = match f.url_consts.get(p) {
+                    Some(c)
+                        if p.chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '$') =>
+                    {
+                        c.clone()
+                    }
+                    _ => substitute(p.trim_matches(['\'', '"', '`']), &f.url_consts),
+                };
                 (m, url_segments(&p), n.id.as_str(), p)
             })
             .collect();
@@ -482,6 +511,9 @@ struct Index<'f> {
     /// interface or class id → classes that implement or extend it
     implementers: HashMap<String, Vec<String>>,
     auto: &'f AutoImports,
+    /// name → the unique exported node of that name in a dir an `autoImports` file covers, with
+    /// that file (None when ambiguous): names a stale declaration file doesn't list yet.
+    stale: HashMap<&'f str, Option<(&'f str, &'f str)>>,
 }
 
 impl<'f> Index<'f> {
@@ -493,6 +525,7 @@ impl<'f> Index<'f> {
             classes: HashMap::new(),
             implementers: HashMap::new(),
             auto,
+            stale: HashMap::new(),
         };
         for f in facts {
             ix.files.insert(&f.file, f);
@@ -503,6 +536,17 @@ impl<'f> Index<'f> {
                     ix.children
                         .entry((p.as_str(), n.name.as_str()))
                         .or_insert(&n.id);
+                }
+                if !n.is_module()
+                    && n.kind != "test"
+                    && n.exported
+                    && let Some(decl) =
+                        auto.covering(n.file.rsplit_once('/').map_or("", |(d, _)| d))
+                {
+                    ix.stale
+                        .entry(&n.name)
+                        .and_modify(|v| *v = None)
+                        .or_insert(Some((n.id.as_str(), decl)));
                 }
                 if !n.is_module() && n.kind != "test" {
                     ix.by_name
@@ -614,6 +658,29 @@ impl<'f> Index<'f> {
             .map(str::to_string)
     }
 
+    /// A free call to `name`: its `autoImports` node, else the one a stale declaration file
+    /// misses. A package-sourced name resolves to nothing, never to a by-name guess.
+    fn free(&self, name: &str) -> (Option<String>, &'static str) {
+        if let Some(t) = self.auto(name) {
+            return (Some(t), "resolved");
+        }
+        if self.auto.is_external(name) {
+            return (None, "resolved");
+        }
+        match self.stale_hit(name) {
+            Some((id, _)) => (Some(id.to_string()), "resolved"),
+            None => (self.guess(name), "guessed"),
+        }
+    }
+
+    /// The unique node a stale declaration file misses for a name it doesn't declare.
+    fn stale_hit(&self, name: &str) -> Option<(&'f str, &'f str)> {
+        if self.auto.get(name).is_some() || self.auto.is_external(name) {
+            return None;
+        }
+        self.stale.get(name).copied().flatten()
+    }
+
     /// The node an `autoImports` name stands for.
     fn auto(&self, name: &str) -> Option<String> {
         let (file, export) = self.auto.get(name)?;
@@ -702,10 +769,7 @@ impl<'f> Index<'f> {
                 } => (self.method(class, name, *skip_self), "resolved"),
                 Callee::Typed(..) => unreachable!(),
                 Callee::Auto(name) => (self.auto(name), "resolved"),
-                Callee::Free(name) => match self.auto(name) {
-                    Some(t) => (Some(t), "resolved"),
-                    None => (self.guess(name), "guessed"),
-                },
+                Callee::Free(name) => self.free(name),
                 Callee::Guess(name) => (self.guess(name), "guessed"),
             };
             if let Some(to) = to {
@@ -981,6 +1045,125 @@ mod tests {
             g.edges
                 .iter()
                 .any(|e| e.from.starts_with("test/a.test.ts") && e.to.starts_with("src/b.ts")),
+            "{:#?}",
+            g.edges
+        );
+    }
+
+    // A name missing from a stale declaration file resolves from the directories it covers.
+    #[test]
+    fn stale_declarations_resolve_from_covered_dirs() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "ig.yaml",
+                "embedded: ['.vue']\nautoImports: ['.nuxt/imports.d.ts']\n",
+            ),
+            (
+                ".nuxt/imports.d.ts",
+                "export { useA } from '../src/composables/a';\n",
+            ),
+            ("src/composables/a.ts", "export const useA = () => 1;\n"),
+            ("src/composables/b.ts", "export const useB = () => 2;\n"),
+            (
+                "src/pages/index.vue",
+                "<script setup lang=\"ts\">\nconst b = useB();\n</script>\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.from.starts_with("src/pages/index.vue")
+                    && e.to == "src/composables/b.ts#useB"
+                    && e.confidence == "resolved"),
+            "{:#?}",
+            g.edges
+        );
+        let notices: Vec<_> = g
+            .parse_errors
+            .iter()
+            .filter(|e| e.message.contains("resolved from its directories"))
+            .collect();
+        assert_eq!(notices.len(), 1, "{:#?}", g.parse_errors);
+        assert_eq!(
+            notices[0].message,
+            "autoImports: 1 names not in .nuxt/imports.d.ts resolved from its directories (run nuxt prepare): useB"
+        );
+    }
+
+    // A package-sourced auto-import never falls back to a by-name guess.
+    #[test]
+    fn package_names_never_guess() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "ig.yaml",
+                "embedded: ['.vue']\nautoImports: ['.nuxt/imports.d.ts']\n",
+            ),
+            (
+                ".nuxt/imports.d.ts",
+                "export { useI18n } from 'vue-i18n';\n",
+            ),
+            ("test/stub.ts", "export const useI18n = () => 1;\n"),
+            (
+                "src/pages/index.vue",
+                "<script setup lang=\"ts\">\nconst t = useI18n();\n</script>\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        assert!(
+            !g.edges
+                .iter()
+                .any(|e| e.from.starts_with("src/pages/") && e.to.starts_with("test/")),
+            "{:#?}",
+            g.edges
+        );
+    }
+
+    // `app.get(BASE_PATH, h)` with `const BASE_PATH = '/p'` is the route `GET /p`.
+    #[test]
+    fn bare_constant_route_path() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "ig.yaml",
+                "patterns:\n  - kind: route\n    match: \"app.get($PATH, $$$REST)\"\n    id: \"GET {PATH}\"\nblueprint:\n  http: { calls: [fetch] }\n",
+            ),
+            (
+                "src/server.ts",
+                "const BASE_PATH = '/p';\nexport function h() {}\napp.get(BASE_PATH, h);\n",
+            ),
+            (
+                "src/page.ts",
+                "const q = (u: string, x?: number) => (x ? `${u}?x=${x}` : u);\nexport function load() { return fetch(`/p`); }\nexport function wrapped() { return fetch(q('/p', 1)); }\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        let route = g
+            .nodes
+            .iter()
+            .find(|n| n.kind == "route")
+            .expect("route node");
+        assert_eq!(route.name, "GET /p");
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.from == "src/page.ts#load" && e.kind == "http" && e.to == route.id),
+            "{:#?}",
+            g.edges
+        );
+        // A URL passed through a local helper (`withQuery('/p', id)`) is still that URL.
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.from == "src/page.ts#wrapped" && e.kind == "http" && e.to == route.id),
             "{:#?}",
             g.edges
         );
