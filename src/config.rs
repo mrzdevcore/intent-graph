@@ -518,8 +518,13 @@ mod tests {
         assert_eq!(c.checkers[0].format, Format::Lines);
         assert_eq!(c.checkers[0].configs, vec![".stylelintrc*"]);
         assert_eq!(c.checkers[1].format, Format::Sarif);
-        let e = Config::parse("checkers:\n  - name: s\n    run: x\n    format: nope\n").unwrap_err().to_string();
-        assert_eq!(e, "ig.yaml: checkers[0].format: expected one of sarif, checkstyle, eslint-json, stylelint-json, lines");
+        let e = Config::parse("checkers:\n  - name: s\n    run: x\n    format: nope\n")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            e,
+            "ig.yaml: checkers[0].format: expected one of sarif, checkstyle, eslint-json, stylelint-json, lines"
+        );
     }
 
     #[test]
