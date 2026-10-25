@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ViewData, ViewEdge, ViewNode } from "../src/data";
 import { index } from "../src/model/graph";
-import { callChain, chainToMermaid, chainToPlantUml } from "../src/model/callchain";
+import { callChain, chainToMermaid, chainToPlantUml, stepRows } from "../src/model/callchain";
 
 const node = (id: string, o: Partial<ViewNode> = {}): ViewNode => {
   const file = o.file ?? id.split("#")[0];
@@ -103,4 +103,10 @@ test("a dense same-file graph is fast and respects max", () => {
   expect(performance.now() - t0).toBeLessThan(200);
   expect(c.steps.length).toBe(5);
   expect(callChain(dense, "a.ts#f0").steps.length).toBe(12);
+});
+
+test("stepRows formats lane arrows and locations", () => {
+  const rows = stepRows(callChain(ix, "web/pages/page.vue"));
+  expect(rows[1]).toEqual({ n: 2, text: "Front → API  GET /api/catalog  web/composables/catalog.ts:1", target: "api/routes.ts#GET /api/catalog" });
+  expect(stepRows({ lifelines: [], steps: [], truncated: 0 })).toEqual([]);
 });

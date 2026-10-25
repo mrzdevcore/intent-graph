@@ -1,5 +1,5 @@
 // The side panel: the overview (notices, plan, intent changes, findings, intents), a group, a node
-// (code diff, sequence, findings, edges) or, in Blueprint, the journey list.
+// (code diff, calls down, findings, edges) or, in Blueprint, the journey list.
 
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
@@ -7,8 +7,8 @@ import { keyed } from "lit/directives/keyed.js";
 import type { Note, ViewEdge, ViewFinding, ViewNode } from "../data";
 import { ancestors, type Index } from "../model/graph";
 import { journeyName, journeys } from "../model/blueprint";
-import { sequence, toMermaid, toPlantUml } from "../model/sequence";
-import { codeBlock, openOverlay, type CodeRow } from "./ig-overlay";
+import { callChain, chainToMermaid, chainToPlantUml, stepRows } from "../model/callchain";
+import { codeBlock, openOverlay, stepList, type CodeRow } from "./ig-overlay";
 import "./ig-plan-panel";
 import { copyButton, editorLink, emit, findingItem } from "./shared";
 
@@ -129,14 +129,28 @@ export class IgSidePanel extends LitElement {
     return html`<h2>${title}</h2><div class="btns"><button @click=${wide}>Open wide</button></div>${codeBlock(rows)}`;
   }
 
+  private chainDepth = 6;
+
   private sequence(id: string) {
-    const sq = sequence(this.ix, id);
-    if (!sq.msgs.length) return null;
-    const mm = toMermaid(sq);
-    const pu = toPlantUml(sq);
-    const show = () => openOverlay({ heading: "Sequence from " + this.ix.byId[id].name, mermaid: mm, plantUml: pu });
-    return html`<h2>Sequence (${sq.msgs.length} calls)</h2>
-      <div class="btns"><button @click=${show}>Show diagram</button>${copyButton("Copy Mermaid", mm)}${copyButton("Copy PlantUML", pu)}</div>`;
+    const c = callChain(this.ix, id, { depth: this.chainDepth });
+    const stepper = html`<span class="loc">depth ${this.chainDepth}</span>
+      <button ?disabled=${this.chainDepth <= 1} @click=${() => this.setDepth(-1)}>−</button>
+      <button ?disabled=${this.chainDepth >= 10} @click=${() => this.setDepth(1)}>+</button>`;
+    if (!c.steps.length) return html`<h2>Calls down</h2><p class="loc">No calls from here</p><div class="btns">${stepper}</div>`;
+    const mm = chainToMermaid(c);
+    const pu = chainToPlantUml(c);
+    const rows = stepRows(c);
+    const open = (t: string) => emit(this, "ig-focus", t);
+    const show = () =>
+      openOverlay({ heading: "Calls down from " + this.ix.byId[id].name, mermaid: mm, plantUml: pu, steps: rows, onPick: open });
+    return html`<h2>Calls down (${c.steps.length} steps)</h2>
+      <div class="btns"><button @click=${show}>Show diagram</button>${copyButton("Copy Mermaid", mm)}${copyButton("Copy PlantUML", pu)}${stepper}</div>
+      ${stepList(rows, open, c.truncated)}`;
+  }
+
+  private setDepth(d: number) {
+    this.chainDepth = Math.min(10, Math.max(1, this.chainDepth + d));
+    this.requestUpdate();
   }
 
   private edgeList(title: string, list: ViewEdge[], key: "from" | "to") {

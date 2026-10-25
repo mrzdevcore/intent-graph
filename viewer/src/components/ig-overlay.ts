@@ -1,5 +1,5 @@
-// The wide view over the page: a function's code, or a sequence diagram (Mermaid, offline) with its
-// Mermaid and PlantUML text to copy. Escape or Close removes it.
+// The wide view over the page: a function's code, or a call chain (Mermaid diagram, offline, beside
+// its clickable step list) with Mermaid and PlantUML text to copy. Escape or Close removes it.
 
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
@@ -13,6 +13,13 @@ export function codeBlock(rows: CodeRow[], wide = false) {
   return html`<pre class="code${wide ? " wide" : ""}">${rows.map(
     (r) => html`<div class="cl${r[0] === "+" ? " add" : r[0] === "-" ? " del" : ""}"><span class="ln">${String(r[1] || "")}</span><span class="op">${r[0]}</span><span>${r[2]}</span></div>`,
   )}</pre>`;
+}
+
+/** The numbered, clickable step list; a "+N more" row when the chain was cut. */
+export function stepList(rows: { n: number; text: string; target: string }[], pick: (target: string) => void, truncated = 0) {
+  return html`<ol class="steps">${rows.map((r) => html`<li class="f" @click=${() => pick(r.target)}>${r.text}</li>`)}${truncated
+    ? html`<li class="loc more">+${truncated} more (increase depth or max)</li>`
+    : null}</ol>`;
 }
 
 let mermaidReady = false;
@@ -40,6 +47,8 @@ export class IgOverlay extends LitElement {
   @property({ attribute: false }) code?: CodeRow[];
   @property({ attribute: false }) mermaid?: string;
   @property({ attribute: false }) plantUml?: string;
+  @property({ attribute: false }) steps?: { n: number; text: string; target: string }[];
+  @property({ attribute: false }) onPick?: (target: string) => void;
 
   private esc = (e: KeyboardEvent) => e.key === "Escape" && this.close();
 
@@ -62,7 +71,11 @@ export class IgOverlay extends LitElement {
     const copies = this.mermaid ? [copyButton("Copy Mermaid", this.mermaid), copyButton("Copy PlantUML", this.plantUml ?? "")] : [];
     return html`<div class="overlay" role="dialog" aria-label=${this.heading}>
       <div class="overlay-bar"><strong>${this.heading}</strong><span class="btns">${copies}<button @click=${() => this.close()}>Close</button></span></div>
-      ${this.code ? codeBlock(this.code, true) : html`<div class="seq"></div>`}
+      ${this.code
+        ? codeBlock(this.code, true)
+        : html`<div class="chain"><div class="seq"></div>${this.steps
+            ? stepList(this.steps, (t) => { this.close(); this.onPick?.(t); })
+            : null}</div>`}
     </div>`;
   }
 
@@ -72,7 +85,7 @@ export class IgOverlay extends LitElement {
 }
 
 /** Opens an overlay on top of the page. */
-export function openOverlay(o: { heading: string; code?: CodeRow[]; mermaid?: string; plantUml?: string }) {
+export function openOverlay(o: Partial<Pick<IgOverlay, "code" | "mermaid" | "plantUml" | "steps" | "onPick">> & { heading: string }) {
   document.body.appendChild(Object.assign(new IgOverlay(), o));
 }
 
