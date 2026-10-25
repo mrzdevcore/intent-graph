@@ -1,7 +1,7 @@
 //! `ig apply`: apply state (`.ig/apply.json`), plan conformance, tamper detection, exceptions.
 
 use crate::check::{self, Run};
-use crate::checks::Layers;
+use crate::checks::{self, Layers};
 use crate::config::{Config, Severity};
 use crate::diff::Status;
 use crate::git::Repo;
@@ -25,6 +25,22 @@ const STATE: &str = ".ig/apply.json";
 
 pub fn load(root: &Path) -> Option<ApplyState> {
     serde_json::from_str(&std::fs::read_to_string(root.join(STATE)).ok()?).ok()
+}
+
+/// Why `st` can't be used (its plan or base commit is gone), or None when it is usable.
+pub fn stale(root: &Path, st: &ApplyState) -> Option<String> {
+    if !root.join(&st.plan).is_file() {
+        Some(format!("plan {} is missing", st.plan))
+    } else if crate::git::git(
+        root,
+        &["cat-file", "-e", &format!("{}^{{commit}}", st.base)],
+    )
+    .is_err()
+    {
+        Some(format!("base commit {} is missing", st.base))
+    } else {
+        None
+    }
 }
 
 fn save(root: &Path, st: &ApplyState) -> Result<()> {
@@ -114,18 +130,21 @@ pub fn accept(root: &Path) -> Result<()> {
     save(root, &st)
 }
 
-/// `ig except`: records an exception with its reason in the baseline.
+/// `ig except`: records an exception with its reason in the baseline. During apply only the
+/// baseline's hash is re-recorded, so other pending tamper stays visible.
 pub fn except(root: &Path, fingerprint: &str, reason: &str) -> Result<()> {
-    let path = root.join(".ig/baseline.json");
-    let mut items: Vec<Value> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    const BASELINE: &str = ".ig/baseline.json";
+    let mut items = checks::read_baseline(root)?;
+    items.retain(|v| v.as_str().or_else(|| v["fingerprint"].as_str()) != Some(fingerprint));
     items.push(json!({"fingerprint": fingerprint, "reason": reason}));
     std::fs::create_dir_all(root.join(".ig"))?;
-    std::fs::write(&path, serde_json::to_string_pretty(&items)? + "\n")?;
-    if load(root).is_some() {
-        accept(root)?;
+    std::fs::write(
+        root.join(BASELINE),
+        serde_json::to_string_pretty(&items)? + "\n",
+    )?;
+    if let Some(mut st) = load(root) {
+        st.hashes.insert(BASELINE.into(), hash_file(root, BASELINE));
+        save(root, &st)?;
     }
     Ok(())
 }
@@ -175,11 +194,18 @@ fn unplanned(plan: &Plan, run: &Run) -> Vec<Finding> {
         .iter()
         .flat_map(|n| [n.id.as_str(), file_of(&n.id)])
         .collect();
+    let tests = crate::workspace::globset(&run.config.tests).unwrap_or_default();
+    let is_test = |n: &Node| n.kind == "test" || tests.is_match(&n.file);
+    // Pattern nodes (routes, ...) are API surface even though they are never `exported`.
+    let api = |n: &Node| {
+        n.is_module() || n.exported || run.config.patterns.iter().any(|p| p.kind == n.kind)
+    };
     let mut out = vec![];
     for n in &g.nodes {
         if run.diff.status(&n.id) == Status::Added
             && !planned.contains(n.id.as_str())
-            && (n.is_module() || n.exported)
+            && !is_test(n)
+            && api(n)
         {
             out.push(err("ig/plan", &n.file, n.range.start_line, msg(&n.id)).node(&n.id));
         }
@@ -198,6 +224,9 @@ fn unplanned(plan: &Plan, run: &Run) -> Vec<Finding> {
                 else {
                     continue;
                 };
+                if is_test(a) || is_test(b) {
+                    continue;
+                }
                 (layers.of(&a.file) != layers.of(&b.file) || lanes.of(a) != lanes.of(b))
                     && !edge_planned(plan, e)
             }
@@ -341,7 +370,6 @@ pub fn finish(root: &Path) -> Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checks;
     use crate::plan::tests::PLAN;
     use std::path::PathBuf;
 
@@ -376,7 +404,7 @@ mod tests {
                 .arg(&dir)
                 .args(args));
         }
-        dir
+        dir.canonicalize().unwrap() // like main: plan paths are made root-relative
     }
 
     fn write(dir: &Path, rel: &str, text: &str) {
@@ -450,6 +478,85 @@ mod tests {
     }
 
     #[test]
+    fn tests_helpers_and_routes() {
+        let dir = git_fixture("monorepo");
+        let plan = "# R\n\n```ig-plan\nnodes:\n  - id: apps/web/src/routes.ts\n    status: changed\n  - id: packages/core/src/repo.ts\n    status: changed\n```\n";
+        write(&dir, "plans/r.md", plan);
+        start(&dir, &dir.join("plans/r.md")).unwrap();
+        write(
+            &dir,
+            "packages/core/src/repo2.test.ts",
+            "import { Repo } from './repo';\ntest('find', () => new Repo().find('a'));\n",
+        );
+        let repo = std::fs::read_to_string(dir.join("packages/core/src/repo.ts")).unwrap();
+        write(
+            &dir,
+            "packages/core/src/repo.ts",
+            &(repo + "function helper() { return 3; }\n"),
+        );
+        let routes = std::fs::read_to_string(dir.join("apps/web/src/routes.ts")).unwrap();
+        write(
+            &dir,
+            "apps/web/src/routes.ts",
+            &(routes + "app.get('/secret', handler);\n"),
+        );
+        let run = check::run(&dir, &Default::default()).unwrap();
+        let plan_msgs: Vec<&str> = run
+            .result
+            .findings
+            .iter()
+            .filter(|f| f.rule_id == "ig/plan")
+            .map(|f| f.message.as_str())
+            .collect();
+        assert!(
+            !plan_msgs.iter().any(|m| m.contains("repo2.test.ts")),
+            "{plan_msgs:?}"
+        );
+        assert!(
+            !plan_msgs.iter().any(|m| m.contains("helper")),
+            "{plan_msgs:?}"
+        );
+        assert!(
+            plan_msgs
+                .iter()
+                .any(|m| m.contains("apps/web/src/routes.ts#") && m.contains("/secret")),
+            "{plan_msgs:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn except_keeps_other_tamper_visible() {
+        let dir = git_fixture("monorepo");
+        write(&dir, "plans/x.md", PLAN);
+        start(&dir, &dir.join("plans/x.md")).unwrap();
+        write(&dir, "plans/x.md", &PLAN.replace("# Export", "# Export v2"));
+        except(&dir, "b", "ok").unwrap();
+        let run = check::run(&dir, &Default::default()).unwrap();
+        let tamper: Vec<&str> = run
+            .result
+            .findings
+            .iter()
+            .filter(|f| f.rule_id == "ig/tamper")
+            .map(|f| f.file.as_str())
+            .collect();
+        assert_eq!(tamper, vec!["plans/x.md"]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn except_refuses_corrupt_baseline() {
+        let dir = git_fixture("monorepo");
+        write(&dir, ".ig/baseline.json", "{not json");
+        assert!(except(&dir, "b", "r").is_err());
+        assert_eq!(
+            std::fs::read_to_string(dir.join(".ig/baseline.json")).unwrap(),
+            "{not json"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn stale_state_is_ignored() {
         let dir = git_fixture("monorepo");
         std::fs::create_dir_all(dir.join(".ig")).unwrap();
@@ -480,6 +587,9 @@ mod tests {
                 .unwrap()
                 .contains("legacy import")
         );
+        except(&dir, "b", "again").unwrap();
+        let items = checks::read_baseline(&dir).unwrap();
+        assert_eq!(items.len(), 2, "{items:?}");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

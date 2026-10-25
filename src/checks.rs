@@ -595,12 +595,20 @@ pub fn checkers(root: &Path, config: &Config, head: &Graph) -> CheckerOutput {
     out
 }
 
-/// Baseline entries: fingerprint strings, or `{"fingerprint", "reason"}` exceptions.
+/// Baseline entries: fingerprint strings, or `{"fingerprint", "reason"}` exceptions. Empty when
+/// the file is absent; an error when it exists but doesn't parse.
+pub(crate) fn read_baseline(root: &Path) -> anyhow::Result<Vec<serde_json::Value>> {
+    let path = root.join(".ig/baseline.json");
+    match std::fs::read_to_string(&path) {
+        Ok(t) => serde_json::from_str(&t)
+            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
+        Err(e) => Err(anyhow::anyhow!("{}: {e}", path.display())),
+    }
+}
+
 fn baseline_items(root: &Path) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(root.join(".ig/baseline.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    read_baseline(root).unwrap_or_default()
 }
 
 pub fn load_baseline(root: &Path) -> HashSet<String> {
