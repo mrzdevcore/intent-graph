@@ -89,14 +89,14 @@ test("a same-file helper is folded into every caller", () => {
   );
   expect(callChain(h, "a.ts#foo").steps.map((s) => s.label)).toEqual(["x"]);
   expect(callChain(h, "a.ts#bar").steps.map((s) => s.label)).toEqual(["x"]);
-  expect(callChain(h, "a.ts").steps.map((s) => s.label)).toEqual(["x", "x"]);
+  expect(callChain(h, "a.ts").steps.map((s) => s.label)).toEqual(["x"]);
 });
 
 test("a dense same-file graph is fast and respects max", () => {
   const ids = Array.from({ length: 12 }, (_, i) => `a.ts#f${i}`);
   const dense = build(
-    [node("a.ts"), node("b.ts#x"), ...ids.map((id) => node(id))],
-    ids.flatMap((a, i) => [...ids.filter((b) => b !== a).map((b) => edge(a, b)), edge(a, "b.ts#x", "calls", 100 + i)]),
+    [node("a.ts"), ...ids.map((_, i) => node("b.ts#x" + i)), ...ids.map((id) => node(id))],
+    ids.flatMap((a, i) => [...ids.filter((b) => b !== a).map((b) => edge(a, b)), edge(a, "b.ts#x" + i, "calls", 100 + i)]),
   );
   const t0 = performance.now();
   const c = callChain(dense, "a.ts", { max: 5 });
@@ -135,4 +135,49 @@ test("module start adds uses once", () => {
     [edge("m.ts", "system:DB", "uses")],
   );
   expect(callChain(r, "m.ts").steps.filter((s) => s.kind === "uses").length).toBe(1);
+});
+
+test("a renders cycle terminates", () => {
+  const r = build(
+    [node("A.vue", { kind: "component" }), node("B.vue", { kind: "component" })],
+    [edge("A.vue", "B.vue", "renders"), edge("B.vue", "A.vue", "renders")],
+  );
+  expect(callChain(r, "A.vue").steps.map((s) => s.label)).toEqual(["B", "A"]);
+});
+
+test("a stepped-into class walks its methods, with no repeated hop", () => {
+  const r = build(
+    [
+      node("page.vue"),
+      node("repo.ts"), node("repo.ts#Repo", { kind: "class" }), node("repo.ts#Repo.find", { parent: "repo.ts#Repo" }),
+      node("db.ts"), node("db.ts#Db", { kind: "class" }),
+      node("system:PostgreSQL", { kind: "system", name: "PostgreSQL", file: "", module: false }),
+    ],
+    [
+      edge("page.vue", "repo.ts#Repo", "calls", 1),
+      edge("page.vue", "repo.ts#Repo.find", "calls", 2),
+      edge("repo.ts#Repo.find", "db.ts#Db"),
+      edge("db.ts", "system:PostgreSQL", "uses"),
+    ],
+  );
+  const c = callChain(r, "page.vue");
+  expect(c.steps.map((s) => s.label)).toEqual(["Repo", "Db", "uses", "Repo.find"]);
+  const keys = c.steps.map((s) => s.from + ">" + s.target + ":" + s.file);
+  expect(new Set(keys).size).toBe(keys.length);
+});
+
+test("a renders edge to a test component is skipped", () => {
+  const r = build(
+    [node("page.vue"), node("C.spec.vue", { kind: "component", test: true }), node("D.vue", { kind: "component" })],
+    [edge("page.vue", "C.spec.vue", "renders"), edge("page.vue", "D.vue", "renders", 2)],
+  );
+  expect(callChain(r, "page.vue").steps.map((s) => s.label)).toEqual(["D"]);
+});
+
+test("a hop reached through several same-file helpers is shown once", () => {
+  const r = build(
+    [node("a.ts"), node("a.ts#foo"), node("a.ts#h1"), node("a.ts#h2"), node("b.ts"), node("b.ts#x")],
+    [edge("a.ts#foo", "a.ts#h1"), edge("a.ts#foo", "a.ts#h2"), edge("a.ts#h1", "b.ts#x"), edge("a.ts#h2", "b.ts#x", "calls", 2)],
+  );
+  expect(callChain(r, "a.ts#foo").steps.map((s) => s.label)).toEqual(["x"]);
 });

@@ -99,15 +99,15 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
     return (memo[id] = res);
   };
 
-  const usesShown = new Set<ViewEdge>();
+  // Each edge once per chain (a file's `uses` folded into each member, a method walked with its class
+  // and on its own), and each caller → target hop once (several same-file helpers calling it).
+  const shown = new Set<ViewEdge | string>();
   const collect = (id: string, caller: string, hops: number) => {
     flat(id).forEach(({ e, file }) => {
       const t = ix.byId[e.to];
-      // A file's `uses` edge is folded into each of its members; show it once per chain.
-      if (e.kind === "uses") {
-        if (usesShown.has(e)) return;
-        usesShown.add(e);
-      }
+      const hop = caller + "\n" + e.kind + "\n" + e.to;
+      if (shown.has(e) || shown.has(hop)) return;
+      shown.add(e).add(hop);
       // ponytail: once full, only edges already in hand are counted in `truncated`; deeper calls are not walked.
       if (steps.length >= max) return void truncated++;
       const kind = e.kind as Step["kind"];
