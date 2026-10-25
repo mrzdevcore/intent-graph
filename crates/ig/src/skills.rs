@@ -174,6 +174,32 @@ pub fn install(root: &Path, agent: &Agent) -> Result<Vec<PathBuf>> {
     Ok(written)
 }
 
+/// `ig setup <agent>`: installs the skill if needed, then hands the terminal to the agent with
+/// the skill invoked.
+pub fn run_setup(root: &Path, name: &str) -> Result<u8> {
+    let a = agent(name)?;
+    for p in install(root, a)? {
+        eprintln!("ig: installed {}", p.display());
+    }
+    let invoke = invoke(a, "setup");
+    let status = std::process::Command::new(a.bin)
+        .arg(&invoke)
+        .current_dir(root)
+        .status();
+    match status {
+        Ok(s) => Ok(s.code().unwrap_or(1).clamp(0, 255) as u8),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            bail!(
+                "{} is not on PATH; install it, or open your agent in {} and run {}",
+                a.bin,
+                root.display(),
+                invoke
+            )
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

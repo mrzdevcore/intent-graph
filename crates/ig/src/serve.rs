@@ -1,11 +1,14 @@
 //! `ig serve`: the live viewer on 127.0.0.1:<port>, a JSON API for the viewer and `ig mcp`, and a
 //! server-sent event stream (`rebuild`, `note`, `focus`). Every POST needs the run's token.
 
-use crate::check::{self, Opts};
 use crate::model::Graph;
-use crate::notes::{self, Note, NoteInput};
-use crate::{view, workspace};
+use crate::render::{self, ignored, open_str};
+use crate::{CWD, Wired, shown_plan};
 use anyhow::{Result, bail};
+use ig_app::check::Opts;
+use ig_app::notes::{self, Note, NoteInput};
+use ig_app::view_data;
+use ig_core::workspace;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
@@ -78,12 +81,17 @@ fn build(
     token: &str,
 ) -> Result<Built> {
     // Re-pick the plan on every rebuild so the view follows plan and apply changes.
-    let picked = view::pick_plan(root, plan, no_plan);
-    let mut run = view::run_with_plan(root, opts, &picked)?;
-    let mut d = view::data(&run, root, opts);
-    let _ = check::write_atomic(&root.join(".ig/view.html"), view::page(&d, None).as_bytes());
-    let _ = std::fs::remove_file(root.join(view::FOCUS)); // a focus is shown once
-    let page = view::page(&d, Some(token));
+    let w = Wired::new(root);
+    let env = w.env();
+    let picked = view_data::pick_plan(&env, plan, no_plan);
+    let mut run = view_data::run_with_plan(&env, opts, shown_plan(root, &picked))?;
+    let mut d = view_data::data(&env, &run, opts);
+    let _ = ig_fs::write_atomic(
+        &root.join(".ig/view.html"),
+        render::page(&d, None).as_bytes(),
+    );
+    let _ = std::fs::remove_file(root.join(view_data::FOCUS)); // a focus is shown once
+    let page = render::page(&d, Some(token));
     let mut state = json!({"state": d["state"].take(), "plan": d["plan"].take()});
     if let (Some(p), Some(o)) = (&picked.0, state["plan"].as_object_mut()) {
         let rel = workspace::rel(root, p).unwrap_or_else(|| p.to_string_lossy().into());
@@ -110,7 +118,10 @@ impl Server {
     /// Re-reads the notes and sends a `note` event for each new or changed one.
     fn sync_notes(&self) {
         let plan = self.built.lock().unwrap().plan.clone();
-        let fresh = plan.as_deref().map(notes::read).unwrap_or_default();
+        let fresh = plan
+            .as_deref()
+            .map(|p| notes::read(&CWD, p))
+            .unwrap_or_default();
         let mut last = self.notes.lock().unwrap();
         for n in fresh.iter().filter(|n| !last.contains(n)) {
             self.broadcast("note", &json!(n));
@@ -191,7 +202,7 @@ impl Server {
                         let Some(plan) = &b.plan else {
                             bail!("no plan: run `ig plan check <file>` first");
                         };
-                        notes::append(plan, input, &b.merged)
+                        notes::append(&CWD, plan, input, &b.merged)
                     });
                 match r {
                     Ok(n) => {
@@ -232,6 +243,7 @@ impl Server {
                 let plan = self.built.lock().unwrap().plan.clone();
                 let r = match &plan {
                     Some(p) => notes::set_done(
+                        &CWD,
                         p,
                         id,
                         v["done"].as_bool().unwrap_or(true),
@@ -348,7 +360,7 @@ pub fn run(
         if let Some(info) = discover(root) {
             println!("ig serve is already running: {}", info.url("/"));
             if open_browser {
-                view::open_str(&info.url("/"));
+                open_str(&info.url("/"));
             }
         }
         return Ok(());
@@ -391,7 +403,7 @@ pub fn run(
     let url = info.url("/");
     eprintln!("ig: serving {url} (Ctrl-C to stop)");
     if open_browser {
-        view::open_str(&url);
+        open_str(&url);
     }
 
     let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
@@ -409,7 +421,7 @@ pub fn run(
                     for p in e
                         .iter()
                         .flat_map(|e| &e.paths)
-                        .filter(|p| !view::ignored(&s.root, p))
+                        .filter(|p| !ignored(&s.root, p))
                     {
                         any = true;
                         full |= !p
@@ -458,10 +470,10 @@ pub(crate) mod tests {
 
     /// A scratch copy of the monorepo fixture with a checked plan, served on a free port.
     pub(crate) fn start(tag: &str) -> (PathBuf, ServeInfo) {
-        let dir = crate::view::tests::scratch(tag);
+        let dir = crate::tests::scratch(tag);
         std::fs::create_dir_all(dir.join("plans")).unwrap();
-        std::fs::write(dir.join("plans/export.md"), crate::plan::tests::PLAN).unwrap();
-        crate::plan::check(&dir, &dir.join("plans/export.md")).unwrap();
+        std::fs::write(dir.join("plans/export.md"), crate::tests::PLAN).unwrap();
+        crate::tests::plan_check(&dir, &dir.join("plans/export.md")).unwrap();
         let d = dir.clone();
         std::thread::spawn(move || run(&d, Some(0), &Opts::default(), None, false, false));
         let end = Instant::now() + Duration::from_secs(60);
@@ -514,7 +526,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_taken_default_port_falls_back_but_an_explicit_one_errors() {
-        let dir = crate::view::tests::scratch("bind");
+        let dir = crate::tests::scratch("bind");
         let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let p = held.local_addr().unwrap().port();
         assert!(bind(&dir, p, true).is_err());

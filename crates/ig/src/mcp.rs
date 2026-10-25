@@ -1,11 +1,10 @@
 //! `ig mcp`: hand-rolled MCP server (JSON-RPC 2.0 over stdio, one message per line).
 
-use crate::check;
-use crate::graph;
-use crate::intents;
 use crate::model::{Graph, TOOL_VERSION};
-use crate::notes::{self, Note};
-use crate::{serve, workspace};
+use crate::{Wired, serve};
+use ig_app::check;
+use ig_app::notes::{self, Note};
+use ig_core::{intents, workspace};
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::io::{BufRead, Write};
@@ -179,8 +178,10 @@ fn handle_with(root: &Path, msg: &Value, send: &dyn Fn(Value)) -> Option<Value> 
 }
 
 fn head_graph(root: &Path) -> anyhow::Result<Graph> {
-    let cfg = crate::config::load(root)?;
-    Ok(graph::build(root, &cfg, None)?.graph)
+    let w = Wired::new(root);
+    let env = w.env();
+    let cfg = ig_app::config::load(env.files)?;
+    Ok(ig_app::graph(&env, env.files, &cfg, None)?.graph)
 }
 
 fn call(
@@ -247,7 +248,7 @@ fn call(
         "check" => {
             let all = args.get("all").and_then(Value::as_bool).unwrap_or(false);
             let run = check::run(
-                root,
+                &Wired::new(root).env(),
                 &check::Opts {
                     all,
                     ..Default::default()
@@ -266,7 +267,7 @@ fn call(
             {
                 Some(v) => v,
                 None => {
-                    let run = check::run(root, &check::Opts::default())?;
+                    let run = check::run(&Wired::new(root).env(), &check::Opts::default())?;
                     json!({"blocking": run.result.blocking, "findings": run.result.findings})
                 }
             };
@@ -274,8 +275,10 @@ fn call(
             Ok((serde_json::to_string_pretty(&s)?, Some(s)))
         }
         "get_intents" => {
-            let cfg = crate::config::load(root)?;
-            let g = graph::build(root, &cfg, None)?.graph;
+            let w = Wired::new(root);
+            let env = w.env();
+            let cfg = ig_app::config::load(env.files)?;
+            let g = ig_app::graph(&env, env.files, &cfg, None)?.graph;
             let tests = workspace::globset(&cfg.tests)?;
             let declared = intents::parse(
                 &std::fs::read_to_string(root.join("intents.md")).unwrap_or_default(),
