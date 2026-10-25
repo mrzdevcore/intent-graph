@@ -23,6 +23,9 @@ export interface ViewNode {
   lane: number | null;
   test: boolean;
   planned?: boolean;
+  /** For a system: its icon category and its packages from `blueprint.systems`. */
+  category?: string;
+  packages?: string[];
   /** Line diff, when the node changed. */
   diff?: DiffLine[];
   /** Its text, when it is new (`+`) or removed (`-`). */

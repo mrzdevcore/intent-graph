@@ -27,6 +27,16 @@ const MODES: [Mode, string, string][] = [
   ["blueprint", "Blueprint", "A page and everything behind it: front, API, use cases, adapters, systems"],
 ];
 
+const LINKS_KEY = "ig.links";
+
+function readLinks(): boolean {
+  try {
+    return localStorage.getItem(LINKS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 @customElement("ig-app")
 export class IgApp extends LitElement {
   @property({ attribute: false }) data?: ViewData;
@@ -41,6 +51,7 @@ export class IgApp extends LitElement {
   @state() private side: SideView = { kind: "overview" };
   @state() private hint = "";
   @state() private screenIds: string[] = [];
+  @state() private links = readLinks();
   @query("ig-graph") private graph!: IgGraph;
   @query("ig-tree") private tree!: IgTree;
   private ix!: Index;
@@ -76,13 +87,13 @@ export class IgApp extends LitElement {
     const ix = this.ix;
     const mode = this.mode;
     const els =
-      mode === "architecture" ? architecture(ix, this.scope)
+      mode === "architecture" ? architecture(ix, this.scope, this.graph.clientWidth || 1200)
       : mode === "focus" ? exact(ix, focusIds(ix, this.focusRoots.length ? this.focusRoots : this.focusId!, this.focusDepth))
       : mode === "blueprint" ? blueprint(ix, this.journey, this.uiOnly)
       : exact(ix, changedIds(ix));
     const fresh = mode !== this.lastMode;
     this.lastMode = mode;
-    this.graph.show(els, { fresh, preset: mode === "blueprint", zoomTo });
+    this.graph.show(els, { fresh, preset: mode === "blueprint" || mode === "architecture", zoomTo });
     if (mode === "focus" && this.focusId) this.graph.select(this.focusId);
     if (mode === "blueprint") this.side = { kind: "journeys" };
     this.screenIds = this.graph.ids();
@@ -101,6 +112,15 @@ export class IgApp extends LitElement {
     if (m === "focus" && !this.focusId) return;
     this.mode = m;
     this.draw();
+  }
+
+  private toggleLinks() {
+    this.links = !this.links;
+    try {
+      localStorage.setItem(LINKS_KEY, this.links ? "1" : "0");
+    } catch {
+      // storage blocked: the choice lasts for this page only
+    }
   }
 
   private setScope(t: Group | undefined) {
@@ -200,6 +220,8 @@ export class IgApp extends LitElement {
           ${MODES.map(([m, label, title]) => html`<button data-mode=${m} title=${title} aria-pressed=${String(m === this.mode)}
             ?disabled=${m === "focus" && !this.focusId} @click=${() => this.setMode(m)}>${label}</button>`)}
         </div>
+        <button id="links" class="toggle" aria-pressed=${String(this.links)} title="Show or hide the links (the selected node's stay)"
+          @click=${this.toggleLinks}>Links</button>
         <input id="search" type="search" placeholder="Find a node…" aria-label="Find a node" list="ids" autocomplete="off" @keydown=${this.onSearch}>
         <datalist id="ids">${D.nodes.filter((n) => n.kind !== "test").map((n) => html`<option value=${n.id}></option>`)}</datalist>
         <span id="counts" class="counts">${c.added} added · ${c.changed} changed · ${c.removed} removed</span>
@@ -209,7 +231,7 @@ export class IgApp extends LitElement {
       <main>
         <ig-tree id="tree" aria-label="Files" role="navigation" .ix=${this.ix} .mode=${this.mode} .screenIds=${this.screenIds}
           @ig-tree-select=${this.onTreeSelect} @ig-tree-folder=${this.onTreeFolder}></ig-tree>
-        <ig-graph id="cy" role="img" aria-label="Code graph" @ig-tap=${this.onTap}></ig-graph>
+        <ig-graph id="cy" role="img" .links=${this.links} aria-label="Code graph" @ig-tap=${this.onTap}></ig-graph>
         <ig-side-panel id="side" role="complementary" .ix=${this.ix} .view=${this.side} .mode=${this.mode} .focusId=${this.focusId}
           .focusDepth=${this.focusDepth} .journey=${this.journey} .uiOnly=${this.uiOnly}></ig-side-panel>
       </main>`;

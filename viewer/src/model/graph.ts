@@ -36,6 +36,9 @@ export interface ElData {
   count?: number;
   bp?: boolean;
   w?: number;
+  h?: number;
+  category?: string;
+  packages?: string[];
   source?: string;
   target?: string;
   violation?: boolean;
@@ -223,11 +226,22 @@ export function ancestors(ix: Index, t: Group | null | undefined): Group[] {
 }
 
 export function nodeData(ix: Index, n: ViewNode, parent?: string): ElData {
-  return {
+  const d: ElData = {
     id: n.id, label: n.name,
     kind: n.module ? "module" : n.kind === "system" ? "system" : n.kind === "route" ? "route" : "member",
     status: n.status, planned: !!n.planned, findings: (ix.findingsByNode[n.id] || []).length, parent,
   };
+  if (n.kind === "system") Object.assign(d, { category: n.category || "service", packages: n.packages || [] });
+  return d;
+}
+
+/** A swimlane: a band `h` high across `width`, centred on `y`, with its name on the left. */
+export function lane(key: string | number, label: string, y: number, width: number, h = 120): El[] {
+  const fixed = { selectable: false, grabbable: false };
+  return [
+    { group: "nodes", data: { id: "lane:" + key, label, kind: "lane", w: width + 300, h }, position: { x: width / 2 - 60, y }, ...fixed },
+    { group: "nodes", data: { id: "lanelabel:" + key, label, kind: "lanelabel" }, position: { x: -150, y }, ...fixed },
+  ];
 }
 
 /** Edges between the boxes `repOf` maps their ends to, counted and merged. */
