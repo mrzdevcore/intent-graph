@@ -35,6 +35,8 @@ ig view            # open the change as a graph in the browser
 | `ig brief [--md] [--out <file>]` | The change as architecture (by lane/layer), each changed function's own diff and each new function's code in architecture order, and sequence diagrams (Mermaid in `--md`). |
 | `ig diff [--base <ref>] [--head <ref>] [--json]` | Changed nodes grouped by file (`+` added, `~` changed, `-` removed). |
 | `ig review [--all] [--json] [--agent]` | Ranked structural problems: cycles, hubs, unstable dependencies, low cohesion, change coupling, unused exports, oversized modules. |
+| `ig query <id> [--in\|--out\|--both] [--depth N] [--json]` | Neighbours of a node (default both, depth 2) as `kind id (file:line)` and `from -kind-> to`. Unknown id: suggestions, exit 1. |
+| `ig focus <id>...` | Writes `.ig/focus.json`, the ids the viewer should highlight. |
 | `ig view [--watch] [--no-open]` | Writes `.ig/view.html`. `--watch` serves it on localhost and reloads on every save. |
 | `ig report --gitlab` | Checks `HEAD` and creates or updates one MR note (needs `IG_GITLAB_TOKEN` or `GITLAB_TOKEN`). |
 | `ig mcp` | MCP server on stdio with `check`, `get_findings`, `get_intents` and `graph_query`. |

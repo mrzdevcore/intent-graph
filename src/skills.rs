@@ -9,10 +9,16 @@ pub struct Skill {
     pub body: &'static str,
 }
 
-pub const SKILLS: &[Skill] = &[Skill {
-    name: "setup",
-    body: include_str!("../assets/skills/setup.md"),
-}];
+pub const SKILLS: &[Skill] = &[
+    Skill {
+        name: "setup",
+        body: include_str!("../assets/skills/setup.md"),
+    },
+    Skill {
+        name: "explore",
+        body: include_str!("../assets/skills/explore.md"),
+    },
+];
 
 const LEGACY_EXPLORE: &str = include_str!("../assets/legacy/ig-explore-v1.md");
 
