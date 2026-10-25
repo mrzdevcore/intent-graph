@@ -165,13 +165,11 @@ fn snippet(lines: &[&str], line: u32) -> Option<String> {
 
 pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
     // Apply in progress: compare against its base. Stale state is ignored, never fatal.
-    let mut stale = None;
-    let apply = crate::apply::load(root)
-        .filter(|_| opts.base.is_none())
-        .filter(|st| {
-            stale = crate::apply::stale(root, st);
-            stale.is_none()
-        });
+    let apply = crate::apply::active(root, opts.base.as_deref());
+    let stale = match (&apply, &opts.base) {
+        (None, None) => crate::apply::load(root).and_then(|st| crate::apply::stale(root, &st)),
+        _ => None,
+    };
     let mut opts = opts.clone();
     if let Some(st) = &apply {
         opts.base = Some(st.base.clone());

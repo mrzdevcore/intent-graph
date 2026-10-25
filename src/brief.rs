@@ -255,8 +255,24 @@ pub fn brief(run: &Run, root: &std::path::Path, opts: &crate::check::Opts, md: b
         r.findings.len(),
         blocking
     ));
+    // Exceptions (baseline entries with a reason): shown so they are reviewed, not hidden.
+    let exceptions = |s: &mut String| {
+        let items = crate::checks::read_baseline(root).unwrap_or_default();
+        let list: Vec<(&str, &str)> = items
+            .iter()
+            .filter_map(|v| Some((v["fingerprint"].as_str()?, v["reason"].as_str()?)))
+            .collect();
+        if !list.is_empty() {
+            s.push('\n');
+            h(s, 2, "Exceptions");
+            for (fp, reason) in list {
+                s.push_str(&format!("- {fp}: {reason}\n"));
+            }
+        }
+    };
     if changed.is_empty() {
         s.push_str("No changed functions.\n");
+        exceptions(&mut s);
         return s;
     }
 
@@ -509,6 +525,7 @@ pub fn brief(run: &Run, root: &std::path::Path, opts: &crate::check::Opts, md: b
             ));
         }
     }
+    exceptions(&mut s);
     s
 }
 
@@ -545,6 +562,23 @@ mod tests {
         assert!(md.contains("New links between layers:") && md.contains("core → ui (1)"));
         let text = brief(&run, &dir, &crate::check::Opts::default(), false);
         assert!(text.starts_with("CHANGE BRIEF"));
+        assert!(!text.contains("EXCEPTIONS"));
+        std::fs::create_dir_all(dir.join(".ig")).unwrap();
+        std::fs::write(
+            dir.join(".ig/baseline.json"),
+            r#"["plain", {"fingerprint": "abc", "reason": "user: legacy import"}]"#,
+        )
+        .unwrap();
+        let md = brief(&run, &dir, &crate::check::Opts::default(), true);
+        assert!(
+            md.contains("## Exceptions\n\n- abc: user: legacy import\n"),
+            "{md}"
+        );
+        let text = brief(&run, &dir, &crate::check::Opts::default(), false);
+        assert!(
+            text.contains("EXCEPTIONS\n\n- abc: user: legacy import\n"),
+            "{text}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

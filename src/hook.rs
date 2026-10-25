@@ -53,7 +53,7 @@ fn run(root: &Path) -> anyhow::Result<Value> {
         &file,
         run.config.hook_max_rounds,
         check::agent_text(&run.result, run.config.block_on),
-        crate::apply::load(root).is_some_and(|st| crate::apply::stale(root, &st).is_none()),
+        crate::apply::active(root, None).is_some(),
     )
 }
 
@@ -70,7 +70,7 @@ fn decide(file: &Path, max: u32, reason: String, asking: bool) -> anyhow::Result
     }
     let reason = if asking && rounds == max {
         format!(
-            "{reason}\n\nYou have tried ig's findings {max} times. Stop fixing. Ask the user what to do, showing each remaining finding and the options: another approach, update the plan, accept an exception (ig except), or change the rule."
+            "{reason}\n\nYou have tried ig's findings {max} times. Stop fixing. Ask the user what to do, showing each remaining finding and the options: another approach, update the plan, accept an exception (ig except), or change the rule. Exceptions are for tool and review findings only: an ig/plan or ig/tamper finding needs the plan updated (with the user's yes) and `ig apply accept`."
         )
     } else {
         reason
@@ -114,6 +114,12 @@ mod tests {
         let v = decide(&f, 2, "r".into(), true).unwrap();
         assert_eq!(v["decision"], "block");
         assert!(v["reason"].as_str().unwrap().contains("Ask the user"));
+        assert!(
+            v["reason"]
+                .as_str()
+                .unwrap()
+                .contains("tool and review findings only")
+        );
         assert_eq!(decide(&f, 2, "r".into(), true).unwrap(), json!({}));
         assert!(!f.exists());
         let _ = std::fs::remove_dir_all(dir);
