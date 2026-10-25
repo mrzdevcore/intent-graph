@@ -817,6 +817,8 @@ Added on 2026-10-25 at the user's request. The viewer must become a properly org
 
 ### Task 11: `ig serve` and live plan co-design (runs after Task 9)
 
+**Claude only** (user, 2026-10-25: "forget about codex for the moment, build around Claude"). Codex support already built in Tasks 1–7 stays as it is, but this task adds nothing for Codex.
+
 Added on 2026-10-25 at the user's request. During planning, the user chats with the agent and also works directly in the viewer: comments, moving a box to another layer, drawing a link, removing or adding a box. **Every interaction is stored as text.** The viewer is a **long-running server** that the user starts in another terminal, or that the agent starts in the background. It listens on a known port, and **the agent talks to it through MCP**. Claude Code channel support was checked on 2026-10-25 against code.claude.com/docs/en/channels*.md, mcp.md and plugins/components.md.
 
 **Decisions** (the user's: viewer interactions stored as text, a background server on a port, the agent via API or MCP; the rest are the controller's calls):
@@ -857,7 +859,6 @@ Added on 2026-10-25 at the user's request. During planning, the user chats with 
      - Interactive sessions only. Needs claude.ai or Console auth; Team and Enterprise orgs must enable `channelsEnabled`. Set `MCP_PROTOCOL_NEGOTIATION=legacy` when needed.
      - `ig serve claude` (new) launches `claude` with that flag for convenience.
   2. **Claude without channels:** the plan skill calls `ig_wait_notes`. Claude Code auto-backgrounds MCP calls after 2 minutes and notifies the agent when the call returns.
-  3. **Codex:** the plan skill calls `ig_wait_notes`. `ig init codex` writes `.codex/config.toml` (never overwrite) with `[mcp_servers.ig] command = "ig", args = ["mcp"], tool_timeout_sec = 1800`. Codex has no push mechanism known to us.
 - **Plugin wiring:**
   - `ig init claude` adds `.claude/skills/ig/.mcp.json` (`{"mcpServers": {"ig": {"command": "ig", "args": ["mcp"]}}}`; the `ig` binary is on PATH). Tools then appear as `mcp__plugin_ig_ig__<tool>`.
   - It must be verified that a skills-directory plugin loads `.mcp.json` (`/mcp` lists `plugin:ig:ig`). If it doesn't, fall back to adding the server to the project `.mcp.json`, and say so.
@@ -878,7 +879,7 @@ Added on 2026-10-25 at the user's request. During planning, the user chats with 
 
 **Files:**
 - Create: `src/serve.rs` (server, API, SSE, token), `src/notes.rs` (parse, format, append, wait)
-- Modify: `src/mcp.rs` (tools, channel capability and relay), `src/view.rs` (move watch into serve), `src/main.rs` (`serve`, `serve claude`, `plan notes`), `src/skills.rs`/`src/init.rs` (plugin `.mcp.json`, Codex `config.toml`), `assets/skills/plan.md`, `viewer/src/`, `README.md`
+- Modify: `src/mcp.rs` (tools, channel capability and relay), `src/view.rs` (move watch into serve), `src/main.rs` (`serve`, `serve claude`, `plan notes`), `src/skills.rs`/`src/init.rs` (plugin `.mcp.json`), `assets/skills/plan.md`, `viewer/src/`, `README.md`
 - Test: `notes::tests`, `serve::tests`, `mcp::tests`, and Vitest for the note client and pin model
 
 **Interfaces:**
