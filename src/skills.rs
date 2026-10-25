@@ -83,20 +83,57 @@ fn write_missing(path: PathBuf, content: &str, written: &mut Vec<PathBuf>) -> Re
     Ok(())
 }
 
+/// A skill as Codex sees it: named `ig-<name>`.
+fn codex_body(s: &Skill) -> String {
+    s.body.replacen(
+        &format!("name: {}", s.name),
+        &format!("name: ig-{}", s.name),
+        1,
+    )
+}
+
+/// The v1 `ig-explore` skill (the setup skill under its old name): removed when untouched, kept
+/// with a notice when edited. For Codex its path is now the new `$ig-explore`, which counts as
+/// current. Runs before the skills are written.
+fn migrate_legacy(root: &Path, agent: &Agent) -> Result<Option<String>> {
+    let base = if agent.name == "claude" {
+        ".claude"
+    } else {
+        ".agents"
+    };
+    let old = root.join(base).join("skills/ig-explore/SKILL.md");
+    let Ok(text) = std::fs::read_to_string(&old) else {
+        return Ok(None);
+    };
+    let current = SKILLS
+        .iter()
+        .find(|s| s.name == "explore")
+        .is_some_and(|s| agent.name != "claude" && text == codex_body(s));
+    if text == LEGACY_EXPLORE {
+        std::fs::remove_file(&old)?;
+        let _ = std::fs::remove_dir(old.parent().unwrap());
+        Ok(None)
+    } else if current {
+        Ok(None)
+    } else {
+        Ok(Some(format!(
+            "ig: kept {} (edited); the setup skill is now ig-setup",
+            old.display()
+        )))
+    }
+}
+
 /// Writes the files that are missing and returns them. Existing files are kept; an untouched
 /// ig-explore skill from an earlier version is removed, an edited one is left with a notice.
 pub fn install(root: &Path, agent: &Agent) -> Result<Vec<PathBuf>> {
     let mut written = vec![];
-    let (base, legacy) = if agent.name == "claude" {
-        (
-            root.join(".claude/skills/ig"),
-            ".claude/skills/ig-explore/SKILL.md",
-        )
+    if let Some(notice) = migrate_legacy(root, agent)? {
+        eprintln!("{notice}");
+    }
+    let base = if agent.name == "claude" {
+        root.join(".claude/skills/ig")
     } else {
-        (
-            root.join(".agents/skills"),
-            ".agents/skills/ig-explore/SKILL.md",
-        )
+        root.join(".agents/skills")
     };
     if agent.name == "claude" {
         let manifest = serde_json::json!({
@@ -127,28 +164,11 @@ pub fn install(root: &Path, agent: &Agent) -> Result<Vec<PathBuf>> {
                 &mut written,
             )?;
         } else {
-            let body = s.body.replacen(
-                &format!("name: {}", s.name),
-                &format!("name: ig-{}", s.name),
-                1,
-            );
             write_missing(
                 base.join(format!("ig-{}", s.name)).join("SKILL.md"),
-                &body,
+                &codex_body(s),
                 &mut written,
             )?;
-        }
-    }
-    let old = root.join(legacy);
-    if let Ok(text) = std::fs::read_to_string(&old) {
-        if text == LEGACY_EXPLORE {
-            std::fs::remove_file(&old)?;
-            let _ = std::fs::remove_dir(old.parent().unwrap());
-        } else {
-            eprintln!(
-                "ig: kept {} (edited); the setup skill is now ig-setup",
-                old.display()
-            );
         }
     }
     Ok(written)
@@ -203,16 +223,42 @@ mod tests {
     }
 
     #[test]
-    fn replaces_only_untouched_legacy_skill() {
-        let dir = temp_dir("ig-legacy");
-        let old = dir.join(".agents/skills/ig-explore/SKILL.md");
+    fn explore_migration() {
+        let codex = agent("codex").unwrap();
+        let new = codex_body(SKILLS.iter().find(|s| s.name == "explore").unwrap());
+        // Fresh install: the new $ig-explore, and no notice on the next run.
+        let dir = temp_dir("ig-legacy-fresh");
+        let path = dir.join(".agents/skills/ig-explore/SKILL.md");
+        install(&dir, codex).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), new);
+        assert!(migrate_legacy(&dir, codex).unwrap().is_none());
+        // v1 upgrade: the untouched v1 file is replaced by the new body.
+        let dir = temp_dir("ig-legacy-v1");
+        let path = dir.join(".agents/skills/ig-explore/SKILL.md");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, LEGACY_EXPLORE).unwrap();
+        install(&dir, codex).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), new);
+        // Edited: kept, with a notice.
+        std::fs::write(&path, "edited").unwrap();
+        assert!(migrate_legacy(&dir, codex).unwrap().is_some());
+        install(&dir, codex).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "edited");
+        // Claude: the v1 file is removed, an edited one kept with a notice.
+        let claude = agent("claude").unwrap();
+        let old = dir.join(".claude/skills/ig-explore/SKILL.md");
         std::fs::create_dir_all(old.parent().unwrap()).unwrap();
-        std::fs::write(&old, include_str!("../assets/legacy/ig-explore-v1.md")).unwrap();
-        install(&dir, agent("codex").unwrap()).unwrap();
-        assert!(!old.exists());
+        std::fs::write(&old, LEGACY_EXPLORE).unwrap();
+        install(&dir, claude).unwrap();
+        assert!(!old.exists() && !old.parent().unwrap().exists());
+        assert!(
+            dir.join(".claude/skills/ig/skills/explore/SKILL.md")
+                .is_file()
+        );
         std::fs::create_dir_all(old.parent().unwrap()).unwrap();
         std::fs::write(&old, "edited").unwrap();
-        install(&dir, agent("codex").unwrap()).unwrap();
+        assert!(migrate_legacy(&dir, claude).unwrap().is_some());
+        install(&dir, claude).unwrap();
         assert_eq!(std::fs::read_to_string(&old).unwrap(), "edited");
     }
 }
