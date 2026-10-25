@@ -240,7 +240,7 @@ Pattern nodes use `ast-grep-core` and `ast-grep-language` (TypeScript, Tsx, Java
 - `fixes[0].description.text` → fix;
 - the innermost node at that line → nodeId.
 
-The other formats map the same way: `eslint-json` (`severity` 2 error, 1 warning; rule `ruleId`), `stylelint-json` (`severity` error/warning; rule `rule`), `checkstyle` (`severity` error/warning/info; rule `source`) and `lines`. `lines` matches `path:line[:col][: ]message` and tsc's `path(line,col): error TS1234: message`. Its rule is the `TS\d+` code if present, and its severity is an explicit `error`/`warning` word, else warning. The tool name is the rule id when the output has none. The exit status is ignored, and empty output means zero findings.
+The other formats map the same way: `eslint-json` (`severity` 2 error, 1 warning; rule `ruleId`), `stylelint-json` (`severity` error/warning; rule `rule`), `checkstyle` (`severity` error/warning/info; rule `source`) and `lines`. `lines` matches `path:line[:col][: ]message` and tsc's `path(line,col): error TS1234: message`. Its rule is the `TS\d+` code if present, and its severity is an explicit `error`/`warning` word, else warning. The tool name is the rule id when the output has none. A non-zero exit is not an error by itself, but a non-zero exit with zero findings is reported as `ig/checker-error` (`exited <code> with no findings; stderr: …`). Exit 0 with empty output means zero findings.
 
 Bad output becomes an `ig/checker-error` finding that includes the first 300 chars of stderr.
 
