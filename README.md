@@ -207,7 +207,7 @@ blueprint:                    # optional: page → front → API → use cases �
 The viewer (`ig view`) has four modes: **Changed**, **Architecture** (drill down by layer and directory),
 **Focus** (one node's neighbourhood) and **Blueprint** (pick a page, see everything behind it in swimlanes).
 A file tree sits alongside, and each function shows its code (before/after diff when it changed) and a
-sequence diagram (copyable as Mermaid or PlantUML). Everything works offline from one HTML file.
+call chain down to systems (copyable as Mermaid or PlantUML). Everything works offline from one HTML file.
 
 All keys, with defaults, are listed in the [design](docs/specs/design.md#igyaml).
 Known findings can be accepted by adding their fingerprints to `.ig/baseline.json`.

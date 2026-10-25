@@ -15,10 +15,10 @@ export function codeBlock(rows: CodeRow[], wide = false) {
   )}</pre>`;
 }
 
-/** The numbered, clickable step list; a "+N more" row when the chain was cut. */
+/** The numbered, clickable step list; a "+N or more" row when the chain was cut. */
 export function stepList(rows: { n: number; text: string; target: string }[], pick: (target: string) => void, truncated = 0) {
   return html`<ol class="steps">${rows.map((r) => html`<li class="f" @click=${() => pick(r.target)}>${r.text}</li>`)}${truncated
-    ? html`<li class="loc more">+${truncated} more (increase depth or max)</li>`
+    ? html`<li class="loc more">+${truncated} or more (lower the depth)</li>`
     : null}</ol>`;
 }
 

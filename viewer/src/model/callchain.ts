@@ -112,7 +112,7 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
       if (steps.length >= max) return void truncated++;
       const kind = e.kind as Step["kind"];
       steps.push({
-        n: steps.length + 1, from: lifeline(caller), to: lifeline(t.id), label: kind === "uses" ? "uses" : kind === "renders" ? base(t.file).replace(/\.[a-z]+$/, "") : t.name,
+        n: steps.length + 1, from: lifeline(caller), to: lifeline(t.id), label: kind === "uses" ? "uses" : kind === "renders" ? component(t.file) : t.name,
         target: t.id, kind, file, line: e.line || 0,
       });
       if (t.kind !== "system" && hops < depth && !seen[t.id]) {
@@ -127,6 +127,12 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
   seen[start] = true;
   collect(start, start, 0);
   return { lifelines, steps, truncated };
+}
+
+/** A component's name from its file: `Card.vue` → Card, `Card/index.vue` → Card. */
+function component(file: string): string {
+  const name = base(file).replace(/\.[a-z]+$/, "");
+  return name === "index" ? (base(file.slice(0, -base(file).length - 1)) || name) : name;
 }
 
 export function chainToMermaid(c: CallChain): string {

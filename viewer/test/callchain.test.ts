@@ -120,6 +120,14 @@ test("follows renders into components", () => {
   expect(c.steps.map((s) => [s.label, s.kind])).toEqual([["C", "renders"], ["useX", "calls"]]);
 });
 
+test("a rendered index component is labelled by its directory", () => {
+  const r = build(
+    [node("page.vue"), node("components/Card/index.vue", { kind: "component" })],
+    [edge("page.vue", "components/Card/index.vue", "renders")],
+  );
+  expect(callChain(r, "page.vue").steps.map((s) => s.label)).toEqual(["Card"]);
+});
+
 test("walks inner members of a called function", () => {
   const r = build(
     [node("page.vue"), node("a.ts#useA"), node("a.ts#useA.load", { parent: "a.ts#useA" }), node("a.ts"), node("svc.ts#Svc.list"), node("svc.ts")],
