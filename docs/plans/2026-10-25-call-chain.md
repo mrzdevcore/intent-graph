@@ -320,3 +320,23 @@ The Task 4 review ran the chain for acme's `dashboard/[reportName]/index.vue` an
 - [ ] **Step 3: Implement** the changes above.
 - [ ] **Step 4: Run** `bun run test` and `bun run typecheck`. Then run the e2e on the scratch acme copy (after Task 5). The dashboard page's chain should reach `DashboardReport`, `useDashboardCatalog` and `DashboardService`, through the HTTP routes to the API use cases and adapters, and to Power BI.
 - [ ] **Step 5: Commit:** `git commit -m "Call chain follows rendered components and inner members"`
+
+### Task 7: Reach the database through injected fields; no repeated steps (added after Task 6)
+
+On acme, the dashboard chain stops at the repositories. They query through an injected field, `this.knexDatabase.knex(...)`, where `knexDatabase: KnexDatabase` comes through the constructor and `knex` is a property, not a method. Extraction emits no edge for that, so the chain never reaches `knex.database.ts`, which holds the `uses` edge to PostgreSQL.
+
+- **Rust:** in `src/extract.rs`, a member access or call through a **typed** receiver (`this.f.x(...)`, `this.f.x`, or `v.x` where the type of `f` or `v` resolves to a repo class, using the same narrow type inference that already resolves `this.f.m()` to the method) gets an edge when `x` is not a method of that class. The edge is `calls` from the enclosing function to the **class node**, confidence `resolved`. Then `GRAPH_REVISION` → 13. Arch rules see this as a real dependency, which it is.
+- **TypeScript:** in `callchain.ts` `collect`, a `shown` set of edges (generalizing `usesShown` to every kind) means each edge appears at most once per chain. Tests to add:
+  - a renders cycle (A renders B renders A) terminates;
+  - class methods are walked when a class is stepped into, with no repeated hop;
+  - a renders edge to a test component is skipped.
+
+**Files:** `src/extract.rs`, `src/git.rs`, `viewer/src/model/callchain.ts`, `viewer/test/callchain.test.ts`; Rust tests in `extract.rs` or `graph.rs`.
+
+- [ ] **Step 1: Write the failing tests.**
+  - Rust `typed_field_property_reaches_class`: `class Db { knex = 1 }` in `db.ts`; `class Repo { constructor(private db: Db) {} find() { return this.db.knex('t') } }` in `repo.ts`. Expect an edge `repo.ts#Repo.find -calls-> db.ts#Db`, confidence `resolved`.
+  - The TypeScript tests above.
+- [ ] **Step 2: Run them.** Expected: FAIL.
+- [ ] **Step 3: Implement** both changes.
+- [ ] **Step 4: Run** `cargo test` (check whether the golden files change, and review any change) and `make test`. Then run the acme e2e: the dashboard chain must end at **PostgreSQL** (via the repositories → `KnexDatabase` → `uses`) and must not repeat a step. Record the final list.
+- [ ] **Step 5: Commit** (explicit paths): `git commit -m "Typed field property access links to its class; call chain shows each edge once"`
