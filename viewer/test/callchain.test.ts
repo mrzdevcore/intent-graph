@@ -20,15 +20,15 @@ const ix = build(
   [
     node("web/pages/page.vue", { lane: 0 }),
     node("web/pages/page.vue#title", { lane: 0 }),
-    node("web/composables/catalog.ts", { lane: 0 }),
-    node("web/composables/catalog.ts#useCatalog", { lane: 0 }),
-    node("api/routes.ts", { lane: 1 }),
-    node("api/routes.ts#GET /api/catalog", { kind: "route", lane: 1 }),
-    node("api/use-cases/list.ts", { lane: 2 }),
-    node("api/use-cases/list.ts#list", { lane: 2 }),
-    node("api/repo.ts", { lane: 3 }),
-    node("api/repo.ts#find", { lane: 3 }),
-    node("system:PostgreSQL", { kind: "system", name: "PostgreSQL", file: "", module: false, lane: 4 }),
+    node("web/composables/catalog.ts", { lane: 1 }),
+    node("web/composables/catalog.ts#useCatalog", { lane: 1 }),
+    node("api/routes.ts", { lane: 2 }),
+    node("api/routes.ts#GET /api/catalog", { kind: "route", lane: 2 }),
+    node("api/use-cases/list.ts", { lane: 3 }),
+    node("api/use-cases/list.ts#list", { lane: 3 }),
+    node("api/repo.ts", { lane: 4 }),
+    node("api/repo.ts#find", { lane: 4 }),
+    node("system:PostgreSQL", { kind: "system", name: "PostgreSQL", file: "", module: false, lane: 5 }),
   ],
   [
     edge("web/pages/page.vue", "web/pages/page.vue#title"),
@@ -38,7 +38,7 @@ const ix = build(
     edge("api/use-cases/list.ts#list", "api/repo.ts#find"),
     edge("api/repo.ts", "system:PostgreSQL", "uses"),
   ],
-  ["Front", "API", "Use cases", "Adapters", "Systems"],
+  ["User", "Front", "API", "Use cases", "Adapters", "Systems"],
 );
 
 test("folds same-file calls and follows modules down to the database", () => {
@@ -54,7 +54,7 @@ test("terminates on cycles", () => {
     [node("x/a.ts#a"), node("x/b.ts#b"), node("x/a.ts"), node("x/b.ts")],
     [edge("x/a.ts#a", "x/b.ts#b"), edge("x/b.ts#b", "x/a.ts#a"), edge("x/a.ts#a", "x/a.ts#a")],
   );
-  expect(callChain(cyc, "x/a.ts#a").steps.length).toBeLessThanOrEqual(2);
+  expect(callChain(cyc, "x/a.ts#a").steps.length).toBe(2);
 });
 
 test("caps fan-out and reports the rest", () => {
@@ -74,4 +74,20 @@ test("mermaid uses lifeline labels and step numbers", () => {
   expect(m).toContain("participant");
   expect(m).toContain("autonumber");
   expect(chainToPlantUml(callChain(ix, "web/pages/page.vue")).startsWith("@startuml")).toBe(true);
+});
+
+test("starts at its own lane, with no orphan lifelines", () => {
+  const c = callChain(ix, "api/use-cases/list.ts#list");
+  expect(c.lifelines[0].label).toBe("Use cases");
+  c.lifelines.forEach((_, i) => expect(c.steps.some((s) => s.from === i || s.to === i)).toBe(true));
+});
+
+test("a same-file helper is folded into every caller", () => {
+  const h = build(
+    [node("a.ts#foo"), node("a.ts#bar"), node("a.ts#h"), node("a.ts"), node("b.ts#x"), node("b.ts")],
+    [edge("a.ts#foo", "a.ts#h", "calls", 1), edge("a.ts#bar", "a.ts#h", "calls", 1), edge("a.ts#h", "b.ts#x")],
+  );
+  expect(callChain(h, "a.ts#foo").steps.map((s) => s.label)).toEqual(["x"]);
+  expect(callChain(h, "a.ts#bar").steps.map((s) => s.label)).toEqual(["x"]);
+  expect(callChain(h, "a.ts").steps.map((s) => s.label)).toEqual(["x", "x"]);
 });
