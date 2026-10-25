@@ -169,18 +169,7 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
     let apply = crate::apply::load(root)
         .filter(|_| opts.base.is_none())
         .filter(|st| {
-            stale = if !root.join(&st.plan).is_file() {
-                Some(format!("plan {} is missing", st.plan))
-            } else if git::git(
-                root,
-                &["cat-file", "-e", &format!("{}^{{commit}}", st.base)],
-            )
-            .is_err()
-            {
-                Some(format!("base commit {} is missing", st.base))
-            } else {
-                None
-            };
+            stale = crate::apply::stale(root, st);
             stale.is_none()
         });
     let mut opts = opts.clone();

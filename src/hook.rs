@@ -53,7 +53,7 @@ fn run(root: &Path) -> anyhow::Result<Value> {
         &file,
         run.config.hook_max_rounds,
         check::agent_text(&run.result, run.config.block_on),
-        crate::apply::load(root).is_some(),
+        crate::apply::load(root).is_some_and(|st| crate::apply::stale(root, &st).is_none()),
     )
 }
 
