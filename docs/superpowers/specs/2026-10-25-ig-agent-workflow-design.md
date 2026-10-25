@@ -354,7 +354,7 @@ mode.
 
 ## Live plan co-design (added 2026-10-25, decided with the user)
 
-During `/ig:plan`, the user can chat with the agent and also work directly in the live viewer (`ig view --watch`): comment on a box or link, drag a box into another layer, draw a link, mark something for removal, or add a box. Every interaction is stored as text, one line per note in `plans/<slug>.notes.md`, committed next to the plan. The agent picks notes up with `ig plan notes --wait`, edits the plan, re-checks it, and ticks each note with a one-line reply. The viewer refreshes live. The viewer never edits the plan itself.
+During `/ig:plan`, the user can chat with the agent and also work directly in the live viewer, `ig serve`. It is a long-running local server on a known port (default 7420), started by the user in another terminal or by the agent in the background, and the agent talks to it through MCP (`ig mcp` tools). In Claude Code, new notes are pushed into the session through a channel (a research preview, enabled with a flag); otherwise the agent waits on a blocking MCP tool. The user can: comment on a box or link, drag a box into another layer, draw a link, mark something for removal, or add a box. Every interaction is stored as text, one line per note in `plans/<slug>.notes.md`, committed next to the plan. The agent picks notes up with `ig plan notes --wait`, edits the plan, re-checks it, and ticks each note with a one-line reply. The viewer refreshes live. The viewer never edits the plan itself.
 
 ## Constraints
 
