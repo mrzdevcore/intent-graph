@@ -684,6 +684,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-app"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+]
+
+[[package]]
 name = "ig-checkers"
 version = "0.1.0"
 dependencies = [
@@ -720,6 +727,28 @@ name = "ig-git"
 version = "0.1.0"
 dependencies = [
  "ig-core",
+]
+
+[[package]]
+name = "ig-lang-ts"
+version = "0.1.0"
+dependencies = [
+ "ast-grep-core",
+ "ast-grep-language",
+ "globset",
+ "ig-core",
+ "json_comments",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "oxc_parser",
+ "oxc_resolver",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_syntax",
+ "rayon",
+ "regex",
+ "serde_json",
 ]
 
 [[package]]
@@ -775,23 +804,15 @@ name = "intent-graph"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "ast-grep-core",
- "ast-grep-language",
  "globset",
+ "ig-app",
  "ig-checkers",
  "ig-core",
  "ig-fs",
  "ig-git",
+ "ig-lang-ts",
  "lexopt",
  "notify",
- "oxc_allocator",
- "oxc_ast",
- "oxc_ast_visit",
- "oxc_parser",
- "oxc_resolver",
- "oxc_semantic",
- "oxc_span",
- "oxc_syntax",
  "rayon",
  "regex",
  "serde",

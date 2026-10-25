@@ -99,33 +99,7 @@ pub fn read_jsonc(path: &Path) -> Option<Value> {
     json_comments::StripComments::new(text.as_bytes())
         .read_to_string(&mut stripped)
         .ok()?;
-    serde_json::from_str(&strip_trailing_commas(&stripped)).ok()
-}
-
-fn strip_trailing_commas(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let (mut in_str, mut esc) = (false, false);
-    for (i, &c) in b.iter().enumerate() {
-        if in_str {
-            if esc {
-                esc = false
-            } else if c == b'\\' {
-                esc = true
-            } else if c == b'"' {
-                in_str = false
-            }
-        } else if c == b'"' {
-            in_str = true
-        } else if c == b',' {
-            let next = b[i + 1..].iter().find(|x| !x.is_ascii_whitespace());
-            if matches!(next, Some(b'}') | Some(b']')) {
-                continue;
-            }
-        }
-        out.push(c);
-    }
-    String::from_utf8(out).unwrap_or_default()
+    serde_json::from_str(&ig_core::workspace::strip_trailing_commas(&stripped)).ok()
 }
 
 #[cfg(test)]
@@ -157,13 +131,5 @@ mod tests {
         let found = f.glob(&["**/*.ts".into()]).unwrap();
         let _ = std::fs::remove_dir_all(&d);
         assert_eq!(found, ["real/a.ts"]);
-    }
-
-    #[test]
-    fn jsonc() {
-        assert_eq!(
-            strip_trailing_commas("{\"a\": [1, 2,], \"b\": \",]\",}"),
-            "{\"a\": [1, 2], \"b\": \",]\"}"
-        );
     }
 }

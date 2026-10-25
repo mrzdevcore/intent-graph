@@ -1,8 +1,8 @@
 //! `autoImports`: names a framework makes global without an `import` (Nuxt's `.nuxt/imports.d.ts`
 //! and `components.d.ts`, unplugin-auto-import), read from its generated declaration files.
 
-use crate::model::ParseError;
-use crate::workspace::{self, Workspace};
+use ig_core::model::ParseError;
+use ig_core::workspace::{self, WorkspaceInfo};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -93,7 +93,11 @@ static TYPEOF: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Reads the declaration files `patterns` name. A missing or unreadable file is a parse error
 /// (`.nuxt/` before `nuxt prepare`), never a failure.
-pub fn load(root: &Path, patterns: &[String], ws: &Workspace) -> (AutoImports, Vec<ParseError>) {
+pub fn load(
+    root: &Path,
+    patterns: &[String],
+    ws: &WorkspaceInfo,
+) -> (AutoImports, Vec<ParseError>) {
     let mut ai = AutoImports::default();
     let (found, unmatched) = files(root, patterns);
     let mut errors: Vec<ParseError> = unmatched
@@ -190,13 +194,26 @@ pub fn tmp_with(files: &[(&str, &str)]) -> std::path::PathBuf {
     dir
 }
 
+/// A one-package workspace of the source files under `dir` (`.vue` embedded).
 #[cfg(test)]
-pub fn workspace_of(dir: &Path) -> Workspace {
-    let config = crate::config::Config {
-        embedded: vec![".vue".into()],
-        ..Default::default()
+pub fn workspace_of(dir: &Path) -> WorkspaceInfo {
+    let embedded = [".vue".to_string()];
+    let package = ig_core::workspace::Package {
+        name: ".".into(),
+        dir: ".".into(),
+        tsconfig: None,
+        source_entry: None,
     };
-    Workspace::discover(dir, &config).unwrap()
+    WorkspaceInfo {
+        root: dir.to_path_buf(),
+        packages: vec![package],
+        files: files(dir, &["**/*".into()])
+            .0
+            .into_iter()
+            .filter(|p| workspace::is_source_ext(p, &embedded))
+            .map(|path| ig_core::workspace::SourceFile { path, package: 0 })
+            .collect(),
+    }
 }
 
 #[cfg(test)]

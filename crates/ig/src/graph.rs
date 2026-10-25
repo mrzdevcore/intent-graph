@@ -1,706 +1,36 @@
-//! Two-pass graph build: pass 1 extracts per file, pass 2 resolves edges against the global index.
+//! The graph build: `ig_app::build::build_graph` over the working tree with the TS frontend.
 
-use crate::autoimports::AutoImports;
 use crate::config::Config;
-use crate::extract::{self, Callee, ExportTarget, FileFacts, FileInput, ImportName};
-use crate::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
-use crate::patterns;
-use crate::workspace::{self, Workspace};
 use anyhow::Result;
-use ig_core::http;
-use oxc_resolver::{
-    ResolveOptions, Resolver, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
-};
-use rayon::prelude::*;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use ig_fs::FsFiles;
+use ig_lang_ts::TsFrontend;
+use std::path::Path;
 
-fn resolver_options(tsconfig: Option<PathBuf>) -> ResolveOptions {
-    let exts = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
-    ResolveOptions {
-        tsconfig: tsconfig.map(|config_file| {
-            TsconfigDiscovery::Manual(TsconfigOptions {
-                config_file,
-                references: TsconfigReferences::Auto,
-            })
-        }),
-        extensions: exts.iter().map(|s| s.to_string()).collect(),
-        extension_alias: vec![
-            (
-                ".js".into(),
-                vec![".ts".into(), ".tsx".into(), ".js".into(), ".jsx".into()],
-            ),
-            (".mjs".into(), vec![".mts".into(), ".mjs".into()]),
-            (".cjs".into(), vec![".cts".into(), ".cjs".into()]),
-        ],
-        condition_names: vec![
-            "types".into(),
-            "import".into(),
-            "require".into(),
-            "node".into(),
-            "default".into(),
-        ],
-        main_files: vec!["index".into()],
-        ..ResolveOptions::default()
-    }
-}
-
-/// The tsconfig to configure resolution from: a solution-style config (no paths/baseUrl, only
-/// references) defers to its first reference.
-fn effective_tsconfig(path: &Path) -> PathBuf {
-    let Some(v) = workspace::read_jsonc(path) else {
-        return path.to_path_buf();
-    };
-    let co = v.get("compilerOptions");
-    let has_paths = co.is_some_and(|c| c.get("paths").is_some() || c.get("baseUrl").is_some());
-    if !has_paths
-        && let Some(r) = v
-            .get("references")
-            .and_then(|r| r.get(0))
-            .and_then(|r| r.get("path"))
-            .and_then(|p| p.as_str())
-    {
-        let p = path.parent().unwrap_or(Path::new(".")).join(r);
-        let p = if p.is_dir() {
-            p.join("tsconfig.json")
-        } else {
-            p
-        };
-        if p.is_file() {
-            return p;
-        }
-    }
-    path.to_path_buf()
-}
-
-pub struct Built {
-    pub graph: Graph,
-    pub workspace: Workspace,
-    /// Facts that are not graph data, for `ig setup`.
-    pub extras: Extras,
-}
-
-#[derive(Default)]
-pub struct Extras {
-    /// External package → number of modules importing it.
-    pub packages: BTreeMap<String, usize>,
-    /// Callee name → calls whose first argument looks like a URL.
-    pub url_callees: BTreeMap<String, u32>,
-    /// HTTP client calls that matched no route: (file, line, method, url).
-    pub http_unmatched: Vec<(String, u32, String, String)>,
-}
+pub use ig_app::build::Built;
 
 /// Builds the graph of the tree at `root` (which may be a worktree).
 pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Built> {
-    let ws = Workspace::discover(root, config)?;
-    let tests = workspace::globset(&config.tests)?;
-    let flattened = crate::tsconfig::Flattened::new();
-    let mut tsconfig_errors = vec![];
-    let resolvers: Vec<Resolver> = ws
-        .packages
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            // Separate resolvers, not `clone_with_options`: a manual tsconfig is cached in the
-            // shared cache, so clones would all use whichever package's tsconfig loaded first.
-            let Some(ts) = p.tsconfig.as_deref().map(effective_tsconfig) else {
-                return Resolver::new(resolver_options(None));
-            };
-            let (flat, warnings) = flattened.flatten(i, &ts, &ws);
-            for (file, message) in warnings {
-                let file =
-                    workspace::rel(&ws.root, &file).unwrap_or_else(|| file.display().to_string());
-                tsconfig_errors.push(ParseError { file, message });
-            }
-            Resolver::new(resolver_options(flat))
-        })
-        .collect();
-    let file_set: HashSet<&str> = ws.files.iter().map(|f| f.path.as_str()).collect();
-    let compiled = patterns::compile(&config.patterns);
-    let mut parse_errors = tsconfig_errors;
-
-    // Pass 1.
-    let mut facts: Vec<FileFacts> = ws
-        .files
-        .par_iter()
-        .map(|f| {
-            let abs = ws.root.join(&f.path);
-            let source = std::fs::read(&abs)
-                .map(|b| String::from_utf8_lossy(&b).into_owned())
-                .unwrap_or_default();
-            let embedded = config.embedded.iter().any(|e| {
-                f.path
-                    .to_ascii_lowercase()
-                    .ends_with(&e.to_ascii_lowercase())
-            });
-            let pkg = &ws.packages[f.package];
-            let input = FileInput {
-                path: &f.path,
-                source: &source,
-                package: Some(&pkg.name),
-                embedded,
-                is_test: extract::is_test_file(&f.path, &tests),
-                test_calls: &config.test_calls,
-                http_calls: &config.blueprint.http_calls,
-            };
-            let dir = abs.parent().unwrap_or(&ws.root).to_path_buf();
-            let resolve = |spec: &str| -> Option<String> {
-                if !spec.starts_with('.')
-                    && !spec.starts_with('/')
-                    && let Some(t) = ws.resolve_workspace_import(spec)
-                {
-                    return file_set.contains(t.as_str()).then_some(t);
-                }
-                if spec.starts_with('.')
-                    && config.embedded.iter().any(|e| spec.ends_with(e.as_str()))
-                {
-                    let dir_rel = f.path.rsplit_once('/').map(|(d, _)| d).unwrap_or(".");
-                    let t = workspace::normalize(&workspace::join(dir_rel, spec));
-                    return file_set.contains(t.as_str()).then_some(t);
-                }
-                let r = resolvers[f.package].resolve(&dir, spec).ok()?;
-                let t = workspace::rel(&ws.root, &r.full_path())?;
-                file_set.contains(t.as_str()).then_some(t)
-            };
-            let mut facts = extract::extract(&input, &resolve);
-            let code = if embedded {
-                facts.script.clone()
-            } else {
-                source
-            };
-            patterns::apply(&compiled, &f.path, &code, &mut facts);
-            facts
-        })
-        .collect();
-    facts.sort_by(|a, b| a.file.cmp(&b.file));
-    for (i, msg) in &compiled.errors {
-        parse_errors.push(ParseError {
-            file: "ig.yaml".into(),
-            message: format!("patterns[{i}]: {msg}"),
-        });
-    }
-
-    // Pass 2.
-    let (auto, auto_errors) = crate::autoimports::load(root, &config.auto_imports, &ws);
-    parse_errors.extend(auto_errors);
-    let index = Index::new(&facts, &auto);
-    let mut edge_lists: Vec<Vec<Edge>> = facts.par_iter().map(|f| index.edges_of(f)).collect();
-    let mut stale: BTreeMap<&str, std::collections::BTreeSet<&str>> = BTreeMap::new();
-    for r in facts
-        .iter()
-        .filter(|f| !tests.is_match(&f.file))
-        .flat_map(|f| &f.refs)
-    {
-        if let Callee::Free(name) = &r.callee
-            && let Some((_, decl)) = index.stale_hit(name)
-        {
-            stale.entry(decl).or_default().insert(name);
-        }
-    }
-    for (decl, names) in stale {
-        let list: Vec<&str> = names.iter().take(10).copied().collect();
-        parse_errors.push(ParseError {
-            file: decl.into(),
-            message: format!(
-                "autoImports: {} names not in {decl} resolved from its directories (run nuxt prepare): {}",
-                names.len(),
-                list.join(", ")
-            ),
-        });
-    }
-    let (system_nodes, blueprint_edges, renames, http_unmatched) = blueprint_links(&facts, config);
-    let mut extras = Extras {
-        http_unmatched,
-        ..Extras::default()
-    };
-    for f in facts.iter().filter(|f| !tests.is_match(&f.file)) {
-        let mut seen = HashSet::new();
-        for (p, _) in &f.packages {
-            if seen.insert(p) {
-                *extras.packages.entry(p.clone()).or_default() += 1;
-            }
-        }
-        for (k, v) in &f.url_callees {
-            *extras.url_callees.entry(k.clone()).or_default() += v;
-        }
-    }
-    edge_lists.push(blueprint_edges);
-    for f in &mut facts {
-        for n in &mut f.nodes {
-            if let Some(name) = renames.get(&n.id) {
-                n.name = name.clone();
-            }
-        }
-    }
-
-    let mut nodes: Vec<Node> = system_nodes;
-    for f in &mut facts {
-        if let Some(m) = &f.parse_error {
-            parse_errors.push(ParseError {
-                file: f.file.clone(),
-                message: m.clone(),
-            });
-        }
-        nodes.append(&mut f.nodes);
-    }
-    nodes.sort_by(|a, b| a.id.cmp(&b.id));
-    let known: HashMap<&str, &str> = nodes
-        .iter()
-        .map(|n| (n.id.as_str(), n.file.as_str()))
-        .collect();
-    let mut merged: BTreeMap<(String, String, String), Edge> = BTreeMap::new();
-    for e in edge_lists.into_iter().flatten() {
-        let (Some(from), Some(to)) = (known.get(e.from.as_str()), known.get(e.to.as_str())) else {
-            continue;
-        };
-        // Non-test code never resolves into test files (stubs, mocks); the import itself stays.
-        if e.kind != "imports" && tests.is_match(to) && !tests.is_match(from) {
-            continue;
-        }
-        let key = (e.from.clone(), e.kind.clone(), e.to.clone());
-        match merged.get_mut(&key) {
-            Some(x) => {
-                x.namespace |= e.namespace;
-                x.reexport |= e.reexport;
-                if e.resolved() {
-                    x.confidence = e.confidence.clone();
-                }
-                if (e.file.as_str(), e.line) < (x.file.as_str(), x.line) {
-                    x.file = e.file;
-                    x.line = e.line;
-                }
-            }
-            None => {
-                merged.insert(key, e);
-            }
-        }
-    }
-    let edges = merged.into_values().collect();
-    parse_errors.sort_by(|a, b| (&a.file, &a.message).cmp(&(&b.file, &b.message)));
-    parse_errors.dedup();
-    let graph = Graph {
-        schema_version: 1,
-        tool_version: TOOL_VERSION.into(),
-        commit,
-        nodes,
-        edges,
-        parse_errors,
-    };
-    Ok(Built {
-        graph,
-        workspace: ws,
-        extras,
-    })
+    let ts = TsFrontend::new(config);
+    let mut built = ig_app::build::build_graph(&[&ts], &FsFiles::new(root), config)?;
+    built.graph.commit = commit;
+    Ok(built)
 }
 
-/// `http` edges from client calls to route nodes, and `system` nodes with `uses` edges from the
-/// modules importing their packages.
-fn blueprint_links(
-    facts: &[FileFacts],
-    config: &Config,
-) -> (
-    Vec<Node>,
-    Vec<Edge>,
-    HashMap<String, String>,
-    Vec<(String, u32, String, String)>,
-) {
-    let bp = &config.blueprint;
-    let mut edges = vec![];
-    let mut unmatched = vec![];
-    // Route node id → display name with `${CONST}` substituted (the id stays as matched).
-    let mut renames = HashMap::new();
-    let edge = |from: &str, to: &str, kind: &str, conf: &str, file: &str, line: u32| Edge {
-        from: from.into(),
-        to: to.into(),
-        kind: kind.into(),
-        confidence: conf.into(),
-        file: file.into(),
-        line,
-        namespace: false,
-        reexport: false,
-    };
-    if !bp.http_calls.is_empty() {
-        // Route node names are "METHOD /path" (or just "/path" for any method).
-        let routes: Vec<(String, Vec<String>, &str, String)> = facts
-            .iter()
-            .flat_map(|f| f.nodes.iter().map(move |n| (f, n)))
-            .filter(|(_, n)| n.kind == bp.route_kind)
-            .map(|(f, n)| {
-                let (m, p) = http::route(&n.name, &f.url_consts);
-                (m, http::url_segments(&p), n.id.as_str(), p)
-            })
-            .collect();
-        for (m, _, id, p) in &routes {
-            if !p.contains('\u{0}') && n_name_differs(facts, id, m, p) {
-                renames.insert(
-                    id.to_string(),
-                    if m == "*" {
-                        p.clone()
-                    } else {
-                        format!("{m} {p}")
-                    },
-                );
-            }
-        }
-        let routes: Vec<(String, Vec<String>, &str)> =
-            routes.into_iter().map(|(m, s, id, _)| (m, s, id)).collect();
-        for f in facts {
-            for h in &f.http {
-                let (hits, conf) = http::match_call(&routes, &h.method, &h.url, &bp.http_prefix);
-                if hits.is_empty() {
-                    unmatched.push((f.file.clone(), h.line, h.method.clone(), h.url.clone()));
-                }
-                for id in hits {
-                    edges.push(edge(&h.from, id, "http", conf, &f.file, h.line));
-                }
-            }
-        }
-    }
-    let mut systems = std::collections::BTreeMap::new();
-    for f in facts {
-        for (pkg, line) in &f.packages {
-            if let Some((name, _)) = bp
-                .systems
-                .iter()
-                .find(|(_, pkgs)| pkgs.iter().any(|p| p == pkg))
-            {
-                let id = format!("system:{name}");
-                edges.push(edge(&f.file, &id, "uses", "resolved", &f.file, *line));
-                systems.entry(id).or_insert_with(|| name.clone());
-            }
-        }
-    }
-    let nodes = systems
-        .into_iter()
-        .map(|(id, name)| Node {
-            hash: crate::model::sha1_hex(&id),
-            id,
-            kind: "system".into(),
-            name,
-            file: String::new(),
-            range: crate::model::Range {
-                start_line: 1,
-                end_line: 1,
-            },
-            parent: None,
-            package: None,
-            exported: false,
-            metrics: crate::model::Metrics {
-                loc: 0,
-                complexity: 0,
-            },
-            intents: vec![],
-        })
-        .collect();
-    (nodes, edges, renames, unmatched)
-}
+#[cfg(test)]
+static TMP: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-fn n_name_differs(facts: &[FileFacts], id: &str, m: &str, p: &str) -> bool {
-    let want = if m == "*" {
-        p.to_string()
-    } else {
-        format!("{m} {p}")
-    };
-    facts
-        .iter()
-        .flat_map(|f| f.nodes.iter())
-        .find(|n| n.id == id)
-        .is_some_and(|n| n.name != want)
-}
-
-struct Index<'f> {
-    files: HashMap<&'f str, &'f FileFacts>,
-    /// (parent id, name) → method node id
-    children: HashMap<(&'f str, &'f str), &'f str>,
-    /// bare name → unique non-module, non-test node id (None when ambiguous)
-    by_name: HashMap<&'f str, Option<&'f str>>,
-    /// class id → (defining file, extends callee)
-    classes: HashMap<&'f str, (&'f FileFacts, Option<&'f Callee>)>,
-    /// interface or class id → classes that implement or extend it
-    implementers: HashMap<String, Vec<String>>,
-    auto: &'f AutoImports,
-    /// name → the unique exported node of that name in a dir an `autoImports` file covers, with
-    /// that file (None when ambiguous): names a stale declaration file doesn't list yet.
-    stale: HashMap<&'f str, Option<(&'f str, &'f str)>>,
-}
-
-impl<'f> Index<'f> {
-    fn new(facts: &'f [FileFacts], auto: &'f AutoImports) -> Index<'f> {
-        let mut ix = Index {
-            files: HashMap::new(),
-            children: HashMap::new(),
-            by_name: HashMap::new(),
-            classes: HashMap::new(),
-            implementers: HashMap::new(),
-            auto,
-            stale: HashMap::new(),
-        };
-        for f in facts {
-            ix.files.insert(&f.file, f);
-            for n in &f.nodes {
-                if let Some(p) = &n.parent
-                    && n.kind == "method"
-                {
-                    ix.children
-                        .entry((p.as_str(), n.name.as_str()))
-                        .or_insert(&n.id);
-                }
-                if !n.is_module()
-                    && n.kind != "test"
-                    && n.exported
-                    && let Some(decl) =
-                        auto.covering(n.file.rsplit_once('/').map_or("", |(d, _)| d))
-                {
-                    ix.stale
-                        .entry(&n.name)
-                        .and_modify(|v| *v = None)
-                        .or_insert(Some((n.id.as_str(), decl)));
-                }
-                if !n.is_module() && n.kind != "test" {
-                    ix.by_name
-                        .entry(&n.name)
-                        .and_modify(|v| *v = None)
-                        .or_insert(Some(n.id.as_str()));
-                }
-            }
-            for (id, ext) in &f.classes {
-                ix.classes.insert(id, (f, ext.as_ref()));
-            }
-        }
-        let mut implementers: HashMap<String, Vec<String>> = HashMap::new();
-        for f in facts {
-            for r in f
-                .refs
-                .iter()
-                .filter(|r| r.kind == "implements" || r.kind == "extends")
-            {
-                if let Some(t) = ix.target(f, &r.callee) {
-                    implementers.entry(t).or_default().push(r.from.clone());
-                }
-            }
-        }
-        ix.implementers = implementers;
-        ix
+/// A fresh temporary directory holding `files`.
+#[cfg(test)]
+pub fn tmp_with(files: &[(&str, &str)]) -> std::path::PathBuf {
+    let n = TMP.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("ig-auto-{}-{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for (p, s) in files {
+        let f = dir.join(p);
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(f, s).unwrap();
     }
-
-    /// The id a non-member callee resolves to (possibly an interface or type id, which is no node).
-    fn target(&self, f: &FileFacts, c: &Callee) -> Option<String> {
-        match c {
-            Callee::Node(id) => Some(id.clone()),
-            Callee::Import(spec, n) => self.import(f, spec, n),
-            _ => None,
-        }
-    }
-
-    /// Method `m` of class `t` as a `calls` edge. Otherwise (an interface, or a base class
-    /// lacking `m`) method `m` of the classes implementing or extending it (a `dispatch`
-    /// edge: the code depends on the interface, so arch rules and review ignore it). Confidence is
-    /// `guessed` when several implementations match. A class with neither: class `t` itself
-    /// (`m` is a property).
-    fn typed(
-        &self,
-        f: &FileFacts,
-        t: &Callee,
-        m: &str,
-    ) -> Vec<(String, &'static str, &'static str)> {
-        let Some(tid) = self.target(f, t) else {
-            return vec![];
-        };
-        if self.classes.contains_key(tid.as_str())
-            && let Some(to) = self.method(&tid, m, false)
-        {
-            return vec![(to, "calls", "resolved")];
-        }
-        let hits: Vec<String> = self
-            .implementers
-            .get(&tid)
-            .into_iter()
-            .flatten()
-            .filter_map(|c| self.method(c, m, false))
-            .collect();
-        if hits.is_empty() && self.classes.contains_key(tid.as_str()) {
-            // Not a method (a property like `this.db.knex`): the code still depends on the class.
-            return vec![(tid, "calls", "resolved")];
-        }
-        let conf = if hits.len() == 1 {
-            "resolved"
-        } else {
-            "guessed"
-        };
-        hits.into_iter().map(|h| (h, "dispatch", conf)).collect()
-    }
-
-    fn export(
-        &self,
-        file: &str,
-        name: &ImportName,
-        seen: &mut HashSet<(String, String)>,
-    ) -> Option<String> {
-        let key = match name {
-            ImportName::Named(n) => n.as_str(),
-            ImportName::Default => "default",
-            ImportName::Namespace => return Some(file.to_string()),
-        };
-        if !seen.insert((file.to_string(), key.to_string())) {
-            return None;
-        }
-        let f = self.files.get(file)?;
-        if let Some(t) = f.exports.names.get(key) {
-            return match t {
-                ExportTarget::Node(id) => Some(id.clone()),
-                ExportTarget::Namespace(spec) => f.resolved.get(spec).cloned(),
-                ExportTarget::Reexport(spec, n) => self.export(f.resolved.get(spec)?, n, seen),
-            };
-        }
-        if key == "default" {
-            // A single-file component without an explicit default export is the component itself.
-            return (f.nodes.first().is_some_and(|m| m.kind == "component"))
-                .then(|| file.to_string());
-        }
-        f.exports
-            .stars
-            .iter()
-            .find_map(|spec| self.export(f.resolved.get(spec)?, name, seen))
-    }
-
-    /// The unique non-module, non-test node named `name`.
-    fn guess(&self, name: &str) -> Option<String> {
-        self.by_name
-            .get(name)
-            .copied()
-            .flatten()
-            .map(str::to_string)
-    }
-
-    /// A free call to `name`: its `autoImports` node, else the one a stale declaration file
-    /// misses. A package-sourced name resolves to nothing, never to a by-name guess.
-    fn free(&self, name: &str) -> (Option<String>, &'static str) {
-        if let Some(t) = self.auto(name) {
-            return (Some(t), "resolved");
-        }
-        if self.auto.is_external(name) {
-            return (None, "resolved");
-        }
-        match self.stale_hit(name) {
-            Some((id, _)) => (Some(id.to_string()), "resolved"),
-            None => (self.guess(name), "guessed"),
-        }
-    }
-
-    /// The unique node a stale declaration file misses for a name it doesn't declare.
-    fn stale_hit(&self, name: &str) -> Option<(&'f str, &'f str)> {
-        if self.auto.get(name).is_some() || self.auto.is_external(name) {
-            return None;
-        }
-        self.stale.get(name).copied().flatten()
-    }
-
-    /// The node an `autoImports` name stands for.
-    fn auto(&self, name: &str) -> Option<String> {
-        let (file, export) = self.auto.get(name)?;
-        self.export(file, &ImportName::named(export), &mut HashSet::new())
-    }
-
-    fn import(&self, f: &FileFacts, spec: &str, name: &ImportName) -> Option<String> {
-        let target = f.resolved.get(spec)?;
-        self.export(target, name, &mut HashSet::new())
-    }
-
-    fn base_of(&self, class: &str) -> Option<String> {
-        let (f, ext) = self.classes.get(class)?;
-        match ext.as_ref()? {
-            Callee::Node(id) => Some(id.clone()),
-            Callee::Import(spec, n) => self.import(f, spec, n),
-            _ => None,
-        }
-    }
-
-    fn method(&self, class: &str, name: &str, skip_self: bool) -> Option<String> {
-        let mut seen = HashSet::new();
-        let mut cur = if skip_self {
-            self.base_of(class)?
-        } else {
-            class.to_string()
-        };
-        loop {
-            if !seen.insert(cur.clone()) {
-                return None;
-            }
-            if let Some(m) = self.children.get(&(cur.as_str(), name)) {
-                return Some(m.to_string());
-            }
-            cur = self.base_of(&cur)?;
-        }
-    }
-
-    fn edges_of(&self, f: &FileFacts) -> Vec<Edge> {
-        let mut out = vec![];
-        let module = &f.file;
-        for i in &f.imports {
-            if let Some(t) = f.resolved.get(&i.spec) {
-                out.push(Edge {
-                    from: module.clone(),
-                    to: t.clone(),
-                    kind: "imports".into(),
-                    confidence: "resolved".into(),
-                    file: f.file.clone(),
-                    line: i.line,
-                    namespace: i.namespace,
-                    reexport: i.reexport,
-                });
-            }
-        }
-        for r in &f.refs {
-            if let Callee::Typed(t, m) = &r.callee {
-                for (to, kind, conf) in self.typed(f, t, m) {
-                    out.push(Edge {
-                        from: r.from.clone(),
-                        to,
-                        kind: kind.into(),
-                        confidence: conf.into(),
-                        file: f.file.clone(),
-                        line: r.line,
-                        namespace: false,
-                        reexport: false,
-                    });
-                }
-                continue;
-            }
-            let (to, conf) = match &r.callee {
-                Callee::Node(id) => (Some(id.clone()), "resolved"),
-                Callee::Import(spec, n) => (self.import(f, spec, n), "resolved"),
-                Callee::ImportMember(spec, n, prop) => match self.import(f, spec, n) {
-                    Some(t) if self.files.contains_key(t.as_str()) => (
-                        self.export(&t, &ImportName::named(prop), &mut HashSet::new()),
-                        "resolved",
-                    ),
-                    _ => (self.guess(prop), "guessed"),
-                },
-                Callee::Member {
-                    class,
-                    name,
-                    skip_self,
-                } => (self.method(class, name, *skip_self), "resolved"),
-                Callee::Typed(..) => unreachable!(),
-                Callee::Auto(name) => (self.auto(name), "resolved"),
-                Callee::Free(name) => self.free(name),
-                Callee::Guess(name) => (self.guess(name), "guessed"),
-            };
-            if let Some(to) = to {
-                out.push(Edge {
-                    from: r.from.clone(),
-                    to,
-                    kind: r.kind.into(),
-                    confidence: conf.into(),
-                    file: f.file.clone(),
-                    line: r.line,
-                    namespace: false,
-                    reexport: false,
-                });
-            }
-        }
-        out
-    }
+    dir
 }
 
 #[cfg(test)]
@@ -809,7 +139,6 @@ mod tests {
     // `this.db.knex(...)` where `knex` is a property of the injected class reaches the class.
     #[test]
     fn typed_field_property_reaches_class() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             ("db.ts", "export class Db { knex = 1 }\n"),
             (
@@ -835,7 +164,6 @@ mod tests {
     // class itself is a call to it; a class from node_modules gives no edge.
     #[test]
     fn typed_base_class_and_external_receivers() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "node_modules/ext/package.json",
@@ -883,7 +211,6 @@ mod tests {
     // A page calling an auto-imported composable resolves.
     #[test]
     fn auto_imported_calls_resolve() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "ig.yaml",
@@ -921,7 +248,6 @@ mod tests {
     // name stays unresolved.
     #[test]
     fn only_free_identifiers_are_auto_imports() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "ig.yaml",
@@ -965,7 +291,6 @@ mod tests {
     // An auto-imported component tag renders the component; an unknown tag adds nothing.
     #[test]
     fn auto_imported_components_render() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "ig.yaml",
@@ -1005,7 +330,6 @@ mod tests {
 
     #[test]
     fn code_never_resolves_into_tests() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             ("ig.yaml", "tests: ['**/test/**']\n"),
             (
@@ -1049,7 +373,6 @@ mod tests {
     // A name missing from a stale declaration file resolves from the directories it covers.
     #[test]
     fn stale_declarations_resolve_from_covered_dirs() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "ig.yaml",
@@ -1093,7 +416,6 @@ mod tests {
     // A package-sourced auto-import never falls back to a by-name guess.
     #[test]
     fn package_names_never_guess() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "ig.yaml",
@@ -1125,7 +447,6 @@ mod tests {
     // is external too: never guessed.
     #[test]
     fn node_modules_names_never_guess() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "ig.yaml",
@@ -1155,7 +476,6 @@ mod tests {
     // name don't count towards the notice.
     #[test]
     fn stale_ambiguous_and_test_callers() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "ig.yaml",
@@ -1200,7 +520,6 @@ mod tests {
     // `app.get(BASE_PATH, h)` with `const BASE_PATH = '/p'` is the route `GET /p`.
     #[test]
     fn bare_constant_route_path() {
-        use crate::autoimports::tmp_with;
         let dir = tmp_with(&[
             (
                 "ig.yaml",

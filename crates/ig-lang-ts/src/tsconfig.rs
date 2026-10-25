@@ -3,9 +3,20 @@
 //! skipped with a warning instead of failing every resolution in the package. Workspace packages are
 //! found by name, so `extends: "@acme/tsconfig/base.json"` works without `node_modules`.
 
-use crate::workspace::{self, Workspace};
+use ig_core::workspace::WorkspaceInfo;
 use serde_json::{Map, Value, json};
+use std::io::Read;
 use std::path::{Path, PathBuf};
+
+/// Parses JSON with comments and trailing commas.
+pub fn read_jsonc(path: &Path) -> Option<Value> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut stripped = String::new();
+    json_comments::StripComments::new(text.as_bytes())
+        .read_to_string(&mut stripped)
+        .ok()?;
+    serde_json::from_str(&ig_core::workspace::strip_trailing_commas(&stripped)).ok()
+}
 
 /// Removes `.` and `..` without touching the filesystem, so `.nuxt/..` stays put even when `.nuxt`
 /// is a symlink (as in worktrees).
@@ -29,7 +40,7 @@ struct Flat {
     paths: Vec<(String, Vec<PathBuf>)>,
 }
 
-fn resolve_extends(from_dir: &Path, spec: &str, ws: &Workspace) -> Option<PathBuf> {
+fn resolve_extends(from_dir: &Path, spec: &str, ws: &WorkspaceInfo) -> Option<PathBuf> {
     let file_or_json = |p: PathBuf| -> Option<PathBuf> {
         if p.is_file() {
             return Some(p);
@@ -67,7 +78,7 @@ fn resolve_extends(from_dir: &Path, spec: &str, ws: &Workspace) -> Option<PathBu
 
 fn load(
     path: &Path,
-    ws: &Workspace,
+    ws: &WorkspaceInfo,
     seen: &mut Vec<PathBuf>,
     warnings: &mut Vec<(PathBuf, String)>,
 ) -> Flat {
@@ -76,7 +87,7 @@ fn load(
         return flat;
     }
     seen.push(path.to_path_buf());
-    let Some(v) = workspace::read_jsonc(path) else {
+    let Some(v) = read_jsonc(path) else {
         warnings.push((
             path.to_path_buf(),
             "cannot be parsed; its paths are ignored".into(),
@@ -156,7 +167,7 @@ impl Flattened {
         &self,
         idx: usize,
         path: &Path,
-        ws: &Workspace,
+        ws: &WorkspaceInfo,
     ) -> (Option<PathBuf>, Vec<(PathBuf, String)>) {
         let mut warnings = vec![];
         let flat = load(path, ws, &mut vec![], &mut warnings);
@@ -183,7 +194,6 @@ impl Flattened {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
 
     #[test]
     fn follows_workspace_extends_and_skips_missing() {
@@ -211,7 +221,20 @@ mod tests {
             "apps/web/tsconfig.json",
             r#"{"extends":["@acme/tsconfig/base.json","./.nuxt/tsconfig.json"],"compilerOptions":{"paths":{"@/*":["./src/*"]}}}"#,
         );
-        let ws = Workspace::discover(&dir, &Config::default()).unwrap();
+        let package = |name: &str, dir: &str| ig_core::workspace::Package {
+            name: name.into(),
+            dir: dir.into(),
+            tsconfig: None,
+            source_entry: None,
+        };
+        let ws = WorkspaceInfo {
+            root: dir.clone(),
+            packages: vec![
+                package("@acme/tsconfig", "packages/tsconfig"),
+                package("web", "apps/web"),
+            ],
+            files: vec![],
+        };
         let f = Flattened::new();
         let (out, warnings) = f.flatten(0, &ws.root.join("apps/web/tsconfig.json"), &ws);
         assert_eq!(warnings.len(), 1);

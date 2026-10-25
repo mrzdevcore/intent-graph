@@ -1,0 +1,25 @@
+[package]
+name = "ig-lang-ts"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ast-grep-core = "0.51.0"
+ast-grep-language = { version = "0.51.0", default-features = false, features = ["napi-lang"] }
+globset = "0.4.20"
+ig-core = { path = "../ig-core" }
+json_comments = "0.2.2"
+oxc_allocator = "0.133.0"
+oxc_ast = "0.133.0"
+oxc_ast_visit = "0.133.0"
+oxc_parser = "0.133.0"
+oxc_resolver = "11.23.0"
+oxc_semantic = "0.133.0"
+oxc_span = "0.133.0"
+oxc_syntax = "0.133.0"
+rayon = "1.12.0"
+regex = "1.13.1"
+serde_json = "1.0.154"
+
+[dev-dependencies]
+ig-core = { path = "../ig-core", features = ["testing"] }

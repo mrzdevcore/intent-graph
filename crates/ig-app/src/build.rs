@@ -1,0 +1,387 @@
+//! Language-neutral graph assembly: the frontends' nodes and edges merged (code never resolves
+//! into tests), blueprint `system` nodes and `http` links, and the extras `ig setup` reports.
+
+use ig_core::config::Config;
+use ig_core::http;
+use ig_core::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
+use ig_core::ports::{FileFacts, Files, LanguageFrontend, PortError};
+use ig_core::workspace::{self, SourceFile, WorkspaceInfo};
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+pub struct Built {
+    pub graph: Graph,
+    pub workspace: WorkspaceInfo,
+    /// Facts that are not graph data, for `ig setup`.
+    pub extras: Extras,
+}
+
+#[derive(Default)]
+pub struct Extras {
+    /// External package → number of modules importing it.
+    pub packages: BTreeMap<String, usize>,
+    /// Callee name → calls whose first argument looks like a URL.
+    pub url_callees: BTreeMap<String, u32>,
+    /// HTTP client calls that matched no route: (file, line, method, url).
+    pub http_unmatched: Vec<(String, u32, String, String)>,
+}
+
+/// Builds the graph of the tree `files` is rooted at. Each source file goes to the first
+/// frontend that handles it. `graph.commit` is left for the caller.
+pub fn build_graph(
+    frontends: &[&dyn LanguageFrontend],
+    files: &dyn Files,
+    config: &Config,
+) -> Result<Built, PortError> {
+    let ws = files.discover(config)?;
+    let tests = workspace::globset(&config.tests).map_err(|e| PortError::Io(e.to_string()))?;
+    let mut facts: Vec<FileFacts> = vec![];
+    let mut edge_lists: Vec<Vec<Edge>> = vec![];
+    let mut parse_errors: Vec<ParseError> = vec![];
+    let mut packages: Vec<(String, String, u32)> = vec![];
+    for (i, fe) in frontends.iter().enumerate() {
+        let mine: Vec<(SourceFile, String)> = ws
+            .files
+            .iter()
+            .filter(|f| fe.handles(&f.path) && !frontends[..i].iter().any(|p| p.handles(&f.path)))
+            .map(|f| (f.clone(), files.read(&f.path).unwrap_or_default()))
+            .collect();
+        let out = fe.build(&mine, &ws, config);
+        facts.extend(out.facts);
+        edge_lists.push(out.edges);
+        parse_errors.extend(out.parse_errors);
+        packages.extend(out.packages);
+    }
+    facts.sort_by(|a, b| a.file.cmp(&b.file));
+
+    let (system_nodes, blueprint_edges, renames, http_unmatched) =
+        blueprint_links(&facts, &packages, config);
+    let mut extras = Extras {
+        http_unmatched,
+        ..Extras::default()
+    };
+    let mut seen = HashSet::new();
+    for (file, p, _) in packages.iter().filter(|(f, _, _)| !tests.is_match(f)) {
+        if seen.insert((file, p)) {
+            *extras.packages.entry(p.clone()).or_default() += 1;
+        }
+    }
+    for f in facts.iter().filter(|f| !tests.is_match(&f.file)) {
+        for (k, v) in &f.url_callees {
+            *extras.url_callees.entry(k.clone()).or_default() += v;
+        }
+    }
+    edge_lists.push(blueprint_edges);
+    for f in &mut facts {
+        for n in &mut f.nodes {
+            if let Some(name) = renames.get(&n.id) {
+                n.name = name.clone();
+            }
+        }
+    }
+
+    let mut nodes: Vec<Node> = system_nodes;
+    for f in &mut facts {
+        if let Some(m) = &f.parse_error {
+            parse_errors.push(ParseError {
+                file: f.file.clone(),
+                message: m.clone(),
+            });
+        }
+        nodes.append(&mut f.nodes);
+    }
+    nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    let known: HashMap<&str, &str> = nodes
+        .iter()
+        .map(|n| (n.id.as_str(), n.file.as_str()))
+        .collect();
+    let mut merged: BTreeMap<(String, String, String), Edge> = BTreeMap::new();
+    for e in edge_lists.into_iter().flatten() {
+        let (Some(from), Some(to)) = (known.get(e.from.as_str()), known.get(e.to.as_str())) else {
+            continue;
+        };
+        // Non-test code never resolves into test files (stubs, mocks); the import itself stays.
+        if e.kind != "imports" && tests.is_match(to) && !tests.is_match(from) {
+            continue;
+        }
+        let key = (e.from.clone(), e.kind.clone(), e.to.clone());
+        match merged.get_mut(&key) {
+            Some(x) => {
+                x.namespace |= e.namespace;
+                x.reexport |= e.reexport;
+                if e.resolved() {
+                    x.confidence = e.confidence.clone();
+                }
+                if (e.file.as_str(), e.line) < (x.file.as_str(), x.line) {
+                    x.file = e.file;
+                    x.line = e.line;
+                }
+            }
+            None => {
+                merged.insert(key, e);
+            }
+        }
+    }
+    let edges = merged.into_values().collect();
+    parse_errors.sort_by(|a, b| (&a.file, &a.message).cmp(&(&b.file, &b.message)));
+    parse_errors.dedup();
+    let graph = Graph {
+        schema_version: 1,
+        tool_version: TOOL_VERSION.into(),
+        commit: None,
+        nodes,
+        edges,
+        parse_errors,
+    };
+    Ok(Built {
+        graph,
+        workspace: ws,
+        extras,
+    })
+}
+
+/// System nodes, blueprint edges, route renames (id → name) and unmatched http calls.
+type Links = (
+    Vec<Node>,
+    Vec<Edge>,
+    HashMap<String, String>,
+    Vec<(String, u32, String, String)>,
+);
+
+/// `http` edges from client calls to route nodes, and `system` nodes with `uses` edges from the
+/// modules importing their packages.
+fn blueprint_links(
+    facts: &[FileFacts],
+    packages: &[(String, String, u32)],
+    config: &Config,
+) -> Links {
+    let bp = &config.blueprint;
+    let mut edges = vec![];
+    let mut unmatched = vec![];
+    // Route node id → display name with `${CONST}` substituted (the id stays as matched).
+    let mut renames = HashMap::new();
+    let edge = |from: &str, to: &str, kind: &str, conf: &str, file: &str, line: u32| Edge {
+        from: from.into(),
+        to: to.into(),
+        kind: kind.into(),
+        confidence: conf.into(),
+        file: file.into(),
+        line,
+        namespace: false,
+        reexport: false,
+    };
+    if !bp.http_calls.is_empty() {
+        // Route node names are "METHOD /path" (or just "/path" for any method).
+        let routes: Vec<(String, Vec<String>, &str, String)> = facts
+            .iter()
+            .flat_map(|f| f.nodes.iter().map(move |n| (f, n)))
+            .filter(|(_, n)| n.kind == bp.route_kind)
+            .map(|(f, n)| {
+                let (m, p) = http::route(&n.name, &f.url_consts);
+                (m, http::url_segments(&p), n.id.as_str(), p)
+            })
+            .collect();
+        for (m, _, id, p) in &routes {
+            if !p.contains('\u{0}') && n_name_differs(facts, id, m, p) {
+                renames.insert(
+                    id.to_string(),
+                    if m == "*" {
+                        p.clone()
+                    } else {
+                        format!("{m} {p}")
+                    },
+                );
+            }
+        }
+        let routes: Vec<(String, Vec<String>, &str)> =
+            routes.into_iter().map(|(m, s, id, _)| (m, s, id)).collect();
+        for f in facts {
+            for h in &f.http {
+                let (hits, conf) = http::match_call(&routes, &h.method, &h.url, &bp.http_prefix);
+                if hits.is_empty() {
+                    unmatched.push((f.file.clone(), h.line, h.method.clone(), h.url.clone()));
+                }
+                for id in hits {
+                    edges.push(edge(&h.from, id, "http", conf, &f.file, h.line));
+                }
+            }
+        }
+    }
+    let mut systems = std::collections::BTreeMap::new();
+    for (file, pkg, line) in packages {
+        if let Some((name, _)) = bp
+            .systems
+            .iter()
+            .find(|(_, pkgs)| pkgs.iter().any(|p| p == pkg))
+        {
+            let id = format!("system:{name}");
+            edges.push(edge(file, &id, "uses", "resolved", file, *line));
+            systems.entry(id).or_insert_with(|| name.clone());
+        }
+    }
+    let nodes = systems
+        .into_iter()
+        .map(|(id, name)| Node {
+            hash: ig_core::model::sha1_hex(&id),
+            id,
+            kind: "system".into(),
+            name,
+            file: String::new(),
+            range: ig_core::model::Range {
+                start_line: 1,
+                end_line: 1,
+            },
+            parent: None,
+            package: None,
+            exported: false,
+            metrics: ig_core::model::Metrics {
+                loc: 0,
+                complexity: 0,
+            },
+            intents: vec![],
+        })
+        .collect();
+    (nodes, edges, renames, unmatched)
+}
+
+fn n_name_differs(facts: &[FileFacts], id: &str, m: &str, p: &str) -> bool {
+    let want = if m == "*" {
+        p.to_string()
+    } else {
+        format!("{m} {p}")
+    };
+    facts
+        .iter()
+        .flat_map(|f| f.nodes.iter())
+        .find(|n| n.id == id)
+        .is_some_and(|n| n.name != want)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ig_core::model::{Metrics, Range};
+    use ig_core::ports::FrontendOutput;
+    use ig_core::testing::MemFiles;
+
+    fn node(id: &str, file: &str) -> Node {
+        Node {
+            id: id.into(),
+            kind: if id == file { "module" } else { "function" }.into(),
+            name: id.rsplit('#').next().unwrap().into(),
+            file: file.into(),
+            range: Range {
+                start_line: 1,
+                end_line: 1,
+            },
+            parent: None,
+            package: None,
+            exported: false,
+            hash: String::new(),
+            metrics: Metrics {
+                loc: 1,
+                complexity: 1,
+            },
+            intents: vec![],
+        }
+    }
+
+    fn edge(from: &str, kind: &str, to: &str, confidence: &str, line: u32) -> Edge {
+        Edge {
+            from: from.into(),
+            to: to.into(),
+            kind: kind.into(),
+            confidence: confidence.into(),
+            file: "src/a.ts".into(),
+            line,
+            namespace: false,
+            reexport: false,
+        }
+    }
+
+    /// One node per file plus `src/a.ts#f`, and canned edges.
+    struct Fake;
+
+    impl LanguageFrontend for Fake {
+        fn handles(&self, path: &str) -> bool {
+            path.ends_with(".ts")
+        }
+        fn build(
+            &self,
+            files: &[(SourceFile, String)],
+            _: &WorkspaceInfo,
+            _: &Config,
+        ) -> FrontendOutput {
+            let mut facts: Vec<FileFacts> = files
+                .iter()
+                .map(|(f, src)| FileFacts {
+                    file: f.path.clone(),
+                    nodes: vec![node(&f.path, &f.path)],
+                    parse_error: (src == "broken").then(|| "bad".into()),
+                    ..FileFacts::default()
+                })
+                .collect();
+            facts[0].nodes.push(node("src/a.ts#f", "src/a.ts"));
+            FrontendOutput {
+                facts,
+                edges: vec![
+                    edge("src/a.ts#f", "calls", "src/b.ts", "guessed", 3),
+                    edge("src/a.ts#f", "calls", "src/b.ts", "resolved", 2),
+                    edge("src/a.ts", "imports", "test/stub.ts", "resolved", 1),
+                    edge("src/a.ts#f", "calls", "test/stub.ts", "resolved", 1),
+                    edge("src/a.ts#f", "calls", "src/a.ts#Iface", "resolved", 1),
+                ],
+                parse_errors: vec![],
+                packages: vec![
+                    ("src/a.ts".into(), "knex".into(), 1),
+                    ("src/a.ts".into(), "knex".into(), 2),
+                    ("test/stub.ts".into(), "knex".into(), 1),
+                ],
+                notices: vec![],
+            }
+        }
+        fn prepare_checkout(
+            &self,
+            _: &WorkspaceInfo,
+            _: &std::path::Path,
+            _: &Config,
+            _: bool,
+        ) -> Result<(), PortError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn assembles_merges_and_filters() {
+        let files = MemFiles::with(&[
+            ("src/a.ts", ""),
+            ("src/b.ts", "broken"),
+            ("test/stub.ts", ""),
+        ]);
+        let config =
+            Config::parse("tests: ['test/**']\nblueprint:\n  systems:\n    PostgreSQL: [knex]\n")
+                .unwrap();
+        let b = build_graph(&[&Fake], &files, &config).unwrap();
+        let edges: Vec<String> = b
+            .graph
+            .edges
+            .iter()
+            .map(|e| format!("{} {} {} {} {}", e.from, e.kind, e.to, e.confidence, e.line))
+            .collect();
+        // Merged (resolved wins, first line), imports into tests kept, other edges into tests
+        // and edges to non-nodes dropped; `uses` edges to the system node.
+        assert_eq!(
+            edges,
+            [
+                "src/a.ts imports test/stub.ts resolved 1",
+                "src/a.ts uses system:PostgreSQL resolved 1",
+                "src/a.ts#f calls src/b.ts resolved 2",
+                "test/stub.ts uses system:PostgreSQL resolved 1",
+            ]
+        );
+        assert!(b.graph.nodes.iter().any(|n| n.id == "system:PostgreSQL"));
+        assert_eq!(b.graph.parse_errors.len(), 1);
+        assert_eq!(b.graph.parse_errors[0].file, "src/b.ts");
+        // Test files don't count towards packages.
+        assert_eq!(b.extras.packages.get("knex"), Some(&1));
+    }
+}

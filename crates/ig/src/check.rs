@@ -10,7 +10,8 @@ use crate::model::{Finding, Graph, TOOL_VERSION};
 use crate::review;
 use crate::workspace::{self, Package};
 use anyhow::{Result, bail};
-use ig_core::ports::{Checkout, Vcs};
+use ig_core::ports::{Checkout, LanguageFrontend, Vcs};
+use ig_lang_ts::TsFrontend;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -156,7 +157,12 @@ pub fn trees(root: &Path, opts: &Opts) -> Result<Trees> {
                     // The ig root did not exist at that commit: the graph build fails on it.
                     return Err(std::io::Error::from_raw_os_error(2).into());
                 };
-                git::link_node_modules(root, &work_cfg, &r);
+                TsFrontend::new(&work_cfg).prepare_checkout(
+                    &git::work_info(root, &work_cfg),
+                    &r,
+                    &work_cfg,
+                    false,
+                )?;
                 // Trust boundary: checkers always come from the working tree's ig.yaml.
                 let mut cfg = crate::config::load(&r)?;
                 cfg.checkers = work_cfg.checkers.clone();
