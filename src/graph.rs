@@ -598,6 +598,15 @@ impl<'f> Index<'f> {
             .find_map(|spec| self.export(f.resolved.get(spec)?, name, seen))
     }
 
+    /// The unique non-module, non-test node named `name`.
+    fn guess(&self, name: &str) -> Option<String> {
+        self.by_name
+            .get(name)
+            .copied()
+            .flatten()
+            .map(str::to_string)
+    }
+
     /// The node an `autoImports` name stands for.
     fn auto(&self, name: &str) -> Option<String> {
         let (file, export) = self.auto.get(name)?;
@@ -677,14 +686,7 @@ impl<'f> Index<'f> {
                         self.export(&t, &ImportName::named(prop), &mut HashSet::new()),
                         "resolved",
                     ),
-                    _ => (
-                        self.by_name
-                            .get(prop.as_str())
-                            .copied()
-                            .flatten()
-                            .map(str::to_string),
-                        "guessed",
-                    ),
+                    _ => (self.guess(prop), "guessed"),
                 },
                 Callee::Member {
                     class,
@@ -693,17 +695,11 @@ impl<'f> Index<'f> {
                 } => (self.method(class, name, *skip_self), "resolved"),
                 Callee::Typed(..) => unreachable!(),
                 Callee::Auto(name) => (self.auto(name), "resolved"),
-                Callee::Guess(name) => match self.auto(name) {
+                Callee::Free(name) => match self.auto(name) {
                     Some(t) => (Some(t), "resolved"),
-                    None => (
-                        self.by_name
-                            .get(name.as_str())
-                            .copied()
-                            .flatten()
-                            .map(str::to_string),
-                        "guessed",
-                    ),
+                    None => (self.guess(name), "guessed"),
                 },
+                Callee::Guess(name) => (self.guess(name), "guessed"),
             };
             if let Some(to) = to {
                 out.push(Edge {
@@ -857,6 +853,51 @@ mod tests {
                     && e.to == "src/composables/catalog.ts#useCatalog"
                     && e.kind == "calls"
                     && e.confidence == "resolved"),
+            "{:#?}",
+            g.edges
+        );
+    }
+
+    // Only a free identifier is an auto-import: not a member, not a parameter; a package-sourced
+    // name stays unresolved.
+    #[test]
+    fn only_free_identifiers_are_auto_imports() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "ig.yaml",
+                "embedded: ['.vue']\nautoImports: ['.nuxt/imports.d.ts']\n",
+            ),
+            (
+                ".nuxt/imports.d.ts",
+                "export { useCatalog } from '../src/composables/catalog';\nexport { useI18n } from 'vue-i18n';\n",
+            ),
+            (
+                "src/composables/catalog.ts",
+                "export const useCatalog = () => 1;\n",
+            ),
+            (
+                "src/a.ts",
+                "export function member(obj: any) { obj.useCatalog(); }\nexport function param(useCatalog: any) { useCatalog(); }\nexport function bare() { useCatalog(); useI18n(); }\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        let to_catalog = |from: &str| {
+            g.edges.iter().any(|e| {
+                e.from == from
+                    && e.to == "src/composables/catalog.ts#useCatalog"
+                    && e.confidence == "resolved"
+            })
+        };
+        assert!(to_catalog("src/a.ts#bare"), "{:#?}", g.edges);
+        assert!(!to_catalog("src/a.ts#member"), "{:#?}", g.edges);
+        assert!(!to_catalog("src/a.ts#param"), "{:#?}", g.edges);
+        assert!(
+            !g.edges.iter().any(|e| e.from == "src/a.ts#bare"
+                && e.resolved()
+                && e.to != "src/composables/catalog.ts#useCatalog"),
             "{:#?}",
             g.edges
         );

@@ -53,6 +53,8 @@ pub enum Callee {
     },
     /// Anything else: matched by bare name.
     Guess(String),
+    /// An identifier bound nowhere in the file (a global): an `autoImports` name, else guessed.
+    Free(String),
     /// A template tag or word neither imported nor local: resolved only through `autoImports`.
     Auto(String),
     /// `x.m()` / `x.m` where `x` has a declared or constructed type: method `m` of that type (or,
@@ -379,7 +381,7 @@ impl<'s, 'a> Extractor<'s, 'a> {
             .and_then(|r| self.scoping.get_reference(r).symbol_id())
         {
             Some(s) => Pending::Sym(s, name),
-            None => Pending::Ready(Callee::Guess(name)),
+            None => Pending::Ready(Callee::Free(name)),
         }
     }
 
@@ -1553,6 +1555,6 @@ mod tests {
         has(r#"a.ts#f calls Guess("m")"#);
         has(r#"a.ts#A.m calls Member { class: "a.ts#A", name: "n", skip_self: false }"#);
         has(r#"a.ts#A.m calls Member { class: "a.ts#A", name: "o", skip_self: true }"#);
-        has(r#"a.ts#A extends Guess("B")"#);
+        has(r#"a.ts#A extends Free("B")"#);
     }
 }
