@@ -117,6 +117,8 @@ pub struct FileFacts {
     pub url_consts: HashMap<String, String>,
     /// Callee name → calls whose first argument looks like a URL.
     pub url_callees: HashMap<String, u32>,
+    /// Function or method node id → pseudo-code.
+    pub pseudo: HashMap<String, String>,
 }
 
 pub struct FileInput<'c> {
@@ -221,6 +223,8 @@ struct Extractor<'s, 'a> {
     /// Declared or constructed types of variables and parameters.
     typed: HashMap<SymbolId, Pending>,
     url_callees: HashMap<String, u32>,
+    pending_pseudo: Option<usize>,
+    pseudo: HashMap<String, String>,
     /// class node id → field name → type
     fields: HashMap<String, HashMap<String, Pending>>,
     http: Vec<HttpCall>,
@@ -328,6 +332,8 @@ impl<'s, 'a> Extractor<'s, 'a> {
             intents,
         });
         let idx = self.nodes.len() - 1;
+        self.pending_pseudo =
+            (matches!(kind, "function" | "method") && !self.is_test).then_some(idx);
         self.scopes.push(Scope {
             qual,
             node: Some(idx),
@@ -362,6 +368,24 @@ impl<'s, 'a> Extractor<'s, 'a> {
             .or_insert_with(|| tid.clone());
         if let Some(s) = id.symbol_id.get() {
             self.sym_node.entry(s).or_insert(tid);
+        }
+    }
+
+    /// Pseudo-code for the function node just created, from the first function body after it.
+    fn take_pseudo(
+        &mut self,
+        params: &FormalParameters,
+        body: Option<&FunctionBody>,
+        expr_body: bool,
+    ) {
+        if let Some(i) = self.pending_pseudo.take() {
+            let text = crate::pseudo::Printer::new(self.src).function(
+                &self.nodes[i].name,
+                params,
+                body,
+                expr_body,
+            );
+            self.pseudo.insert(self.nodes[i].id.clone(), text);
         }
     }
 
@@ -903,9 +927,11 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
             let top = self.at_top();
             let i = self.push_node("function", name, anchor, None, false);
             self.register(i, it.id.as_ref(), top);
+            self.take_pseudo(&it.params, it.body.as_deref(), false);
             walk::walk_function(self, it, flags);
             self.scopes.pop();
         } else {
+            self.take_pseudo(&it.params, it.body.as_deref(), false);
             walk::walk_function(self, it, flags);
         }
         self.fn_depth -= 1;
@@ -998,6 +1024,11 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
             self.http_call(it);
         }
         walk::walk_call_expression(self, it);
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        self.take_pseudo(&it.params, Some(&it.body), it.expression);
+        walk::walk_arrow_function_expression(self, it);
     }
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
@@ -1268,6 +1299,8 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         url_consts: HashMap::new(),
         typed: HashMap::new(),
         url_callees: HashMap::new(),
+        pending_pseudo: None,
+        pseudo: HashMap::new(),
         fields: HashMap::new(),
         http: vec![],
         default_ident: None,
@@ -1383,6 +1416,7 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         http: x.http,
         url_consts: x.url_consts,
         url_callees: x.url_callees,
+        pseudo: x.pseudo,
         packages,
         nodes: x.nodes,
         parse_error,

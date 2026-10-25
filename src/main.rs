@@ -13,6 +13,7 @@ mod intents;
 mod mcp;
 mod model;
 mod patterns;
+mod pseudo;
 mod report;
 mod review;
 mod tsconfig;

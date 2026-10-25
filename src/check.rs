@@ -51,6 +51,8 @@ pub struct CheckResult {
 
 /// Everything a check computed; `base_graph` is kept for the viewer and reports.
 pub struct Run {
+    /// Function or method node id → pseudo-code (head only).
+    pub pseudo: std::collections::HashMap<String, String>,
     pub result: CheckResult,
     pub base_graph: Option<Graph>,
     pub diff: GraphDiff,
@@ -166,6 +168,7 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
     let built = graph::build(&t.head_root, &config, t.head_commit.clone())?;
     let head = built.graph;
     let packages = built.workspace.packages;
+    let pseudo = built.extras.pseudo;
     let base_graph = match (&t.repo, &t.base) {
         (Some(repo), Some(sha)) => Some(git::base_graph(root, repo, sha, &config)?),
         _ => None,
@@ -306,6 +309,7 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
     };
     write_state(root, &result)?;
     Ok(Run {
+        pseudo,
         result,
         base_graph,
         diff,

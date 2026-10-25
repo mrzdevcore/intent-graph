@@ -398,6 +398,108 @@
     });
   }
 
+
+  // ---- Sequence diagrams (Mermaid, offline) with Mermaid and PlantUML text to copy ----
+  var SEQ_KINDS = { calls: 1, dispatch: 1, http: 1, uses: 1 };
+  function participantOf(id) {
+    var n = byId[id]; if (!n) return { key: id, label: id };
+    if (n.kind === "system") return { key: id, label: n.name, system: true };
+    if (n.kind === "route") return { key: n.file, label: base(n.file).replace(/\.[a-z]+$/, "") };
+    var t = n.module ? n : topMember(n);
+    var label = !n.module && t.kind === "class" ? t.name : base(n.file).replace(/\.[a-z]+$/, "");
+    return { key: !n.module && t.kind === "class" ? t.id : n.file, label: label };
+  }
+  function sequence(start) {
+    var parts = [], index = {}, msgs = [], seen = {}, usesDone = {};
+    function part(id) {
+      var p = participantOf(id);
+      if (index[p.key] === undefined) { index[p.key] = parts.length; parts.push(p); }
+      return index[p.key];
+    }
+    function walk(id, depth) {
+      if (seen[id] || msgs.length >= 60) return;
+      seen[id] = true;
+      var n = byId[id]; if (!n) return;
+      var from = part(id);
+      // Guessed edges and error construction (already visible as `require … else` in the
+      // pseudo-code) only add noise to a sequence.
+      var out = (outEdges[id] || []).filter(function (e) {
+        var t = byId[e.to];
+        return SEQ_KINDS[e.kind] && t && !t.test && e.confidence !== "guessed" && !(t.kind === "class" && /(Error|Exception)$/.test(t.name));
+      });
+      if (!n.module && !usesDone[n.file]) {
+        usesDone[n.file] = true;
+        out = out.concat((outEdges[n.file] || []).filter(function (e) { return e.kind === "uses"; }));
+      }
+      out.sort(function (a, b) { return (a.line || 0) - (b.line || 0); });
+      out.forEach(function (e) {
+        if (msgs.length >= 60) return;
+        var t = byId[e.to], to = part(e.to);
+        var label = e.kind === "http" ? t.name : e.kind === "uses" ? "uses" : t.name;
+        msgs.push({ from: from, to: to, label: label, kind: e.kind });
+        if (depth < 4 && t.kind !== "system") walk(e.to, depth + 1);
+      });
+    }
+    part(start);
+    walk(start, 0);
+    return { parts: parts, msgs: msgs };
+  }
+  function clean(s) { return String(s).replace(/[;#"]/g, " ").replace(/\s+/g, " ").trim(); }
+  function toMermaid(sq) {
+    var out = ["sequenceDiagram"];
+    sq.parts.forEach(function (p, i) { out.push("  participant p" + i + " as " + clean(p.label)); });
+    sq.msgs.forEach(function (m) { out.push("  p" + m.from + (m.kind === "http" ? "-)" : "->>") + "p" + m.to + ": " + clean(m.label)); });
+    return out.join("\n");
+  }
+  function toPlantUml(sq) {
+    var out = ["@startuml"];
+    sq.parts.forEach(function (p, i) { out.push((p.system ? "database" : "participant") + " \"" + clean(p.label) + "\" as p" + i); });
+    sq.msgs.forEach(function (m) { out.push("p" + m.from + (m.kind === "http" ? " ->> " : " -> ") + "p" + m.to + " : " + clean(m.label)); });
+    out.push("@enduml");
+    return out.join("\n");
+  }
+  var mermaidReady = false, seqCount = 0;
+  function renderSequence(container, text) {
+    if (!window.mermaid) { container.appendChild(el("pre", { text: text })); return; }
+    if (!mermaidReady) {
+      var dark = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim().toLowerCase() < "#888";
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default", sequence: { useMaxWidth: false } });
+      mermaidReady = true;
+    }
+    mermaid.render("igseq" + (seqCount++), text).then(function (r) { container.innerHTML = r.svg; })
+      .catch(function (err) { container.appendChild(el("pre", { text: text + "\n\n" + err })); });
+  }
+  function copyButton(label, text) {
+    return el("button", { text: label, onclick: function (ev) {
+      var b = ev.target;
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { b.textContent = "Copied"; },
+        function () { window.prompt("Copy:", text); });
+    } });
+  }
+  function overlay(title, mm, pu) {
+    var box = el("div", { class: "seq" });
+    var close = function () { o.remove(); document.removeEventListener("keydown", esc); };
+    var esc = function (e) { if (e.key === "Escape") close(); };
+    var o = el("div", { class: "overlay", role: "dialog", "aria-label": title }, [
+      el("div", { class: "overlay-bar" }, [el("strong", { text: title }), el("span", { class: "btns" }, [
+        copyButton("Copy Mermaid", mm), copyButton("Copy PlantUML", pu), el("button", { text: "Close", onclick: close })])]),
+      box
+    ]);
+    document.body.appendChild(o);
+    document.addEventListener("keydown", esc);
+    renderSequence(box, mm);
+  }
+  function sequenceSection(id) {
+    var sq = sequence(id);
+    if (!sq.msgs.length) return;
+    var mm = toMermaid(sq), pu = toPlantUml(sq);
+    side.appendChild(el("h2", { text: "Sequence (" + sq.msgs.length + " calls)" }));
+    side.appendChild(el("div", { class: "btns" }, [
+      el("button", { text: "Show diagram", onclick: function () { overlay("Sequence from " + byId[id].name, mm, pu); } }),
+      copyButton("Copy Mermaid", mm), copyButton("Copy PlantUML", pu)
+    ]));
+  }
+
   var focusId = null, focusDepth = 1;
   function focusIds() {
     var ids = {}; ids[focusId] = true;
@@ -621,6 +723,11 @@
     }
     side.appendChild(btns);
     if (n.intents.length) side.appendChild(el("p", {}, n.intents.map(function (t) { return el("span", { class: "tag", text: t }); })));
+    if (n.pseudo) {
+      side.appendChild(el("h2", { text: "Pseudo-code" }));
+      side.appendChild(el("pre", { class: "pseudo", text: n.pseudo }));
+    }
+    sequenceSection(id);
     var fs = n.module ? D.findings.filter(function (f) { return f.file === n.file; }) : (findingsByNode[id] || []);
     if (fs.length) { side.appendChild(el("h2", { text: "Findings" })); side.appendChild(el("ul", {}, fs.map(findingItem))); }
     var ins = D.edges.filter(function (e) { return e.to === id && e.from !== id; });

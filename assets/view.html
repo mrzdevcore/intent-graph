@@ -49,6 +49,14 @@ main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; flex: 1
 .dot.added { background: var(--added); } .dot.changed { background: var(--changed); } .dot.removed { background: var(--removed); }
 .row .nf { margin-left: auto; font-size: 11px; color: var(--error); flex: none; }
 .row.dir .name { font-weight: 600; }
+pre.pseudo { white-space: pre-wrap; max-height: 520px; }
+.seq { overflow: auto; background: var(--code); border-radius: 6px; padding: 6px; margin: 4px 0; }
+.seq svg { max-width: none; height: auto; }
+.overlay { position: fixed; inset: 24px; z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.4); display: flex; flex-direction: column; padding: 12px 16px; }
+.overlay-bar { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+.overlay .seq { flex: 1; margin-top: 10px; }
+@media (max-width: 760px) { .overlay { inset: 8px; } }
 #cy { min-height: 300px; min-width: 0; }
 aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 12px 16px; min-width: 0; overflow-wrap: anywhere; }
 #search { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 220px; }
@@ -107,6 +115,7 @@ a { color: var(--accent); }
 </main>
 <script id="ig-data" type="application/json">/*IG_DATA*/</script>
 <script>/*IG_CYTOSCAPE*/</script>
+<script>/*IG_MERMAID*/</script>
 <script>window.IG_LIVE = /*IG_LIVE*/;</script>
 <script>/*IG_SCRIPT*/</script>
 </body>

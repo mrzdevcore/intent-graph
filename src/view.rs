@@ -22,6 +22,7 @@ const FCOSE: [&str; 3] = [
     include_str!("../assets/cose-base.js"),
     include_str!("../assets/cytoscape-fcose.js"),
 ];
+const MERMAID: &str = include_str!("../assets/mermaid.min.js");
 const MAX_SLICE_LINES: usize = 300;
 
 /// Node ids of the changed nodes plus their direct neighbours.
@@ -165,6 +166,9 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
                 "endLine": n.range.end_line, "parent": n.parent, "status": s, "complexity": n.metrics.complexity,
                 "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file), "lane": lane_of(n), "test": test_files.is_match(&n.file),
             });
+            if let Some(p) = run.pseudo.get(&n.id) {
+                v["pseudo"] = json!(p);
+            }
             if matches!(s, Status::Added | Status::Changed) && !n.is_module() {
                 v["after"] = json!(slice(&after(&n.file), n.range.start_line, n.range.end_line));
             }
@@ -179,7 +183,7 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
     let edges: Vec<Value> = all_edges(run)
         .into_iter()
         .map(|(e, s)| {
-            json!({"from": e.from, "to": e.to, "kind": e.kind, "confidence": e.confidence, "status": s,
+            json!({"from": e.from, "to": e.to, "kind": e.kind, "confidence": e.confidence, "status": s, "line": e.line,
                    "violation": viol.contains(&(e.from.clone(), e.to.clone()))})
         })
         .collect();
@@ -247,6 +251,7 @@ fn page(data_json: &str, live: bool) -> String {
             "/*IG_CYTOSCAPE*/",
             &[CYTOSCAPE, FCOSE[0], FCOSE[1], FCOSE[2]].join("\n;\n"),
         )
+        .replace("/*IG_MERMAID*/", &MERMAID.replace("<!--", "<\\!--"))
         .replace("/*IG_SCRIPT*/", SCRIPT)
         .replace("/*IG_LIVE*/", if live { "true" } else { "false" })
         .replace("/*IG_DATA*/", data_json)
