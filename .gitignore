@@ -1,3 +1,6 @@
 /target
 .ig/*
 !.ig/baseline.json
+/viewer/node_modules
+/viewer/dist
+/viewer/dev-data.json

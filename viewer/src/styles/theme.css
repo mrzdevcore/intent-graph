@@ -1,0 +1,18 @@
+/* Theme tokens: light by default, dark from the system or data-theme="dark". */
+:root {
+  --bg: #fbfbfa; --panel: #ffffff; --fg: #1d1d1b; --muted: #6b6b66; --line: #e3e2de;
+  --added: #2f9e44; --changed: #d98a00; --removed: #d6336c; --unchanged: #9a9a94;
+  --error: #c92a2a; --warning: #d98a00; --note: #4c6ef5; --code: #f4f3ef; --accent: #3b5bdb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --panel: #1f1f1d; --fg: #ecebe6; --muted: #9b9a93; --line: #34332f;
+    --added: #51cf66; --changed: #fcc419; --removed: #f06595; --unchanged: #6d6c66;
+    --error: #ff6b6b; --warning: #fcc419; --note: #748ffc; --code: #262624; --accent: #748ffc;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --panel: #1f1f1d; --fg: #ecebe6; --muted: #9b9a93; --line: #34332f;
+  --added: #51cf66; --changed: #fcc419; --removed: #f06595; --unchanged: #6d6c66;
+  --error: #ff6b6b; --warning: #fcc419; --note: #748ffc; --code: #262624; --accent: #748ffc;
+}

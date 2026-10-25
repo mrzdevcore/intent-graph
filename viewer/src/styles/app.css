@@ -1,27 +1,4 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ig graph view</title>
-<style>
-:root {
-  --bg: #fbfbfa; --panel: #ffffff; --fg: #1d1d1b; --muted: #6b6b66; --line: #e3e2de;
-  --added: #2f9e44; --changed: #d98a00; --removed: #d6336c; --unchanged: #9a9a94;
-  --error: #c92a2a; --warning: #d98a00; --note: #4c6ef5; --code: #f4f3ef; --accent: #3b5bdb;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #161615; --panel: #1f1f1d; --fg: #ecebe6; --muted: #9b9a93; --line: #34332f;
-    --added: #51cf66; --changed: #fcc419; --removed: #f06595; --unchanged: #6d6c66;
-    --error: #ff6b6b; --warning: #fcc419; --note: #748ffc; --code: #262624; --accent: #748ffc;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #161615; --panel: #1f1f1d; --fg: #ecebe6; --muted: #9b9a93; --line: #34332f;
-  --added: #51cf66; --changed: #fcc419; --removed: #f06595; --unchanged: #6d6c66;
-  --error: #ff6b6b; --warning: #fcc419; --note: #748ffc; --code: #262624; --accent: #748ffc;
-}
+/* Layout and components. Light DOM: the components render into the page, so these apply. */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -64,14 +41,14 @@ pre.code { max-height: 560px; padding: 6px 0; }
 .overlay .seq { flex: 1; margin-top: 10px; }
 @media (max-width: 760px) { .overlay { inset: 8px; } }
 #cy { min-height: 300px; min-width: 0; }
-aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 12px 16px; min-width: 0; overflow-wrap: anywhere; }
+#side { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 12px 16px; min-width: 0; overflow-wrap: anywhere; }
 #search { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 220px; }
 .btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
 .btns button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
 .crumbs { font-size: 13px; color: var(--muted); }
 .crumbs strong { color: var(--fg); }
 li.f.current { border-left: 3px solid var(--accent); padding-left: 8px; }
-aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+#side h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
 ul { list-style: none; padding: 0; margin: 0; }
 li.f { padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .sev { font-weight: 600; text-transform: uppercase; font-size: 11px; margin-right: 6px; }
@@ -82,7 +59,7 @@ pre { background: var(--code); padding: 8px; border-radius: 6px; overflow: auto;
 .added { color: var(--added); } .changed { color: var(--changed); } .removed { color: var(--removed); }
 .notice { color: var(--warning); font-size: 13px; }
 details > summary { cursor: pointer; } details > summary h2 { display: inline; }
-aside ol { margin: 0 0 6px; padding-left: 20px; }
+#side ol { margin: 0 0 6px; padding-left: 20px; }
 code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-all; }
 a { color: var(--accent); }
 @media (max-width: 760px) {
@@ -90,41 +67,9 @@ a { color: var(--accent); }
   main { grid-template-columns: minmax(0, 1fr); grid-template-rows: 35vh 55vh auto; }
   #tree { border-right: 0; border-bottom: 1px solid var(--line); }
   #search { width: 100%; }
-  aside { border-left: 0; border-top: 1px solid var(--line); }
+  #side { border-left: 0; border-top: 1px solid var(--line); }
   header { padding: 10px 16px; }
 }
-</style>
-</head>
-<body>
-<header>
-  <h1>ig</h1>
-  <span id="status" class="status"></span>
-  <span id="plan" class="status"></span>
-  <div class="modes" role="group" aria-label="View mode">
-    <button data-mode="changed" title="Changed nodes and their direct neighbours">Changed</button>
-    <button data-mode="architecture" title="Layers, then directories, modules and members. Click a box to open it.">Architecture</button>
-    <button data-mode="focus" title="The neighbourhood of the selected node">Focus</button>
-    <button data-mode="blueprint" title="A page and everything behind it: front, API, use cases, adapters, systems">Blueprint</button>
-  </div>
-  <input id="search" type="search" placeholder="Find a node…" aria-label="Find a node" list="ids" autocomplete="off">
-  <datalist id="ids"></datalist>
-  <span id="counts" class="counts"></span>
-  <span id="crumbs" class="crumbs"></span>
-  <span id="hint" class="counts"></span>
-</header>
-<main>
-  <nav id="tree" aria-label="Files">
-    <input id="tree-filter" type="search" placeholder="Filter files and functions…" aria-label="Filter files and functions" autocomplete="off">
-    <label class="loc"><input id="tree-inview" type="checkbox"> only what is on screen</label>
-    <div id="tree-body" role="tree"></div>
-  </nav>
-  <div id="cy" role="img" aria-label="Code graph"></div>
-  <aside id="side"></aside>
-</main>
-<script id="ig-data" type="application/json">/*IG_DATA*/</script>
-<script>/*IG_CYTOSCAPE*/</script>
-<script>/*IG_MERMAID*/</script>
-<script>window.IG_LIVE = /*IG_LIVE*/;</script>
-<script>/*IG_SCRIPT*/</script>
-</body>
-</html>
+ig-app { display: contents; }
+ig-graph, ig-side-panel { display: block; }
+ig-plan-panel { display: block; }

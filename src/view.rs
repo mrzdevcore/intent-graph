@@ -14,16 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-const TEMPLATE: &str = include_str!("../assets/view.html");
-const SCRIPT: &str = include_str!("../assets/view.js");
-const CYTOSCAPE: &str = include_str!("../assets/cytoscape.min.js");
-// fcose (compound-aware layout) and its dependencies, loaded after Cytoscape.
-const FCOSE: [&str; 3] = [
-    include_str!("../assets/layout-base.js"),
-    include_str!("../assets/cose-base.js"),
-    include_str!("../assets/cytoscape-fcose.js"),
-];
-const MERMAID: &str = include_str!("../assets/mermaid.min.js");
+// The viewer page (viewer/dist/index.html, or a placeholder when it is not built), from build.rs.
+const TEMPLATE: &str = include_str!(concat!(env!("OUT_DIR"), "/view.html"));
 const MAX_SLICE_LINES: usize = 300;
 
 /// Blueprint lanes: a node goes to the first lane whose globs or layers match; systems go in a
@@ -356,13 +348,11 @@ pub fn render(run: &Run, root: &Path, opts: &Opts, live: bool) -> String {
 }
 
 fn page(data_json: &str, live: bool) -> String {
-    TEMPLATE
-        .replace(
-            "/*IG_CYTOSCAPE*/",
-            &[CYTOSCAPE, FCOSE[0], FCOSE[1], FCOSE[2]].join("\n;\n"),
-        )
-        .replace("/*IG_MERMAID*/", &MERMAID.replace("<!--", "<\\!--"))
-        .replace("/*IG_SCRIPT*/", SCRIPT)
+    fill(TEMPLATE, data_json, live)
+}
+
+fn fill(template: &str, data_json: &str, live: bool) -> String {
+    template
         .replace("/*IG_LIVE*/", if live { "true" } else { "false" })
         .replace("/*IG_DATA*/", data_json)
 }
@@ -390,6 +380,12 @@ fn run_with_plan(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<Run> {
             .push(format!("plan {}: {e:#}", path.display())),
     }
     Ok(run)
+}
+
+/// `ig view --json`: the data the page is built from.
+pub fn json(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<Value> {
+    let run = run_with_plan(root, opts, plan)?;
+    Ok(data(&run, root, opts))
 }
 
 pub fn write(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<PathBuf> {
@@ -535,6 +531,20 @@ pub fn watch(root: &Path, opts: &Opts, plan: Option<PathBuf>, open_browser: bool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_fills_the_markers_in_the_viewer_and_the_placeholder() {
+        let data = r#"{"nodes":[],"x":"\u003c/script>"}"#;
+        let placeholder = include_str!(concat!(env!("OUT_DIR"), "/placeholder.html"));
+        for (name, html) in [
+            ("view", page(data, true)),
+            ("placeholder", fill(placeholder, data, false)),
+        ] {
+            assert!(html.contains(data), "{name}: data missing");
+            assert!(!html.contains("/*IG_DATA*/"), "{name}: data marker left");
+            assert!(!html.contains("/*IG_LIVE*/"), "{name}: live marker left");
+        }
+    }
 
     #[test]
     fn planned_nodes_and_plan_panel() {
