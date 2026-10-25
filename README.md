@@ -81,9 +81,9 @@ patterns:                     # ast-grep patterns that become graph nodes
     match: "app.$METHOD($PATH, $$$)"
     where: { METHOD: [get, post] }
     id: "{METHOD} {PATH}"
-checkers:                     # any command that prints findings on stdout (exit status ignored)
+checkers:                     # any command that prints findings on stdout (a non-zero exit with no findings is an error)
   - name: stylelint
-    run: "npx stylelint --formatter json 'src/**/*.scss'"
+    run: "npx stylelint --formatter json 'src/**/*.scss' 2>&1"
     format: stylelint-json    # sarif (default) | checkstyle | eslint-json | stylelint-json | lines
     configs: [".stylelintrc*"] # the tool's own config files, watched for tampering
 blockOn: error

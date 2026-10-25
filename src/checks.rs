@@ -252,7 +252,7 @@ fn read_capped(mut r: impl Read + Send + 'static) -> std::thread::JoinHandle<(Ve
 }
 
 /// Runs one checker as `sh -c <run>` in `root`.
-fn run_checker(root: &Path, run: &str) -> Result<Vec<u8>, String> {
+fn run_checker(root: &Path, run: &str) -> Result<(Vec<u8>, Option<i32>, String), String> {
     let mut child = Command::new("sh")
         .arg("-c")
         .arg(run)
@@ -265,9 +265,13 @@ fn run_checker(root: &Path, run: &str) -> Result<Vec<u8>, String> {
     let out = read_capped(child.stdout.take().unwrap());
     let err = read_capped(child.stderr.take().unwrap());
     let start = Instant::now();
+    let mut code = None;
     let timed_out = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break false,
+            Ok(Some(st)) => {
+                code = st.code();
+                break false;
+            }
             Ok(None) if start.elapsed() > TIMEOUT => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -286,7 +290,7 @@ fn run_checker(root: &Path, run: &str) -> Result<Vec<u8>, String> {
     if over {
         return Err(format!("output exceeded 64 MB; stderr: {stderr}"));
     }
-    Ok(stdout)
+    Ok((stdout, code, stderr))
 }
 
 fn repo_path(root: &Path, uri: &str) -> String {
@@ -550,11 +554,25 @@ pub fn checkers(root: &Path, config: &Config, head: &Graph) -> CheckerOutput {
         .checkers
         .par_iter()
         .map(|c| {
-            (
-                c.name.clone(),
-                run_checker(root, &c.run)
-                    .and_then(|b| parse_output(root, &c.name, c.format, &b, head)),
-            )
+            let r = run_checker(root, &c.run).and_then(|(b, code, stderr)| {
+                let tail = |t: &str| t.chars().take(300).collect::<String>();
+                let found = parse_output(root, &c.name, c.format, &b, head)
+                    .map_err(|e| format!("{e}; stderr: {stderr}"))?;
+                match code {
+                    Some(0) => Ok(found),
+                    _ if !found.is_empty() => Ok(found),
+                    _ => {
+                        let msg = if stderr.trim().is_empty() {
+                            tail(&String::from_utf8_lossy(&b))
+                        } else {
+                            stderr
+                        };
+                        let code = code.map_or("a signal".into(), |c| c.to_string());
+                        Err(format!("exited {code} with no findings; stderr: {msg}"))
+                    }
+                }
+            });
+            (c.name.clone(), r)
         })
         .collect();
     let mut out = CheckerOutput {
@@ -654,6 +672,26 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
         assert!(out.errors.is_empty(), "{:?}", out.errors);
         assert_eq!(out.findings.len(), 1);
+    }
+
+    #[test]
+    fn broken_checker_is_reported() {
+        let dir = std::env::temp_dir().join(format!("ig-broken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |cmd: &str| {
+            let c = Config::parse(&format!(
+                "checkers:\n  - name: t\n    format: lines\n    run: \"{cmd}\"\n"
+            ))
+            .unwrap();
+            checkers(&dir, &c, &Graph::empty())
+        };
+        let bad = run("echo boom >&2; exit 127");
+        let ok = run("exit 0");
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(bad.errors.len(), 1);
+        assert!(bad.errors[0].message.contains("boom"), "{}", bad.errors[0].message);
+        assert!(bad.errors[0].message.contains("exited 127"));
+        assert!(ok.errors.is_empty() && ok.findings.is_empty());
     }
 
     #[test]

@@ -125,13 +125,14 @@ blueprint:
 ## 6. Wire the team's tools (optional)
 
 Detect stylelint, oxlint, biome, eslint, semgrep and tsc from config files and devDependencies.
-Each checker is a command that prints findings on stdout (the exit status is ignored, and empty
-output means no findings). Set `format` to match the tool, and `configs` to the tool's own config
+Each checker is a command that prints findings on stdout. Exit 0 with empty output means no
+findings; a non-zero exit with no parsed findings is reported as `ig/checker-error` (with stderr).
+stylelint 16 prints its JSON to stderr, hence `2>&1`. Set `format` to match the tool, and `configs` to the tool's own config
 files:
 
 ```yaml
 checkers:
-  - { name: stylelint, run: "npx stylelint --formatter json 'src/**/*.scss'", format: stylelint-json, configs: [".stylelintrc*"] }
+  - { name: stylelint, run: "npx stylelint --formatter json 'src/**/*.scss' 2>&1", format: stylelint-json, configs: [".stylelintrc*"] }
   - { name: oxlint,    run: "npx oxlint --format checkstyle",      format: checkstyle,  configs: [".oxlintrc.json"] }
   - { name: biome,     run: "npx biome lint --reporter=checkstyle", format: checkstyle,  configs: ["biome.json*"] }
   - { name: eslint,    run: "npx eslint -f json .",                 format: eslint-json, configs: ["eslint.config.*", ".eslintrc*"] }
@@ -139,8 +140,9 @@ checkers:
   - { name: tsc,       run: "npx tsc --noEmit",                     format: lines,       configs: ["tsconfig*.json"] }
 ```
 
-- Run each command once and check that the output parses (`ig check --all` shows an
-  `ig/checker-error` otherwise). Correct the `format` if it does not.
+- Run each command once and check that the output parses (a wrong `format` or a
+  missing binary shows as `ig/checker-error` in `ig check --all`; empty output with exit 0 stays
+  silent, so also confirm a known violation is reported). Correct the `format` if it does not.
 - When the user states a plain-language team rule ("no var", "use range notation in media
   queries"), prove it fires: write a temporary bad snippet, confirm the checker reports it, then
   delete the snippet.
