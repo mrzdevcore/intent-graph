@@ -771,4 +771,64 @@ Status: done
         assert!(boom(&saved), "view build dropped the saved checker finding");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn checker_findings_on_changed_non_graph_files_survive_view_builds() {
+        let dir = scratch("ckscope");
+        let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap()
+            + "checkers:\n  - name: t\n    format: lines\n    run: \"echo 'a.css:1: boom'\"\n";
+        std::fs::write(dir.join("ig.yaml"), cfg).unwrap();
+        std::fs::write(dir.join(".gitignore"), ".ig/\n").unwrap();
+        let git = |a: &[&str]| {
+            let mut c = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
+            c.extend(a);
+            assert!(
+                std::process::Command::new("git")
+                    .args(&c)
+                    .current_dir(&dir)
+                    .status()
+                    .unwrap()
+                    .success()
+            )
+        };
+        git(&["init", "-q"]);
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "i"]);
+        std::fs::write(dir.join("a.css"), "a { color: red }\n").unwrap();
+        let boom = |v: &Value| {
+            v["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["tool"] == "t" && f["file"] == "a.css")
+        };
+        let saved = || -> Value {
+            serde_json::from_str(&std::fs::read_to_string(dir.join(".ig/findings.json")).unwrap())
+                .unwrap()
+        };
+        // An untracked .css file is in the change: its checker finding counts.
+        check::run(&dir, &Opts::default()).unwrap();
+        assert!(
+            boom(&saved()),
+            "finding on a changed non-graph file dropped"
+        );
+
+        // Committed: out of scope now. A malformed saved entry must not hide the others.
+        git(&["add", "a.css"]);
+        git(&["commit", "-qm", "css"]);
+        let mut v = saved();
+        v["findings"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({"bogus": 1}));
+        std::fs::write(dir.join(".ig/findings.json"), v.to_string()).unwrap();
+        let view = Opts {
+            skip_checkers: true,
+            ..Default::default()
+        };
+        let d = json(&dir, &view, &(None, false)).unwrap();
+        assert!(!boom(&d), "out-of-scope finding shown");
+        assert!(boom(&saved()), "view build dropped a saved checker finding");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

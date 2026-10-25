@@ -33,27 +33,23 @@ pub fn progress(msg: &str) {
 
 /// Files the change touches: those with added or changed nodes, plus files git sees as changed
 /// against the base or untracked. Repo-relative to the ig root, existing ones only.
-fn changed_files(t: &Trees, diff: &GraphDiff) -> Vec<String> {
+fn changed_files(t: &Trees, diff: &GraphDiff, notices: &mut Vec<String>) -> Vec<String> {
     let mut set: BTreeSet<String> = diff.touched_files.iter().cloned().collect();
     if t.repo.is_some() {
-        let mut out = git::git(
-            &t.head_root,
-            &["ls-files", "-z", "--others", "--exclude-standard"],
-        )
-        .unwrap_or_default();
+        let mut runs = vec![vec!["ls-files", "-z", "--others", "--exclude-standard"]];
         if let Some(b) = &t.base {
-            out.push('\0');
-            out += &git::git(
-                &t.head_root,
-                &["diff", "-z", "--name-only", "--relative", b],
-            )
-            .unwrap_or_default();
+            runs.push(vec!["diff", "-z", "--name-only", "--relative", b]);
         }
-        set.extend(
-            out.split('\0')
-                .filter(|f| !f.is_empty() && t.head_root.join(f).is_file())
-                .map(String::from),
-        );
+        for args in runs {
+            match git::git(&t.head_root, &args) {
+                Ok(out) => set.extend(
+                    out.split('\0')
+                        .filter(|f| !f.is_empty() && t.head_root.join(f).is_file())
+                        .map(String::from),
+                ),
+                Err(e) => notices.push(format!("changed files for checkers: {e}")),
+            }
+        }
     }
     set.into_iter().collect()
 }
@@ -61,13 +57,14 @@ fn changed_files(t: &Trees, diff: &GraphDiff) -> Vec<String> {
 /// The checker findings (and checker errors) saved by the last check, for configured checkers.
 fn saved_checkers(root: &Path, config: &Config) -> checks::CheckerOutput {
     let names: HashSet<&str> = config.checkers.iter().map(|c| c.name.as_str()).collect();
-    let saved: Vec<Finding> = std::fs::read_to_string(root.join(".ig/findings.json"))
+    let saved: Vec<serde_json::Value> = std::fs::read_to_string(root.join(".ig/findings.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .and_then(|v| serde_json::from_value(v["findings"].clone()).ok())
+        .and_then(|mut v| serde_json::from_value(v["findings"].take()).ok())
         .unwrap_or_default();
     let (errors, findings) = saved
         .into_iter()
+        .filter_map(|v| serde_json::from_value::<Finding>(v).ok())
         .filter(|f| names.contains(f.tool.as_str()))
         .partition(|f| f.rule_id == "ig/checker-error");
     checks::CheckerOutput {
@@ -277,23 +274,35 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
         &diff,
         &config,
     ));
+    // None with --all (or no checkers): `{files}` is `.` and nothing is scoped out.
+    let changed =
+        (!opts.all && !config.checkers.is_empty()).then(|| changed_files(&t, &diff, &mut notices));
     let ch = if opts.skip_checkers {
         saved_checkers(root, &config)
     } else {
-        let files = config.checkers.iter().any(|c| c.run.contains("{files}"));
-        let changed = match opts.all {
-            true => None,
-            false if files => Some(changed_files(&t, &diff)),
-            false => Some(vec![]),
-        };
         checks::checkers(&t.head_root, &config, &head, changed.as_deref())
     };
     notices.extend(ch.notices);
-    scoped.extend(ch.findings);
     let mut findings: Vec<Finding> = scoped
         .into_iter()
         .filter(|f| opts.all || in_scope(f, &diff))
         .collect();
+    // Checker findings also count on changed files outside the graph (`.css` and the like).
+    let graph_files: HashSet<&str> = head.nodes.iter().map(|n| n.file.as_str()).collect();
+    let changed_set: HashSet<&str> = changed.iter().flatten().map(String::as_str).collect();
+    let (shown, out_of_scope): (Vec<Finding>, Vec<Finding>) =
+        ch.findings.into_iter().partition(|f| {
+            opts.all
+                || in_scope(f, &diff)
+                || (!graph_files.contains(f.file.as_str()) && changed_set.contains(f.file.as_str()))
+        });
+    findings.extend(shown);
+    // A view build writes back the saved checker findings it doesn't show.
+    let keep_saved = if opts.skip_checkers {
+        out_of_scope
+    } else {
+        vec![]
+    };
 
     // Always-on findings.
     for e in &head.parse_errors {
@@ -411,7 +420,10 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
     });
     let block_on = run.config.block_on;
     run.result.blocking = run.result.findings.iter().any(|f| f.severity >= block_on);
+    let shown = run.result.findings.len();
+    run.result.findings.extend(keep_saved);
     write_state(root, &run.result)?;
+    run.result.findings.truncate(shown);
     Ok(run)
 }
 

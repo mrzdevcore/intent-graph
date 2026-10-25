@@ -188,7 +188,7 @@ patterns:                     # ast-grep patterns that become graph nodes
     id: "{METHOD} {PATH}"
 checkers:                     # any command that prints findings on stdout (a non-zero exit with no findings is an error)
   - name: stylelint
-    run: "npx stylelint --formatter json {files} 2>&1" # {files}: the changed files (see below)
+    run: "npx stylelint --formatter json --allow-empty-input {files} 2>&1" # {files}: the changed files (see below)
     format: stylelint-json    # sarif (default) | checkstyle | eslint-json | stylelint-json | lines
     configs: ["**/.stylelintrc*"] # the tool's own config files, watched for tampering
     extensions: [".css", ".scss"] # which changed files {files} keeps (optional)
