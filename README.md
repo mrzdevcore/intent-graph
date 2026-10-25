@@ -32,6 +32,7 @@ ig view            # open the change as a graph in the browser
 | Command | Does |
 |---|---|
 | `ig check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]` | Builds the head and base graphs, diffs them, and reports findings. Exit 1 if any finding is at or above `blockOn`. |
+| `ig brief [--md] [--out <file>]` | The change as architecture (by lane/layer), pseudo-code of every added or changed function, and sequence diagrams (Mermaid in `--md`). |
 | `ig diff [--base <ref>] [--head <ref>] [--json]` | Changed nodes grouped by file (`+` added, `~` changed, `-` removed). |
 | `ig review [--all] [--json] [--agent]` | Ranked structural problems: cycles, hubs, unstable dependencies, low cohesion, change coupling, unused exports, oversized modules. |
 | `ig view [--watch] [--no-open]` | Writes `.ig/view.html`. `--watch` serves it on localhost and reloads on every save. |
@@ -98,6 +99,8 @@ blueprint:                    # optional: page → front → API → use cases �
 
 The viewer (`ig view`) has four modes: **Changed**, **Architecture** (drill down by layer and directory),
 **Focus** (one node's neighbourhood) and **Blueprint** (pick a page, see everything behind it in swimlanes).
+A file tree sits alongside, and each function shows its pseudo-code and a sequence diagram (copyable as
+Mermaid or PlantUML). Everything works offline from one HTML file.
 
 All keys, with defaults, are listed in the [design](docs/specs/design.md#igyaml).
 Known findings can be accepted by adding their fingerprints to `.ig/baseline.json`.

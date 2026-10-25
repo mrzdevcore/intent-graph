@@ -294,6 +294,16 @@ impl<'s> Printer<'s> {
                         );
                         self.line(depth, s);
                     }
+                    (Some(Statement::BreakStatement(_)), None)
+                    | (Some(Statement::ContinueStatement(_)), None) => {
+                        let what = if matches!(guard, Some(Statement::BreakStatement(_))) {
+                            "break"
+                        } else {
+                            "continue"
+                        };
+                        let s = format!("if {} → {what}", self.expr(&i.test));
+                        self.line(depth, s);
+                    }
                     (Some(Statement::ReturnStatement(r)), None) => {
                         let v = r
                             .argument

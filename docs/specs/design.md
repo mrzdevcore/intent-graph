@@ -259,6 +259,15 @@ With a `blueprint` section, the graph also links the stack end to end:
 
 `ig view` gets a **Blueprint** mode. The journeys are the modules of the first lane (typically pages). Picking one shows, in swimlanes, the units on paths from that page into the backend: modules, with endpoints and systems as their own boxes. The walk follows every edge kind but `imports`, only goes down the lanes (or within one), never enters other pages, and by default keeps only units that lead to something reached through an `http` edge or a system. Test files are left out.
 
+### Brief and pseudo-code
+
+Changes are read as architecture and pseudo-code rather than as a diff or a long spec.
+
+- **Pseudo-code** is generated for every function and method node outside test files, in the same parse as node extraction, and kept out of the graph (`Built.extras.pseudo`). Rules: `if (cond) throw new E(msg)` (logging in the block ignored) becomes `require not-cond else E "msg"`; `if (cond) return/break/continue` becomes `if cond → …`; `await`, `this.`, logging calls (`console.*`, `*logger*.*`), type wrappers and parameter destructuring are dropped; object arguments become their keys; callbacks become `fn(params)`; `===` reads `==`, `!x` reads `not x`; loops read `for each … in …`, `while …`, try/catch `try:` / `on error:`. At most 40 lines per function and 110 characters per line.
+- **Sequences** start from a node and follow `calls`, `dispatch`, `http` and `uses` edges in source-line order to depth 4 (60 messages max), skipping guessed edges and construction of `*Error`/`*Exception` classes. Participants are classes (for members of a class), modules, or systems. They render as Mermaid (`sequenceDiagram`) and export as PlantUML.
+- **`ig brief [--base] [--head] [--md] [--out <file>]`** runs a check and prints the change: added/changed/removed functions grouped by blueprint lane (or by layer), new dependencies on systems, new links between lanes or layers, the pseudo-code of each added or changed function, sequences from the entry points of the change (changed nodes no other changed node calls; at most 5), and the blocking findings. `--md` (implied by `--out`) writes Markdown with Mermaid blocks, which GitLab and GitHub render, so a brief can be committed or pasted in an MR.
+- **Viewer:** the side panel shows a node's pseudo-code and its sequence (rendered by a vendored Mermaid, opened in a full-window overlay, with "Copy Mermaid" and "Copy PlantUML"). A tree of folders, files and functions sits on the left, synced with the graph both ways, with a filter and an "only what is on screen" switch.
+
 ### Review
 
 `ig review [--all] [--json] [--agent]` builds a module graph and reports structural problems, ranked.
@@ -394,6 +403,7 @@ A namespaced `/ig:explore` would need `ig` packaged as a Claude Code plugin; pro
 ```
 ig [--version] | init [claude|codex|all] | explore [--json] | explore claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
+   | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] | report --gitlab | mcp | hook claude
    (all accept --root <dir>)
@@ -414,6 +424,7 @@ Exit codes: 0 ok, 1 blocking findings, 2 usage or error (`ig: <message>` on stde
 
 | Purpose | Crates |
 |---|---|
+| Viewer (vendored under `assets/`) | Cytoscape, cytoscape-fcose (+ layout-base, cose-base), Mermaid |
 | Parsing and resolution | `oxc_parser`, `oxc_ast`, `oxc_semantic`, `oxc_span`, `oxc_allocator`, `oxc_resolver` (pin these versions together) |
 | Patterns | `ast-grep-core`, `ast-grep-language` |
 | Serialisation | `serde`, `serde_json`, a maintained YAML crate (`serde_yaml_ng`), `json_comments` |

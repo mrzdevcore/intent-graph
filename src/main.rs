@@ -1,3 +1,4 @@
+mod brief;
 mod check;
 mod checks;
 mod config;
@@ -27,6 +28,7 @@ use std::process::ExitCode;
 const USAGE: &str =
     "usage: ig [--version] | init [claude|codex|all] | explore [--json] | explore claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
+   | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] | report --gitlab | mcp | hook claude
    (all accept --root <dir>)";
@@ -45,6 +47,8 @@ struct Args {
     no_open: bool,
     gitlab: bool,
     version: bool,
+    md: bool,
+    out: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -67,6 +71,8 @@ fn parse_args() -> Result<Args> {
             Long("watch") => a.watch = true,
             Long("no-open") => a.no_open = true,
             Long("gitlab") => a.gitlab = true,
+            Long("md") => a.md = true,
+            Long("out") => a.out = Some(p.value()?.into()),
             Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
             Value(v) if a.sub.is_none() => a.sub = Some(v.string()?),
             _ => return Err(arg.unexpected().into()),
@@ -140,6 +146,21 @@ fn real_main() -> Result<u8> {
             Ok(0)
         }
         "review" => review_cmd(&root, &a),
+        "brief" => {
+            let run = check::run(&root, &opts(&a))?;
+            let text = brief::brief(&run, a.md || a.out.is_some());
+            match &a.out {
+                Some(path) => {
+                    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(path, &text)?;
+                    println!("{}", path.display());
+                }
+                None => print!("{text}"),
+            }
+            Ok(0)
+        }
         "view" => {
             if a.watch {
                 if a.head.is_some() {

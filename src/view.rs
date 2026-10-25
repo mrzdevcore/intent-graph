@@ -25,6 +25,58 @@ const FCOSE: [&str; 3] = [
 const MERMAID: &str = include_str!("../assets/mermaid.min.js");
 const MAX_SLICE_LINES: usize = 300;
 
+/// Blueprint lanes: a node goes to the first lane whose globs or layers match; systems go in a
+/// last "Systems" lane; test files go nowhere.
+pub struct LaneMap<'c> {
+    config: &'c crate::config::Config,
+    layers: &'c checks::Layers<'c>,
+    globs: Vec<(globset::GlobSet, globset::GlobSet)>,
+    tests: globset::GlobSet,
+}
+
+impl<'c> LaneMap<'c> {
+    pub fn new(config: &'c crate::config::Config, layers: &'c checks::Layers<'c>) -> LaneMap<'c> {
+        let set =
+            |g: &[String]| workspace::globset(g).unwrap_or_else(|_| globset::GlobSet::empty());
+        LaneMap {
+            config,
+            layers,
+            globs: config
+                .blueprint
+                .lanes
+                .iter()
+                .map(|l| (set(&l.matches), set(&l.exclude)))
+                .collect(),
+            tests: set(&config.tests),
+        }
+    }
+
+    pub fn of(&self, n: &Node) -> Option<usize> {
+        let lanes = &self.config.blueprint.lanes;
+        if n.kind == "system" {
+            return Some(lanes.len());
+        }
+        if self.tests.is_match(&n.file) {
+            return None;
+        }
+        let layer = self.layers.of(&n.file);
+        lanes.iter().enumerate().position(|(i, l)| {
+            let (inc, exc) = &self.globs[i];
+            !exc.is_match(&n.file)
+                && (inc.is_match(&n.file) || layer.is_some_and(|x| l.layers.iter().any(|y| y == x)))
+        })
+    }
+
+    pub fn name(&self, i: Option<usize>) -> String {
+        let lanes = &self.config.blueprint.lanes;
+        match i {
+            Some(i) if i < lanes.len() => lanes[i].name.clone(),
+            Some(_) => "Systems".into(),
+            None => "Other".into(),
+        }
+    }
+}
+
 /// Node ids of the changed nodes plus their direct neighbours.
 pub fn changed_set<'a>(run: &'a Run, all_edges: &[(&'a str, &'a str)]) -> BTreeSet<&'a str> {
     let changed: HashSet<&str> = run.result.changes.keys().map(String::as_str).collect();
@@ -130,28 +182,10 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
     };
     let layers = checks::Layers::new(&run.config, &run.packages);
     let bp = &run.config.blueprint;
-    let set = |g: &[String]| workspace::globset(g).unwrap_or_else(|_| globset::GlobSet::empty());
-    let lane_globs: Vec<(globset::GlobSet, globset::GlobSet)> = bp
-        .lanes
-        .iter()
-        .map(|l| (set(&l.matches), set(&l.exclude)))
-        .collect();
-    let test_files = set(&run.config.tests);
-    // Blueprint lane: the first lane whose globs or layers match; systems go in a last "Systems" lane.
-    let lane_of = |n: &Node| -> Option<usize> {
-        if n.kind == "system" {
-            return Some(bp.lanes.len());
-        }
-        if test_files.is_match(&n.file) {
-            return None;
-        }
-        let layer = layers.of(&n.file);
-        bp.lanes.iter().enumerate().position(|(i, l)| {
-            let (inc, exc) = &lane_globs[i];
-            !exc.is_match(&n.file)
-                && (inc.is_match(&n.file) || layer.is_some_and(|x| l.layers.iter().any(|y| y == x)))
-        })
-    };
+    let lanes = LaneMap::new(&run.config, &layers);
+    let test_files =
+        workspace::globset(&run.config.tests).unwrap_or_else(|_| globset::GlobSet::empty());
+    let lane_of = |n: &Node| lanes.of(n);
     let base_nodes: HashMap<&str, &Node> = run
         .base_graph
         .iter()
