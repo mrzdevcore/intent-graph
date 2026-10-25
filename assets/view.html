@@ -81,6 +81,8 @@ pre { background: var(--code); padding: 8px; border-radius: 6px; overflow: auto;
 .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 10px; border: 1px solid var(--line); margin: 0 4px 4px 0; }
 .added { color: var(--added); } .changed { color: var(--changed); } .removed { color: var(--removed); }
 .notice { color: var(--warning); font-size: 13px; }
+details > summary { cursor: pointer; } details > summary h2 { display: inline; }
+aside ol { margin: 0 0 6px; padding-left: 20px; }
 code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-all; }
 a { color: var(--accent); }
 @media (max-width: 760px) {
@@ -97,6 +99,7 @@ a { color: var(--accent); }
 <header>
   <h1>ig</h1>
   <span id="status" class="status"></span>
+  <span id="plan" class="status"></span>
   <div class="modes" role="group" aria-label="View mode">
     <button data-mode="changed" title="Changed nodes and their direct neighbours">Changed</button>
     <button data-mode="architecture" title="Layers, then directories, modules and members. Click a box to open it.">Architecture</button>

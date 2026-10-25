@@ -126,7 +126,7 @@
 
   function nodeData(n, parent) {
     return { id: n.id, label: n.name, kind: n.module ? "module" : n.kind === "system" ? "system" : n.kind === "route" ? "route" : "member", status: n.status,
-             findings: (findingsByNode[n.id] || []).length, parent: parent };
+             planned: !!n.planned, findings: (findingsByNode[n.id] || []).length, parent: parent };
   }
   function aggregateEdges(repOf, keep) {
     var agg = {}, out = [];
@@ -134,10 +134,11 @@
       var a = repOf(e.from), b = repOf(e.to);
       if (!a || !b || a === b || !keep(a) || !keep(b)) return;
       var k = a + "|" + b, x = agg[k];
-      if (!x) { x = agg[k] = { source: a, target: b, count: 0, violation: false, status: "unchanged", guessed: true }; out.push(x); }
+      if (!x) { x = agg[k] = { source: a, target: b, count: 0, violation: false, status: "unchanged", guessed: true, planned: true }; out.push(x); }
       x.count++;
       x.violation = x.violation || e.violation;
       x.guessed = x.guessed && e.confidence === "guessed";
+      x.planned = x.planned && !!e.planned;
       if (e.status !== "unchanged" && x.status === "unchanged") x.status = e.status;
     });
     return out;
@@ -217,7 +218,7 @@
     Object.keys(ids).forEach(function (id) {
       var n = byId[id]; if (!n) return;
       if (n.module || n.kind === "system") return;
-      if (!shown[n.file]) { var m = byId[n.file]; els.push({ group: "nodes", data: { id: n.file, label: base(n.file), kind: "openmodule", status: m.status } }); shown[n.file] = true; }
+      if (!shown[n.file]) { var m = byId[n.file]; els.push({ group: "nodes", data: { id: n.file, label: base(n.file), kind: "openmodule", status: m.status, planned: !!m.planned } }); shown[n.file] = true; }
       els.push({ group: "nodes", data: nodeData(n, n.file) }); shown[id] = true;
     });
     Object.keys(ids).forEach(function (id) {
@@ -586,6 +587,7 @@
       { selector: "edge[kind = 'uses']", style: { "line-color": css("--warning"), "target-arrow-color": css("--warning"), "opacity": 0.9 } },
       { selector: "node[?outer]", style: { "opacity": 0.55, "border-style": "dashed" } },
       { selector: "node[status = 'removed']", style: { "border-style": "dashed", "background-opacity": 0.35 } },
+      { selector: "node[?planned]", style: { "border-style": "dashed", "border-width": 2, "border-color": statusColor, "background-opacity": 0.35 } },
       { selector: "node[findings > 0]", style: { "border-width": 3, "border-color": err, "border-style": "solid" } },
       { selector: "node:selected", style: { "border-width": 4, "border-color": accent, "border-style": "solid" } },
       { selector: "edge", style: {
@@ -597,6 +599,7 @@
       { selector: "edge[status = 'added']", style: { "line-color": color.added, "target-arrow-color": color.added, "opacity": 0.9 } },
       { selector: "edge[status = 'removed']", style: { "line-style": "dashed", "line-color": color.removed, "target-arrow-color": color.removed } },
       { selector: "edge[?guessed]", style: { "line-style": "dotted" } },
+      { selector: "edge[?planned]", style: { "line-style": "dashed" } },
       { selector: "edge[?ctx]", style: { "opacity": 0.22 } },
       { selector: "edge[?violation]", style: { "line-color": err, "target-arrow-color": err, "opacity": 1, "width": "mapData(count, 1, 40, 2.5, 8)" } },
       { selector: ".faded", style: { "opacity": 0.12 } }
@@ -691,9 +694,29 @@
   function backLink() {
     return el("p", {}, [el("a", { href: "#", onclick: function (e) { e.preventDefault(); cy.$(":selected").unselect(); cy.elements().removeClass("faded"); overview(); }, text: "← overview" })]);
   }
+  function pairs(ps) { return ps && ps.length ? ps.map(function (p) { return p[0] + " → " + p[1]; }).join(", ") : "none"; }
+  function counts(o) { var ks = Object.keys(o || {}); return ks.length ? ks.map(function (k) { return k + " " + o[k]; }).join(", ") : "none"; }
+  // The plan's title, steps, volume and findings, collapsible.
+  function planPanel() {
+    var p = D.plan, v = p.volume, box = el("details", { open: "" }, [el("summary", {}, [el("h2", { text: "Plan" + (p.done ? " (done)" : "") }) ])]);
+    box.appendChild(el("p", {}, [el("strong", { text: p.title })]));
+    if (p.steps.length) box.appendChild(el("ol", {}, p.steps.map(function (t) { return el("li", { text: t }); })));
+    if (v) box.appendChild(el("ul", {}, [
+      "new files: " + v.newFiles, "new nodes: " + counts(v.newNodes), "changed nodes: " + v.changedNodes,
+      "removed nodes: " + v.removedNodes, "new systems: " + (v.newSystems.length ? v.newSystems.join(", ") : "none"),
+      "new cross-layer links: " + pairs(v.newCrossLayer), "new cross-lane links: " + pairs(v.newCrossLane),
+      "blast radius: " + v.blastRadius.total + " (" + counts(v.blastRadius.byLayer) + ")"
+    ].map(function (t) { return el("li", { class: "loc", text: t }); })));
+    box.appendChild(el("h2", { text: "Plan findings (" + p.findings.length + ")" }));
+    box.appendChild(p.findings.length ? el("ul", {}, p.findings.map(function (f) {
+      return findingItem(Object.assign({}, f, { pinned: byId[f.nodeId] ? f.nodeId : null }));
+    })) : el("p", { class: "loc", text: "None." }));
+    side.appendChild(box);
+  }
   function overview() {
     side.innerHTML = "";
     D.notices.forEach(function (n) { side.appendChild(el("p", { class: "notice", text: n })); });
+    if (D.plan) planPanel();
     if (D.intentChanges.length) {
       side.appendChild(el("h2", { text: "Intent changes" }));
       side.appendChild(el("ul", {}, D.intentChanges.map(function (c) {
@@ -734,9 +757,12 @@
     side.innerHTML = "";
     side.appendChild(backLink());
     side.appendChild(el("h2", { text: n.kind + (n.layer ? " · " + n.layer : "") }));
-    side.appendChild(el("p", {}, [el("strong", { text: n.name }), " ", el("span", { class: n.status, text: n.status })]));
-    side.appendChild(el("div", { class: "loc" }, [editorLink(n.file, n.line)]));
-    side.appendChild(el("div", { class: "loc", text: "complexity " + n.complexity + " · " + n.loc + " lines" }));
+    side.appendChild(el("p", {}, [el("strong", { text: n.name }), " ", el("span", { class: n.status, text: n.status }),
+      n.planned ? el("span", { class: "tag", text: "planned" }) : null]));
+    if (!n.planned) {
+      side.appendChild(el("div", { class: "loc" }, [editorLink(n.file, n.line)]));
+      side.appendChild(el("div", { class: "loc", text: "complexity " + n.complexity + " · " + n.loc + " lines" }));
+    }
     var btns = el("div", { class: "btns" });
     btns.appendChild(el("button", { text: "Focus", onclick: function () { focus(id); } }));
     if (mode === "focus" && focusId === id) {
@@ -749,7 +775,8 @@
     }
     side.appendChild(btns);
     if (n.intents.length) side.appendChild(el("p", {}, n.intents.map(function (t) { return el("span", { class: "tag", text: t }); })));
-    codeSection(n);
+    if (n.planned) side.appendChild(el("p", { class: "loc", text: "planned, not written yet" }));
+    else codeSection(n);
     sequenceSection(id);
     var fs = n.module ? D.findings.filter(function (f) { return f.file === n.file; }) : (findingsByNode[id] || []);
     if (fs.length) { side.appendChild(el("h2", { text: "Findings" })); side.appendChild(el("ul", {}, fs.map(findingItem))); }
@@ -763,6 +790,7 @@
         return el("li", { class: "f", onclick: function () { focus(e[key]); } }, [
           el("span", { text: e.kind + " " }), el("strong", { text: o.name }),
           e.violation ? el("span", { class: "sev error", text: " violation" }) : null,
+          e.planned ? el("span", { class: "tag", text: "planned" }) : null,
           el("div", { class: "loc", text: o.file })
         ]);
       })));
@@ -938,6 +966,7 @@
   st.textContent = D.blocking ? "blocking" : "not blocking";
   st.className = "status " + (D.blocking ? "block" : "ok");
   var c = D.counts;
+  if (D.plan) document.getElementById("plan").textContent = "Plan · " + D.plan.title;
   document.getElementById("counts").textContent = c.added + " added · " + c.changed + " changed · " + c.removed + " removed";
   // Skip a top level with a single box, so the first screen is never one box.
   while (Object.keys(scope.children).length === 1 && scope.mods.length === 0) scope = scope.children[Object.keys(scope.children)[0]];

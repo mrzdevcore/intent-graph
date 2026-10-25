@@ -59,8 +59,9 @@ pub struct Run {
     pub repo: Option<Repo>,
     pub intents: Vec<intents::Intent>,
     /// Ids and edge keys added from a plan; empty without one.
-    #[allow(dead_code)] // filled by plan-aware checks
     pub planned: HashSet<String>,
+    /// The overlaid plan for the viewer: {title, steps, done, volume, findings}.
+    pub plan: Option<serde_json::Value>,
 }
 
 pub struct Trees {
@@ -317,6 +318,7 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
         repo: t.repo,
         intents: head_intents,
         planned: HashSet::new(),
+        plan: None,
     })
 }
 

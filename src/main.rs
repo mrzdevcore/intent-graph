@@ -34,7 +34,7 @@ const USAGE: &str =
    | plan check <file> [--json]
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
-   | view [--base <ref>] [--head <ref>] [--watch] [--no-open] | report --gitlab | mcp | hook claude
+   | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
    (all accept --root <dir>)";
 
 #[derive(Default)]
@@ -56,6 +56,8 @@ struct Args {
     dir: Option<String>,
     depth: Option<usize>,
     more: Vec<String>,
+    plan: Option<PathBuf>,
+    no_plan: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -79,6 +81,8 @@ fn parse_args() -> Result<Args> {
             Long("no-open") => a.no_open = true,
             Long("gitlab") => a.gitlab = true,
             Long("md") => a.md = true,
+            Long("plan") => a.plan = Some(p.value()?.into()),
+            Long("no-plan") => a.no_plan = true,
             Long("out") if a.cmd == "query" => a.dir = Some("out".into()),
             Long("out") => a.out = Some(p.value()?.into()),
             Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
@@ -197,13 +201,18 @@ fn real_main() -> Result<u8> {
             Ok(0)
         }
         "view" => {
+            let plan = if a.no_plan {
+                None
+            } else {
+                a.plan.clone().or_else(|| plan::current(&root))
+            };
             if a.watch {
                 if a.head.is_some() {
                     bail!("view --watch: --head is not supported");
                 }
-                view::watch(&root, &opts(&a), !a.no_open)?;
+                view::watch(&root, &opts(&a), plan, !a.no_open)?;
             } else {
-                let path = view::write(&root, &opts(&a))?;
+                let path = view::write(&root, &opts(&a), plan.as_deref())?;
                 if !a.no_open {
                     view::open(&path);
                 }
