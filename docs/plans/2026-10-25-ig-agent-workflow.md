@@ -7,7 +7,7 @@
 - a plan file parser that merges planned nodes and edges onto the head graph, which is reused for the plan check and the viewer;
 - an apply state (`.ig/apply.json`) that `ig check` reads to add plan conformance, tamper detection and reviewer findings.
 
-**Tech Stack:** Rust 2024, existing crates only (serde, serde_json, serde_yaml_ng, regex, sha1, lexopt, rayon). The viewer is `assets/view.js`, plain JS, offline.
+**Tech Stack:** Rust 2024, existing crates only (serde, serde_json, serde_yaml_ng, regex, sha1, lexopt, rayon). The viewer is `assets/view.js`, plain JS, offline, until Task 10 moves it to `viewer/` (TypeScript, Lit, Vite, bun). **Execution order: 1–7, 10, 8, 9.**
 
 **Spec:** `docs/specs/2026-10-25-ig-agent-workflow-design.md`
 
@@ -601,7 +601,7 @@ fn reviewer_findings_block_until_the_change_moves() {
 
 **Files:**
 - Create: `assets/skills/view.md`; add `view` to `skills::SKILLS`
-- Modify: `src/view.rs` (state and focus), `assets/view.js` (focus start, state label), `README.md`, `docs/specs/design.md`
+- Modify: `src/view.rs` (state and focus), the viewer from Task 10 (`viewer/src/`: focus start, state label), `README.md`, `docs/specs/design.md`
 - Test: `src/view.rs` tests
 
 **Interfaces:**
@@ -650,7 +650,8 @@ fn reviewer_findings_block_until_the_change_moves() {
 Added on 2026-10-25 at the user's request, after viewing the acme Architecture screenshot. The request: make the view more structural, organised by layers like the blueprint, with all external services at the bottom; give systems different icons (Postgres, Mongo, Elastic APM, Auth0, Contentful…); and add a way to hide the arrows.
 
 **Files:**
-- Modify: `assets/view.js` (architecture layout, system icons, links toggle), `assets/view.html` (toggle control, CSS), `src/view.rs` (a system `category` in the node data)
+- Modify: the viewer from Task 10 (`viewer/src/`: architecture layout, system icons, links toggle), `viewer/package.json` (adds `simple-icons` and `lucide`), `src/view.rs` (a system `category` and `packages` in the node data)
+- Test: `src/view.rs` tests, and Vitest tests in `viewer/`
 - Test: `src/view.rs` tests
 
 **Interfaces:**
@@ -670,7 +671,7 @@ Added on 2026-10-25 at the user's request, after viewing the acme Architecture s
     - else `service`
     
     The order is the list order above. "Elastic APM" must give `monitoring`, not `search`, so `search` matches "elasticsearch" and "elastic search" only, never plain "elastic".
-  - Each `system` node in `view::data` gets `"category": <system_category(name, packages from config.blueprint.systems[name])>`.
+  - Each `system` node in `view::data` gets `"category": <system_category(name, packages from config.blueprint.systems[name])>` and `"packages": [..]`.
   - JS, Architecture mode:
     - The layout is rows, top to bottom, in this order:
       1. one row per layer, in `ig.yaml` declaration order (`D.layers`);
@@ -681,19 +682,27 @@ Added on 2026-10-25 at the user's request, after viewing the acme Architecture s
     - Dimmed context nodes go in the row of their own layer.
     - When the scope holds a single layer (the user drilled into one), keep the rows too: the scope's children fill their layer's row, and the context and systems keep theirs.
   - JS, system nodes:
-    - Each is drawn with an inline SVG icon for its category, as a `data:image/svg+xml` background, with the name below. Icons:
-      - `database`: a cylinder
-      - `search`: a magnifier
-      - `monitoring`: a pulse line
-      - `auth`: a key/lock
-      - `cms`: a document with lines
-      - `analytics`: bar chart
-      - `queue`: stacked bars with an arrow
-      - `storage`: a box/bucket
-      - `payment`: a card
-      - `email`: an envelope
-      - `service`: a cloud
-    - Icons are drawn in-house, simple monochrome strokes in `--system` colour. No brand logos: trademarks, and no external assets.
+    - Each is drawn with an icon and its name below it.
+    - **Brand icon first:** `viewer/src/icons.ts` has a curated map from a lower-cased system name or package to a `simple-icons` export. It covers postgres, mysql, mariadb, mongodb, redis, sqlite, supabase, firebase, elasticsearch, elastic (APM), algolia, meilisearch, opensearch, datadog, sentry, newrelic, opentelemetry, grafana, prometheus, auth0, okta, keycloak, clerk, contentful, strapi, sanity, prismic, storyblok, directus, ghost, segment, mixpanel, amplitude, googleanalytics, matomo, posthog, kafka, rabbitmq, nats, amazons3, minio, cloudinary, stripe, paypal, sendgrid, mailgun, and power bi if `simple-icons` still ships it.
+    - **Fallback:** a `lucide` icon by `category`:
+      - database → `Database`
+      - search → `Search`
+      - monitoring → `Activity`
+      - auth → `KeyRound`
+      - cms → `FileText`
+      - analytics → `ChartBar`
+      - queue → `ListOrdered`
+      - storage → `Archive`
+      - payment → `CreditCard`
+      - email → `Mail`
+      - service → `Cloud`
+    - Only the imported icons are bundled; never the whole set.
+    - Icons render as `data:image/svg+xml` backgrounds. Brand icons use their brand colour on a neutral tile; lucide icons use `--fg`.
+    - Vitest checks:
+      - "PostgreSQL" with package `pg` gives the PostgreSQL brand icon;
+      - "Elastic APM" gives the Elastic brand icon;
+      - "Acme BFF" gives lucide `Cloud`;
+      - an unknown system in category `database` gives lucide `Database`.
   - JS, links toggle:
     - A header button "Links" (`aria-pressed`) shows or hides all edges in every mode.
     - While hidden, the selected node's own edges stay visible.
@@ -720,7 +729,7 @@ Also check that `data()` on the monorepo fixture with a `systems:` entry gives t
 
 - [ ] **Step 2: Run** `cargo test view::system_categories`. Expected: FAIL.
 
-- [ ] **Step 3: Implement** `system_category`, the `category` field, and the JS/CSS.
+- [ ] **Step 3: Implement** `system_category`, the `category` and `packages` fields, and the viewer changes in `viewer/src/` (with their Vitest tests).
 
 - [ ] **Step 4: Check by hand.**
   1. In a scratch copy of the monorepo fixture with a `blueprint.systems` entry, run `ig view --no-open`.
@@ -730,3 +739,76 @@ Also check that `data()` on the monorepo fixture with a `systems:` entry gives t
   Then run `cargo test && cargo clippy --all-targets -- -D warnings` (no new errors).
 
 - [ ] **Step 5: Commit** (explicit paths): `git commit -m "Viewer: layered Architecture with an External services row, system icons, Links toggle"`
+
+---
+
+### Task 10: The viewer as a TypeScript project (runs after Task 7, before Task 8)
+
+Added on 2026-10-25 at the user's request. The viewer must become a properly organised frontend project: TypeScript, web components or a frontend library, packages instead of vendored files. **The build happens in two steps, the viewer and then the backend, and the result is one bundle.** Node and bun are the toolchain.
+
+**Decisions (the user's, and the controller's calls):**
+- **`viewer/`** at the repo root: TypeScript (strict), **Lit** web components, **Vite** for the build, **Vitest** for tests, and **bun** as package manager and script runner (`bun install`, `bun run build`, `bun run test`). Node ≥ 20 must also work.
+- **Dependencies as npm packages:** `cytoscape`, `cytoscape-fcose`, `mermaid`. The vendored files in `assets/` are deleted (`cytoscape.min.js`, `layout-base.js`, `cose-base.js`, `cytoscape-fcose.js`, `mermaid.min.js`, `view.js`, `view.html`). Versions are pinned exactly in `package.json`, and `bun.lock` is committed.
+- **Build output** is `viewer/dist/index.html`: one self-contained offline HTML file with all JS and CSS inlined, no chunks and no network, with the placeholder `/*IG_DATA*/` and `/*IG_LIVE*/` markers the Rust side fills. `viewer/dist/` is git-ignored.
+- **Backend step:** a `build.rs` copies `viewer/dist/index.html` into `OUT_DIR`, and `src/view.rs` embeds it with `include_str!(concat!(env!("OUT_DIR"), "/view.html"))`. If the dist file is missing, `build.rs` writes a minimal placeholder page that shows "viewer not built: run `make viewer`" and the embedded data as JSON, and emits `cargo:warning=viewer/dist/index.html missing; run make viewer`. Rust-only work and `cargo test` therefore still pass without bun. `build.rs` declares `cargo:rerun-if-changed=viewer/dist/index.html`.
+- **`Makefile`** at the root:
+  - `viewer` → `cd viewer && bun install --frozen-lockfile && bun run build`
+  - `build` → `viewer` then `cargo build --release`
+  - `test` → `cd viewer && bun run test` then `cargo test`
+  
+  The README "Build" section says: `make build` (needs bun or node, plus cargo).
+- **Data contract:**
+  - `viewer/src/data.ts` declares TypeScript types for exactly what `view::data` emits: nodes, edges, findings, intents, plan, lanes, layers, counts, mode, editor and root.
+  - `ig view --json` (new) prints that JSON instead of writing HTML.
+  - `bun run dev` serves the viewer with Vite, loading `viewer/dev-data.json` (git-ignored, made with `ig view --json > viewer/dev-data.json`).
+  - A Vitest test loads `viewer/test/fixture-data.json` (committed, generated once from the monorepo fixture with a plan overlaid) and runs every pure module over it.
+- **Organisation:**
+  - `viewer/src/main.ts` boots the app;
+  - `viewer/src/components/` holds the Lit components: `ig-app` (header, modes, search, status, counts), `ig-tree`, `ig-graph` (owns the Cytoscape instance), `ig-side-panel` (node details, code diff, findings, intents), `ig-plan-panel`, `ig-overlay` (wide code and sequence view, Copy Mermaid and Copy PlantUML);
+  - `viewer/src/model/` holds pure, typed, DOM-free modules: graph indexing (`byId`, modules, groups), `architecture.ts` (scoped grouping), `blueprint.ts` (journeys and lane layout), `focus.ts`, `changed.ts`, `sequence.ts` (Mermaid and PlantUML text), `tree.ts`;
+  - `viewer/src/styles/` holds the theme tokens, kept from today's CSS variables including dark mode.
+- **Parity is the acceptance bar.** Before porting, the implementer lists every feature of `assets/view.js` and `view.html` in the report (a checklist; read the whole file). Each must work afterwards, checked by hand in a browser. At least:
+  - the four modes (Changed, Architecture with scoped drill-down and breadcrumb, Focus with depth, Blueprint with journeys and swimlanes);
+  - node search;
+  - the tree with filter and "only what is on screen";
+  - the side panel with code diffs and "Open wide";
+  - sequence diagrams with copy;
+  - planned nodes and the Plan panel (Task 5);
+  - findings pinned to nodes;
+  - intents;
+  - editor links;
+  - live reload for `--watch` (`IG_LIVE`);
+  - the light and dark themes.
+- **No behaviour changes** in this task beyond the port. Tasks 8 and 9 add their features on top of it.
+
+**Files:**
+- Create: `viewer/` (package.json, bun.lock, tsconfig.json, vite.config.ts, index.html, src/**, test/**), `build.rs`, `Makefile`
+- Modify: `src/view.rs` (embed from OUT_DIR, `--json`), `src/main.rs` (`view --json`), `.gitignore` (`viewer/node_modules`, `viewer/dist`, `viewer/dev-data.json`), `README.md`, `docs/specs/design.md`, `Cargo.toml` (`build = "build.rs"` if needed)
+- Delete: the vendored files listed above in `assets/`
+
+**Interfaces:**
+- Consumes: `view::data(run, root, opts) -> serde_json::Value` (unchanged) and `page()`'s two markers.
+- Produces:
+  - `viewer/src/data.ts` exports `ViewData`, `ViewNode`, `ViewEdge`, `ViewFinding` and `ViewPlan` (Tasks 8 and 9 extend them);
+  - `viewer/src/model/*` are pure functions over `ViewData`;
+  - `ig view --json` exists.
+
+- [ ] **Step 1: Write the failing tests.**
+  - Vitest:
+    - `architecture.test.ts`: at the root scope of the fixture data, the groups are the layers, with counts;
+    - `blueprint.test.ts`: the journey list equals the lane-0 modules;
+    - `sequence.test.ts`: Mermaid text starts with `sequenceDiagram` and the PlantUML with `@startuml`;
+    - `tree.test.ts`: folders, then files, then members.
+  - Rust: `view::tests` asserts that `render()` output contains the data JSON and no `/*IG_DATA*/` marker, in both cases, dist present or placeholder.
+
+- [ ] **Step 2: Run** `cd viewer && bun run test` and `cargo test view::`. Expected: FAIL.
+
+- [ ] **Step 3: Build the project and port the modules and components** (logic first, then components, then delete the old assets). Keep the generated HTML under 6 MB. Mermaid is the bulk; note the size in the report.
+
+- [ ] **Step 4: Verify.**
+  - Run `make build` and `make test`.
+  - In a scratch git copy of the monorepo fixture with a plan, run `ig view --no-open`, then open the page in a headless browser: no console errors, and walk through the parity checklist, recording the result per item in the report.
+  - Check `cargo build` with `viewer/dist` removed: it gives the placeholder and a warning, not an error.
+  - Run `cargo clippy --all-targets -- -D warnings` (no new errors) and `bun run typecheck` (`tsc --noEmit`, clean).
+
+- [ ] **Step 5: Commit** (explicit paths; check `git status` to make sure nothing in `node_modules` or `dist` is staged): `git commit -m "Viewer as a TypeScript + Lit project in viewer/, built with bun and Vite, embedded by build.rs"`
