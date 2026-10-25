@@ -1,4 +1,4 @@
-//! `ig view`: the self-contained HTML viewer, and `--watch` (tiny_http + notify + SSE).
+//! `ig view`: the self-contained HTML viewer. `ig serve` (src/serve.rs) serves it live.
 
 use crate::check::{self, Opts, Run};
 use crate::checks;
@@ -9,10 +9,7 @@ use crate::workspace;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
-use std::time::Duration;
 
 // The viewer page (viewer/dist/index.html, or a placeholder when it is not built), from build.rs.
 const TEMPLATE: &str = include_str!(concat!(env!("OUT_DIR"), "/view.html"));
@@ -388,7 +385,7 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
     out
 }
 
-const FOCUS: &str = ".ig/focus.json";
+pub const FOCUS: &str = ".ig/focus.json";
 
 /// The plan to show and whether it is being applied: `--plan`, else the plan of a valid apply
 /// state, else `.ig/current-plan`; `--no-plan` shows none. One apply-state read decides both.
@@ -409,23 +406,24 @@ pub fn pick_plan(root: &Path, explicit: Option<&Path>, no_plan: bool) -> Picked 
     (plan, applying)
 }
 
-pub fn render(run: &Run, root: &Path, opts: &Opts, live: bool) -> String {
-    let d = data(run, root, opts).to_string().replace('<', "\\u003c");
-    page(&d, live)
+pub fn render(run: &Run, root: &Path, opts: &Opts) -> String {
+    page(&data(run, root, opts), None)
 }
 
-fn page(data_json: &str, live: bool) -> String {
-    fill(TEMPLATE, data_json, live)
+/// The page for `data`. Served by `ig serve`, it gets the API token (live); a file gets none.
+pub fn page(data: &Value, token: Option<&str>) -> String {
+    let live = token.map_or("false".into(), |t| json!({ "token": t }).to_string());
+    fill(TEMPLATE, &data.to_string().replace('<', "\\u003c"), &live)
 }
 
-fn fill(template: &str, data_json: &str, live: bool) -> String {
+fn fill(template: &str, data_json: &str, live: &str) -> String {
     template
-        .replace("/*IG_LIVE*/", if live { "true" } else { "false" })
+        .replace("/*IG_LIVE*/", live)
         .replace("/*IG_DATA*/", data_json)
 }
 
 /// `check::run` with the plan at `plan` overlaid. A plan that fails to load becomes a notice.
-fn run_with_plan(root: &Path, opts: &Opts, (plan, applying): &Picked) -> Result<Run> {
+pub fn run_with_plan(root: &Path, opts: &Opts, (plan, applying): &Picked) -> Result<Run> {
     let mut run = check::run(root, opts)?;
     let Some(path) = plan else { return Ok(run) };
     let path = path.as_path();
@@ -459,7 +457,7 @@ pub fn json(root: &Path, opts: &Opts, plan: &Picked) -> Result<Value> {
 
 pub fn write(root: &Path, opts: &Opts, plan: &Picked) -> Result<PathBuf> {
     let run = run_with_plan(root, opts, plan)?;
-    let html = render(&run, root, opts, false);
+    let html = render(&run, root, opts);
     let path = root.join(".ig/view.html");
     check::write_atomic(&path, html.as_bytes())?;
     let _ = std::fs::remove_file(root.join(FOCUS)); // a focus is shown once
@@ -468,7 +466,7 @@ pub fn write(root: &Path, opts: &Opts, plan: &Picked) -> Result<PathBuf> {
 
 pub fn write_run(root: &Path, run: &Run, opts: &Opts) -> Result<PathBuf> {
     let path = root.join(".ig/view.html");
-    check::write_atomic(&path, render(run, root, opts, false).as_bytes())?;
+    check::write_atomic(&path, render(run, root, opts).as_bytes())?;
     Ok(path)
 }
 
@@ -476,7 +474,7 @@ pub fn open(target: &Path) {
     open_str(&target.to_string_lossy());
 }
 
-fn open_str(target: &str) {
+pub fn open_str(target: &str) {
     let cmd = if cfg!(target_os = "macos") {
         vec!["open", target]
     } else if cfg!(windows) {
@@ -491,7 +489,7 @@ fn open_str(target: &str) {
         .spawn();
 }
 
-fn ignored(root: &Path, p: &Path) -> bool {
+pub fn ignored(root: &Path, p: &Path) -> bool {
     let rel = p.strip_prefix(root).unwrap_or(p);
     rel.components().any(|c| {
         matches!(
@@ -501,122 +499,19 @@ fn ignored(root: &Path, p: &Path) -> bool {
     })
 }
 
-type Clients = Arc<Mutex<Vec<Box<dyn Write + Send>>>>;
-
-pub fn watch(
-    root: &Path,
-    opts: &Opts,
-    plan: Option<PathBuf>,
-    no_plan: bool,
-    open_browser: bool,
-) -> Result<()> {
-    use notify::Watcher;
-    let opts = opts.clone();
-    let build = move |root: &Path| -> Result<String> {
-        let opts = &opts;
-        // Re-pick the plan on every rebuild so the view follows plan and apply changes.
-        let run = run_with_plan(root, opts, &pick_plan(root, plan.as_deref(), no_plan))?;
-        let html = render(&run, root, opts, true);
-        let _ = check::write_atomic(
-            &root.join(".ig/view.html"),
-            render(&run, root, opts, false).as_bytes(),
-        );
-        let _ = std::fs::remove_file(root.join(FOCUS)); // a focus is shown once
-        Ok(html)
-    };
-    let page_html: Arc<Mutex<String>> = Arc::new(Mutex::new(build(root)?));
-    let clients: Clients = Arc::new(Mutex::new(vec![]));
-    let server = tiny_http::Server::http("127.0.0.1:0").map_err(|e| anyhow::anyhow!("{e}"))?;
-    let addr = server
-        .server_addr()
-        .to_ip()
-        .ok_or_else(|| anyhow::anyhow!("no address"))?;
-    let url = format!("http://{addr}/");
-    eprintln!("ig: serving {url} (Ctrl-C to stop)");
-    if open_browser {
-        open_str(&url);
-    }
-
-    let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
-    let mut watcher = notify::recommended_watcher(move |e| {
-        let _ = tx.send(e);
-    })?;
-    watcher.watch(root, notify::RecursiveMode::Recursive)?;
-    {
-        let (root, page_html, clients, build) = (
-            root.to_path_buf(),
-            page_html.clone(),
-            clients.clone(),
-            build.clone(),
-        );
-        std::thread::spawn(move || {
-            let relevant = |e: &notify::Result<notify::Event>| {
-                e.as_ref()
-                    .is_ok_and(|e| e.paths.iter().any(|p| !ignored(&root, p)))
-            };
-            while let Ok(e) = rx.recv() {
-                if !relevant(&e) {
-                    continue;
-                }
-                // Debounce: wait for 300 ms of quiet.
-                while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
-                match build(&root) {
-                    Ok(html) => {
-                        *page_html.lock().unwrap() = html;
-                        let mut cs = clients.lock().unwrap();
-                        cs.retain_mut(|w| {
-                            w.write_all(b"data: reload\n\n")
-                                .and_then(|_| w.flush())
-                                .is_ok()
-                        });
-                        eprintln!("ig: rebuilt");
-                    }
-                    Err(err) => {
-                        eprintln!("ig: rebuild failed, keeping the last good page: {err:#}")
-                    }
-                }
-            }
-        });
-    }
-    for req in server.incoming_requests() {
-        match req.url() {
-            "/events" => {
-                let mut w = req.into_writer();
-                let ok = w
-                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n: connected\n\n")
-                    .and_then(|_| w.flush())
-                    .is_ok();
-                if ok {
-                    clients.lock().unwrap().push(w);
-                }
-            }
-            "/" | "/index.html" => {
-                let html = page_html.lock().unwrap().clone();
-                let h = tiny_http::Header::from_bytes("Content-Type", "text/html; charset=utf-8")
-                    .unwrap();
-                let _ = req.respond(tiny_http::Response::from_string(html).with_header(h));
-            }
-            _ => {
-                let _ = req
-                    .respond(tiny_http::Response::from_string("not found").with_status_code(404));
-            }
-        }
-    }
-    drop(watcher);
-    Ok(())
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
     fn page_fills_the_markers_in_the_viewer_and_the_placeholder() {
         let data = r#"{"nodes":[],"x":"\u003c/script>"}"#;
         let placeholder = include_str!(concat!(env!("OUT_DIR"), "/placeholder.html"));
+        let live = page(&json!({"nodes": [], "x": "</script>"}), Some("tok"));
+        assert!(live.contains(r#"{"token":"tok"}"#));
         for (name, html) in [
-            ("view", page(data, true)),
-            ("placeholder", fill(placeholder, data, false)),
+            ("view", live),
+            ("placeholder", fill(placeholder, data, "false")),
         ] {
             assert!(html.contains(data), "{name}: data missing");
             assert!(!html.contains("/*IG_DATA*/"), "{name}: data marker left");
@@ -624,7 +519,7 @@ mod tests {
         }
     }
 
-    fn scratch(tag: &str) -> PathBuf {
+    pub(crate) fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("ig-view-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/monorepo");
@@ -829,7 +724,7 @@ Status: done
             (json!(true), json!("added"))
         );
         assert_eq!(d["plan"]["title"], "Export");
-        assert!(render(&run, &dir, &Opts::default(), false).contains("planned"));
+        assert!(render(&run, &dir, &Opts::default()).contains("planned"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

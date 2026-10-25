@@ -3,7 +3,8 @@
 
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import type { ViewData } from "../data";
+import type { Note, NoteInput, ViewData } from "../data";
+import { dropNote, ghosts, pins, type Client } from "../model/notes";
 import { architecture, initialScope, rep } from "../model/architecture";
 import { blueprint, journeyName, unitOf } from "../model/blueprint";
 import { changedIds, exact } from "../model/changed";
@@ -52,6 +53,11 @@ export class IgApp extends LitElement {
   @state() private hint = "";
   @state() private screenIds: string[] = [];
   @state() private links = readLinks();
+  /** Plan notes, and the API client, when served by `ig serve`. */
+  @state() private notes: Note[] = [];
+  private api?: Client;
+  /** The open right-click menu: a node, or an edge between two nodes. */
+  @state() private menu: { x: number; y: number; target: string; to?: string } | null = null;
   @query("ig-graph") private graph!: IgGraph;
   @query("ig-tree") private tree!: IgTree;
   private ix!: Index;
@@ -82,6 +88,79 @@ export class IgApp extends LitElement {
     }
   }
 
+  /** Served by `ig serve`: notes can be read and added. */
+  live(api: Client) {
+    this.api = api;
+    this.refreshNotes();
+  }
+
+  refreshNotes() {
+    this.api?.notes().then((ns) => {
+      this.notes = ns;
+      this.graph.decorate(pins(ns), ghosts(ns));
+    }, (e: Error) => (this.hint = e.message));
+  }
+
+  /** From `ig_focus`: Focus mode on these nodes. */
+  focusAll(ids: string[]) {
+    const known = ids.filter((id) => this.ix && this.ix.byId[id]);
+    if (!known.length) return;
+    this.focusRoots = known;
+    this.focusId = known[0];
+    this.mode = "focus";
+    this.draw();
+  }
+
+  /** Gestures make notes only on a checked plan that is not being applied, in `ig serve`. */
+  private get planning() {
+    return !!this.api && this.data?.state === "planned";
+  }
+
+  private addNote(n: NoteInput) {
+    this.api?.add(n).then(() => {
+      this.hint = "Note added; the agent will pick it up.";
+      this.refreshNotes();
+    }, (e: Error) => (this.hint = e.message));
+  }
+
+  private onContext(e: CustomEvent<{ id: string; edge: boolean; source: string; target: string; x: number; y: number }>) {
+    const d = e.detail;
+    const by = this.ix.byId;
+    if (!this.planning) return;
+    if (d.edge ? by[d.source] && by[d.target] : by[d.id])
+      this.menu = d.edge ? { x: d.x, y: d.y, target: d.source, to: d.target } : { x: d.x, y: d.y, target: d.id };
+  }
+
+  private menuAction(kind: "comment" | "remove") {
+    const m = this.menu!;
+    this.menu = null;
+    const what = m.to ? m.target + " → " + m.to : m.target;
+    if (kind === "remove") return this.addNote({ kind, target: m.target, to: m.to });
+    const text = window.prompt("Comment on " + what);
+    if (text && text.trim()) this.addNote({ kind, target: m.target, to: m.to, text });
+  }
+
+  private onDrop(e: CustomEvent<{ id: string; y: number }>) {
+    const n = this.ix.byId[e.detail.id];
+    if (!this.planning || this.mode !== "architecture" || !n) return;
+    const note = dropNote(this.graph.lanes(this.data!.layers), n.id, e.detail.y, n.layer);
+    if (note) this.addNote(note);
+  }
+
+  private onLink(e: CustomEvent<{ from: string; to: string }>) {
+    const { from, to } = e.detail;
+    if (!this.planning || !this.ix.byId[from] || !this.ix.byId[to]) return;
+    const kind = window.prompt("Link " + from + " → " + to + ": kind", "calls");
+    if (kind && kind.trim()) this.addNote({ kind: "link", target: from, to, text: kind.trim() });
+  }
+
+  private addBox(layer: string) {
+    const v = window.prompt("Add to layer " + layer + ": <kind> <name>", "module ");
+    const m = v && /^\s*(\S+)\s+(\S+)\s*$/.exec(v);
+    if (m) this.addNote({ kind: "add", text: m[1], target: m[2], layer });
+    else if (v) this.hint = "Expected <kind> <name>, like: module cache";
+  }
+
   /** Re-renders the graph for the current mode. `zoomTo` fits that box. */
   private draw(zoomTo?: string) {
     const ix = this.ix;
@@ -91,9 +170,14 @@ export class IgApp extends LitElement {
       : mode === "focus" ? exact(ix, focusIds(ix, this.focusRoots.length ? this.focusRoots : this.focusId!, this.focusDepth))
       : mode === "blueprint" ? blueprint(ix, this.journey, this.uiOnly)
       : exact(ix, changedIds(ix));
+    if (mode === "architecture" && this.planning)
+      els.filter((e) => e.data.kind === "lanelabel" && this.data!.layers.includes(e.data.label!)).forEach((l) =>
+        els.push({ group: "nodes", data: { id: "laneadd:" + l.data.label, label: "+", kind: "laneadd" },
+          position: { x: l.position!.x, y: l.position!.y + 28 }, grabbable: false }));
     const fresh = mode !== this.lastMode;
     this.lastMode = mode;
     this.graph.show(els, { fresh, preset: mode === "blueprint" || mode === "architecture", zoomTo });
+    this.graph.decorate(pins(this.notes), ghosts(this.notes));
     if (mode === "focus" && this.focusId) this.graph.select(this.focusId);
     if (mode === "blueprint") this.side = { kind: "journeys" };
     this.screenIds = this.graph.ids();
@@ -149,6 +233,7 @@ export class IgApp extends LitElement {
 
   private onTap(e: CustomEvent<{ id: string; kind: string }>) {
     const { id, kind } = e.detail;
+    if (kind === "laneadd") return this.addBox(id.slice("laneadd:".length));
     if (this.mode === "architecture" && (kind === "layer" || kind === "dir")) {
       this.setScope(this.ix.groups[id]);
       this.side = { kind: "group", id };
@@ -231,14 +316,24 @@ export class IgApp extends LitElement {
       <main>
         <ig-tree id="tree" aria-label="Files" role="navigation" .ix=${this.ix} .mode=${this.mode} .screenIds=${this.screenIds}
           @ig-tree-select=${this.onTreeSelect} @ig-tree-folder=${this.onTreeFolder}></ig-tree>
-        <ig-graph id="cy" role="img" .links=${this.links} aria-label="Code graph" @ig-tap=${this.onTap}></ig-graph>
+        <ig-graph id="cy" role="img" .links=${this.links} aria-label="Code graph" @ig-tap=${this.onTap}
+          @ig-context=${this.onContext} @ig-drop=${this.onDrop} @ig-link=${this.onLink}></ig-graph>
         <ig-side-panel id="side" role="complementary" .ix=${this.ix} .view=${this.side} .mode=${this.mode} .focusId=${this.focusId}
-          .focusDepth=${this.focusDepth} .journey=${this.journey} .uiOnly=${this.uiOnly}></ig-side-panel>
-      </main>`;
+          .focusDepth=${this.focusDepth} .journey=${this.journey} .uiOnly=${this.uiOnly} .notes=${this.notes}></ig-side-panel>
+      </main>
+      ${this.menu
+        ? html`<div class="ctx-menu" role="menu" style="left:${this.menu.x}px;top:${this.menu.y}px">
+            <button role="menuitem" @click=${() => this.menuAction("comment")}>Comment</button>
+            <button role="menuitem" @click=${() => this.menuAction("remove")}>Remove</button>
+          </div>`
+        : null}`;
   }
 
   connectedCallback() {
     super.connectedCallback();
+    // Any click or Escape closes the right-click menu (its buttons act first).
+    window.addEventListener("click", () => (this.menu = null));
+    window.addEventListener("keydown", (e) => e.key === "Escape" && (this.menu = null));
     this.addEventListener("ig-focus", (e) => this.focusOn((e as CustomEvent<string>).detail));
     this.addEventListener("ig-overview", () => {
       this.graph.clear();

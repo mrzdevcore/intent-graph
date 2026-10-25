@@ -73,3 +73,8 @@ a { color: var(--accent); }
 ig-app { display: contents; }
 ig-graph, ig-side-panel { display: block; }
 ig-plan-panel { display: block; }
+.ctx-menu { position: fixed; z-index: 20; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.3); padding: 4px; }
+.ctx-menu button { font: inherit; text-align: left; padding: 4px 14px; border: 0; background: none; color: var(--fg); cursor: pointer; border-radius: 4px; }
+.ctx-menu button:hover { background: var(--code); }
+ul.notes li.done { color: var(--muted); }

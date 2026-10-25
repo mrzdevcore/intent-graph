@@ -14,10 +14,12 @@ mod intents;
 mod linediff;
 mod mcp;
 mod model;
+mod notes;
 mod patterns;
 mod plan;
 mod report;
 mod review;
+mod serve;
 mod setup;
 mod skills;
 mod tsconfig;
@@ -32,11 +34,12 @@ const USAGE: &str =
     "usage: ig [--version] | init [claude|codex|all] | setup [--json] | setup claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
-   | plan check <file> [--json] | apply start [<plan>] | apply accept | apply review | apply finish
+   | plan check <file> [--json] | plan notes [--wait] [--json] | apply start [<plan>] | apply accept | apply review | apply finish
    | except <fingerprint> --reason <text>
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--json] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
+   | serve [--port N] [--no-plan] | serve claude
    (all accept --root <dir>)";
 
 #[derive(Default)]
@@ -61,6 +64,8 @@ struct Args {
     plan: Option<PathBuf>,
     no_plan: bool,
     reason: Option<String>,
+    port: Option<u16>,
+    wait: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -87,6 +92,8 @@ fn parse_args() -> Result<Args> {
             Long("plan") => a.plan = Some(p.value()?.into()),
             Long("no-plan") => a.no_plan = true,
             Long("reason") => a.reason = Some(p.value()?.string()?),
+            Long("port") => a.port = Some(p.value()?.parse()?),
+            Long("wait") => a.wait = true,
             Long("out") if a.cmd == "query" => a.dir = Some("out".into()),
             Long("out") => a.out = Some(p.value()?.into()),
             Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
@@ -179,7 +186,25 @@ fn real_main() -> Result<u8> {
                 }
                 Ok(if v["ok"] == true { 0 } else { 1 })
             }
-            _ => bail!("plan: expected `plan check <file>`"),
+            (Some("notes"), []) => {
+                let Some(plan) = view::pick_plan(&root, a.plan.as_deref(), false).0 else {
+                    bail!("plan notes: no current plan (run `ig plan check <file>`)");
+                };
+                let list: Vec<notes::Note> = if a.wait {
+                    notes::wait(&plan, std::time::Duration::from_secs(1800))
+                } else {
+                    notes::read(&plan).into_iter().filter(|n| !n.done).collect()
+                };
+                if a.json {
+                    println!("{}", serde_json::to_string_pretty(&list)?);
+                } else {
+                    for n in &list {
+                        println!("{}", notes::format(n));
+                    }
+                }
+                Ok(if a.wait && list.is_empty() { 1 } else { 0 })
+            }
+            _ => bail!("plan: expected `plan check <file>` or `plan notes [--wait] [--json]`"),
         },
         "apply" => match (a.sub.as_deref(), a.more.as_slice()) {
             (Some("start"), more) if more.len() <= 1 => {
@@ -255,7 +280,15 @@ fn real_main() -> Result<u8> {
                 if a.head.is_some() {
                     bail!("view --watch: --head is not supported");
                 }
-                view::watch(&root, &opts(&a), a.plan.clone(), a.no_plan, !a.no_open)?;
+                let port = a.port.unwrap_or(serve::PORT);
+                serve::run(
+                    &root,
+                    port,
+                    &opts(&a),
+                    a.plan.clone(),
+                    a.no_plan,
+                    !a.no_open,
+                )?;
             } else {
                 let path = view::write(&root, &opts(&a), &plan)?;
                 if !a.no_open {
@@ -271,6 +304,28 @@ fn real_main() -> Result<u8> {
             }
             report::gitlab(&root)
         }
+        "serve" => match a.sub.as_deref() {
+            None => {
+                if a.head.is_some() {
+                    bail!("serve: --head is not supported");
+                }
+                let port = a.port.unwrap_or(serve::PORT);
+                serve::run(&root, port, &opts(&a), a.plan.clone(), a.no_plan, false)?;
+                Ok(0)
+            }
+            Some("claude") => {
+                // Channels are a research preview: a custom channel needs this flag.
+                let status = std::process::Command::new("claude")
+                    .args(["--dangerously-load-development-channels", "server:ig"])
+                    .current_dir(&root)
+                    .status()
+                    .map_err(|e| anyhow::anyhow!("serve claude: cannot run claude: {e}"))?;
+                Ok(status.code().unwrap_or(1).clamp(0, 255) as u8)
+            }
+            Some(other) => {
+                bail!("serve: unknown {other:?}; expected `serve [--port N]` or `serve claude`")
+            }
+        },
         "mcp" => {
             mcp::serve(&root)?;
             Ok(0)
