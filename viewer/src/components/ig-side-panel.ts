@@ -129,7 +129,7 @@ export class IgSidePanel extends LitElement {
     return html`<h2>${title}</h2><div class="btns"><button @click=${wide}>Open wide</button></div>${codeBlock(rows)}`;
   }
 
-  private chainDepth = 6;
+  private chainDepth = 8;
 
   private callsDown(id: string) {
     const c = callChain(this.ix, id, { depth: this.chainDepth });

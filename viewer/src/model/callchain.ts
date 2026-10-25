@@ -32,7 +32,7 @@ export function clean(s: string): string {
 }
 
 export function callChain(ix: Index, start: string, opts: { depth?: number; max?: number } = {}): CallChain {
-  const depth = opts.depth ?? 6;
+  const depth = opts.depth ?? 8;
   const max = opts.max ?? 60;
   const lifelines: Lifeline[] = [];
   const at: Record<string, number> = {};

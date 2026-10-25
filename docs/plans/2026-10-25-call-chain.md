@@ -195,7 +195,7 @@ export interface Step {
   file: string; line: number;   // where the call is made
 }
 export interface CallChain { lifelines: Lifeline[]; steps: Step[]; truncated: number }
-export function callChain(ix: Index, start: string, opts?: { depth?: number; max?: number }): CallChain;   // depth default 6, max default 60
+export function callChain(ix: Index, start: string, opts?: { depth?: number; max?: number }): CallChain;   // depth default 8, max default 60
 export function chainToMermaid(c: CallChain): string;
 export function chainToPlantUml(c: CallChain): string;
 ```
@@ -260,7 +260,7 @@ test("mermaid uses lifeline labels and step numbers", () => {
 **Interfaces:**
 - Consumes: Task 3's `callChain`, `chainToMermaid` and `chainToPlantUml`.
 - Produces the UI:
-  - **Side panel:** the "Sequence (N calls)" section becomes **"Calls down (N steps)"**. It holds a compact numbered step list, `n. Lane → Lane  label  file:line`, where each row opens the target node (focus it in the graph and show its code). Next to it: **Show diagram**, **Copy Mermaid**, **Copy PlantUML**, and a depth stepper (−/+, 1–10, default 6). With no steps it shows "No calls from here" (Review Focus 5). With `truncated > 0`, the last row reads "+N more (increase depth or max)".
+  - **Side panel:** the "Sequence (N calls)" section becomes **"Calls down (N steps)"**. It holds a compact numbered step list, `n. Lane → Lane  label  file:line`, where each row opens the target node (focus it in the graph and show its code). Next to it: **Show diagram**, **Copy Mermaid**, **Copy PlantUML**, and a depth stepper (−/+, 1–10, default 8). With no steps it shows "No calls from here" (Review Focus 5). With `truncated > 0`, the last row reads "+N more (increase depth or max)".
   - **Overlay:** the Mermaid diagram on the left and the same clickable step list on the right. Mermaid's `autonumber` keeps the diagram's numbers matching the list. Clicking a step closes the overlay and opens that node.
   - A pure helper, `stepRows(c: CallChain): { n: number; text: string; target: string }[]`, exported from `callchain.ts` for both views and unit-tested: the row text uses lifeline labels and `file:line`.
 
