@@ -28,6 +28,19 @@ pub struct WorkspaceInfo {
     pub files: Vec<SourceFile>,
 }
 
+pub fn is_source_ext(name: &str, embedded: &[String]) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".d.ts") || lower.ends_with(".d.mts") || lower.ends_with(".d.cts") {
+        return false;
+    }
+    [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]
+        .iter()
+        .any(|e| lower.ends_with(e))
+        || embedded
+            .iter()
+            .any(|e| lower.ends_with(&e.to_ascii_lowercase()))
+}
+
 pub fn glob(pattern: &str) -> Result<Glob, globset::Error> {
     GlobBuilder::new(pattern).literal_separator(true).build()
 }
