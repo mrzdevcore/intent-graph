@@ -2,9 +2,10 @@
 
 import { topMember, type Index } from "./graph";
 
-export function focusIds(ix: Index, focusId: string, depth: number): Record<string, boolean> {
-  const ids: Record<string, boolean> = { [focusId]: true };
-  let frontier = [focusId];
+export function focusIds(ix: Index, focus: string | string[], depth: number): Record<string, boolean> {
+  const roots = ([] as string[]).concat(focus);
+  const ids: Record<string, boolean> = Object.fromEntries(roots.map((r) => [r, true]));
+  let frontier = roots;
   for (let d = 0; d < depth; d++) {
     const next: string[] = [];
     ix.D.edges.forEach((e) => {
@@ -22,10 +23,12 @@ export function focusIds(ix: Index, focusId: string, depth: number): Record<stri
     frontier = next;
   }
   // A module in focus brings its members' neighbours too.
-  const n = ix.byId[focusId];
-  if (n && n.module)
-    ix.modules[focusId].members.forEach((m) => {
-      if (topMember(ix, m) === m) ids[m.id] = true;
-    });
+  roots.forEach((r) => {
+    const n = ix.byId[r];
+    if (n && n.module)
+      ix.modules[r].members.forEach((m) => {
+        if (topMember(ix, m) === m) ids[m.id] = true;
+      });
+  });
   return ids;
 }

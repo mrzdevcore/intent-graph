@@ -26,6 +26,10 @@ pub const SKILLS: &[Skill] = &[
         name: "apply",
         body: include_str!("../assets/skills/apply.md"),
     },
+    Skill {
+        name: "view",
+        body: include_str!("../assets/skills/view.md"),
+    },
 ];
 
 pub const REVIEWER: &str = include_str!("../assets/agents/reviewer.md");

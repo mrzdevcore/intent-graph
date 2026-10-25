@@ -339,7 +339,36 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
     if let Some(p) = &run.plan {
         out["plan"] = p.clone();
     }
+    let applying =
+        crate::apply::load(root).is_some_and(|st| crate::apply::stale(root, &st).is_none());
+    out["state"] = json!(match &run.plan {
+        _ if applying => "applying",
+        Some(p) if p["done"] == true => "done",
+        Some(_) => "planned",
+        None => "plain",
+    });
+    if let Some(ids) = std::fs::read_to_string(root.join(FOCUS))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Vec<String>>(&t).ok())
+    {
+        out["focus"] = json!(ids);
+    }
     out
+}
+
+const FOCUS: &str = ".ig/focus.json";
+
+/// The plan to show: `--plan`, else the plan being applied, else the last checked one.
+pub fn pick_plan(root: &Path, explicit: Option<&Path>, no_plan: bool) -> Option<PathBuf> {
+    if no_plan {
+        return None;
+    }
+    explicit.map(Path::to_path_buf).or_else(|| {
+        crate::apply::load(root)
+            .filter(|st| crate::apply::stale(root, st).is_none())
+            .map(|st| root.join(st.plan))
+            .or_else(|| plan::current(root))
+    })
 }
 
 pub fn render(run: &Run, root: &Path, opts: &Opts, live: bool) -> String {
@@ -393,6 +422,7 @@ pub fn write(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<PathBuf> {
     let html = render(&run, root, opts, false);
     let path = root.join(".ig/view.html");
     check::write_atomic(&path, html.as_bytes())?;
+    let _ = std::fs::remove_file(root.join(FOCUS)); // a focus is shown once
     Ok(path)
 }
 
@@ -433,12 +463,23 @@ fn ignored(root: &Path, p: &Path) -> bool {
 
 type Clients = Arc<Mutex<Vec<Box<dyn Write + Send>>>>;
 
-pub fn watch(root: &Path, opts: &Opts, plan: Option<PathBuf>, open_browser: bool) -> Result<()> {
+pub fn watch(
+    root: &Path,
+    opts: &Opts,
+    plan: Option<PathBuf>,
+    no_plan: bool,
+    open_browser: bool,
+) -> Result<()> {
     use notify::Watcher;
     let opts = opts.clone();
     let build = move |root: &Path| -> Result<String> {
         let opts = &opts;
-        let run = run_with_plan(root, opts, plan.as_deref())?;
+        // Re-pick the plan on every rebuild so the view follows plan and apply changes.
+        let run = run_with_plan(
+            root,
+            opts,
+            pick_plan(root, plan.as_deref(), no_plan).as_deref(),
+        )?;
         let html = render(&run, root, opts, true);
         let _ = check::write_atomic(
             &root.join(".ig/view.html"),
@@ -544,6 +585,41 @@ mod tests {
             assert!(!html.contains("/*IG_DATA*/"), "{name}: data marker left");
             assert!(!html.contains("/*IG_LIVE*/"), "{name}: live marker left");
         }
+    }
+
+    #[test]
+    fn state_and_focus() {
+        let dir = std::env::temp_dir().join(format!("ig-view-state-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/monorepo");
+        assert!(
+            std::process::Command::new("cp")
+                .arg("-R")
+                .arg(&src)
+                .arg(&dir)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let dir = dir.canonicalize().unwrap();
+        let o = Opts::default();
+        assert_eq!(json(&dir, &o, None).unwrap()["state"], "plain");
+        assert!(json(&dir, &o, None).unwrap().get("focus").is_none());
+        std::fs::create_dir_all(dir.join("plans")).unwrap();
+        std::fs::write(dir.join("plans/export.md"), crate::plan::tests::PLAN).unwrap();
+        crate::plan::check(&dir, &dir.join("plans/export.md")).unwrap();
+        let plan = pick_plan(&dir, None, false);
+        assert_eq!(json(&dir, &o, plan.as_deref()).unwrap()["state"], "planned");
+        assert_eq!(pick_plan(&dir, None, true), None);
+        std::fs::create_dir_all(dir.join(".ig")).unwrap();
+        std::fs::write(dir.join(FOCUS), r#"["a.ts","b.ts"]"#).unwrap();
+        assert_eq!(
+            json(&dir, &o, None).unwrap()["focus"],
+            json!(["a.ts", "b.ts"])
+        );
+        write(&dir, &o, None).unwrap();
+        assert!(!dir.join(FOCUS).exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

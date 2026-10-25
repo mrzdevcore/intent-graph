@@ -107,4 +107,7 @@ export interface ViewData {
   head: string | null;
   counts: { added: number; changed: number; removed: number; unchanged: number };
   plan?: ViewPlan;
+  state: "applying" | "planned" | "done" | "plain";
+  /** Node ids to start in Focus mode on (from `ig focus`). */
+  focus?: string[];
 }

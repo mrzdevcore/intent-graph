@@ -247,11 +247,7 @@ fn real_main() -> Result<u8> {
             Ok(0)
         }
         "view" => {
-            let plan = if a.no_plan {
-                None
-            } else {
-                a.plan.clone().or_else(|| plan::current(&root))
-            };
+            let plan = view::pick_plan(&root, a.plan.as_deref(), a.no_plan);
             if a.json {
                 let d = view::json(&root, &opts(&a), plan.as_deref())?;
                 println!("{}", serde_json::to_string_pretty(&d)?);
@@ -259,7 +255,7 @@ fn real_main() -> Result<u8> {
                 if a.head.is_some() {
                     bail!("view --watch: --head is not supported");
                 }
-                view::watch(&root, &opts(&a), plan, !a.no_open)?;
+                view::watch(&root, &opts(&a), a.plan.clone(), a.no_plan, !a.no_open)?;
             } else {
                 let path = view::write(&root, &opts(&a), plan.as_deref())?;
                 if !a.no_open {

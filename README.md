@@ -96,6 +96,21 @@ subagent (installed by `ig init` in `.claude/skills/ig/agents/`) runs; in Codex 
 only when nothing blocks and the review matches the current change. Codex has no Stop hook, so the
 skill runs `ig check --agent` itself before ending a turn.
 
+## Workflow
+
+| Skill (Claude / Codex) | Does |
+|---|---|
+| `/ig:setup` / `$ig-setup` | Populates and validates `ig.yaml`. |
+| `/ig:explore` / `$ig-explore` | Explains how code fits together from the graph; read-only. |
+| `/ig:plan` / `$ig-plan` | Writes a plan and runs `ig plan check`. |
+| `/ig:apply` / `$ig-apply` | Implements the checked plan, then reviews it. |
+| `/ig:view` / `$ig-view` | Opens `ig view` and says what it shows. |
+
+`ig view` shows a state in the header: `Planning` (a checked plan, no apply yet: dashed nodes are
+planned), `Applying` (`ig apply start` ran: solid nodes are built, dashed ones are still missing),
+`Done` (the plan has `Status: done`: code diffs) or no plan. `ig focus <ids>` makes the next
+`ig view` open in Focus mode on those ids, once. `ig view --watch` follows plan and apply changes.
+
 ## Intents
 
 `intents.md` holds one intent per line:

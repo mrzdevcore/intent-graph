@@ -334,11 +334,13 @@ Their fingerprint = the rule plus the sorted module set. The file is the first s
   - *Architecture*: a flat, scoped drill-down. The scope's children (layers, then directories, then modules; single-child directory chains are merged and single-module directories show as the module) are the main nodes, and the siblings at every level above that connect to the scope are dimmed context. Edges are aggregated with counts, and arch violations are red. A breadcrumb leads back up.
   - *Focus*: the depth-1 or depth-2 neighbourhood of one node, reached by clicking a node, a finding or the search box.
 - **The page:** `viewer/` is a TypeScript project (strict, Lit web components, Vite, Vitest, bun as package manager and script runner; node 20+ works too) with Cytoscape, cytoscape-fcose and Mermaid as pinned npm packages. `viewer/src/model/` holds the pure, DOM-free logic (indexing, architecture, blueprint, focus, changed, sequence, tree) and `viewer/src/components/` the Lit components (`ig-app`, `ig-tree`, `ig-graph`, `ig-side-panel`, `ig-plan-panel`, `ig-overlay`). `bun run build` makes `viewer/dist/index.html`, one offline file with everything inlined and two markers, `/*IG_DATA*/` and `/*IG_LIVE*/`, which `ig view` fills. `build.rs` copies it into the binary (`include_str!` from `OUT_DIR`); when it is missing, a placeholder page that shows the data as JSON takes its place, with a cargo warning, so Rust-only builds need no bun. `make build` runs both steps.
+- **State and focus:** the data has `state` (`applying` when valid apply state exists, else `planned` or `done` from the current plan's `Status`, else `plain`) and, when `.ig/focus.json` exists, `focus` (node ids). The header shows `Planning`, `Applying` or `Done` next to the plan title, and a non-empty `focus` starts the page in Focus mode on those ids. `ig view` (not `--json`, not `--watch`) deletes `focus.json` after rendering, so a focus is shown once. The plan shown is `--plan`, else the plan being applied, else `.ig/current-plan`; `--no-plan` shows none.
 - **`ig view --json`** prints the data instead of writing the page (for `bun run dev`, which loads `viewer/dev-data.json`).
 
 **`ig view --watch`** serves `/` and `/events` (server-sent events) on `127.0.0.1` at a random port, and rebuilds on file changes:
 
 - changes are debounced by 300 ms, and `.ig`, `.git` and `node_modules` are ignored;
+- the plan and apply state are re-read on every rebuild;
 - rebuilds are serialised, and the last good page is kept on error;
 - `--head` is rejected.
 
