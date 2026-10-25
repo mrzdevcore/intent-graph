@@ -1,7 +1,7 @@
-//! Workspace packages and the glob flavour ig uses everywhere (pure; discovery stays in the binary).
+//! Workspace packages, posix path helpers and the glob flavour ig uses everywhere (pure; discovery is in ig-fs).
 
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct Package {
@@ -58,5 +58,39 @@ pub fn join(dir: &str, path: &str) -> String {
         path.to_string()
     } else {
         format!("{dir}/{path}")
+    }
+}
+
+/// `p` relative to `root`, posix ("." when equal); None outside `root`.
+pub fn rel(root: &Path, p: &Path) -> Option<String> {
+    let r = p.strip_prefix(root).ok()?;
+    let s = r.to_string_lossy().replace('\\', "/");
+    Some(if s.is_empty() { ".".into() } else { s })
+}
+
+/// Lexically normalises a posix path ("a/./b/../c" → "a/c").
+pub fn normalize(p: &str) -> String {
+    let mut parts: Vec<&str> = vec![];
+    for seg in p.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    if parts.is_empty() {
+        ".".into()
+    } else {
+        parts.join("/")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn normalize() {
+        assert_eq!(super::normalize("a/./b/../c"), "a/c");
     }
 }

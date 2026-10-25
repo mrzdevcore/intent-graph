@@ -697,6 +697,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-fs"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+ "json_comments",
+ "serde_json",
+ "serde_yaml_ng",
+]
+
+[[package]]
 name = "ignore"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -753,7 +763,7 @@ dependencies = [
  "ast-grep-language",
  "globset",
  "ig-core",
- "json_comments",
+ "ig-fs",
  "lexopt",
  "notify",
  "oxc_allocator",
