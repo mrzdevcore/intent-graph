@@ -1,4 +1,4 @@
-.PHONY: viewer build test
+.PHONY: viewer build install test
 
 # The viewer first (viewer/dist/index.html), then the binary that embeds it.
 viewer:
@@ -7,6 +7,9 @@ viewer:
 build: viewer
 	cargo build --release
 
-test:
+install: viewer
+	cargo install --path . --locked
+
+test: viewer
 	cd viewer && bun run test
 	cargo test

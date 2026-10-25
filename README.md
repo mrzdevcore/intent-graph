@@ -12,18 +12,17 @@ Design: [docs/specs/design.md](docs/specs/design.md)
 ## Install
 
 ```sh
-make viewer              # builds the viewer page (viewer/dist/index.html)
-cargo install --path .   # installs the `ig` binary, with the viewer embedded
+make install   # builds the viewer page (viewer/dist/index.html), then `cargo install --path . --locked`
 ```
 
 `ig` needs `git` on `PATH` and nothing else.
 
 ## Build
 
-`make build` (needs bun or node, plus cargo): the viewer first (`viewer/`, TypeScript, Lit and Vite,
-built into one offline HTML file), then `cargo build --release`, which embeds it. `make test` runs the
-viewer tests, then `cargo test`. Without bun: `cd viewer && npm install && npm run build`. Without a built
-viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
+`make build` (needs bun and cargo): the viewer first (`viewer/`, TypeScript, Lit and Vite,
+built into one offline HTML file), then `cargo build --release`, which embeds it. `make test` builds the
+viewer, runs its tests, then `cargo test`. Without bun, outside make: `cd viewer && npm install && npm run build`.
+Without a built viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
 
 ## Quick start
 
@@ -46,10 +45,16 @@ ig view            # open the change as a graph in the browser
 | `ig query <id> [--in\|--out\|--both] [--depth N] [--json]` | Neighbours of a node (default both, depth 2) as `kind id (file:line)` and `from -kind-> to`. Unknown id: suggestions, exit 1. |
 | `ig plan check <file> [--json]` | Checks a plan file before any code is written (see [Plans](#plans)). Exit 1 if it has errors. |
 | `ig plan notes [--wait] [--json]` | The open notes on the current plan (`plans/<slug>.notes.md`). `--wait` blocks until a new one arrives (exit 1 after 30 min without one). |
+| `ig apply start [<plan>]` | Starts applying a plan (default: the current one): records the base commit and the guarded files in `.ig/apply.json` (see [Apply](#apply)). |
+| `ig apply accept` | Re-records the guarded files after the user approved a change to one (`ig/tamper`). |
+| `ig apply review` | Stores the reviewer agent's JSON array (stdin) in `.ig/agent-review.json`. |
+| `ig apply finish` | The final check; lists the exceptions added during the apply. Exit 0 marks the plan `Status: done` and ends the apply. |
+| `ig apply abort` | Ends the apply without checking (removes `.ig/apply.json`), e.g. when its state is stale. |
+| `ig except <fingerprint> --reason <text>` | Records an exception with its reason in `.ig/baseline.json`; `ig brief` lists it. Tool and review findings only (`ig/plan` and `ig/tamper` are refused). |
 | `ig focus <id>...` | Writes `.ig/focus.json`, the ids the viewer should highlight. |
-| `ig view [--watch] [--no-open] [--json]` | Writes `.ig/view.html`. `--watch` is `ig serve` that also opens the browser. `--json` prints the page's data instead. |
-| `ig serve [--port N]` | The live viewer on `http://127.0.0.1:7420/` (see [Live plan co-design](#live-plan-co-design)). |
-| `ig serve claude` | Starts `claude --dangerously-load-development-channels server:ig`, so viewer notes reach the session. |
+| `ig view [--watch] [--no-open] [--json] [--plan <file> \| --no-plan]` | Writes `.ig/view.html`. `--watch` is `ig serve` that also opens the browser. `--json` prints the page's data instead. |
+| `ig serve [--port N] [--plan <file> \| --no-plan]` | The live viewer on `http://127.0.0.1:7420/` (see [Live plan co-design](#live-plan-co-design)). If 7420 is taken by another program it uses a free port; an explicit `--port` that is taken is an error. |
+| `ig serve claude` | Prints and runs `claude --dangerously-load-development-channels server:ig`, so viewer notes may reach the session (unverified, see below). |
 | `ig report --gitlab` | Checks `HEAD` and creates or updates one MR note (needs `IG_GITLAB_TOKEN` or `GITLAB_TOKEN`). |
 | `ig mcp` | MCP server on stdio with `check`, `get_findings`, `get_intents` and `graph_query`, plus `ig_state`, `ig_notes`, `ig_note_done`, `ig_focus` and `ig_wait_notes`, which talk to a running `ig serve`. |
 | `ig hook claude` | Claude Code Stop hook: blocks the agent on blocking findings, up to `hookMaxRounds`. |
@@ -132,13 +137,20 @@ Each of these is a note: one line in `plans/<slug>.notes.md`, committed with the
 
 The agent applies a note to the plan, ticks it (`- [x]`) and may append ` — <reply>`. It reaches
 the server through `ig mcp` (the plugin's `.mcp.json`, written by `ig init claude`). Started with
-`ig serve claude`, Claude Code also gets each new note pushed into the session as a channel event
-(a research preview; interactive sessions only). Otherwise the plan skill waits with `ig_wait_notes`.
+`ig serve claude`, Claude Code may also get each new note pushed into the session as a channel event.
+This is **unverified**: channels are a research preview (interactive sessions only) and the launch flag
+has not been tested against a real session. `server:ig` needs an `ig` MCP server in scope, e.g. from
+`claude mcp add ig -- ig mcp`; when the server comes only from the plugin the value may be `plugin:ig:ig`
+(run `claude --dangerously-load-development-channels plugin:ig:ig` yourself). Without the channel the
+plan skill waits with `ig_wait_notes`, which works either way.
 
 The API (`GET /api/state`, `GET /api/notes`, `POST /api/notes`, `POST /api/notes/<id>`,
 `POST /api/focus`, `GET /api/events`) answers only on `127.0.0.1` or `localhost`. Every POST needs
 the `X-IG-Token` of the run (in `.ig/serve.json` and in the served page) and a local `Origin`, so
 other web pages cannot post notes to your agent.
+
+Trust: open notes in a committed `plans/*.notes.md` are relayed to the agent as instructions to apply
+to the plan, so anyone who can commit one can talk to your agent. Review notes files like code.
 
 ## Intents
 
@@ -177,7 +189,7 @@ checkers:                     # any command that prints findings on stdout (a no
   - name: stylelint
     run: "npx stylelint --formatter json 'src/**/*.scss' 2>&1"
     format: stylelint-json    # sarif (default) | checkstyle | eslint-json | stylelint-json | lines
-    configs: [".stylelintrc*"] # the tool's own config files, watched for tampering
+    configs: ["**/.stylelintrc*"] # the tool's own config files, watched for tampering
 blockOn: error
 blueprint:                    # optional: page → front → API → use cases → adapters → systems
   lanes:

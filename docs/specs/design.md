@@ -394,7 +394,7 @@ The note contains, in order:
 - **the `.gitignore` entries:** an existing `.ig/` or `.ig` line is rewritten;
 - **the initial baseline:** from `check --all`, excluding checker and parse errors.
 
-### Explore
+### Setup
 
 `ig.yaml` is project knowledge that `ig` cannot infer on its own, so a coding agent writes it, following the `ig-setup` skill and grounded in facts from `ig setup`.
 

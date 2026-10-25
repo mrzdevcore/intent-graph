@@ -128,16 +128,16 @@ Detect stylelint, oxlint, biome, eslint, semgrep and tsc from config files and d
 Each checker is a command that prints findings on stdout. Exit 0 with empty output means no
 findings; a non-zero exit with no parsed findings is reported as `ig/checker-error` (with stderr).
 stylelint 16 prints its JSON to stderr, hence `2>&1`. Set `format` to match the tool, and `configs` to the tool's own config
-files:
+files (repo-relative globs where `*` stops at `/`, so `**/` also finds them in packages):
 
 ```yaml
 checkers:
-  - { name: stylelint, run: "npx stylelint --formatter json 'src/**/*.scss' 2>&1", format: stylelint-json, configs: [".stylelintrc*"] }
+  - { name: stylelint, run: "npx stylelint --formatter json 'src/**/*.scss' 2>&1", format: stylelint-json, configs: ["**/.stylelintrc*"] }
   - { name: oxlint,    run: "npx oxlint --format checkstyle",      format: checkstyle,  configs: [".oxlintrc.json"] }
   - { name: biome,     run: "npx biome lint --reporter=checkstyle", format: checkstyle,  configs: ["biome.json*"] }
   - { name: eslint,    run: "npx eslint -f json .",                 format: eslint-json, configs: ["eslint.config.*", ".eslintrc*"] }
-  - { name: semgrep,   run: "semgrep --sarif",                      format: sarif,       configs: [".semgrep*"] }
-  - { name: tsc,       run: "npx tsc --noEmit",                     format: lines,       configs: ["tsconfig*.json"] }
+  - { name: semgrep,   run: "semgrep --sarif",                      format: sarif,       configs: ["**/.semgrep*"] }
+  - { name: tsc,       run: "npx tsc --noEmit",                     format: lines,       configs: ["**/tsconfig*.json"] }
 ```
 
 - Run each command once and check that the output parses (a wrong `format` or a
