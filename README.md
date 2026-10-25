@@ -12,7 +12,7 @@ Design: [docs/specs/design.md](docs/specs/design.md)
 ## Install
 
 ```sh
-make install   # builds the viewer page (viewer/dist/index.html), then `cargo install --path . --locked`
+make install   # builds the viewer page (viewer/dist/index.html), then `cargo install --path crates/ig --locked`
 ```
 
 `ig` needs `git` on `PATH` and nothing else.
@@ -21,7 +21,7 @@ make install   # builds the viewer page (viewer/dist/index.html), then `cargo in
 
 `make build` (needs bun and cargo): the viewer first (`viewer/`, TypeScript, Lit and Vite,
 built into one offline HTML file), then `cargo build --release`, which embeds it. `make test` builds the
-viewer, runs its tests, then `cargo test`. Without bun, outside make: `cd viewer && npm install && npm run build`.
+viewer, runs its tests, then `cargo test --workspace`. Without bun, outside make: `cd viewer && npm install && npm run build`.
 Without a built viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
 
 ## Quick start
@@ -237,8 +237,8 @@ ig:
 ## Development
 
 ```sh
-cargo test                      # unit tests plus golden fixture tests
-UPDATE_GOLDEN=1 cargo test      # rewrite tests/golden/ after an intended change
+cargo test --workspace         # unit tests plus golden fixture tests
+UPDATE_GOLDEN=1 cargo test      # rewrite crates/ig/tests/golden/ after an intended change
 cd viewer && bun run test       # viewer model tests (Vitest); bun run typecheck for tsc
 ig view --json > viewer/dev-data.json && cd viewer && bun run dev   # the viewer live in Vite
 ```
