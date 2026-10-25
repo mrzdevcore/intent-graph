@@ -2,6 +2,7 @@
 
 use crate::checks::{self, Layers};
 use crate::config::{Config, Severity};
+use crate::diff::Status;
 use crate::model::{Edge, Finding, Graph, Metrics, Node, Range};
 use crate::view::LaneMap;
 use crate::{check, graph, mcp, review, workspace};
@@ -55,7 +56,6 @@ struct Block {
 pub struct Plan {
     pub path: String,
     pub title: String,
-    #[allow(dead_code)] // read by the apply workflow
     pub done: bool,
     pub steps: Vec<String>,
     pub nodes: Vec<PlanNode>,
@@ -236,6 +236,52 @@ pub fn merge(head: &Graph, plan: &Plan) -> (Graph, HashSet<String>, Vec<Finding>
     (g, added, findings)
 }
 
+/// Overlays `plan` on `run`: the merged graph, `added` status for what the plan adds, `changed`
+/// for planned changes to unchanged nodes, and `run.planned`. `run.plan` gets the plan's title,
+/// steps and merge findings; the viewer fills in the volume from `check`.
+pub fn overlay(run: &mut check::Run, plan: &Plan) {
+    let (merged, added, findings) = merge(&run.result.graph, plan);
+    for n in merged.nodes.iter().filter(|n| added.contains(&n.id)) {
+        run.diff.nodes.insert(n.id.clone(), Status::Added);
+        run.diff.touched_files.insert(n.file.clone());
+    }
+    for e in merged.edges.iter().filter(|e| added.contains(&e.key())) {
+        run.diff.edges.insert(e.key(), Status::Added);
+        run.diff.new_pairs.insert((e.from.clone(), e.to.clone()));
+    }
+    for n in plan
+        .nodes
+        .iter()
+        .filter(|n| n.status == PlanStatus::Changed)
+    {
+        if let Some(s) = run.diff.nodes.get_mut(&n.id)
+            && *s == Status::Unchanged
+        {
+            *s = Status::Changed;
+        }
+    }
+    let r = &mut run.result;
+    let changed = |m: &BTreeMap<String, Status>| -> BTreeMap<String, Status> {
+        m.iter()
+            .filter(|(_, s)| **s != Status::Unchanged)
+            .map(|(k, s)| (k.clone(), *s))
+            .collect()
+    };
+    r.changes = changed(&run.diff.nodes);
+    r.edge_changes = changed(&run.diff.edges);
+    r.counts = check::Counts {
+        added: run.diff.count(Status::Added),
+        changed: run.diff.count(Status::Changed),
+        removed: run.diff.count(Status::Removed),
+        unchanged: run.diff.count(Status::Unchanged),
+    };
+    r.graph = merged;
+    run.planned = added;
+    run.plan = Some(json!({
+        "title": plan.title, "steps": plan.steps, "done": plan.done, "volume": null, "findings": findings,
+    }));
+}
+
 /// Head nodes that transitively reach `targets` through incoming non-import edges, plus the
 /// direct importers of the targets' files. The targets themselves are excluded.
 fn blast_radius(head: &Graph, targets: &[&str]) -> BTreeSet<String> {
@@ -413,15 +459,21 @@ pub fn check_text(root: &Path, path: &str, text: &str) -> Result<Value> {
     }))
 }
 
-/// Checks the plan at `path` (relative to the working directory) and records it in
-/// `.ig/current-plan`.
-pub fn check(root: &Path, path: &Path) -> Result<Value> {
+/// The plan at `path` (relative to the working directory): its root-relative path and text.
+pub fn read(root: &Path, path: &Path) -> Result<(String, String)> {
     let text = std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
     let rel = path
         .canonicalize()
         .ok()
         .and_then(|p| workspace::rel(root, &p))
         .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"));
+    Ok((rel, text))
+}
+
+/// Checks the plan at `path` (relative to the working directory) and records it in
+/// `.ig/current-plan`.
+pub fn check(root: &Path, path: &Path) -> Result<Value> {
+    let (rel, text) = read(root, path)?;
     let v = check_text(root, &rel, &text)?;
     let dir = root.join(".ig");
     std::fs::create_dir_all(&dir)?;
@@ -430,7 +482,6 @@ pub fn check(root: &Path, path: &Path) -> Result<Value> {
 }
 
 /// The plan recorded by the last `ig plan check`, if it still exists.
-#[allow(dead_code)] // read by the apply workflow
 pub fn current(root: &Path) -> Option<PathBuf> {
     let rel = std::fs::read_to_string(root.join(".ig/current-plan")).ok()?;
     let p = root.join(rel.trim());
@@ -501,10 +552,10 @@ pub fn text(v: &Value) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    const PLAN: &str = "# Export\n\n## Steps\n1. core: add export\n\n```ig-plan\nnodes:\n  - id: packages/core/src/export.ts#exportRows\n    status: new\n    exported: true\n  - id: packages/core/src/repo.ts#Repo.find\n    status: changed\nedges:\n  - from: packages/core/src/export.ts#exportRows\n    to: packages/core/src/repo.ts#Repo.find\n```\n";
+    pub(crate) const PLAN: &str = "# Export\n\n## Steps\n1. core: add export\n\n```ig-plan\nnodes:\n  - id: packages/core/src/export.ts#exportRows\n    status: new\n    exported: true\n  - id: packages/core/src/repo.ts#Repo.find\n    status: changed\nedges:\n  - from: packages/core/src/export.ts#exportRows\n    to: packages/core/src/repo.ts#Repo.find\n```\n";
 
     fn fixture_dir(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))

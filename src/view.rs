@@ -4,6 +4,7 @@ use crate::check::{self, Opts, Run};
 use crate::checks;
 use crate::diff::Status;
 use crate::model::Node;
+use crate::plan;
 use crate::workspace;
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -266,6 +267,10 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
                 "endLine": n.range.end_line, "parent": n.parent, "status": s, "complexity": n.metrics.complexity,
                 "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file), "lane": lane_of(n), "test": test_files.is_match(&n.file),
             });
+            if run.planned.contains(&n.id) {
+                v["planned"] = json!(true);
+                return v;
+            }
             let code = sources.code(n, s);
             match (code.diff, code.after, code.before) {
                 (Some(d), _, _) => v["diff"] = json!(d),
@@ -280,8 +285,12 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
     let edges: Vec<Value> = all_edges(run)
         .into_iter()
         .map(|(e, s)| {
-            json!({"from": e.from, "to": e.to, "kind": e.kind, "confidence": e.confidence, "status": s, "line": e.line,
-                   "violation": viol.contains(&(e.from.clone(), e.to.clone()))})
+            let mut v = json!({"from": e.from, "to": e.to, "kind": e.kind, "confidence": e.confidence, "status": s, "line": e.line,
+                   "violation": viol.contains(&(e.from.clone(), e.to.clone()))});
+            if run.planned.contains(&e.key()) {
+                v["planned"] = json!(true);
+            }
+            v
         })
         .collect();
     let node_ids: HashSet<&str> = run
@@ -322,19 +331,23 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
         .map(|(e, _)| (e.from.as_str(), e.to.as_str()))
         .collect();
     let set = changed_set(run, &pairs);
-    let mode = if set.is_empty() || set.len() > 300 {
+    let mode = if run.plan.is_none() && (set.is_empty() || set.len() > 300) {
         "architecture"
     } else {
         "changed"
     };
     let layer_names: Vec<&str> = run.config.layers.iter().map(|(n, _)| n.as_str()).collect();
-    json!({
+    let mut out = json!({
         "nodes": nodes, "edges": edges, "findings": findings, "intents": intents,
         "intentChanges": run.result.intent_changes, "notices": run.result.notices,
         "editor": run.config.editor, "root": root.to_string_lossy(), "mode": mode, "layers": layer_names,
         "lanes": if bp.lanes.is_empty() { vec![] } else { bp.lanes.iter().map(|l| l.name.as_str()).chain(["Systems"]).collect::<Vec<_>>() },
         "blocking": run.result.blocking, "base": run.result.base, "head": run.result.head, "counts": run.result.counts,
-    })
+    });
+    if let Some(p) = &run.plan {
+        out["plan"] = p.clone();
+    }
+    out
 }
 
 pub fn render(run: &Run, root: &Path, opts: &Opts, live: bool) -> String {
@@ -354,8 +367,33 @@ fn page(data_json: &str, live: bool) -> String {
         .replace("/*IG_DATA*/", data_json)
 }
 
-pub fn write(root: &Path, opts: &Opts) -> Result<PathBuf> {
-    let run = check::run(root, opts)?;
+/// `check::run` with the plan at `plan` overlaid. A plan that fails to load becomes a notice.
+fn run_with_plan(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<Run> {
+    let mut run = check::run(root, opts)?;
+    let Some(path) = plan else { return Ok(run) };
+    let loaded = plan::read(root, path).and_then(|(rel, text)| {
+        Ok((
+            plan::parse(&rel, &text)?,
+            plan::check_text(root, &rel, &text)?,
+        ))
+    });
+    match loaded {
+        Ok((p, v)) => {
+            plan::overlay(&mut run, &p);
+            let shown = run.plan.as_mut().unwrap();
+            shown["volume"] = v["volume"].clone();
+            shown["findings"] = v["findings"].clone();
+        }
+        Err(e) => run
+            .result
+            .notices
+            .push(format!("plan {}: {e:#}", path.display())),
+    }
+    Ok(run)
+}
+
+pub fn write(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<PathBuf> {
+    let run = run_with_plan(root, opts, plan)?;
     let html = render(&run, root, opts, false);
     let path = root.join(".ig/view.html");
     check::write_atomic(&path, html.as_bytes())?;
@@ -399,12 +437,12 @@ fn ignored(root: &Path, p: &Path) -> bool {
 
 type Clients = Arc<Mutex<Vec<Box<dyn Write + Send>>>>;
 
-pub fn watch(root: &Path, opts: &Opts, open_browser: bool) -> Result<()> {
+pub fn watch(root: &Path, opts: &Opts, plan: Option<PathBuf>, open_browser: bool) -> Result<()> {
     use notify::Watcher;
     let opts = opts.clone();
     let build = move |root: &Path| -> Result<String> {
         let opts = &opts;
-        let run = check::run(root, opts)?;
+        let run = run_with_plan(root, opts, plan.as_deref())?;
         let html = render(&run, root, opts, true);
         let _ = check::write_atomic(
             &root.join(".ig/view.html"),
@@ -492,4 +530,43 @@ pub fn watch(root: &Path, opts: &Opts, open_browser: bool) -> Result<()> {
     }
     drop(watcher);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn planned_nodes_and_plan_panel() {
+        let dir = std::env::temp_dir().join(format!("ig-view-plan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/monorepo");
+        assert!(
+            std::process::Command::new("cp")
+                .arg("-R")
+                .arg(&src)
+                .arg(&dir)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let dir = dir.canonicalize().unwrap();
+        let mut run = check::run(&dir, &Opts::default()).unwrap();
+        let plan = crate::plan::parse("plans/export.md", crate::plan::tests::PLAN).unwrap();
+        crate::plan::overlay(&mut run, &plan);
+        let d = data(&run, &dir, &Opts::default());
+        let n = d["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == "packages/core/src/export.ts#exportRows")
+            .unwrap();
+        assert_eq!(
+            (n["planned"].clone(), n["status"].clone()),
+            (json!(true), json!("added"))
+        );
+        assert_eq!(d["plan"]["title"], "Export");
+        assert!(render(&run, &dir, &Opts::default(), false).contains("planned"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
