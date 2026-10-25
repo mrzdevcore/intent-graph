@@ -44,6 +44,32 @@ pub struct Pattern {
 pub struct Checker {
     pub name: String,
     pub run: String,
+    pub format: Format,
+    /// Globs naming the tool's own config files (tamper detection).
+    #[allow(dead_code)] // read by tamper detection (Task 6)
+    pub configs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    Sarif,
+    Checkstyle,
+    EslintJson,
+    StylelintJson,
+    Lines,
+}
+
+impl Format {
+    fn parse(s: &str) -> Option<Format> {
+        Some(match s {
+            "sarif" => Format::Sarif,
+            "checkstyle" => Format::Checkstyle,
+            "eslint-json" => Format::EslintJson,
+            "stylelint-json" => Format::StylelintJson,
+            "lines" => Format::Lines,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -265,9 +291,24 @@ impl Config {
                                 None => bail!("ig.yaml: {path}.{f}: expected a string"),
                             }
                         };
+                        let format = match ch.get("format") {
+                            None => Format::Sarif,
+                            Some(f) => match f.as_str().and_then(Format::parse) {
+                                Some(f) => f,
+                                None => bail!(
+                                    "ig.yaml: {path}.format: expected one of sarif, checkstyle, eslint-json, stylelint-json, lines"
+                                ),
+                            },
+                        };
+                        let configs = match ch.get("configs") {
+                            Some(v) => strings(v, &format!("{path}.configs"))?,
+                            None => vec![],
+                        };
                         c.checkers.push(Checker {
                             name: get("name")?,
                             run: get("run")?,
+                            format,
+                            configs,
                         });
                     }
                 }
@@ -471,6 +512,16 @@ fn severity(v: &Value, path: &str) -> Result<Severity> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checker_format_and_configs() {
+        let c = Config::parse("checkers:\n  - name: s\n    run: x\n    format: lines\n    configs: ['.stylelintrc*']\n  - name: d\n    run: y\n").unwrap();
+        assert_eq!(c.checkers[0].format, Format::Lines);
+        assert_eq!(c.checkers[0].configs, vec![".stylelintrc*"]);
+        assert_eq!(c.checkers[1].format, Format::Sarif);
+        let e = Config::parse("checkers:\n  - name: s\n    run: x\n    format: nope\n").unwrap_err().to_string();
+        assert_eq!(e, "ig.yaml: checkers[0].format: expected one of sarif, checkstyle, eslint-json, stylelint-json, lines");
+    }
 
     #[test]
     fn parses_and_validates() {
