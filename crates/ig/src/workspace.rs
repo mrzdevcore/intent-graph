@@ -7,14 +7,7 @@ use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-pub use ig_core::workspace::{Package, glob, globset, join};
-
-#[derive(Debug, Clone)]
-pub struct SourceFile {
-    /// Repo-relative posix path.
-    pub path: String,
-    pub package: usize,
-}
+pub use ig_core::workspace::{Package, SourceFile, glob, globset, join};
 
 pub struct Workspace {
     pub root: PathBuf,
