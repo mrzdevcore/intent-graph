@@ -83,11 +83,16 @@ pub fn serve(root: &Path) -> anyhow::Result<()> {
         let mut o = out.lock().unwrap();
         let _ = writeln!(o, "{v}").and_then(|_| o.flush());
     });
-    {
-        let (root, send) = (root.to_path_buf(), send.clone());
-        std::thread::spawn(move || relay(&root, &*send));
-    }
-    for line in std::io::stdin().lock().lines() {
+    serve_lines(root, std::io::stdin().lock().lines(), send)
+}
+
+fn serve_lines(
+    root: &Path,
+    lines: impl Iterator<Item = std::io::Result<String>>,
+    send: Arc<dyn Fn(Value) + Send + Sync>,
+) -> anyhow::Result<()> {
+    let mut relaying = false;
+    for line in lines {
         let line = line?;
         if line.trim().is_empty() {
             continue;
@@ -101,6 +106,12 @@ pub fn serve(root: &Path) -> anyhow::Result<()> {
                 continue;
             }
         };
+        // Channel events only once the client has initialised; before that they would be lost.
+        if msg["method"] == "notifications/initialized" && !relaying {
+            relaying = true;
+            let (root, send) = (root.to_path_buf(), send.clone());
+            std::thread::spawn(move || relay(&root, &*send));
+        }
         // ig_wait_notes blocks for up to 30 min: it gets its own thread so other calls go on.
         if msg["params"]["name"] == "ig_wait_notes" {
             let (root, send) = (root.to_path_buf(), send.clone());
@@ -632,5 +643,49 @@ mod tests {
                 .unwrap()
                 .contains("run `ig serve`")
         );
+    }
+
+    #[test]
+    fn channel_events_start_only_after_initialized() {
+        use crate::serve::tests::{COMMENT, post, start};
+        let (dir, info) = start("mcp-init");
+        let note = json!({"kind": "comment", "target": COMMENT, "text": "early"});
+        assert_eq!(
+            post(&info, "/api/notes", &note, Some(&info.token), None).0,
+            200
+        );
+        let got: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(vec![]));
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        {
+            let got = got.clone();
+            let send: Arc<dyn Fn(Value) + Send + Sync> =
+                Arc::new(move |v| got.lock().unwrap().push(v));
+            std::thread::spawn(move || serve_lines(&dir, rx.into_iter().map(Ok), send));
+        }
+        let channel = |got: &Arc<Mutex<Vec<Value>>>| {
+            got.lock()
+                .unwrap()
+                .iter()
+                .filter(|m| m["method"] == "notifications/claude/channel")
+                .count()
+        };
+        tx.send(
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}).to_string(),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_secs(3));
+        assert_eq!(channel(&got), 0, "a channel event before initialized");
+        tx.send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}).to_string())
+            .unwrap();
+        let end = std::time::Instant::now() + Duration::from_secs(10);
+        while channel(&got) == 0 {
+            assert!(
+                std::time::Instant::now() < end,
+                "no channel event after initialized"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let msgs = got.lock().unwrap();
+        assert_eq!(msgs[0]["id"], 1, "the initialize reply comes first");
     }
 }

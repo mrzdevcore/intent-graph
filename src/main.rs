@@ -39,7 +39,7 @@ const USAGE: &str =
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--json] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
-   | serve [--port N] [--no-plan] | serve claude
+   | serve [--port N] [--plan <file> | --no-plan] | serve claude
    (all accept --root <dir>)";
 
 #[derive(Default)]
