@@ -345,11 +345,18 @@ mode.
   `$ig-apply` skill running `ig check --agent` until it is clean. This is accepted, and the README
   states that Codex enforcement is weaker than Claude's.
 
+## Viewer as a frontend project (added 2026-10-25, decided with the user)
+
+- The viewer moves out of `assets/` (plain JS plus vendored libraries) into `viewer/`: a TypeScript project built with Lit web components and Vite, using bun and Node. Libraries such as Cytoscape, fcose, Mermaid, simple-icons and lucide are npm packages.
+- Building `ig` takes two steps: first the viewer (`bun run build`, which produces one self-contained offline HTML file), then the backend (`cargo build`, which embeds that file through `build.rs`). `make build` runs both. Without a built viewer, cargo still builds and embeds a placeholder page.
+- System icons come from packages: `simple-icons` brand logos for known systems, and `lucide` icons by category as the fallback. They replace the hand-drawn icons first planned for Task 9.
+- The Architecture view gets a layered row layout like Blueprint, with external services in the bottom row, and a toggle to hide links.
+
 ## Constraints
 
 - Rust, existing crates. No new runtime dependency for users. External tools are run only if the
   repo already uses them.
-- Viewer: offline single HTML, vendored assets only (as today).
+- Viewer: one offline HTML file with no network access at runtime. Its libraries come from npm and are bundled at build time.
 - Never overwrite user files (`ig init` rule today). Skills are rewritten only on an explicit
   update command.
 - The user's git rules: nothing pushes. Skills that commit (if any) never add AI attribution.
