@@ -237,8 +237,14 @@ ig:
 ## Development
 
 ```sh
-cargo test --workspace         # unit tests plus golden fixture tests
-UPDATE_GOLDEN=1 cargo test      # rewrite crates/ig/tests/golden/ after an intended change
-cd viewer && bun run test       # viewer model tests (Vitest); bun run typecheck for tsc
+cargo test --workspace             # unit tests plus golden fixture tests
+UPDATE_GOLDEN=1 cargo test         # rewrite crates/ig/tests/golden/ after an intended change
+cd viewer && bun run test          # viewer model tests (Vitest); bun run typecheck for tsc
 ig view --json > viewer/dev-data.json && cd viewer && bun run dev   # the viewer live in Vite
 ```
+
+Layout: a Cargo workspace in `crates/`. `ig-core` is pure domain plus the ports; `ig-app` holds the use cases;
+`ig-lang-ts`, `ig-fs`, `ig-git` and `ig-checkers` are adapters; `ig` is the binary that wires them.
+The dependency rule (core and adapters depend only on `ig-core`) and a 600-line file limit are enforced by
+`crates/ig/tests/architecture.rs`. To add a language, implement `LanguageFrontend` in a new `ig-lang-*` crate.
+See [Architecture](docs/specs/design.md#architecture).

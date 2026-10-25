@@ -97,30 +97,43 @@ Validation errors are fatal and look like `ig.yaml: rules[0]: expected "a -> b"`
 
 ## Architecture
 
-There is one crate *(call)*. Modules are listed in pipeline order:
+The repo is a Cargo workspace in a hexagonal layout: a pure core, use cases over ports, and adapters that implement the ports.
+
+| Crate | Role |
+|---|---|
+| `ig-core` | Pure domain: graph model, config, diff, rules (arch, complexity, intents, sarif, baseline), review analyses, plan and notes parsing, cache keys, and the ports (`Files`, `Vcs`, `CheckerRunner`, `LanguageFrontend`). No I/O. |
+| `ig-app` | Use cases over the ports: check, apply, plan, view data, brief, review, setup, notes, base-graph cache, baseline, and the language-neutral graph build. No I/O. |
+| `ig-lang-ts` | `LanguageFrontend` for TypeScript/JavaScript: oxc extraction, resolution, tsconfig, embedded SFC scripts, ast-grep patterns, auto-imports. |
+| `ig-fs` | `Files` over `std::fs` (source discovery, `.ig/` files). |
+| `ig-git` | `Vcs` over the `git` binary (base/head resolution, worktrees, merge-base). |
+| `ig-checkers` | `CheckerRunner`: runs configured commands and parses their output formats. |
+| `ig` (package `intent-graph`) | The binary: CLI parsing (`cli.rs`), wiring, renders (terminal, viewer page, GitLab note), `serve`, `mcp`, `hook`, `init`, skills. `build.rs` embeds the viewer. |
+
+**Dependency rule:** `ig-core` depends on no `ig-*` crate; `ig-app` and every adapter depend only on `ig-core`; only the binary depends on everything. `crates/ig/tests/architecture.rs` enforces this with `cargo metadata`, greps `ig-core` and `ig-app` for I/O (`std::fs`, `std::process`, `std::net`, `Command::new`, `File::open`, `println!`, `eprintln!`) and fails on any `.rs` file over 600 lines.
+
+**Adding a language frontend:** create `crates/ig-lang-<x>` depending only on `ig-core`, implement `LanguageFrontend` (`handles`, extraction, resolution, `prepare_checkout`, `cache_inputs`), and register it where `main` builds the frontend list. Nothing in `ig-core` or `ig-app` changes.
+
+Data flow, in pipeline order (the stages now live in the crates above):
 
 ```
-main        CLI parsing, dispatch, exit codes
-config      ig.yaml → Config
+cli         CLI parsing, dispatch, exit codes (ig)
+config      ig.yaml → Config (ig-core, read by ig-app)
 workspace   package discovery, workspace import resolution
-files       source file discovery
-embedded    script extraction and markup scanning for SFCs
-nodes       per-file node extraction (oxc AST)
-resolve     module resolution, export tables, symbol → node
-edges       per-file edge extraction
-graph       two-pass build, pattern nodes, sort/dedup
-patterns    ast-grep matching
-git         base/head resolution, worktrees, base-graph cache
-diff        graph diff
-intents     intents.md parsing and changed intents
-checks/     arch, complexity, intents, sarif, baseline
-check       orchestration, scoping, writing .ig/ files
-review/     module graph, cycles, hubs, stability, cohesion, coupling, unused, oversized, ranking, regressions
-report/     mermaid, gitlab note
-view/       html render, watch server
-mcp         JSON-RPC over stdio
-hook        Claude Code Stop hook
-init        scaffolding
+files       source file discovery (ig-fs)
+embedded    script extraction and markup scanning for SFCs (ig-lang-ts)
+extract     per-file nodes and edges (oxc AST, ig-lang-ts)
+resolve     module resolution, export tables, symbol → node (ig-lang-ts)
+build       two-pass build, pattern nodes, sort/dedup (ig-app, with ig-lang-ts)
+patterns    ast-grep matching (ig-lang-ts)
+vcs         base/head resolution, worktrees (ig-git); base-graph cache (ig-app)
+diff        graph diff (ig-core)
+intents     intents.md parsing and changed intents (ig-core)
+rules/      arch, complexity, intents, sarif, baseline (ig-core)
+check       orchestration, scoping, writing .ig/ files (ig-app)
+review/     module graph, cycles, hubs, stability, cohesion, coupling, unused, oversized, ranking, regressions (ig-core)
+render      terminal, mermaid, gitlab note, html page (ig)
+serve/mcp   live viewer server, JSON-RPC over stdio (ig)
+hook, init  Claude Code Stop hook, scaffolding (ig)
 ```
 
 ### Workspace and files

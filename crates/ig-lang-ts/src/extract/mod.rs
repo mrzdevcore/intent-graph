@@ -18,6 +18,7 @@ use std::sync::LazyLock;
 
 mod callee;
 mod http;
+mod visit_impl;
 mod visitor;
 
 use callee::export_tables;
