@@ -6,7 +6,7 @@ import { customElement, property } from "lit/decorators.js";
 import cytoscape from "cytoscape";
 import fcose from "cytoscape-fcose";
 import { iconFor, iconUri } from "../icons";
-import type { El } from "../model/graph";
+import { applyLinks, type El } from "../model/graph";
 import { emit } from "./shared";
 
 cytoscape.use(fcose);
@@ -49,7 +49,7 @@ function stylesheet(): cytoscape.Stylesheet[] {
     { selector: "node[kind = 'system']", style: {
       "shape": "round-rectangle", "width": 44, "height": 44, "background-color": panel, "border-width": 1, "border-color": line,
       "background-image": (n: cytoscape.NodeSingular) => iconUri(iconFor(n.data("label"), n.data("packages") || [], n.data("category")), fg),
-      "background-width": "70%", "background-height": "70%", "font-size": 12, "font-weight": 700 } },
+      "background-width": "80%", "background-height": "80%", "font-size": 12, "font-weight": 700 } },
     { selector: "edge[kind = 'http']", style: { "line-color": css("--note"), "target-arrow-color": css("--note"), "line-style": "dashed", "opacity": 0.95, "width": 2 } },
     { selector: "edge[kind = 'uses']", style: { "line-color": css("--warning"), "target-arrow-color": css("--warning"), "opacity": 0.9 } },
     { selector: "node[?outer]", style: { "opacity": 0.55, "border-style": "dashed" } },
@@ -115,9 +115,7 @@ export class IgGraph extends LitElement {
   }
 
   private applyLinks() {
-    const cy = this.cy;
-    cy.edges().toggleClass("nolink", !this.links);
-    if (!this.links) cy.$("node:selected").connectedEdges().removeClass("nolink");
+    applyLinks(this.cy, this.links);
   }
 
   /** Replaces the elements. Unless `fresh`, nodes keep their positions and new ones start next to the

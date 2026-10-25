@@ -33,31 +33,53 @@ function layerOf(ix: Index, id: string): string | null {
   return g ? g.label : null;
 }
 
-/** Puts the boxes in their rows, spread evenly, wrapping rows wider than `width` onto extra lines. */
-function rows(ix: Index, nodes: El[], width: number): El[] {
-  const names = [...ix.D.layers, "Other", "External services"];
-  const byRow: El[][] = names.map(() => []);
+export type RowKind = "layer" | "other" | "external";
+export interface RowOf {
+  row: number;
+  name: string;
+  kind: RowKind;
+}
+/** A drawn row: its band spans `top`..`bottom`. */
+export interface Lane extends RowOf {
+  top: number;
+  bottom: number;
+}
+
+/** Each box's row: its layer's (declaration order), "Other" without one, "External services" for systems. */
+export function assignRows(ix: Index, nodes: El[]): Record<string, RowOf> {
+  const n = ix.D.layers.length;
+  const of: Record<string, RowOf> = {};
   nodes.forEach((e) => {
-    const i = e.data.kind === "system" ? names.length - 1 : ix.D.layers.indexOf(layerOf(ix, e.data.id) ?? "");
-    byRow[i < 0 ? names.length - 2 : i].push(e);
+    const i = e.data.kind === "system" ? -2 : ix.D.layers.indexOf(layerOf(ix, e.data.id) ?? "");
+    of[e.data.id] =
+      i === -2 ? { row: n + 1, name: "External services", kind: "external" }
+      : i < 0 ? { row: n, name: "Other", kind: "other" }
+      : { row: i, name: ix.D.layers[i], kind: "layer" };
   });
+  return of;
+}
+
+/** Positions the boxes in their rows, spread evenly, wrapping rows wider than `width` onto extra
+ *  lines. Returns the non-empty rows top to bottom and the width they span. */
+export function placeRows(nodes: El[], of: Record<string, RowOf>, width: number): { lanes: Lane[]; width: number } {
+  const byRow: Record<number, El[]> = {};
+  nodes.forEach((e) => (byRow[of[e.data.id].row] = byRow[of[e.data.id].row] || []).push(e));
   const slotOf = (d: ElData) => {
     const n = (d.label || "").length;
     return d.kind === "layer" || d.kind === "dir" ? Math.max(70, n * 8.5 + 24) + 60 : Math.max(80, Math.min(n, 24) * 7 + 30);
   };
   const lineH = 150;
-  const layout = byRow.map((r) => {
+  const layout = Object.keys(byRow).map(Number).sort((a, b) => a - b).map((row) => {
+    const r = byRow[row];
     const slot = Math.max(0, ...r.map((e) => slotOf(e.data)));
     const perLine = Math.max(1, Math.floor(width / slot));
     return { r, slot, perLine, lines: Math.ceil(r.length / perLine) };
   });
   const full = Math.max(0, ...layout.map((o) => Math.min(o.r.length, o.perLine) * o.slot));
-  const lanes: El[] = [];
+  const lanes: Lane[] = [];
   let top = 0;
-  layout.forEach((o, row) => {
-    if (!o.r.length) return;
-    const h = o.lines * lineH - 30;
-    lanes.push(...lane(row, names[row], top + h / 2, full, h));
+  layout.forEach((o) => {
+    lanes.push({ ...of[o.r[0].data.id], top, bottom: top + o.lines * lineH - 30 });
     o.r.forEach((e, i) => {
       const line = Math.floor(i / o.perLine);
       const k = Math.min(o.perLine, o.r.length - line * o.perLine);
@@ -65,7 +87,13 @@ function rows(ix: Index, nodes: El[], width: number): El[] {
     });
     top += o.lines * lineH;
   });
-  return lanes;
+  return { lanes, width: full };
+}
+
+/** The layer whose row is under `y`; undefined for Other, External services and the gaps. */
+export function rowAt(lanes: Lane[], y: number): string | undefined {
+  const l = lanes.find((x) => x.kind === "layer" && y >= x.top && y <= x.bottom);
+  return l && l.name;
 }
 
 export function architecture(ix: Index, scope: Group, width = 1200): El[] {
@@ -103,7 +131,8 @@ export function architecture(ix: Index, scope: Group, width = 1200): El[] {
   };
   Object.keys(inner).forEach((id) => add(id, false));
   Object.keys(linked).forEach((id) => add(id, true));
-  els.unshift(...rows(ix, els, width));
+  const placed = placeRows(els, assignRows(ix, els), width);
+  els.unshift(...placed.lanes.flatMap((l) => lane(l.row, l.name, (l.top + l.bottom) / 2, placed.width, l.bottom - l.top)));
   edges.forEach((e, i) => {
     if (shown[e.source] && shown[e.target]) {
       e.id = "e" + i;
