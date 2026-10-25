@@ -129,7 +129,7 @@ pub struct Trees {
 
 /// Resolves base and head; materialises `--head` when needed.
 pub fn trees(root: &Path, opts: &Opts) -> Result<Trees> {
-    let work_cfg = Config::load(root)?;
+    let work_cfg = crate::config::load(root)?;
     let mut notices = vec![];
     let repo = Repo::open(root);
     let Some(repo) = repo else {
@@ -162,7 +162,7 @@ pub fn trees(root: &Path, opts: &Opts) -> Result<Trees> {
                 let r = wt.root(&repo);
                 // Trust boundary: checkers always come from the working tree's ig.yaml.
                 let mut cfg = if r.is_dir() {
-                    Config::load(&r)?
+                    crate::config::load(&r)?
                 } else {
                     Config::default()
                 };

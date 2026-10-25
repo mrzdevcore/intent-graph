@@ -381,7 +381,7 @@ fn query_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
     let Some(id) = a.sub.as_deref() else {
         bail!("query: expected a node id");
     };
-    let cfg = config::Config::load(root)?;
+    let cfg = config::load(root)?;
     let repo_head = git::Repo::open(root).and_then(|r| r.head());
     let built = graph::build(root, &cfg, repo_head)?;
     let v = mcp::query(
@@ -419,7 +419,7 @@ fn query_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
 }
 
 fn review_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
-    let cfg = config::Config::load(root)?;
+    let cfg = config::load(root)?;
     let repo_head = git::Repo::open(root).and_then(|r| r.head());
     let built = graph::build(root, &cfg, repo_head)?;
     let tests = workspace::globset(&cfg.tests)?;

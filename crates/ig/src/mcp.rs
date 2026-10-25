@@ -1,7 +1,6 @@
 //! `ig mcp`: hand-rolled MCP server (JSON-RPC 2.0 over stdio, one message per line).
 
 use crate::check;
-use crate::config::Config;
 use crate::graph;
 use crate::intents;
 use crate::model::{Graph, TOOL_VERSION};
@@ -180,7 +179,7 @@ fn handle_with(root: &Path, msg: &Value, send: &dyn Fn(Value)) -> Option<Value> 
 }
 
 fn head_graph(root: &Path) -> anyhow::Result<Graph> {
-    let cfg = Config::load(root)?;
+    let cfg = crate::config::load(root)?;
     Ok(graph::build(root, &cfg, None)?.graph)
 }
 
@@ -275,7 +274,7 @@ fn call(
             Ok((serde_json::to_string_pretty(&s)?, Some(s)))
         }
         "get_intents" => {
-            let cfg = Config::load(root)?;
+            let cfg = crate::config::load(root)?;
             let g = graph::build(root, &cfg, None)?.graph;
             let tests = workspace::globset(&cfg.tests)?;
             let declared = intents::parse(

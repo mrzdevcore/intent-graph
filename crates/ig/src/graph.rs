@@ -998,7 +998,7 @@ mod tests {
                 "<script setup lang=\"ts\">\nconst c = useCatalog();\n</script>\n",
             ),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         assert!(
@@ -1036,7 +1036,7 @@ mod tests {
                 "export function member(obj: any) { obj.useCatalog(); }\nexport function param(useCatalog: any) { useCatalog(); }\nexport function bare() { useCatalog(); useI18n(); }\n",
             ),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         let to_catalog = |from: &str| {
@@ -1080,7 +1080,7 @@ mod tests {
                 "<template><dashboard-report /><other-thing /></template>\n",
             ),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         let from_page: Vec<_> = g
@@ -1115,7 +1115,7 @@ mod tests {
                 "import { b } from '../src/b';\nexport function t() { b(); }\n",
             ),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         assert!(
@@ -1162,7 +1162,7 @@ mod tests {
                 "<script setup lang=\"ts\">\nconst b = useB();\n</script>\n",
             ),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         assert!(
@@ -1205,7 +1205,7 @@ mod tests {
                 "<script setup lang=\"ts\">\nconst t = useI18n();\n</script>\n",
             ),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         assert!(
@@ -1237,7 +1237,7 @@ mod tests {
                 "<script setup lang=\"ts\">\nconst x = useX();\n</script>\n",
             ),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         assert!(
@@ -1274,7 +1274,7 @@ mod tests {
             ),
             ("src/x.spec.ts", "export function t() { useD(); }\n"),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         assert!(
@@ -1311,7 +1311,7 @@ mod tests {
                 "const q = (u: string, x?: number) => (x ? `${u}?x=${x}` : u);\nexport function load() { return fetch(`/p`); }\nexport function wrapped() { return fetch(q('/p', 1)); }\nexport function joined(id: string) { return fetch(join('/p', 'users', id)); }\nexport function joinedT(id: string) { return fetch(join('/p', `${id}`)); }\n",
             ),
         ]);
-        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+        let g = build(&dir, &crate::config::load(&dir).unwrap(), None)
             .unwrap()
             .graph;
         let route = g

@@ -8,6 +8,7 @@ anyhow = "1.0.104"
 ast-grep-core = "0.51.0"
 ast-grep-language = { version = "0.51.0", default-features = false, features = ["napi-lang"] }
 globset = "0.4.20"
+ig-core = { path = "../ig-core" }
 json_comments = "0.2.2"
 lexopt = "0.3.2"
 notify = "8.2.0"

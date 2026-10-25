@@ -1,0 +1,11 @@
+[package]
+name = "ig-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_yaml_ng = "0.10.0"
+sha1 = "0.11.0"
+thiserror = "2.0.21"
