@@ -480,7 +480,7 @@
   var hint = document.getElementById("hint");
   // Re-renders the current mode. Within a mode, nodes keep their positions and new ones start next to
   // the box they came out of, so opening a box doesn't reshuffle the picture. `zoomTo` fits that box.
-  var lastMode = null;
+  var lastMode = null, lastTreeMode = null;
   function render(zoomTo) {
     var els = mode === "architecture" ? architecture() : mode === "focus" ? exact(focusIds()) : mode === "blueprint" ? blueprint() : exact(changedIds());
     var fresh = mode !== lastMode;
@@ -520,6 +520,10 @@
     var n = cy.nodes().length;
     crumbs();
     if (mode === "blueprint") journeyList();
+    if (window.igTreeReady) {
+      if (mode !== lastTreeMode) { treeInView.checked = mode !== "architecture"; lastTreeMode = mode; }
+      computeOnScreen(); renderTree();
+    }
     hint.textContent = mode === "blueprint" ? (journey ? "Journey " + journeyName(journey).route + ": the page and everything behind it, by lane. Dashed blue: HTTP calls." : "Pick a page on the right.") :
       mode === "architecture" ? "Click a box to open it. Dimmed boxes are outside, connected context." :
       mode === "focus" ? "Neighbourhood of " + (byId[focusId] ? byId[focusId].name : "") + " (depth " + focusDepth + ")" :
@@ -595,9 +599,10 @@
     });
     if (fs.length) { side.appendChild(el("h2", { text: "Findings" })); side.appendChild(el("ul", {}, fs.map(findingItem))); }
   }
-  function details(id) {
+  function details(id, fromTree) {
     var n = byId[id];
     if (!n) { if (groups[id]) groupDetails(id); else overview(); return; }
+    if (!fromTree && window.igTreeReady) revealInTree(id);
     side.innerHTML = "";
     side.appendChild(backLink());
     side.appendChild(el("h2", { text: n.kind + (n.layer ? " · " + n.layer : "") }));
@@ -661,6 +666,150 @@
     if (hit) focus(hit);
   });
 
+
+  // ---- Tree: an IDE-like explorer of folders, files and functions, synced with the graph ----
+  var treeBody = document.getElementById("tree-body"), treeFilter = document.getElementById("tree-filter"),
+      treeInView = document.getElementById("tree-inview");
+  var fileTree = { name: "", path: "", dirs: {}, files: [] };
+  Object.keys(modules).sort().forEach(function (f) {
+    var parts = f.split("/"), t = fileTree;
+    parts.slice(0, -1).forEach(function (p, i) {
+      t = t.dirs[p] || (t.dirs[p] = { name: p, path: parts.slice(0, i + 1).join("/"), dirs: {}, files: [] });
+    });
+    t.files.push(f);
+  });
+  // Single-child folder chains read as one row ("src/application").
+  (function merge(t) {
+    Object.keys(t.dirs).forEach(function (k) {
+      var d = t.dirs[k];
+      while (Object.keys(d.dirs).length === 1 && d.files.length === 0) {
+        var c = d.dirs[Object.keys(d.dirs)[0]];
+        d = { name: d.name + "/" + c.name, path: c.path, dirs: c.dirs, files: c.files };
+      }
+      t.dirs[k] = d;
+      merge(d);
+    });
+  })(fileTree);
+  (function stats(t) {
+    t.count = t.files.length; t.dirty = false; t.findings = 0;
+    t.files.forEach(function (f) { t.dirty = t.dirty || modules[f].dirty; t.findings += modules[f].findings; });
+    Object.keys(t.dirs).forEach(function (k) { var d = t.dirs[k]; stats(d); t.count += d.count; t.dirty = t.dirty || d.dirty; t.findings += d.findings; });
+  })(fileTree);
+  var childrenOf = {};
+  D.nodes.forEach(function (n) { if (!n.module && n.parent && n.kind !== "system") (childrenOf[n.parent] = childrenOf[n.parent] || []).push(n); });
+  Object.keys(childrenOf).forEach(function (k) { childrenOf[k].sort(function (a, b) { return a.line - b.line; }); });
+
+  var expanded = {}, treeSel = null, onScreen = null;
+  function statusOf(f) { var m = modules[f]; return m.node.status !== "unchanged" ? m.node.status : m.dirty ? "changed" : "unchanged"; }
+  function matches(text) { var q = treeFilter.value.trim().toLowerCase(); return !q || text.toLowerCase().indexOf(q) >= 0; }
+  function fileMatches(f) {
+    if (onScreen && !onScreen[f]) return false;
+    if (matches(f)) return true;
+    return (modules[f].members || []).some(function (m) { return matches(m.name); });
+  }
+  function dirMatches(d) {
+    return d.files.some(fileMatches) || Object.keys(d.dirs).some(function (k) { return dirMatches(d.dirs[k]); });
+  }
+  function row(depth, opts) {
+    var r = el("div", { class: "row" + (opts.dir ? " dir" : "") + (opts.id && opts.id === treeSel ? " sel" : ""), role: "treeitem",
+      style: "padding-left:" + (8 + depth * 12) + "px", title: opts.title || "" }, [
+      el("span", { class: "caret", text: opts.caret || "" }),
+      opts.status && opts.status !== "unchanged" ? el("span", { class: "dot " + opts.status }) : null,
+      el("span", { class: "name", text: opts.name }),
+      opts.kind ? el("span", { class: "kind", text: opts.kind }) : null,
+      opts.findings ? el("span", { class: "nf", text: "● " + opts.findings }) : null
+    ]);
+    if (opts.id && opts.id === treeSel) r.setAttribute("aria-selected", "true");
+    r.addEventListener("click", opts.onclick);
+    if (opts.ondblclick) r.addEventListener("dblclick", opts.ondblclick);
+    return r;
+  }
+  function memberRows(out, n, depth) {
+    if (!matches(n.name) && !(childrenOf[n.id] || []).some(function (c) { return matches(c.name); }) && treeFilter.value.trim() && !matches(n.file)) return;
+    var kids = childrenOf[n.id] || [], open = expanded[n.id] || (!!treeFilter.value.trim() && kids.length > 0);
+    out.push(row(depth, { id: n.id, name: n.name, kind: n.kind, status: n.status, findings: (findingsByNode[n.id] || []).length,
+      caret: kids.length ? (open ? "▾" : "▸") : "", title: n.id,
+      onclick: function () { if (kids.length) expanded[n.id] = !open; treeSelect(n.id); },
+      ondblclick: function () { focus(n.id); } }));
+    if (open) kids.forEach(function (c) { memberRows(out, c, depth + 1); });
+  }
+  function dirRows(out, d, depth) {
+    Object.keys(d.dirs).sort().forEach(function (k) {
+      var c = d.dirs[k];
+      if (!dirMatches(c)) return;
+      var open = expanded[c.path] || !!treeFilter.value.trim() || (!!onScreen && depth < 6);
+      out.push(row(depth, { dir: true, name: c.name, caret: open ? "▾" : "▸", status: c.dirty ? "changed" : "unchanged", findings: c.findings,
+        kind: String(c.count), title: c.path, onclick: function () { expanded[c.path] = !open; renderTree(); highlightFolder(c.path); } }));
+      if (open) dirRows(out, c, depth + 1);
+    });
+    d.files.filter(fileMatches).forEach(function (f) {
+      var kids = childrenOf[f] || [], open = expanded[f] || (!!treeFilter.value.trim() && kids.length > 0);
+      out.push(row(depth, { id: f, name: base(f), status: statusOf(f), findings: modules[f].findings, caret: kids.length ? (open ? "▾" : "▸") : "",
+        title: f, onclick: function () { if (kids.length) expanded[f] = !open; treeSelect(f); }, ondblclick: function () { focus(f); } }));
+      if (open) kids.forEach(function (n) { memberRows(out, n, depth + 1); });
+    });
+  }
+  function renderTree() {
+    var out = [];
+    dirRows(out, fileTree, 0);
+    treeBody.innerHTML = "";
+    if (!out.length) treeBody.appendChild(el("p", { class: "loc", text: "  Nothing matches." }));
+    out.forEach(function (r) { treeBody.appendChild(r); });
+    var sel = treeBody.querySelector(".sel");
+    if (sel) sel.scrollIntoView({ block: "nearest" });
+  }
+  // The graph element that stands for a node in the current mode.
+  function onGraph(id) {
+    var n = byId[id]; if (!n) return null;
+    var candidates = mode === "architecture" ? [rep(id)] : mode === "blueprint" ? [unitOf(id)] : [id, topMember(n).id, n.file];
+    for (var i = 0; i < candidates.length; i++) { var x = candidates[i] && cy.getElementById(candidates[i]); if (x && x.length) return x; }
+    return null;
+  }
+  function treeSelect(id) {
+    treeSel = id;
+    renderTree();
+    details(id, true);
+    var x = onGraph(id);
+    cy.$(":selected").unselect();
+    cy.elements().removeClass("faded");
+    if (x) {
+      x.select();
+      var nb = x.closedNeighborhood().union(x.ancestors());
+      cy.elements().addClass("faded"); nb.removeClass("faded"); nb.ancestors().removeClass("faded");
+      cy.animate({ center: { eles: x }, duration: 200 });
+    } else {
+      hint.textContent = "Not in this view; double-click it in the tree (or press Focus) to see its neighbourhood.";
+    }
+  }
+  function highlightFolder(path) {
+    var prefix = path + "/";
+    var xs = cy.nodes().filter(function (n) { var b = byId[n.id()]; return !!b && !!b.file && b.file.indexOf(prefix) === 0; });
+    cy.elements().removeClass("faded");
+    if (xs.length) { cy.elements().addClass("faded"); xs.removeClass("faded"); xs.ancestors().removeClass("faded"); }
+  }
+  // Graph → tree: reveal and select the file or function.
+  function revealInTree(id) {
+    var n = byId[id]; if (!n || n.kind === "system") return;
+    var parts = n.file.split("/");
+    for (var i = 1; i < parts.length; i++) expanded[parts.slice(0, i).join("/")] = true;
+    // Merged rows use the deepest path of the chain; mark every prefix so they open too.
+    if (!n.module) { expanded[n.file] = true; var p = n.parent; while (p && byId[p] && !byId[p].module) { expanded[p] = true; p = byId[p].parent; } }
+    treeSel = id;
+    renderTree();
+  }
+  function computeOnScreen() {
+    if (!treeInView.checked) { onScreen = null; return; }
+    onScreen = {};
+    cy.nodes().forEach(function (x) {
+      var b = byId[x.id()];
+      if (b && b.file) { onScreen[b.file] = true; return; }
+      var g = groups[x.id()];
+      if (g) (function all(t) { t.mods.forEach(function (m) { onScreen[m] = true; }); Object.keys(t.children).forEach(function (k) { all(t.children[k]); }); })(g);
+    });
+  }
+  treeFilter.addEventListener("input", renderTree);
+  treeInView.addEventListener("change", function () { computeOnScreen(); renderTree(); });
+
   var st = document.getElementById("status");
   st.textContent = D.blocking ? "blocking" : "not blocking";
   st.className = "status " + (D.blocking ? "block" : "ok");
@@ -668,6 +817,7 @@
   document.getElementById("counts").textContent = c.added + " added · " + c.changed + " changed · " + c.removed + " removed";
   // Skip a top level with a single box, so the first screen is never one box.
   while (Object.keys(scope.children).length === 1 && scope.mods.length === 0) scope = scope.children[Object.keys(scope.children)[0]];
+  window.igTreeReady = true;
   render();
   overview();
 
