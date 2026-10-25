@@ -7,6 +7,7 @@ use crate::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
 use crate::patterns;
 use crate::workspace::{self, Workspace};
 use anyhow::Result;
+use ig_core::http;
 use oxc_resolver::{
     ResolveOptions, Resolver, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
 };
@@ -292,37 +293,6 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     })
 }
 
-/// URL path segments with dynamic parts (`${x}`, `{param}`, `:param`) as `:`, without scheme, host,
-/// query or fragment.
-pub fn url_segments(url: &str) -> Vec<String> {
-    let mut u = url;
-    if let Some(i) = u.find("://") {
-        u = &u[i + 3..];
-        u = u.find('/').map(|j| &u[j..]).unwrap_or("");
-    }
-    let u = u.split(['?', '#']).next().unwrap_or("");
-    u.split('/')
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            if s.contains('\u{0}') {
-                "\u{0}".to_string()
-            } else if s.contains(':') || s.contains('{') || s.contains('*') {
-                ":".to_string()
-            } else {
-                s.to_string()
-            }
-        })
-        .collect()
-}
-
-fn seg_match(route: &[String], call: &[String], loose: bool) -> bool {
-    route.len() == call.len()
-        && route
-            .iter()
-            .zip(call)
-            .all(|(r, c)| r == c || (loose && r == ":"))
-}
-
 /// `http` edges from client calls to route nodes, and `system` nodes with `uses` edges from the
 /// modules importing their packages.
 fn blueprint_links(
@@ -351,44 +321,13 @@ fn blueprint_links(
     };
     if !bp.http_calls.is_empty() {
         // Route node names are "METHOD /path" (or just "/path" for any method).
-        // `${NAME}` (or a bare `NAME`) in a route path is replaced by a same-file string constant.
-        let substitute = |path: &str, consts: &HashMap<String, String>| -> String {
-            let mut out = String::new();
-            let mut rest = path;
-            while let Some(i) = rest.find("${") {
-                out.push_str(&rest[..i]);
-                let Some(j) = rest[i..].find('}') else { break };
-                let name = rest[i + 2..i + j].trim();
-                // Unknown: a segment that never matches, so the route can't be linked by accident.
-                out.push_str(consts.get(name).map(String::as_str).unwrap_or("\u{0}"));
-                rest = &rest[i + j + 1..];
-            }
-            out.push_str(rest);
-            out
-        };
         let routes: Vec<(String, Vec<String>, &str, String)> = facts
             .iter()
             .flat_map(|f| f.nodes.iter().map(move |n| (f, n)))
             .filter(|(_, n)| n.kind == bp.route_kind)
             .map(|(f, n)| {
-                let (m, p) = match n.name.split_once(' ') {
-                    Some((m, p)) if m.chars().all(|c| c.is_ascii_alphabetic()) => {
-                        (m.to_ascii_uppercase(), p)
-                    }
-                    _ => ("*".to_string(), n.name.as_str()),
-                };
-                let p = p.trim();
-                // A bare identifier path (`path: BASE_PATH`) is a same-file constant too.
-                let p = match f.url_consts.get(p) {
-                    Some(c)
-                        if p.chars()
-                            .all(|c| c.is_alphanumeric() || c == '_' || c == '$') =>
-                    {
-                        c.clone()
-                    }
-                    _ => substitute(p.trim_matches(['\'', '"', '`']), &f.url_consts),
-                };
-                (m, url_segments(&p), n.id.as_str(), p)
+                let (m, p) = http::route(&n.name, &f.url_consts);
+                (m, http::url_segments(&p), n.id.as_str(), p)
             })
             .collect();
         for (m, _, id, p) in &routes {
@@ -407,42 +346,7 @@ fn blueprint_links(
             routes.into_iter().map(|(m, s, id, _)| (m, s, id)).collect();
         for f in facts {
             for h in &f.http {
-                let mut call = url_segments(&h.url);
-                while call.first().is_some_and(|s| s == ":") {
-                    call.remove(0);
-                }
-                let prefix = url_segments(&bp.http_prefix);
-                if !prefix.is_empty() && call.starts_with(&prefix) {
-                    call.drain(..prefix.len());
-                }
-                let method_ok = |m: &str| m == "*" || m == h.method;
-                let pick = |loose: bool| -> Vec<&str> {
-                    routes
-                        .iter()
-                        .filter(|(m, r, _)| method_ok(m) && seg_match(r, &call, loose))
-                        .map(|(_, _, id)| *id)
-                        .collect()
-                };
-                // Last resort: the call has extra leading segments (an `/api` prefix added by a proxy).
-                let suffix = || -> Vec<&str> {
-                    routes
-                        .iter()
-                        .filter(|(m, r, _)| {
-                            method_ok(m)
-                                && r.len() >= 2
-                                && r.len() < call.len()
-                                && seg_match(r, &call[call.len() - r.len()..], true)
-                        })
-                        .map(|(_, _, id)| *id)
-                        .collect()
-                };
-                let (hits, conf) = match pick(false) {
-                    v if !v.is_empty() => (v, "resolved"),
-                    _ => match pick(true) {
-                        v if !v.is_empty() => (v, "guessed"),
-                        _ => (suffix(), "guessed"),
-                    },
-                };
+                let (hits, conf) = http::match_call(&routes, &h.method, &h.url, &bp.http_prefix);
                 if hits.is_empty() {
                     unmatched.push((f.file.clone(), h.line, h.method.clone(), h.url.clone()));
                 }
@@ -1344,33 +1248,6 @@ mod tests {
             "{:#?}",
             g.edges
         );
-    }
-
-    #[test]
-    fn url_normalisation() {
-        assert_eq!(
-            url_segments("/api/lines/:/notes?x=1"),
-            ["api", "lines", ":", "notes"]
-        );
-        assert_eq!(url_segments("https://h:8080/api/{id}/x"), ["api", ":", "x"]);
-        assert_eq!(url_segments("/api/item-:/x"), ["api", ":", "x"]);
-        // Strict: segments equal. Loose: a route parameter also matches a literal in the call,
-        // but a dynamic call segment never matches a literal route segment.
-        assert!(!seg_match(
-            &url_segments("/api/:/:"),
-            &url_segments("/api/1/:"),
-            false
-        ));
-        assert!(seg_match(
-            &url_segments("/api/:/:"),
-            &url_segments("/api/1/:"),
-            true
-        ));
-        assert!(!seg_match(
-            &url_segments("/api/:/available"),
-            &url_segments("/api/:/:"),
-            true
-        ));
     }
 
     #[test]

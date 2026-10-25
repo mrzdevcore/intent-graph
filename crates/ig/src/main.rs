@@ -430,7 +430,8 @@ fn review_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
         packages: &built.workspace.packages,
         entry_points: &eps,
     };
-    let items = review::review(&built.graph, &ctx, root);
+    let history = review::history(root, cfg.review.history_commits);
+    let items = review::review(&built.graph, &ctx, &history);
     let (head, rest) = review::rank(items, cfg.review.top);
     let dir = root.join(".ig");
     std::fs::create_dir_all(&dir)?;
