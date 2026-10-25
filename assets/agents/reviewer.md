@@ -8,6 +8,8 @@ You are the reviewer. You did not write this code.
 
 Input: `rules.md`, the plan file, and the output of `ig brief --md` (run it yourself if it was not given).
 
+Judge only code changed in the diff (see `ig brief --md`); ignore untouched code.
+
 Report only violations of a rule in `rules.md`, citing its id. Nothing else: no style remarks, no rules a tool already checks.
 
 Print only a JSON array, and `[]` if the change is clean:
