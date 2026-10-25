@@ -1,121 +1,100 @@
-mod apply;
-mod brief;
-mod check;
-mod checks;
-mod config;
-mod diff;
-mod git;
-mod graph;
+mod cli;
 mod hook;
 mod init;
-mod intents;
-mod linediff;
 mod mcp;
-mod model;
-mod notes;
-mod plan;
+mod render;
 mod report;
-mod review;
 mod serve;
-mod setup;
 mod skills;
-mod view;
-mod workspace;
+#[cfg(test)]
+mod tests;
 
 use anyhow::{Result, bail};
-use ig_core::ports::Vcs;
-use std::path::PathBuf;
+use cli::{Args, USAGE, opts, parse_args};
+use ig_app::view_data::{self, Picked, ShownPlan};
+use ig_app::{Env, apply, brief, check, notes, plan, review, setup};
+use ig_checkers::ProcessRunner;
+// `crate::model` for the modules (and their tests) that name model types.
+use ig_core::model;
+use ig_core::ports::{Files, LanguageFrontend, Vcs};
+use ig_fs::FsFiles;
+use ig_git::GitVcs;
+use ig_lang_ts::TsFrontend;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
-const USAGE: &str =
-    "usage: ig [--version] | init [claude|codex|all] | setup [--json] | setup claude|codex
-   | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
-   | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
-   | plan check <file> [--json] | plan notes [--wait] [--json] | apply start [<plan>] | apply accept | apply review | apply finish | apply abort
-   | except <fingerprint> --reason <text>
-   | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
-   | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
-   | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--json] [--checkers] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
-   | serve [--port N] [--checkers] [--plan <file> | --no-plan] | serve claude
-   (all accept --root <dir>)";
+static FRONTENDS: &[&dyn LanguageFrontend] = &[&TsFrontend];
 
-#[derive(Default)]
-struct Args {
-    cmd: String,
-    sub: Option<String>,
-    root: Option<PathBuf>,
-    base: Option<String>,
-    head: Option<String>,
-    all: bool,
-    json: bool,
-    agent: bool,
-    watch: bool,
-    no_open: bool,
-    gitlab: bool,
-    version: bool,
-    md: bool,
-    out: Option<PathBuf>,
-    dir: Option<String>,
-    depth: Option<usize>,
-    more: Vec<String>,
-    plan: Option<PathBuf>,
-    no_plan: bool,
-    reason: Option<String>,
-    port: Option<u16>,
-    wait: bool,
-    checkers: bool,
+/// Plan and notes paths are relative to the working directory: files rooted there.
+static CWD: FsFiles = FsFiles {
+    root: PathBuf::new(),
+};
+
+/// A progress line on stderr, only when it is a terminal (hooks and JSON consumers stay clean).
+fn progress(msg: &str) {
+    use std::io::IsTerminal;
+    if std::io::stderr().is_terminal() {
+        eprintln!("ig: {msg}");
+    }
 }
 
-fn parse_args() -> Result<Args> {
-    use lexopt::prelude::*;
-    let mut a = Args::default();
-    let mut p = lexopt::Parser::from_env();
-    while let Some(arg) = p.next()? {
-        match arg {
-            Long("version") | Short('V') => a.version = true,
-            Long("help") | Short('h') => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            Long("root") => a.root = Some(p.value()?.into()),
-            Long("base") => a.base = Some(p.value()?.string()?),
-            Long("head") => a.head = Some(p.value()?.string()?),
-            Long("all") => a.all = true,
-            Long("json") => a.json = true,
-            Long("agent") => a.agent = true,
-            Long("watch") => a.watch = true,
-            Long("no-open") => a.no_open = true,
-            Long("gitlab") => a.gitlab = true,
-            Long("md") => a.md = true,
-            Long("plan") => a.plan = Some(p.value()?.into()),
-            Long("no-plan") => a.no_plan = true,
-            Long("reason") => a.reason = Some(p.value()?.string()?),
-            Long("port") => a.port = Some(p.value()?.parse()?),
-            Long("wait") => a.wait = true,
-            Long("checkers") => a.checkers = true,
-            Long("out") if a.cmd == "query" => a.dir = Some("out".into()),
-            Long("out") => a.out = Some(p.value()?.into()),
-            Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
-            Long("in") => a.dir = Some("in".into()),
-            Long("both") => a.dir = Some("both".into()),
-            Long("depth") => a.depth = Some(p.value()?.parse()?),
-            Value(v) if a.sub.is_none() => a.sub = Some(v.string()?),
-            Value(v) if matches!(a.cmd.as_str(), "focus" | "plan" | "apply") => {
-                a.more.push(v.string()?)
-            }
-            _ => return Err(arg.unexpected().into()),
+/// A check's notices: always on stderr.
+fn notice(msg: &str) {
+    eprintln!("ig: {msg}");
+}
+
+/// The adapters for an ig root: its files and its git repository (if any).
+pub struct Wired {
+    files: FsFiles,
+    vcs: Option<GitVcs>,
+}
+
+impl Wired {
+    pub fn new(root: &Path) -> Wired {
+        Wired {
+            files: FsFiles::new(root),
+            vcs: GitVcs::open(root),
         }
     }
-    Ok(a)
+
+    pub fn root(&self) -> &Path {
+        &self.files.root
+    }
+
+    pub fn env(&self) -> Env<'_> {
+        Env {
+            root: &self.files.root,
+            files: &self.files,
+            vcs: self.vcs.as_ref().map(|v| v as &dyn Vcs),
+            runner: &ProcessRunner,
+            frontends: FRONTENDS,
+            progress: &progress,
+            notice: &notice,
+        }
+    }
 }
 
-fn opts(a: &Args) -> check::Opts {
-    check::Opts {
-        base: a.base.clone(),
-        head: a.head.clone(),
-        all: a.all,
-        skip_checkers: matches!(a.cmd.as_str(), "view" | "serve") && !a.checkers,
-    }
+/// The plan at `path` (relative to the working directory): its root-relative path and text.
+pub fn read_plan(root: &Path, path: &Path) -> Result<(String, String)> {
+    use anyhow::Context;
+    let text = std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
+    let rel = path
+        .canonicalize()
+        .ok()
+        .and_then(|p| ig_core::workspace::rel(root, &p))
+        .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"));
+    Ok((rel, text))
+}
+
+/// The picked plan, read.
+pub fn shown_plan(root: &Path, (plan, applying): &Picked) -> Option<ShownPlan> {
+    plan.as_ref().map(|p| ShownPlan {
+        path: p.clone(),
+        applying: *applying,
+        read: read_plan(root, p),
+    })
 }
 
 fn real_main() -> Result<u8> {
@@ -129,9 +108,11 @@ fn real_main() -> Result<u8> {
         bail!("--root {}: not a directory", root.display());
     }
     let root = root.canonicalize()?;
+    let w = Wired::new(&root);
+    let env = w.env();
     match a.cmd.as_str() {
         "check" => {
-            let run = check::run(&root, &opts(&a))?;
+            let run = check::run(&env, &opts(&a))?;
             let r = &run.result;
             if a.json {
                 println!("{}", serde_json::to_string_pretty(r)?);
@@ -144,7 +125,7 @@ fn real_main() -> Result<u8> {
         }
         "diff" => {
             let run = check::run(
-                &root,
+                &env,
                 &check::Opts {
                     all: false,
                     ..opts(&a)
@@ -174,11 +155,12 @@ fn real_main() -> Result<u8> {
             }
             Ok(0)
         }
-        "review" => review_cmd(&root, &a),
-        "query" => query_cmd(&root, &a),
+        "review" => review_cmd(&env, &a),
+        "query" => query_cmd(&env, &a),
         "plan" => match (a.sub.as_deref(), a.more.as_slice()) {
             (Some("check"), [file]) => {
-                let v = plan::check(&root, std::path::Path::new(file))?;
+                let (rel, text) = read_plan(&root, Path::new(file))?;
+                let v = plan::check(&env, &rel, &text)?;
                 if a.json {
                     println!("{}", serde_json::to_string_pretty(&v)?);
                 } else {
@@ -187,13 +169,16 @@ fn real_main() -> Result<u8> {
                 Ok(if v["ok"] == true { 0 } else { 1 })
             }
             (Some("notes"), []) => {
-                let Some(plan) = view::pick_plan(&root, a.plan.as_deref(), false).0 else {
+                let Some(plan) = view_data::pick_plan(&env, a.plan.as_deref(), false).0 else {
                     bail!("plan notes: no current plan (run `ig plan check <file>`)");
                 };
                 let list: Vec<notes::Note> = if a.wait {
-                    notes::wait(&plan, std::time::Duration::from_secs(1800))
+                    wait_notes(&plan, Duration::from_secs(1800))
                 } else {
-                    notes::read(&plan).into_iter().filter(|n| !n.done).collect()
+                    notes::read(&CWD, &plan)
+                        .into_iter()
+                        .filter(|n| !n.done)
+                        .collect()
                 };
                 if a.json {
                     println!("{}", serde_json::to_string_pretty(&list)?);
@@ -211,32 +196,35 @@ fn real_main() -> Result<u8> {
                 let Some(plan) = more
                     .first()
                     .map(PathBuf::from)
-                    .or_else(|| plan::current(&root))
+                    .or_else(|| plan::current(&env))
                 else {
                     bail!(
                         "apply start: no plan given and no current plan (run `ig plan check <file>`)"
                     );
                 };
-                apply::start(&root, &plan)?;
+                let (rel, text) = read_plan(&root, &plan)?;
+                apply::start(&env, &rel, &text)?;
                 println!("apply started: {}", plan.display());
                 Ok(0)
             }
             (Some("accept"), []) => {
-                apply::accept(&root)?;
+                apply::accept(&env)?;
                 Ok(0)
             }
             (Some("review"), []) => {
                 let mut input = String::new();
                 std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
-                println!(
-                    "review: {} finding(s)",
-                    apply::review_ingest(&root, &input)?
-                );
+                println!("review: {} finding(s)", apply::review_ingest(&env, &input)?);
                 Ok(0)
             }
-            (Some("finish"), []) => apply::finish(&root),
+            (Some("finish"), []) => {
+                let mut out = String::new();
+                let r = apply::finish(&env, &mut out);
+                print!("{out}");
+                r
+            }
             (Some("abort"), []) => {
-                println!("apply aborted: {}", apply::abort(&root)?);
+                println!("apply aborted: {}", apply::abort(&env)?);
                 Ok(0)
             }
             _ => bail!(
@@ -245,7 +233,7 @@ fn real_main() -> Result<u8> {
         },
         "except" => match (a.sub.as_deref(), a.reason.as_deref()) {
             (Some(fp), Some(reason)) if !reason.trim().is_empty() => {
-                apply::except(&root, fp, reason)?;
+                apply::except(&env, fp, reason)?;
                 Ok(0)
             }
             _ => bail!("except: expected `except <fingerprint> --reason <text>`"),
@@ -255,14 +243,13 @@ fn real_main() -> Result<u8> {
             if ids.is_empty() {
                 bail!("focus: expected at least one node id");
             }
-            let dir = root.join(".ig");
-            std::fs::create_dir_all(&dir)?;
-            check::write_atomic(&dir.join("focus.json"), &serde_json::to_vec_pretty(&ids)?)?;
+            w.files
+                .write_atomic(view_data::FOCUS, &serde_json::to_vec_pretty(&ids)?)?;
             Ok(0)
         }
         "brief" => {
-            let run = check::run(&root, &opts(&a))?;
-            let text = brief::brief(&run, &root, &opts(&a), a.md || a.out.is_some());
+            let run = check::run(&env, &opts(&a))?;
+            let text = brief::brief(&env, &run, &opts(&a), a.md || a.out.is_some());
             match &a.out {
                 Some(path) => {
                     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -276,9 +263,9 @@ fn real_main() -> Result<u8> {
             Ok(0)
         }
         "view" => {
-            let plan = view::pick_plan(&root, a.plan.as_deref(), a.no_plan);
+            let plan = view_data::pick_plan(&env, a.plan.as_deref(), a.no_plan);
             if a.json {
-                let d = view::json(&root, &opts(&a), &plan)?;
+                let d = view_data::json(&env, &opts(&a), shown_plan(&root, &plan))?;
                 println!("{}", serde_json::to_string_pretty(&d)?);
             } else if a.watch {
                 if a.head.is_some() {
@@ -293,9 +280,9 @@ fn real_main() -> Result<u8> {
                     !a.no_open,
                 )?;
             } else {
-                let path = view::write(&root, &opts(&a), &plan)?;
+                let path = render::write(&w, &opts(&a), &plan)?;
                 if !a.no_open {
-                    view::open(&path);
+                    render::open(&path);
                 }
                 println!("{}", path.display());
             }
@@ -351,12 +338,12 @@ fn real_main() -> Result<u8> {
             Ok(0)
         }
         "setup" | "explore" => match a.sub.as_deref() {
-            Some(name) if a.cmd == "setup" => setup::run_agent(&root, name),
+            Some(name) if a.cmd == "setup" => skills::run_setup(&root, name),
             _ => {
                 if a.cmd == "explore" {
                     eprintln!("ig: `ig explore` is now `ig setup`");
                 }
-                let f = setup::facts(&root)?;
+                let f = setup::facts(&env)?;
                 if a.json {
                     println!("{}", serde_json::to_string_pretty(&f)?);
                 } else {
@@ -373,13 +360,13 @@ fn real_main() -> Result<u8> {
     }
 }
 
-fn query_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
+fn query_cmd(env: &Env, a: &Args) -> Result<u8> {
     let Some(id) = a.sub.as_deref() else {
         bail!("query: expected a node id");
     };
-    let cfg = config::load(root)?;
-    let repo_head = git::GitVcs::open(root).and_then(|r| r.head());
-    let built = graph::build(root, &cfg, repo_head)?;
+    let cfg = ig_app::config::load(env.files)?;
+    let repo_head = env.vcs.and_then(|r| r.head());
+    let built = ig_app::graph(env, env.files, &cfg, repo_head)?;
     let v = mcp::query(
         &built.graph,
         id,
@@ -414,48 +401,35 @@ fn query_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
     Ok(failed as u8)
 }
 
-fn review_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
-    let cfg = config::load(root)?;
-    let repo_head = git::GitVcs::open(root).and_then(|r| r.head());
-    let built = graph::build(root, &cfg, repo_head)?;
-    let tests = workspace::globset(&cfg.tests)?;
-    let eps = workspace::globset(&cfg.entry_points)?;
-    let ctx = review::Ctx {
-        config: &cfg,
-        tests: &tests,
-        packages: &built.workspace.packages,
-        entry_points: &eps,
-    };
-    let history = git::GitVcs::open(root)
-        .map(|v| v.history(cfg.review.history_commits))
-        .unwrap_or_default();
-    let items = review::review(&built.graph, &ctx, &history);
-    let (head, rest) = review::rank(items, cfg.review.top);
-    let dir = root.join(".ig");
-    std::fs::create_dir_all(&dir)?;
-    let all: Vec<&review::ReviewItem> = head.iter().chain(rest.iter()).collect();
-    check::write_atomic(&dir.join("review.json"), &serde_json::to_vec_pretty(&all)?)?;
+fn review_cmd(env: &Env, a: &Args) -> Result<u8> {
+    let (head, rest) = review::run(env)?;
     if a.json {
+        let all: Vec<&review::ReviewItem> = head.iter().chain(rest.iter()).collect();
         println!("{}", serde_json::to_string_pretty(&all)?);
     } else if a.agent {
-        let shown: Vec<&review::ReviewItem> = if a.all {
-            all.clone()
-        } else {
-            head.iter().collect()
-        };
-        if shown.is_empty() {
-            println!("ig review: no structural problems found");
-        }
-        for it in shown {
-            println!(
-                "- [{}] {}: {} Fix: {}",
-                it.rule_id, it.title, it.evidence, it.fix
-            );
-        }
+        print!("{}", review::agent_text(&head, &rest, a.all));
     } else {
-        review::print(&head, rest.len(), a.all, &rest);
+        print!("{}", review::text(&head, &rest, a.all));
     }
     Ok(0)
+}
+
+/// Blocks until an open note that was not there when called appears, or `timeout` passes (then
+/// none). Polls the file: it works without `ig serve`.
+fn wait_notes(plan: &Path, timeout: Duration) -> Vec<notes::Note> {
+    let seen: HashSet<String> = notes::read(&CWD, plan).into_iter().map(|n| n.id).collect();
+    let end = Instant::now() + timeout;
+    while Instant::now() < end {
+        let new: Vec<notes::Note> = notes::read(&CWD, plan)
+            .into_iter()
+            .filter(|n| !n.done && !seen.contains(&n.id))
+            .collect();
+        if !new.is_empty() {
+            return new;
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    vec![]
 }
 
 fn main() -> ExitCode {

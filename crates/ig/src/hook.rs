@@ -1,6 +1,7 @@
 //! `ig hook claude`: the Claude Code Stop hook. Never fails; errors become a systemMessage.
 
-use crate::check;
+use crate::Wired;
+use ig_app::{apply, check};
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::Path;
@@ -44,7 +45,9 @@ fn run(root: &Path) -> anyhow::Result<Value> {
         .and_then(Value::as_str)
         .unwrap_or("default");
     let file = session_file(root, session);
-    let run = check::run(root, &check::Opts::default())?;
+    let w = Wired::new(root);
+    let env = w.env();
+    let run = check::run(&env, &check::Opts::default())?;
     if !run.result.blocking {
         let _ = std::fs::remove_file(&file);
         return Ok(json!({}));
@@ -53,7 +56,7 @@ fn run(root: &Path) -> anyhow::Result<Value> {
         &file,
         run.config.hook_max_rounds,
         check::agent_text(&run.result, run.config.block_on),
-        crate::apply::active(root, None).is_some(),
+        apply::active(&env, None).is_some(),
     )
 }
 

@@ -1,9 +1,10 @@
 //! `ig init`: scaffolding. Never overwrites anything.
 
-use crate::check;
-use crate::config::Config;
-use crate::workspace::{self, Workspace};
+use crate::Wired;
 use anyhow::Result;
+use ig_app::check;
+use ig_core::config::Config;
+use ig_core::workspace::{self, WorkspaceInfo};
 use regex::Regex;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -48,7 +49,7 @@ fn yaml_str(s: &str) -> String {
 }
 
 /// Extensions that relative imports point at, are not JS/TS, and look like single-file components.
-fn detect_embedded(root: &Path, ws: &Workspace) -> Vec<String> {
+fn detect_embedded(root: &Path, ws: &WorkspaceInfo) -> Vec<String> {
     let re = Regex::new(
         r#"(?:from\s+|import\s*\(\s*|import\s+)["'](\.{1,2}/[^"']+?(\.[A-Za-z0-9]+))["']"#,
     )
@@ -97,12 +98,12 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
     // ig.yaml
     let cfg_path = root.join("ig.yaml");
     if !cfg_path.exists() {
-        let first = Workspace::discover(root, &Config::default())?;
+        let first = ig_fs::discover(root, &Config::default())?;
         let embedded = detect_embedded(&first.root, &first);
         let ws = if embedded.is_empty() {
             first
         } else {
-            Workspace::discover(
+            ig_fs::discover(
                 root,
                 &Config {
                     embedded: embedded.clone(),
@@ -226,8 +227,9 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
     }
 
     if !root.join(".ig/baseline.json").exists() {
+        let w = Wired::new(root);
         let run = check::run(
-            root,
+            &w.env(),
             &check::Opts {
                 all: true,
                 ..Default::default()
@@ -239,7 +241,7 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
             .iter()
             .filter(|f| f.rule_id != "ig/checker-error" && f.rule_id != "ig/parse-error")
             .map(|f| f.fingerprint.clone());
-        crate::checks::write_baseline(root, fps)?;
+        ig_app::baseline::write(&w.env(), fps)?;
         created.push(format!(
             ".ig/baseline.json ({} findings)",
             run.result.findings.len()

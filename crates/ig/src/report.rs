@@ -1,10 +1,12 @@
 //! `ig report --gitlab`: Mermaid diagram and one MR note, created or updated in place.
 
-use crate::check::{self, Run};
-use crate::config::Severity;
-use crate::diff::Status;
-use crate::view;
+use crate::Wired;
+use crate::render;
 use anyhow::{Context, Result, bail};
+use ig_app::check::{self, Run};
+use ig_app::view_data as view;
+use ig_core::config::Severity;
+use ig_core::diff::Status;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -190,7 +192,7 @@ pub fn note(run: &Run, artifact: Option<&str>) -> String {
         s.push('\n');
     }
     if !run.intents.is_empty() {
-        let tests = crate::workspace::globset(&run.config.tests)
+        let tests = ig_core::workspace::globset(&run.config.tests)
             .unwrap_or_else(|_| globset::GlobSet::empty());
         let (mut imp, mut tst): (HashSet<&str>, HashSet<&str>) = (HashSet::new(), HashSet::new());
         for n in &r.graph.nodes {
@@ -232,10 +234,12 @@ fn env(k: &str) -> Option<String> {
 }
 
 pub fn gitlab(root: &Path) -> Result<u8> {
-    let run = check::run(root, &check::Opts::default())?;
-    view::write_run(root, &run, &check::Opts::default())?;
-    let prefix = run
-        .repo
+    let w = Wired::new(root);
+    let e = w.env();
+    let run = check::run(&e, &check::Opts::default())?;
+    render::write_run(&e, &run, &check::Opts::default())?;
+    let prefix = w
+        .vcs
         .as_ref()
         .map(|r| r.prefix().to_string())
         .unwrap_or_default();
@@ -328,7 +332,7 @@ mod tests {
             .status()
             .unwrap();
         assert!(cp.success());
-        let run = check::run(&dir, &check::Opts::default()).unwrap();
+        let run = crate::tests::check_run(&dir, &check::Opts::default()).unwrap();
         // Outside git everything is added: above 40 nodes, so the diagram collapses to modules.
         let m = mermaid(&run);
         assert!(m.starts_with("flowchart LR\n"));
