@@ -3,9 +3,8 @@
 
 use crate::config::{Checker, Config};
 use crate::http::HttpCall;
-use crate::model::{Edge, Finding, Graph, Node, ParseError};
+use crate::model::{Edge, Finding, Node, ParseError};
 use crate::workspace::{SourceFile, WorkspaceInfo};
-use std::any::Any;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -16,34 +15,63 @@ pub enum PortError {
     Io(String),
     #[error("{0}")]
     Vcs(String),
-    /// A graph build run inside `Vcs::base_graph`.
     #[error("{0}")]
-    Build(String),
+    Lang(String),
 }
+
+/// Progress lines ("building graph…"). Core and app never print; the binary passes a callback
+/// that writes `ig: <msg>` to stderr when it is a terminal. Sync: checkers report from threads.
+pub type Progress = dyn Fn(&str) + Sync;
 
 /// Files under a root fixed at construction; paths are posix and relative to that root.
 pub trait Files: Sync {
-    /// UTF-8 (lossy) contents; None when missing or unreadable.
-    fn read(&self, path: &str) -> Option<String>;
+    /// None when missing or not a regular file.
+    fn read_bytes(&self, path: &str) -> Option<Vec<u8>>;
+    /// UTF-8 (lossy) contents.
+    fn read(&self, path: &str) -> Option<String> {
+        self.read_bytes(path)
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+    }
     /// Writes through a temporary file and a rename; creates parent directories.
     fn write_atomic(&self, path: &str, bytes: &[u8]) -> Result<(), PortError>;
     /// Removing a missing file is not an error.
     fn remove(&self, path: &str) -> Result<(), PortError>;
+    /// A regular file exists at `path` (not a directory).
     fn exists(&self, path: &str) -> bool;
-    /// Files matching any pattern (`crate::workspace::glob` flavour), sorted. Err on a bad pattern.
+    /// Regular files matching any pattern (`crate::workspace::glob` flavour), sorted. Never
+    /// descends into `node_modules`, `.git` or `.ig`, nor follows symlinks. Err on a bad pattern.
     fn glob(&self, patterns: &[String]) -> Result<Vec<String>, PortError>;
+    /// The same kind of `Files`, rooted at `root` (a checkout).
+    fn at(&self, root: &Path) -> Box<dyn Files>;
+    /// Packages and source files of the tree.
+    fn discover(&self, config: &Config) -> Result<WorkspaceInfo, PortError>;
 }
 
-/// A materialised revision, removed when dropped.
+/// A materialised revision, removed when dropped. It must outlive every `Files` or `Vcs` made
+/// with `at()` on its root.
 pub struct Checkout {
-    /// The ig root inside the checkout; None when it did not exist at that revision.
-    pub root: Option<PathBuf>,
-    /// Cleans the checkout up on drop.
-    pub guard: Box<dyn Send>,
+    root: Option<PathBuf>,
+    _guard: Box<dyn Send>,
 }
 
-/// The version control system the ig root lives in.
+impl Checkout {
+    /// `root`: the ig root inside the checkout, None when it did not exist at that revision.
+    /// `guard` removes the checkout when dropped.
+    pub fn new(root: Option<PathBuf>, guard: Box<dyn Send>) -> Checkout {
+        Checkout {
+            root,
+            _guard: guard,
+        }
+    }
+    pub fn root(&self) -> Option<&Path> {
+        self.root.as_deref()
+    }
+}
+
+/// The version control system the ig root lives in. Paths are relative to the ig root.
 pub trait Vcs {
+    /// The same repository seen from `root` (a checkout's ig root).
+    fn at(&self, root: &Path) -> Box<dyn Vcs>;
     /// The HEAD commit; None without commits.
     fn head(&self) -> Option<String>;
     /// `explicit` (Err when it is not a commit), else the CI base, else the merge base with
@@ -54,27 +82,23 @@ pub trait Vcs {
         explicit: Option<&str>,
         notices: &mut Vec<String>,
     ) -> Result<Option<String>, PortError>;
-    /// `path` (relative to the ig root) at `rev`; None when missing.
+    /// The full sha of commit `rev`; None when it is not a commit.
+    fn verify(&self, rev: &str) -> Option<String>;
+    /// `path` at `rev`; None when missing.
     fn show(&self, rev: &str, path: &str) -> Option<String>;
-    /// Untracked files plus, with a base, files changed against it. Failures become notices.
+    /// Untracked files plus, with a base, files changed against it; may include deleted ones
+    /// (callers filter with `Files::exists`). Failures become notices.
     fn changed_files(&self, base: Option<&str>, notices: &mut Vec<String>) -> Vec<String>;
-    fn commit_exists(&self, rev: &str) -> bool;
     /// No uncommitted changes.
     fn is_clean(&self) -> bool;
     /// The files each of the last `n` commits changed, newest first; empty without history.
     fn history(&self, n: usize) -> Vec<Vec<String>>;
     /// A temporary checkout of `rev`.
     fn checkout(&self, rev: &str) -> Result<Checkout, PortError>;
-    /// The graph of `rev`, from the cache or by calling `build` on the ig root of a checkout.
-    fn base_graph(
-        &self,
-        rev: &str,
-        build: &dyn Fn(&Path) -> Result<Graph, PortError>,
-    ) -> Result<Graph, PortError>;
 }
 
 /// What running checkers produced. Findings carry no node ids; callers attach them.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CheckerOutput {
     pub findings: Vec<Finding>,
     pub errors: Vec<Finding>,
@@ -87,7 +111,8 @@ pub trait CheckerRunner: Sync {
     fn run(&self, root: &Path, checker: &Checker, files: Option<&[String]>) -> CheckerOutput;
 }
 
-/// One file's facts. `lang` holds what only the frontend that produced them reads in `resolve`.
+/// One file's language-neutral facts.
+#[derive(Debug, Default, Clone)]
 pub struct FileFacts {
     pub file: String,
     pub nodes: Vec<Node>,
@@ -97,42 +122,37 @@ pub struct FileFacts {
     pub url_consts: HashMap<String, String>,
     /// Callee name → calls whose first argument looks like a URL.
     pub url_callees: HashMap<String, u32>,
-    pub lang: Box<dyn Any + Send + Sync>,
 }
 
-impl Default for FileFacts {
-    fn default() -> FileFacts {
-        FileFacts {
-            file: String::new(),
-            nodes: vec![],
-            parse_error: None,
-            http: vec![],
-            url_consts: HashMap::new(),
-            url_callees: HashMap::new(),
-            lang: Box::new(()),
-        }
-    }
-}
-
-/// What resolving a frontend's files produced.
+/// What a frontend built from its files.
 #[derive(Debug, Default)]
-pub struct Resolved {
+pub struct FrontendOutput {
+    /// Sorted by file.
+    pub facts: Vec<FileFacts>,
     pub edges: Vec<Edge>,
     pub parse_errors: Vec<ParseError>,
     /// Imports of external packages: (file, package, line).
     pub packages: Vec<(String, String, u32)>,
+    pub notices: Vec<String>,
 }
 
 pub trait LanguageFrontend: Sync {
     fn handles(&self, path: &str) -> bool;
-    /// Per file, no cross-file work; called in parallel.
-    fn extract(
+    /// Extracts and resolves `files` (path and source) of `ws`, the ones this frontend handles.
+    fn build(
         &self,
-        file: &SourceFile,
-        source: &str,
+        files: &[(SourceFile, String)],
         ws: &WorkspaceInfo,
         config: &Config,
-    ) -> FileFacts;
-    /// Cross-file resolution over the facts this frontend extracted.
-    fn resolve(&self, facts: &[FileFacts], ws: &WorkspaceInfo, config: &Config) -> Resolved;
+    ) -> FrontendOutput;
+    /// Makes a checkout buildable from the working tree `work`: links what the language needs
+    /// but git lacks (dependencies, generated config; auto-import declarations when
+    /// `link_auto_imports`).
+    fn prepare_checkout(
+        &self,
+        work: &WorkspaceInfo,
+        checkout_root: &Path,
+        config: &Config,
+        link_auto_imports: bool,
+    ) -> Result<(), PortError>;
 }

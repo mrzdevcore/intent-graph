@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-pub use ig_core::workspace::{Package, SourceFile, glob, globset, join};
+pub use ig_core::workspace::{Package, SourceFile, glob, globset, is_source_ext, join};
 
 pub struct Workspace {
     pub root: PathBuf,
@@ -267,19 +267,6 @@ impl Workspace {
         }
         pkg.source_entry.clone()
     }
-}
-
-pub fn is_source_ext(name: &str, embedded: &[String]) -> bool {
-    let lower = name.to_ascii_lowercase();
-    if lower.ends_with(".d.ts") || lower.ends_with(".d.mts") || lower.ends_with(".d.cts") {
-        return false;
-    }
-    [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]
-        .iter()
-        .any(|e| lower.ends_with(e))
-        || embedded
-            .iter()
-            .any(|e| lower.ends_with(&e.to_ascii_lowercase()))
 }
 
 fn discover_files(root: &Path, packages: &[Package], config: &Config) -> Result<Vec<SourceFile>> {
