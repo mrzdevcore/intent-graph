@@ -11,6 +11,7 @@ pub const PATH: &str = ".ig/baseline.json";
 pub fn read(env: &Env) -> anyhow::Result<Vec<serde_json::Value>> {
     let shown = env.root.join(PATH);
     match env.files.read_bytes(PATH) {
+        None if env.files.exists(PATH) => anyhow::bail!("{}: cannot be read", shown.display()),
         None => Ok(vec![]),
         Some(b) => {
             let text = String::from_utf8(b).map_err(|_| {
