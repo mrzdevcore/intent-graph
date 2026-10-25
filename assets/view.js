@@ -255,7 +255,11 @@
   // "front/app/src/pages/accounts/[id]/index.vue" → app "front/app", route "/accounts/[id]".
   function journeyName(file) {
     var i = file.indexOf("/pages/");
-    if (i < 0) return { app: "", route: base(file) };
+    if (i < 0) {
+      // Not a file-routed page (a view): app = the path before src/, name = the file without extension.
+      var j = file.indexOf("/src/");
+      return { app: j < 0 ? file.split("/").slice(0, -1).join("/") : file.slice(0, j), route: base(file).replace(/\.[a-z]+$/, "") };
+    }
     var route = file.slice(i + 6).replace(/\.[a-z]+$/, "").replace(/\/index$/, "") || "/";
     var app = file.slice(0, i).replace(/\/(src|app)(\/application)?$/, "");
     return { app: app, route: route };
