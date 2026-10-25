@@ -462,39 +462,7 @@ pub fn query(g: &Graph, id: &str, dir: &str, depth: usize) -> Value {
     json!({"id": id, "nodes": nodes, "edges": edges})
 }
 
-/// Up to 5 ids close to `id`: those containing it (shortest first), then near misses by edit
-/// distance.
-pub fn suggest(g: &Graph, id: &str) -> Vec<String> {
-    let max = (id.chars().count() / 4).max(2);
-    let mut sugg: Vec<(bool, usize, &str)> = g
-        .nodes
-        .iter()
-        .map(|n| n.id.as_str())
-        .map(|n| (!n.contains(id), edit_distance(id, n), n))
-        .filter(|(far, d, _)| !*far || *d <= max)
-        .collect();
-    sugg.sort();
-    sugg.dedup();
-    sugg.into_iter()
-        .take(5)
-        .map(|(_, _, n)| n.to_string())
-        .collect()
-}
-
-fn edit_distance(a: &str, b: &str) -> usize {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.chars().enumerate() {
-        let mut prev = row[0];
-        row[0] = i + 1;
-        for j in 0..b.len() {
-            let cur = row[j + 1];
-            row[j + 1] = (prev + (ca != b[j]) as usize).min(row[j] + 1).min(cur + 1);
-            prev = cur;
-        }
-    }
-    row[b.len()]
-}
+pub use ig_core::model::suggest;
 
 #[cfg(test)]
 mod tests {

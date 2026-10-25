@@ -1,227 +1,18 @@
-//! Rules: arch, complexity, intents, SARIF checkers, baseline.
+//! `ig_core::rules` plus the SARIF/lines checker runner and the baseline file.
+
+pub use ig_core::rules::*;
 
 use crate::config::{Checker, Config, Format, Severity};
-use crate::diff::{GraphDiff, Status};
 use crate::extract::innermost_at;
-use crate::intents::Intent;
 use crate::model::{Finding, Graph, Node};
-use crate::workspace::{self, Package};
-use globset::GlobMatcher;
+use crate::workspace;
 use regex::Regex;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
-
-/// Layer assignment: the most specific entry wins (longest literal prefix), ties go to the first declared.
-pub struct Layers<'c> {
-    entries: Vec<(&'c str, GlobMatcher, usize)>,
-}
-
-fn literal_prefix(g: &str) -> usize {
-    g.find(['*', '?', '[', '{']).unwrap_or(g.len())
-}
-
-impl<'c> Layers<'c> {
-    pub fn new(config: &'c Config, packages: &[Package]) -> Layers<'c> {
-        let mut entries = vec![];
-        for (name, globs) in &config.layers {
-            for g in globs {
-                let pattern = match packages.iter().find(|p| &p.name == g) {
-                    Some(p) if p.dir == "." => "**".to_string(),
-                    Some(p) => format!("{}/**", p.dir),
-                    None => g.trim_start_matches("./").to_string(),
-                };
-                if let Ok(m) = workspace::glob(&pattern) {
-                    entries.push((name.as_str(), m.compile_matcher(), literal_prefix(&pattern)));
-                }
-            }
-        }
-        Layers { entries }
-    }
-
-    pub fn of(&self, file: &str) -> Option<&'c str> {
-        let mut best: Option<(&str, usize)> = None;
-        for (name, m, spec) in &self.entries {
-            if m.is_match(file) && best.is_none_or(|(_, s)| *spec > s) {
-                best = Some((name, *spec));
-            }
-        }
-        best.map(|(n, _)| n)
-    }
-}
-
-pub fn arch(graph: &Graph, config: &Config, packages: &[Package]) -> Vec<Finding> {
-    if config.rules.is_empty() {
-        return vec![];
-    }
-    let layers = Layers::new(config, packages);
-    let files: HashMap<&str, &str> = graph
-        .nodes
-        .iter()
-        .map(|n| (n.id.as_str(), n.file.as_str()))
-        .collect();
-    let layer_of: HashMap<&str, Option<&str>> =
-        files.values().map(|f| (*f, layers.of(f))).collect();
-    let layer = |f: &str| layer_of.get(f).copied().flatten();
-    let mut out = vec![];
-    for e in graph
-        .edges
-        .iter()
-        .filter(|e| e.resolved() && matches!(e.kind.as_str(), "imports" | "calls" | "renders"))
-    {
-        let (Some(ff), Some(tf)) = (files.get(e.from.as_str()), files.get(e.to.as_str())) else {
-            continue;
-        };
-        let (Some(a), Some(b)) = (layer(ff), layer(tf)) else {
-            continue;
-        };
-        if a == b || !config.rules.iter().any(|(x, y)| x == a && y == b) {
-            continue;
-        }
-        out.push(
-            Finding::new(
-                "ig/arch",
-                Severity::Error,
-                "ig",
-                &e.file,
-                e.line,
-                format!(
-                    "layer {a} must not depend on {b}: {} {} {}",
-                    e.from, e.kind, e.to
-                ),
-            )
-            .node(&e.from)
-            .edge(&e.from, &e.to)
-            .fix(format!(
-                "Remove this dependency, or move the code so {a} no longer {} {b}.",
-                e.kind
-            )),
-        );
-    }
-    out
-}
-
-pub fn complexity(
-    head: &Graph,
-    base: Option<&Graph>,
-    diff: &GraphDiff,
-    config: &Config,
-) -> Vec<Finding> {
-    let before: HashMap<&str, &Node> = base
-        .map(|b| b.nodes.iter().map(|n| (n.id.as_str(), n)).collect())
-        .unwrap_or_default();
-    let (max, inc) = (config.complexity_max, config.complexity_max_increase);
-    let mut out = vec![];
-    for n in head.nodes.iter().filter(|n| !n.is_module()) {
-        let c = n.metrics.complexity;
-        let msg = match (diff.status(&n.id), before.get(n.id.as_str())) {
-            (Status::Added, _) if c > max => format!("{} has complexity {c} (max {max})", n.name),
-            (Status::Changed, Some(b)) if c > max && c > b.metrics.complexity => {
-                format!(
-                    "{} has complexity {c} (max {max}, was {})",
-                    n.name, b.metrics.complexity
-                )
-            }
-            (Status::Changed, Some(b)) if c > b.metrics.complexity + inc => {
-                format!(
-                    "{} complexity rose from {} to {c} (max increase {inc})",
-                    n.name, b.metrics.complexity
-                )
-            }
-            (Status::Unchanged, _) if c > max => {
-                format!("{} has complexity {c} (max {max})", n.name)
-            }
-            _ => continue,
-        };
-        out.push(
-            Finding::new(
-                "ig/complexity",
-                Severity::Error,
-                "ig",
-                &n.file,
-                n.range.start_line,
-                msg,
-            )
-            .node(&n.id)
-            .fix("Split it into smaller functions or flatten the branching."),
-        );
-    }
-    out
-}
-
-/// `scope`: the intents in scope (changed in intents.md, or all with `--all`).
-pub fn intents(
-    head: &Graph,
-    declared: &[Intent],
-    scope: &BTreeSet<String>,
-    tests: &globset::GlobSet,
-) -> Vec<Finding> {
-    let mut implemented: HashSet<&str> = HashSet::new();
-    let mut tested: HashSet<&str> = HashSet::new();
-    let ids: HashSet<&str> = declared.iter().map(|i| i.id.as_str()).collect();
-    let mut out = vec![];
-    for n in &head.nodes {
-        let in_test = n.kind == "test" || tests.is_match(&n.file);
-        for t in &n.intents {
-            if in_test {
-                tested.insert(t);
-            } else {
-                implemented.insert(t);
-            }
-            if !ids.contains(t.as_str()) {
-                out.push(
-                    Finding::new(
-                        "ig/intent-unknown",
-                        Severity::Error,
-                        "ig",
-                        &n.file,
-                        n.range.start_line,
-                        format!("@intent {t} is not declared in intents.md"),
-                    )
-                    .node(&n.id)
-                    .fix(format!(
-                        "Add `- {t}: <one line>` to intents.md, or fix the tag."
-                    )),
-                );
-            }
-        }
-    }
-    for i in declared.iter().filter(|i| scope.contains(&i.id)) {
-        if !implemented.contains(i.id.as_str()) {
-            out.push(
-                Finding::new(
-                    "ig/intent-unimplemented",
-                    Severity::Error,
-                    "ig",
-                    "intents.md",
-                    i.line,
-                    format!("intent {} has no implementation: {}", i.id, i.text),
-                )
-                .fix(format!(
-                    "Tag the implementing code with `// @intent {}`.",
-                    i.id
-                )),
-            );
-        }
-        if !tested.contains(i.id.as_str()) {
-            out.push(
-                Finding::new(
-                    "ig/intent-untested",
-                    Severity::Warning,
-                    "ig",
-                    "intents.md",
-                    i.line,
-                    format!("intent {} has no test: {}", i.id, i.text),
-                )
-                .fix(format!("Tag a test with `// @intent {}`.", i.id)),
-            );
-        }
-    }
-    out
-}
 
 #[derive(Default)]
 pub struct CheckerOutput {
@@ -670,7 +461,7 @@ pub fn checkers(
 pub(crate) fn read_baseline(root: &Path) -> anyhow::Result<Vec<serde_json::Value>> {
     let path = root.join(".ig/baseline.json");
     match std::fs::read_to_string(&path) {
-        Ok(t) => serde_json::from_str(&t).map_err(|e| anyhow::anyhow!("{}: {e}", path.display())),
+        Ok(t) => baseline::parse(&t).map_err(|e| anyhow::anyhow!("{}: {e}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
         Err(e) => Err(anyhow::anyhow!("{}: {e}", path.display())),
     }
@@ -681,11 +472,7 @@ fn baseline_items(root: &Path) -> Vec<serde_json::Value> {
 }
 
 pub fn load_baseline(root: &Path) -> HashSet<String> {
-    baseline_items(root)
-        .iter()
-        .filter_map(|v| v.as_str().or_else(|| v["fingerprint"].as_str()))
-        .map(String::from)
-        .collect()
+    baseline::fingerprints(&baseline_items(root))
 }
 
 /// Writes `fingerprints` as strings, keeping existing exception objects.
@@ -693,32 +480,15 @@ pub fn write_baseline(
     root: &Path,
     fingerprints: impl IntoIterator<Item = String>,
 ) -> anyhow::Result<()> {
-    let set: BTreeSet<String> = fingerprints.into_iter().collect();
-    let mut items: Vec<serde_json::Value> = set.into_iter().map(Into::into).collect();
-    items.extend(baseline_items(root).into_iter().filter(|v| v.is_object()));
+    let items = baseline::with_fingerprints(fingerprints, baseline_items(root));
     std::fs::create_dir_all(root.join(".ig"))?;
-    std::fs::write(
-        root.join(".ig/baseline.json"),
-        serde_json::to_string_pretty(&items)? + "\n",
-    )?;
+    std::fs::write(root.join(".ig/baseline.json"), baseline::render(&items)?)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn layers_most_specific_wins() {
-        let c = Config::parse(
-            "layers:\n  a: ['packages/**']\n  b: ['packages/core/**']\n  c: ['packages/core/**']\n",
-        )
-        .unwrap();
-        let l = Layers::new(&c, &[]);
-        assert_eq!(l.of("packages/core/x.ts"), Some("b"));
-        assert_eq!(l.of("packages/ui/x.ts"), Some("a"));
-        assert_eq!(l.of("apps/x.ts"), None);
-    }
 
     #[test]
     fn checker_formats() {

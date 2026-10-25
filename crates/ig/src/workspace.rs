@@ -2,21 +2,12 @@
 
 use crate::config::Config;
 use anyhow::Result;
-use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone)]
-pub struct Package {
-    pub name: String,
-    /// Repo-relative posix dir ("." for the root).
-    pub dir: String,
-    pub tsconfig: Option<PathBuf>,
-    /// Repo-relative source entry file.
-    pub source_entry: Option<String>,
-}
+pub use ig_core::workspace::{Package, glob, globset, join};
 
 #[derive(Debug, Clone)]
 pub struct SourceFile {
@@ -29,18 +20,6 @@ pub struct Workspace {
     pub root: PathBuf,
     pub packages: Vec<Package>,
     pub files: Vec<SourceFile>,
-}
-
-pub fn glob(pattern: &str) -> Result<Glob> {
-    Ok(GlobBuilder::new(pattern).literal_separator(true).build()?)
-}
-
-pub fn globset(patterns: &[String]) -> Result<GlobSet> {
-    let mut b = GlobSetBuilder::new();
-    for p in patterns {
-        b.add(glob(p)?);
-    }
-    Ok(b.build()?)
 }
 
 /// Parses JSON with comments and trailing commas.
@@ -83,14 +62,6 @@ pub fn rel(root: &Path, p: &Path) -> Option<String> {
     let r = p.strip_prefix(root).ok()?;
     let s = r.to_string_lossy().replace('\\', "/");
     Some(if s.is_empty() { ".".into() } else { s })
-}
-
-pub fn join(dir: &str, path: &str) -> String {
-    if dir == "." {
-        path.to_string()
-    } else {
-        format!("{dir}/{path}")
-    }
 }
 
 /// Lexically normalises a posix path ("a/./b/../c" → "a/c").
