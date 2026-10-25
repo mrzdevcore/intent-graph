@@ -81,9 +81,11 @@ patterns:                     # ast-grep patterns that become graph nodes
     match: "app.$METHOD($PATH, $$$)"
     where: { METHOD: [get, post] }
     id: "{METHOD} {PATH}"
-checkers:                     # any command that prints SARIF on stdout
-  - name: eslint
-    run: "npx eslint -f @microsoft/eslint-formatter-sarif ."
+checkers:                     # any command that prints findings on stdout (exit status ignored)
+  - name: stylelint
+    run: "npx stylelint --formatter json 'src/**/*.scss'"
+    format: stylelint-json    # sarif (default) | checkstyle | eslint-json | stylelint-json | lines
+    configs: [".stylelintrc*"] # the tool's own config files, watched for tampering
 blockOn: error
 blueprint:                    # optional: page → front → API → use cases → adapters → systems
   lanes:

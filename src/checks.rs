@@ -1,6 +1,6 @@
 //! Rules: arch, complexity, intents, SARIF checkers, baseline.
 
-use crate::config::{Config, Severity};
+use crate::config::{Config, Format, Severity};
 use crate::diff::{GraphDiff, Status};
 use crate::extract::innermost_at;
 use crate::intents::Intent;
@@ -10,7 +10,9 @@ use globset::GlobMatcher;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Read;
 use std::path::Path;
+use regex::Regex;
 use std::process::{Command, Stdio};
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 /// Layer assignment: the most specific entry wins (longest literal prefix), ties go to the first declared.
@@ -284,9 +286,6 @@ fn run_checker(root: &Path, run: &str) -> Result<Vec<u8>, String> {
     if over {
         return Err(format!("output exceeded 64 MB; stderr: {stderr}"));
     }
-    if serde_json::from_slice::<serde_json::Value>(&stdout).is_err() {
-        return Err(format!("did not print SARIF JSON; stderr: {stderr}"));
-    }
     Ok(stdout)
 }
 
@@ -322,17 +321,8 @@ fn urlish_decode(s: &str) -> Result<String, ()> {
     String::from_utf8(out).map_err(|_| ())
 }
 
-pub fn parse_sarif(
-    root: &Path,
-    tool: &str,
-    bytes: &[u8],
-    head: &Graph,
-) -> Result<Vec<Finding>, String> {
-    let v: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    let runs = v
-        .get("runs")
-        .and_then(|r| r.as_array())
-        .ok_or("no runs[]")?;
+/// Attaches the innermost graph node to each finding (module-level files only).
+fn attach_nodes(head: &Graph, findings: Vec<Finding>) -> Vec<Finding> {
     let mut by_file: HashMap<&str, Vec<Node>> = HashMap::new();
     for n in &head.nodes {
         by_file.entry(n.file.as_str()).or_default().push(n.clone());
@@ -340,6 +330,177 @@ pub fn parse_sarif(
     for v in by_file.values_mut() {
         v.sort_by_key(|n| !n.is_module());
     }
+    findings
+        .into_iter()
+        .map(|f| match by_file.get(f.file.as_str()) {
+            Some(nodes) if nodes.first().is_some_and(Node::is_module) => {
+                let id = innermost_at(nodes, f.line).to_string();
+                f.node(&id)
+            }
+            _ => f,
+        })
+        .collect()
+}
+
+pub fn parse_output(
+    root: &Path,
+    tool: &str,
+    format: Format,
+    bytes: &[u8],
+    head: &Graph,
+) -> Result<Vec<Finding>, String> {
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return Ok(vec![]);
+    }
+    let found = match format {
+        Format::Sarif => parse_sarif(root, tool, bytes)?,
+        Format::Checkstyle => parse_checkstyle(root, tool, bytes)?,
+        Format::EslintJson => parse_eslint(root, tool, bytes)?,
+        Format::StylelintJson => parse_stylelint(root, tool, bytes)?,
+        Format::Lines => parse_lines(root, tool, bytes),
+    };
+    Ok(attach_nodes(head, found))
+}
+
+fn json_array(bytes: &[u8]) -> Result<Vec<serde_json::Value>, String> {
+    match serde_json::from_slice(bytes) {
+        Ok(serde_json::Value::Array(a)) => Ok(a),
+        Ok(_) => Err("expected a JSON array".into()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn parse_eslint(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>, String> {
+    let mut out = vec![];
+    for file in json_array(bytes)? {
+        let path = repo_path(root, file["filePath"].as_str().unwrap_or(""));
+        for m in file["messages"].as_array().into_iter().flatten() {
+            let sev = if m["severity"].as_u64() == Some(2) {
+                Severity::Error
+            } else {
+                Severity::Warning
+            };
+            out.push(Finding::new(
+                m["ruleId"].as_str().unwrap_or(tool),
+                sev,
+                tool,
+                &path,
+                m["line"].as_u64().unwrap_or(1) as u32,
+                m["message"].as_str().unwrap_or("").to_string(),
+            ));
+        }
+    }
+    Ok(out)
+}
+
+fn parse_stylelint(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>, String> {
+    let mut out = vec![];
+    for file in json_array(bytes)? {
+        let path = repo_path(root, file["source"].as_str().unwrap_or(""));
+        for w in file["warnings"].as_array().into_iter().flatten() {
+            let sev = if w["severity"].as_str() == Some("error") {
+                Severity::Error
+            } else {
+                Severity::Warning
+            };
+            out.push(Finding::new(
+                w["rule"].as_str().unwrap_or(tool),
+                sev,
+                tool,
+                &path,
+                w["line"].as_u64().unwrap_or(1) as u32,
+                w["text"].as_str().unwrap_or("").to_string(),
+            ));
+        }
+    }
+    Ok(out)
+}
+
+fn xml_unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+fn xml_attrs(s: &str) -> HashMap<&str, String> {
+    static ATTR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(\w+)="([^"]*)""#).unwrap());
+    ATTR.captures_iter(s)
+        .map(|c| (c.get(1).unwrap().as_str(), xml_unescape(&c[2])))
+        .collect()
+}
+
+fn parse_checkstyle(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>, String> {
+    static FILE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?s)<file\b([^>]*?)(?:/>|>(.*?)</file>)").unwrap());
+    static ERR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<error\b([^>]*?)/?>").unwrap());
+    let text = String::from_utf8_lossy(bytes);
+    if !text.contains("<checkstyle") {
+        return Err("no <checkstyle> element".into());
+    }
+    let mut out = vec![];
+    for f in FILE.captures_iter(&text) {
+        let path = repo_path(root, xml_attrs(&f[1]).get("name").map_or("", |s| s));
+        for e in ERR.captures_iter(f.get(2).map_or("", |m| m.as_str())) {
+            let a = xml_attrs(&e[1]);
+            let sev = match a.get("severity").map(String::as_str) {
+                Some("error") => Severity::Error,
+                Some("info") => Severity::Note,
+                _ => Severity::Warning,
+            };
+            let rule = a.get("source").filter(|s| !s.is_empty()).map_or(tool, |s| s);
+            out.push(Finding::new(
+                rule,
+                sev,
+                tool,
+                &path,
+                a.get("line").and_then(|l| l.parse().ok()).unwrap_or(1),
+                a.get("message").cloned().unwrap_or_default(),
+            ));
+        }
+    }
+    Ok(out)
+}
+
+fn parse_lines(root: &Path, tool: &str, bytes: &[u8]) -> Vec<Finding> {
+    // tsc: `path(line,col): error TS1234: message`; generic: `path:line[:col][: ]message`
+    static TSC: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^(.+?)\((\d+),\d+\):\s*(.*)$").unwrap());
+    static GEN: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^(.+?):(\d+)(?::\d+)?:?\s*(.*)$").unwrap());
+    static CODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bTS\d+\b").unwrap());
+    static SEV: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?i)^\W*(error|warning)\b").unwrap());
+    let mut out = vec![];
+    for l in String::from_utf8_lossy(bytes).lines() {
+        let Some(c) = TSC.captures(l).or_else(|| GEN.captures(l)) else {
+            continue;
+        };
+        let msg = c[3].trim();
+        let sev = match SEV.captures(msg).map(|s| s[1].to_lowercase()) {
+            Some(s) if s == "error" => Severity::Error,
+            _ => Severity::Warning,
+        };
+        let rule = CODE.find(msg).map_or(tool, |m| m.as_str());
+        out.push(Finding::new(
+            rule,
+            sev,
+            tool,
+            &repo_path(root, &c[1]),
+            c[2].parse().unwrap_or(1),
+            msg.to_string(),
+        ));
+    }
+    out
+}
+
+pub fn parse_sarif(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>, String> {
+    let v: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    let runs = v
+        .get("runs")
+        .and_then(|r| r.as_array())
+        .ok_or("no runs[]")?;
     let mut out = vec![];
     for run in runs {
         for r in run
@@ -376,12 +537,6 @@ pub fn parse_sarif(
             {
                 f = f.fix(fix);
             }
-            if let Some(nodes) = by_file.get(file.as_str())
-                && !nodes.is_empty()
-                && nodes[0].is_module()
-            {
-                f = f.node(innermost_at(nodes, line));
-            }
             out.push(f);
         }
     }
@@ -397,7 +552,8 @@ pub fn checkers(root: &Path, config: &Config, head: &Graph) -> CheckerOutput {
         .map(|c| {
             (
                 c.name.clone(),
-                run_checker(root, &c.run).and_then(|b| parse_sarif(root, &c.name, &b, head)),
+                run_checker(root, &c.run)
+                    .and_then(|b| parse_output(root, &c.name, c.format, &b, head)),
             )
         })
         .collect();
@@ -457,6 +613,47 @@ mod tests {
         assert_eq!(l.of("packages/core/x.ts"), Some("b"));
         assert_eq!(l.of("packages/ui/x.ts"), Some("a"));
         assert_eq!(l.of("apps/x.ts"), None);
+    }
+
+    #[test]
+    fn checker_formats() {
+        let root = Path::new("/repo");
+        let g = Graph::empty();
+        let eslint = br#"[{"filePath":"/repo/src/a.ts","messages":[{"ruleId":"no-var","severity":2,"message":"Unexpected var","line":3}]}]"#;
+        let f = parse_output(root, "eslint", Format::EslintJson, eslint, &g).unwrap();
+        assert_eq!((f[0].rule_id.as_str(), f[0].file.as_str(), f[0].line, f[0].severity), ("no-var", "src/a.ts", 3, Severity::Error));
+
+        let stylelint = br#"[{"source":"/repo/src/a.scss","warnings":[{"line":7,"column":1,"rule":"media-feature-range-notation","severity":"warning","text":"Expected context notation"}]}]"#;
+        let f = parse_output(root, "stylelint", Format::StylelintJson, stylelint, &g).unwrap();
+        assert_eq!((f[0].rule_id.as_str(), f[0].line, f[0].severity), ("media-feature-range-notation", 7, Severity::Warning));
+
+        let cs = br#"<?xml version="1.0"?><checkstyle><file name="src/b.ts"><error line="2" column="1" severity="error" message="Use an arrow function &amp; const" source="prefer-arrow"/></file></checkstyle>"#;
+        let f = parse_output(root, "oxlint", Format::Checkstyle, cs, &g).unwrap();
+        assert_eq!((f[0].file.as_str(), f[0].message.as_str(), f[0].rule_id.as_str()), ("src/b.ts", "Use an arrow function & const", "prefer-arrow"));
+
+        let tsc = b"src/c.ts(4,10): error TS2322: Type 'string' is not assignable to type 'number'.\nnoise line\nsrc/d.ts:9:2: something odd\n";
+        let f = parse_output(root, "tsc", Format::Lines, tsc, &g).unwrap();
+        assert_eq!(f.len(), 2);
+        assert_eq!((f[0].file.as_str(), f[0].line, f[0].rule_id.as_str(), f[0].severity), ("src/c.ts", 4, "TS2322", Severity::Error));
+        assert_eq!((f[1].file.as_str(), f[1].line, f[1].severity), ("src/d.ts", 9, Severity::Warning));
+
+        for fmt in [Format::Sarif, Format::Checkstyle, Format::EslintJson, Format::StylelintJson, Format::Lines] {
+            assert!(parse_output(root, "x", fmt, b"  \n", &g).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn lines_checker_ignores_exit_status() {
+        let dir = std::env::temp_dir().join(format!("ig-lines-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = Config::parse(
+            "checkers:\n  - name: t\n    format: lines\n    run: \"echo 'src/a.ts:1: boom'; exit 3\"\n",
+        )
+        .unwrap();
+        let out = checkers(&dir, &c, &Graph::empty());
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(out.errors.is_empty(), "{:?}", out.errors);
+        assert_eq!(out.findings.len(), 1);
     }
 
     #[test]

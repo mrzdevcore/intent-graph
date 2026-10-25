@@ -83,7 +83,7 @@ On-disk files:
 | `tests` | `["**/*.test.*", "**/*.spec.*", "**/__tests__/**"]` | |
 | `testCalls` | `["describe", "it", "test"]` | |
 | `patterns` | `[]` | `{kind, match, where?: {VAR: [allowed]}, id}`. These are ast-grep patterns; `id` interpolates `{VAR}`. |
-| `checkers` | `[]` | `{name, run}`. `run` is a shell command that prints SARIF on stdout. |
+| `checkers` | `[]` | `{name, run, format?, configs?}`. `run` is a shell command that prints findings on stdout. `format` is one of `sarif` (default), `checkstyle`, `eslint-json`, `stylelint-json`, `lines`. `configs` is a list of globs naming the tool's own config files. |
 | `severity` | `{}` | Per-rule severity overrides. |
 | `blockOn` | `error` | The lowest severity that blocks. |
 | `editor` | `zed {file}:{line}` | Template for viewer links. URL schemes become links; `javascript:`/`data:`/`vbscript:` never do. |
@@ -232,13 +232,15 @@ Pattern nodes use `ast-grep-core` and `ast-grep-language` (TypeScript, Tsx, Java
 | `ig/intent-untested` | warning | The same scope, but no test node (or node in a test file) carries the tag. |
 | `ig/intent-unknown` | error | A tag is not declared in `intents.md`. |
 
-**SARIF checkers** run as `sh -c <run>` in the repo, with a 120 s timeout and a 64 MB output cap. Results are mapped as follows:
+**Checkers** run as `sh -c <run>` in the repo, with a 120 s timeout and a 64 MB output cap. Results are mapped as follows:
 
 - `uri` → a repo-relative path (`file://` URIs and absolute paths are handled);
 - `startLine` → line (default 1);
 - `level` → severity (default warning);
 - `fixes[0].description.text` → fix;
 - the innermost node at that line → nodeId.
+
+The other formats map the same way: `eslint-json` (`severity` 2 error, 1 warning; rule `ruleId`), `stylelint-json` (`severity` error/warning; rule `rule`), `checkstyle` (`severity` error/warning/info; rule `source`) and `lines`. `lines` matches `path:line[:col][: ]message` and tsc's `path(line,col): error TS1234: message`. Its rule is the `TS\d+` code if present, and its severity is an explicit `error`/`warning` word, else warning. The tool name is the rule id when the output has none. The exit status is ignored, and empty output means zero findings.
 
 Bad output becomes an `ig/checker-error` finding that includes the first 300 chars of stderr.
 

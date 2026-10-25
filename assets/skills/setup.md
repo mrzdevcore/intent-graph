@@ -122,18 +122,29 @@ blueprint:
 - A repo without a backend (a front or micro-front monorepo) has no routes: model its backends as
   systems through their SDK packages, and its SDK/client packages as a lane above Systems.
 
-## 6. Checkers (optional)
+## 6. Wire the team's tools (optional)
 
-If the repo has linters that can print SARIF, wire them:
+Detect stylelint, oxlint, biome, eslint, semgrep and tsc from config files and devDependencies.
+Each checker is a command that prints findings on stdout (the exit status is ignored, and empty
+output means no findings). Set `format` to match the tool, and `configs` to the tool's own config
+files:
 
 ```yaml
 checkers:
-  - name: eslint
-    run: "npx eslint -f @microsoft/eslint-formatter-sarif ."
+  - { name: stylelint, run: "npx stylelint --formatter json 'src/**/*.scss'", format: stylelint-json, configs: [".stylelintrc*"] }
+  - { name: oxlint,    run: "npx oxlint --format checkstyle",      format: checkstyle,  configs: [".oxlintrc.json"] }
+  - { name: biome,     run: "npx biome lint --reporter=checkstyle", format: checkstyle,  configs: ["biome.json*"] }
+  - { name: eslint,    run: "npx eslint -f json .",                 format: eslint-json, configs: ["eslint.config.*", ".eslintrc*"] }
+  - { name: semgrep,   run: "semgrep --sarif",                      format: sarif,       configs: [".semgrep*"] }
+  - { name: tsc,       run: "npx tsc --noEmit",                     format: lines,       configs: ["tsconfig*.json"] }
 ```
 
-Only add a checker whose formatter is already installed or trivially available; otherwise
-suggest it to the user.
+- Run each command once and check that the output parses (`ig check --all` shows an
+  `ig/checker-error` otherwise). Correct the `format` if it does not.
+- When the user states a plain-language team rule ("no var", "use range notation in media
+  queries"), prove it fires: write a temporary bad snippet, confirm the checker reports it, then
+  delete the snippet.
+- Install nothing without asking. If a tool is not installed, suggest it to the user.
 
 ## 7. Verify and report
 
