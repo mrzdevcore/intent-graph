@@ -1,12 +1,9 @@
 mod apply;
-mod autoimports;
 mod brief;
 mod check;
 mod checks;
 mod config;
 mod diff;
-mod embedded;
-mod extract;
 mod git;
 mod graph;
 mod hook;
@@ -16,14 +13,12 @@ mod linediff;
 mod mcp;
 mod model;
 mod notes;
-mod patterns;
 mod plan;
 mod report;
 mod review;
 mod serve;
 mod setup;
 mod skills;
-mod tsconfig;
 mod view;
 mod workspace;
 

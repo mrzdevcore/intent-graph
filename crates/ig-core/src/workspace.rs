@@ -41,6 +41,33 @@ pub fn is_source_ext(name: &str, embedded: &[String]) -> bool {
             .any(|e| lower.ends_with(&e.to_ascii_lowercase()))
 }
 
+/// JSON with its trailing commas (`[1, 2,]`, `{"a": 1,}`) removed, outside strings.
+pub fn strip_trailing_commas(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let (mut in_str, mut esc) = (false, false);
+    for (i, &c) in b.iter().enumerate() {
+        if in_str {
+            if esc {
+                esc = false
+            } else if c == b'\\' {
+                esc = true
+            } else if c == b'"' {
+                in_str = false
+            }
+        } else if c == b'"' {
+            in_str = true
+        } else if c == b',' {
+            let next = b[i + 1..].iter().find(|x| !x.is_ascii_whitespace());
+            if matches!(next, Some(b'}') | Some(b']')) {
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    String::from_utf8(out).unwrap_or_default()
+}
+
 pub fn glob(pattern: &str) -> Result<Glob, globset::Error> {
     GlobBuilder::new(pattern).literal_separator(true).build()
 }
@@ -89,6 +116,14 @@ pub fn normalize(p: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn jsonc() {
+        assert_eq!(
+            super::strip_trailing_commas("{\"a\": [1, 2,], \"b\": \",]\",}"),
+            "{\"a\": [1, 2], \"b\": \",]\"}"
+        );
+    }
+
     #[test]
     fn normalize() {
         assert_eq!(super::normalize("a/./b/../c"), "a/c");

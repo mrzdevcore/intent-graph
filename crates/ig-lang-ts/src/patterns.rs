@@ -1,11 +1,11 @@
 //! Pattern nodes from `ig.yaml` `patterns` (ast-grep).
 
-use crate::config;
 use crate::extract::{FileFacts, intents_in, normalized_hash};
-use crate::model::{Metrics, Node, Range};
 use ast_grep_core::tree_sitter::LanguageExt;
 use ast_grep_core::{Language, Pattern};
 use ast_grep_language::{JavaScript, Tsx, TypeScript};
+use ig_core::config;
+use ig_core::model::{Metrics, Node, Range};
 use std::collections::HashMap;
 
 pub struct Compiled {
