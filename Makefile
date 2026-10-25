@@ -8,8 +8,8 @@ build: viewer
 	cargo build --release
 
 install: viewer
-	cargo install --path . --locked
+	cargo install --path crates/ig --locked
 
 test: viewer
 	cd viewer && bun run test
-	cargo test
+	cargo test --workspace

@@ -26,12 +26,12 @@ document.getElementById("raw").textContent = raw;
 "#;
 
 fn main() {
-    let dist = "viewer/dist/index.html";
+    let dist = concat!(env!("CARGO_MANIFEST_DIR"), "/../../viewer/dist/index.html");
     println!("cargo:rerun-if-changed={dist}");
     let out = Path::new(&std::env::var("OUT_DIR").unwrap()).to_path_buf();
     std::fs::write(out.join("placeholder.html"), PLACEHOLDER).unwrap();
     let page = std::fs::read_to_string(dist).unwrap_or_else(|_| {
-        println!("cargo:warning={dist} missing; run make viewer");
+        println!("cargo:warning=viewer/dist/index.html missing; run make viewer");
         PLACEHOLDER.to_string()
     });
     std::fs::write(out.join("view.html"), page).unwrap();
