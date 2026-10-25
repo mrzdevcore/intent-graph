@@ -63,6 +63,8 @@ testCalls: ["describe", "it", "test"]
 entryPoints: ["apps/*/src/main.ts"]    # used from outside the repo (review skips their exports)
 ```
 
+- **Test stubs.** Add `**/test/**` and `**/__mocks__/**` to `tests` when stub files live there:
+  non-test code never resolves into test files.
 - **Auto-imports.** Without them, calls to auto-imported composables and components stay guessed.
   In a Nuxt repo (a `nuxt.config.*` file, or `.nuxt/` present), set `autoImports` to the app's
   `.nuxt/imports.d.ts` and `.nuxt/components.d.ts`, one pair per Nuxt app in a monorepo

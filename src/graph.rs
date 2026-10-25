@@ -220,10 +220,17 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
         nodes.append(&mut f.nodes);
     }
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
-    let known: HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
+    let known: HashMap<&str, &str> = nodes
+        .iter()
+        .map(|n| (n.id.as_str(), n.file.as_str()))
+        .collect();
     let mut merged: BTreeMap<(String, String, String), Edge> = BTreeMap::new();
     for e in edge_lists.into_iter().flatten() {
-        if !known.contains(e.to.as_str()) || !known.contains(e.from.as_str()) {
+        let (Some(from), Some(to)) = (known.get(e.from.as_str()), known.get(e.to.as_str())) else {
+            continue;
+        };
+        // Non-test code never resolves into test files (stubs, mocks).
+        if tests.is_match(to) && !tests.is_match(from) {
             continue;
         }
         let key = (e.from.clone(), e.kind.clone(), e.to.clone());
@@ -942,6 +949,41 @@ mod tests {
             "{from_page:#?}"
         );
         assert_eq!(from_page.len(), 1, "{from_page:#?}");
+    }
+
+    #[test]
+    fn code_never_resolves_into_tests() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            ("ig.yaml", "tests: ['**/test/**']\n"),
+            (
+                "src/a.ts",
+                "import { useI18n } from '../test/stub';\nexport function a() { useI18n(); }\n",
+            ),
+            ("src/b.ts", "export function b() { return 1; }\n"),
+            ("test/stub.ts", "export const useI18n = () => 1;\n"),
+            (
+                "test/a.test.ts",
+                "import { b } from '../src/b';\nexport function t() { b(); }\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        assert!(
+            !g.edges
+                .iter()
+                .any(|e| e.from.starts_with("src/") && e.to.starts_with("test/")),
+            "{:#?}",
+            g.edges
+        );
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.from.starts_with("test/a.test.ts") && e.to.starts_with("src/b.ts")),
+            "{:#?}",
+            g.edges
+        );
     }
 
     #[test]
