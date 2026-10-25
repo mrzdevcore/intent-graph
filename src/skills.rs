@@ -18,6 +18,10 @@ pub const SKILLS: &[Skill] = &[
         name: "explore",
         body: include_str!("../assets/skills/explore.md"),
     },
+    Skill {
+        name: "plan",
+        body: include_str!("../assets/skills/plan.md"),
+    },
 ];
 
 const LEGACY_EXPLORE: &str = include_str!("../assets/legacy/ig-explore-v1.md");

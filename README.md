@@ -36,6 +36,7 @@ ig view            # open the change as a graph in the browser
 | `ig diff [--base <ref>] [--head <ref>] [--json]` | Changed nodes grouped by file (`+` added, `~` changed, `-` removed). |
 | `ig review [--all] [--json] [--agent]` | Ranked structural problems: cycles, hubs, unstable dependencies, low cohesion, change coupling, unused exports, oversized modules. |
 | `ig query <id> [--in\|--out\|--both] [--depth N] [--json]` | Neighbours of a node (default both, depth 2) as `kind id (file:line)` and `from -kind-> to`. Unknown id: suggestions, exit 1. |
+| `ig plan check <file> [--json]` | Checks a plan file before any code is written (see [Plans](#plans)). Exit 1 if it has errors. |
 | `ig focus <id>...` | Writes `.ig/focus.json`, the ids the viewer should highlight. |
 | `ig view [--watch] [--no-open]` | Writes `.ig/view.html`. `--watch` serves it on localhost and reloads on every save. |
 | `ig report --gitlab` | Checks `HEAD` and creates or updates one MR note (needs `IG_GITLAB_TOKEN` or `GITLAB_TOKEN`). |
@@ -49,6 +50,33 @@ Every command accepts `--root <dir>`. Exit codes: 0 ok, 1 blocking findings, 2 u
 
 **Base selection:** `--base`, else `CI_MERGE_REQUEST_DIFF_BASE_SHA`, else the merge-base of `HEAD` with
 `origin/HEAD`, `main` or `master`, else `HEAD`. Base graphs are cached in `.ig/cache/`.
+
+## Plans
+
+A plan is a Markdown file, usually `plans/<slug>.md`, written by the `/ig:plan` skill (`$ig-plan`):
+a `# Title`, an optional `Status: done` line, a numbered list under `## Steps`, and one fenced
+block tagged `ig-plan`:
+
+```yaml
+nodes:
+  - id: packages/core/src/export.ts#exportRows   # graph ids: file, file#Name, file#METHOD /path
+    status: new                                  # new | changed | removed
+    kind: function                               # optional
+    exported: true                               # optional
+  - id: packages/core/src/repo.ts#Repo.find
+    status: changed
+edges:
+  - from: packages/core/src/export.ts#exportRows
+    to: packages/core/src/repo.ts#Repo.find
+    kind: calls                                  # default calls
+systems: [PostgreSQL]
+```
+
+`ig plan check` merges the planned nodes and edges onto the current graph and reports the volume
+(new files and nodes, changed and removed nodes, new systems, new cross-layer and cross-lane links),
+the blast radius (nodes that reach a changed or removed node, by layer), `ig/arch` findings on
+planned edges, structural regressions, and `plan/unknown-node` / `plan/unknown-edge-end` errors for
+ids that are not in the graph. It records the plan in `.ig/current-plan`.
 
 ## Intents
 

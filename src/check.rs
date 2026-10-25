@@ -11,7 +11,7 @@ use crate::review;
 use crate::workspace::{self, Package};
 use anyhow::{Result, bail};
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Default, Clone)]
@@ -58,6 +58,9 @@ pub struct Run {
     pub packages: Vec<Package>,
     pub repo: Option<Repo>,
     pub intents: Vec<intents::Intent>,
+    /// Ids and edge keys added from a plan; empty without one.
+    #[allow(dead_code)] // filled by plan-aware checks
+    pub planned: HashSet<String>,
 }
 
 pub struct Trees {
@@ -313,6 +316,7 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
         packages,
         repo: t.repo,
         intents: head_intents,
+        planned: HashSet::new(),
     })
 }
 
@@ -344,11 +348,18 @@ pub fn summary_text(r: &CheckResult) -> String {
         "nodes: {} added, {} changed, {} removed, {} unchanged\n",
         c.added, c.changed, c.removed, c.unchanged
     ));
-    if r.findings.is_empty() {
+    s.push_str(&findings_text(&r.findings));
+    s
+}
+
+/// Findings grouped by severity, as in `ig check`'s summary.
+pub fn findings_text(findings: &[Finding]) -> String {
+    let mut s = String::new();
+    if findings.is_empty() {
         s.push_str("no findings\n");
     }
     for sev in [Severity::Error, Severity::Warning, Severity::Note] {
-        let fs: Vec<&Finding> = r.findings.iter().filter(|f| f.severity == sev).collect();
+        let fs: Vec<&Finding> = findings.iter().filter(|f| f.severity == sev).collect();
         if fs.is_empty() {
             continue;
         }
