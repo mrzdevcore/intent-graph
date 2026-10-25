@@ -29,6 +29,8 @@ fn run(root: &Path, args: &[&str]) -> Value {
         "ig {args:?} failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    // stderr is a pipe here: no progress lines.
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("building graph"));
     serde_json::from_slice(&out.stdout).unwrap()
 }
 

@@ -1,6 +1,6 @@
 //! Rules: arch, complexity, intents, SARIF checkers, baseline.
 
-use crate::config::{Config, Format, Severity};
+use crate::config::{Checker, Config, Format, Severity};
 use crate::diff::{GraphDiff, Status};
 use crate::extract::innermost_at;
 use crate::intents::Intent;
@@ -223,9 +223,65 @@ pub fn intents(
     out
 }
 
+#[derive(Default)]
 pub struct CheckerOutput {
     pub findings: Vec<Finding>,
     pub errors: Vec<Finding>,
+    pub notices: Vec<String>,
+}
+
+/// `{files}` keeps these when a checker sets no `extensions` (plus files in the graph).
+const SCRIPT_STYLE: &[&str] = &[
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".css", ".scss", ".less",
+];
+const MAX_COMMAND: usize = 100 << 10;
+
+fn shell_quote(f: &str) -> String {
+    // A leading `-` would read as a flag.
+    let f = if f.starts_with('-') {
+        format!("./{f}")
+    } else {
+        f.to_string()
+    };
+    format!("'{}'", f.replace('\'', r"'\''"))
+}
+
+/// The checker's `run` with `{files}` replaced by the changed files it cares about, quoted; `.`
+/// when `changed` is None (`--all`) or the list is too long. None: nothing to check, skip it.
+pub(crate) fn expand_files(
+    c: &Checker,
+    changed: Option<&[String]>,
+    known: &HashSet<&str>,
+    notices: &mut Vec<String>,
+) -> Option<String> {
+    if !c.run.contains("{files}") {
+        return Some(c.run.clone());
+    }
+    let whole = || Some(c.run.replace("{files}", "."));
+    let Some(changed) = changed else {
+        return whole();
+    };
+    let files: Vec<String> = changed
+        .iter()
+        .filter(|f| match c.extensions.is_empty() {
+            true => known.contains(f.as_str()) || SCRIPT_STYLE.iter().any(|e| f.ends_with(e)),
+            false => c.extensions.iter().any(|e| f.ends_with(e.as_str())),
+        })
+        .map(|f| shell_quote(f))
+        .collect();
+    if files.is_empty() {
+        return None;
+    }
+    let cmd = c.run.replace("{files}", &files.join(" "));
+    if cmd.len() > MAX_COMMAND {
+        notices.push(format!(
+            "checker {}: {} changed files make too long a command; checking the whole root",
+            c.name,
+            files.len()
+        ));
+        return whole();
+    }
+    Some(cmd)
 }
 
 const TIMEOUT: Duration = Duration::from_secs(120);
@@ -550,14 +606,27 @@ pub fn parse_sarif(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>
     Ok(out)
 }
 
-/// Runs all checkers (in parallel) against the tree at `root`.
-pub fn checkers(root: &Path, config: &Config, head: &Graph) -> CheckerOutput {
+/// Runs all checkers (in parallel) against the tree at `root`. `changed` fills `{files}`.
+pub fn checkers(
+    root: &Path,
+    config: &Config,
+    head: &Graph,
+    changed: Option<&[String]>,
+) -> CheckerOutput {
     use rayon::prelude::*;
-    let results: Vec<(String, Result<Vec<Finding>, String>)> = config
+    let mut out = CheckerOutput::default();
+    let known: HashSet<&str> = head.nodes.iter().map(|n| n.file.as_str()).collect();
+    let runs: Vec<(&Checker, String)> = config
         .checkers
+        .iter()
+        .filter_map(|c| Some((c, expand_files(c, changed, &known, &mut out.notices)?)))
+        .collect();
+    let results: Vec<(String, Result<Vec<Finding>, String>)> = runs
         .par_iter()
-        .map(|c| {
-            let r = run_checker(root, &c.run).and_then(|(b, code, stderr)| {
+        .map(|(c, run)| {
+            crate::check::progress(&format!("running {}…", c.name));
+            let start = Instant::now();
+            let r = run_checker(root, run).and_then(|(b, code, stderr)| {
                 let tail = |t: &str| t.chars().take(300).collect::<String>();
                 let found = parse_output(root, &c.name, c.format, &b, head)
                     .map_err(|e| format!("{e}; stderr: {stderr}"))?;
@@ -575,13 +644,11 @@ pub fn checkers(root: &Path, config: &Config, head: &Graph) -> CheckerOutput {
                     }
                 }
             });
+            let secs = start.elapsed().as_secs_f32();
+            crate::check::progress(&format!("{} done ({secs:.1} s)", c.name));
             (c.name.clone(), r)
         })
         .collect();
-    let mut out = CheckerOutput {
-        findings: vec![],
-        errors: vec![],
-    };
     for (name, r) in results {
         match r {
             Ok(f) => out.findings.extend(f),
@@ -727,7 +794,7 @@ mod tests {
             "checkers:\n  - name: t\n    format: lines\n    run: \"echo 'src/a.ts:1: boom'; exit 3\"\n",
         )
         .unwrap();
-        let out = checkers(&dir, &c, &Graph::empty());
+        let out = checkers(&dir, &c, &Graph::empty(), None);
         std::fs::remove_dir_all(&dir).ok();
         assert!(out.errors.is_empty(), "{:?}", out.errors);
         assert_eq!(out.findings.len(), 1);
@@ -742,7 +809,7 @@ mod tests {
                 "checkers:\n  - name: t\n    format: lines\n    run: \"{cmd}\"\n"
             ))
             .unwrap();
-            checkers(&dir, &c, &Graph::empty())
+            checkers(&dir, &c, &Graph::empty(), None)
         };
         let bad = run("echo boom >&2; exit 127");
         let ok = run("exit 0");
@@ -755,6 +822,65 @@ mod tests {
         );
         assert!(bad.errors[0].message.contains("exited 127"));
         assert!(ok.errors.is_empty() && ok.findings.is_empty());
+    }
+
+    #[test]
+    fn files_placeholder() {
+        let c = |run: &str, exts: &str| {
+            Config::parse(&format!(
+                "checkers:\n  - name: t\n    run: \"{run}\"\n{exts}"
+            ))
+            .unwrap()
+            .checkers
+            .remove(0)
+        };
+        let changed: Vec<String> = ["src/it's a.ts", "b.vue", "c.md", "d.rs", "-x.ts"]
+            .map(String::from)
+            .into();
+        let known: HashSet<&str> = ["d.rs"].into();
+        let mut notes = vec![];
+        let lint = c("lint {files}", "");
+        assert_eq!(
+            expand_files(&lint, Some(&changed), &known, &mut notes).unwrap(),
+            r#"lint 'src/it'\''s a.ts' 'b.vue' 'd.rs' './-x.ts'"#
+        );
+        let vue = c("lint {files}", "    extensions: ['.vue']\n");
+        assert_eq!(
+            expand_files(&vue, Some(&changed), &known, &mut notes).unwrap(),
+            "lint 'b.vue'"
+        );
+        let md = c("lint {files}", "    extensions: ['.css']\n");
+        assert!(expand_files(&md, Some(&changed), &known, &mut notes).is_none());
+        assert_eq!(
+            expand_files(&lint, None, &known, &mut notes).unwrap(),
+            "lint ."
+        );
+        let plain = c("lint", "");
+        assert_eq!(
+            expand_files(&plain, Some(&[]), &known, &mut notes).unwrap(),
+            "lint"
+        );
+        let many: Vec<String> = (0..20000).map(|i| format!("f{i}.ts")).collect();
+        assert_eq!(
+            expand_files(&lint, Some(&many), &known, &mut notes).unwrap(),
+            "lint ."
+        );
+        assert_eq!(notes.len(), 1, "{notes:?}");
+
+        // Nothing to check: skipped, not an error.
+        let dir = std::env::temp_dir().join(format!("ig-files-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = Config::parse(
+            "checkers:\n  - name: t\n    format: lines\n    run: \"exit 1 {files}\"\n",
+        )
+        .unwrap();
+        let out = checkers(&dir, &cfg, &Graph::empty(), Some(&[]));
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(
+            out.errors.is_empty() && out.findings.is_empty(),
+            "{:?}",
+            out.errors
+        );
     }
 
     #[test]

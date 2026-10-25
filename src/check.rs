@@ -19,6 +19,62 @@ pub struct Opts {
     pub base: Option<String>,
     pub head: Option<String>,
     pub all: bool,
+    /// Viewer builds: reuse the checker findings of the last `ig check` instead of running them.
+    pub skip_checkers: bool,
+}
+
+/// A progress line on stderr, only when it is a terminal (hooks and JSON consumers stay clean).
+pub fn progress(msg: &str) {
+    use std::io::IsTerminal;
+    if std::io::stderr().is_terminal() {
+        eprintln!("ig: {msg}");
+    }
+}
+
+/// Files the change touches: those with added or changed nodes, plus files git sees as changed
+/// against the base or untracked. Repo-relative to the ig root, existing ones only.
+fn changed_files(t: &Trees, diff: &GraphDiff) -> Vec<String> {
+    let mut set: BTreeSet<String> = diff.touched_files.iter().cloned().collect();
+    if t.repo.is_some() {
+        let mut out = git::git(
+            &t.head_root,
+            &["ls-files", "-z", "--others", "--exclude-standard"],
+        )
+        .unwrap_or_default();
+        if let Some(b) = &t.base {
+            out.push('\0');
+            out += &git::git(
+                &t.head_root,
+                &["diff", "-z", "--name-only", "--relative", b],
+            )
+            .unwrap_or_default();
+        }
+        set.extend(
+            out.split('\0')
+                .filter(|f| !f.is_empty() && t.head_root.join(f).is_file())
+                .map(String::from),
+        );
+    }
+    set.into_iter().collect()
+}
+
+/// The checker findings (and checker errors) saved by the last check, for configured checkers.
+fn saved_checkers(root: &Path, config: &Config) -> checks::CheckerOutput {
+    let names: HashSet<&str> = config.checkers.iter().map(|c| c.name.as_str()).collect();
+    let saved: Vec<Finding> = std::fs::read_to_string(root.join(".ig/findings.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| serde_json::from_value(v["findings"].clone()).ok())
+        .unwrap_or_default();
+    let (errors, findings) = saved
+        .into_iter()
+        .filter(|f| names.contains(f.tool.as_str()))
+        .partition(|f| f.rule_id == "ig/checker-error");
+    checks::CheckerOutput {
+        findings,
+        errors,
+        notices: vec![],
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -181,6 +237,7 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
     if let Some(r) = stale {
         notices.push(format!("apply state is stale ({r}); ignoring it"));
     }
+    progress("building graph…");
     let built = graph::build(&t.head_root, &config, t.head_commit.clone())?;
     let head = built.graph;
     let packages = built.workspace.packages;
@@ -220,7 +277,18 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
         &diff,
         &config,
     ));
-    let ch = checks::checkers(&t.head_root, &config, &head);
+    let ch = if opts.skip_checkers {
+        saved_checkers(root, &config)
+    } else {
+        let files = config.checkers.iter().any(|c| c.run.contains("{files}"));
+        let changed = match opts.all {
+            true => None,
+            false if files => Some(changed_files(&t, &diff)),
+            false => Some(vec![]),
+        };
+        checks::checkers(&t.head_root, &config, &head, changed.as_deref())
+    };
+    notices.extend(ch.notices);
     scoped.extend(ch.findings);
     let mut findings: Vec<Finding> = scoped
         .into_iter()

@@ -52,8 +52,8 @@ ig view            # open the change as a graph in the browser
 | `ig apply abort` | Ends the apply without checking (removes `.ig/apply.json`), e.g. when its state is stale. |
 | `ig except <fingerprint> --reason <text>` | Records an exception with its reason in `.ig/baseline.json`; `ig brief` lists it. Tool and review findings only (`ig/plan` and `ig/tamper` are refused). |
 | `ig focus <id>...` | Writes `.ig/focus.json`, the ids the viewer should highlight. |
-| `ig view [--watch] [--no-open] [--json] [--plan <file> \| --no-plan]` | Writes `.ig/view.html`. `--watch` is `ig serve` that also opens the browser. `--json` prints the page's data instead. |
-| `ig serve [--port N] [--plan <file> \| --no-plan]` | The live viewer on `http://127.0.0.1:7420/` (see [Live plan co-design](#live-plan-co-design)). If 7420 is taken by another program it uses a free port; an explicit `--port` that is taken is an error. |
+| `ig view [--watch] [--no-open] [--json] [--checkers] [--plan <file> \| --no-plan]` | Writes `.ig/view.html`. `--watch` is `ig serve` that also opens the browser. `--json` prints the page's data instead. Checkers don't run: their findings come from the last `ig check` (those still in the change); `--checkers` runs them. |
+| `ig serve [--port N] [--checkers] [--plan <file> \| --no-plan]` | The live viewer on `http://127.0.0.1:7420/` (see [Live plan co-design](#live-plan-co-design)). If 7420 is taken by another program it uses a free port; an explicit `--port` that is taken is an error. |
 | `ig serve claude` | Prints and runs `claude --dangerously-load-development-channels server:ig`, so viewer notes may reach the session (unverified, see below). |
 | `ig report --gitlab` | Checks `HEAD` and creates or updates one MR note (needs `IG_GITLAB_TOKEN` or `GITLAB_TOKEN`). |
 | `ig mcp` | MCP server on stdio with `check`, `get_findings`, `get_intents` and `graph_query`, plus `ig_state`, `ig_notes`, `ig_note_done`, `ig_focus` and `ig_wait_notes`, which talk to a running `ig serve`. |
@@ -188,9 +188,10 @@ patterns:                     # ast-grep patterns that become graph nodes
     id: "{METHOD} {PATH}"
 checkers:                     # any command that prints findings on stdout (a non-zero exit with no findings is an error)
   - name: stylelint
-    run: "npx stylelint --formatter json 'src/**/*.scss' 2>&1"
+    run: "npx stylelint --formatter json {files} 2>&1" # {files}: the changed files (see below)
     format: stylelint-json    # sarif (default) | checkstyle | eslint-json | stylelint-json | lines
     configs: ["**/.stylelintrc*"] # the tool's own config files, watched for tampering
+    extensions: [".css", ".scss"] # which changed files {files} keeps (optional)
 blockOn: error
 blueprint:                    # optional: page → front → API → use cases → adapters → systems
   lanes:
@@ -203,6 +204,8 @@ blueprint:                    # optional: page → front → API → use cases �
     PostgreSQL: [pg, knex]
     Stripe: [stripe]
 ```
+
+`{files}` in `run` becomes the changed files that checker cares about: files with added or changed nodes, plus files `git diff --name-only <base>` lists and untracked files, single-quoted, space-separated, relative to the root. A checker keeps the files matching its `extensions` (e.g. `[".ts", ".vue"]`); without `extensions`, graph files plus `.ts .tsx .js .jsx .mjs .cjs .vue .css .scss .less`. No such file: the checker is skipped. With `--all`, or when the command would pass 100 KB (with a notice), `{files}` is `.`. `ig view` and `ig serve` don't run checkers (see the commands above). On a terminal, `ig` prints progress (graph, base graph, each checker and its time) on stderr.
 
 The viewer (`ig view`) has four modes: **Changed**, **Architecture** (drill down by layer and directory),
 **Focus** (one node's neighbourhood) and **Blueprint** (pick a page, see everything behind it in swimlanes).

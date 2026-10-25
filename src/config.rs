@@ -47,6 +47,8 @@ pub struct Checker {
     pub format: Format,
     /// Globs naming the tool's own config files (tamper detection).
     pub configs: Vec<String>,
+    /// File extensions `{files}` keeps (e.g. ".ts"); empty: graph files plus common script/style ones.
+    pub extensions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,11 +309,16 @@ impl Config {
                             Some(v) => strings(v, &format!("{path}.configs"))?,
                             None => vec![],
                         };
+                        let extensions = match ch.get("extensions") {
+                            Some(v) => strings(v, &format!("{path}.extensions"))?,
+                            None => vec![],
+                        };
                         c.checkers.push(Checker {
                             name: get("name")?,
                             run: get("run")?,
                             format,
                             configs,
+                            extensions,
                         });
                     }
                 }
@@ -522,6 +529,11 @@ mod tests {
         let c = Config::parse("checkers:\n  - name: s\n    run: x\n    format: lines\n    configs: ['.stylelintrc*']\n  - name: d\n    run: y\n").unwrap();
         assert_eq!(c.checkers[0].format, Format::Lines);
         assert_eq!(c.checkers[0].configs, vec![".stylelintrc*"]);
+        let e =
+            Config::parse("checkers:\n  - name: s\n    run: x\n    extensions: ['.ts', '.vue']\n")
+                .unwrap();
+        assert_eq!(e.checkers[0].extensions, vec![".ts", ".vue"]);
+        assert!(c.checkers[1].extensions.is_empty());
         assert_eq!(c.checkers[1].format, Format::Sarif);
         let e = Config::parse("checkers:\n  - name: s\n    run: x\n    format: nope\n")
             .unwrap_err()

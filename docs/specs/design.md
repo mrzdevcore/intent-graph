@@ -84,7 +84,7 @@ On-disk files:
 | `tests` | `["**/*.test.*", "**/*.spec.*", "**/__tests__/**"]` | |
 | `testCalls` | `["describe", "it", "test"]` | |
 | `patterns` | `[]` | `{kind, match, where?: {VAR: [allowed]}, id}`. These are ast-grep patterns; `id` interpolates `{VAR}`. |
-| `checkers` | `[]` | `{name, run, format?, configs?}`. `run` is a shell command that prints findings on stdout. `format` is one of `sarif` (default), `checkstyle`, `eslint-json`, `stylelint-json`, `lines`. `configs` is a list of globs naming the tool's own config files. |
+| `checkers` | `[]` | `{name, run, format?, configs?, extensions?}`. `run` is a shell command that prints findings on stdout; `{files}` in it is replaced by the changed files (see Checkers). `extensions` lists the file extensions `{files}` keeps. `format` is one of `sarif` (default), `checkstyle`, `eslint-json`, `stylelint-json`, `lines`. `configs` is a list of globs naming the tool's own config files. |
 | `severity` | `{}` | Per-rule severity overrides. |
 | `blockOn` | `error` | The lowest severity that blocks. |
 | `editor` | `zed {file}:{line}` | Template for viewer links. URL schemes become links; `javascript:`/`data:`/`vbscript:` never do. |
@@ -247,6 +247,12 @@ Pattern nodes use `ast-grep-core` and `ast-grep-language` (TypeScript, Tsx, Java
 The other formats map the same way: `eslint-json` (`severity` 2 error, 1 warning; rule `ruleId`), `stylelint-json` (`severity` error/warning; rule `rule`), `checkstyle` (`severity` error/warning/info; rule `source`) and `lines`. `lines` matches `path:line[:col][: ]message` and tsc's `path(line,col): error TS1234: message`. Its rule is the `TS\d+` code if present, and its severity is an explicit `error`/`warning` word, else warning. The tool name is the rule id when the output has none. A non-zero exit is not an error by itself, but a non-zero exit with zero findings is reported as `ig/checker-error` (`exited <code> with no findings; stderr: …`). Exit 0 with empty output means zero findings.
 
 Bad output becomes an `ig/checker-error` finding that includes the first 300 chars of stderr.
+
+`{files}` in `run` becomes the changed files that checker cares about: files with added or changed nodes, plus files `git diff --name-only <base>` lists and untracked files, single-quoted, space-separated, relative to the root. A checker keeps the files matching its `extensions` (e.g. `[".ts", ".vue"]`); without `extensions`, graph files plus `.ts .tsx .js .jsx .mjs .cjs .vue .css .scss .less`. No such file: the checker is skipped. With `--all`, or when the command would pass 100 KB (with a notice), `{files}` is `.`.
+
+**Viewer builds don't run checkers.** `ig view`, `ig view --watch` and `ig serve` (every rebuild) reuse the checker findings saved in `.ig/findings.json` by the last `ig check` (or apply, hook, MCP `check`): those whose `tool` is a configured checker, kept when still in scope of the current diff, plus that run's checker errors. The view build writes them back, so the saved findings survive. `--checkers` runs the checkers instead. `ig check`, `ig apply finish` and the hook always run them.
+
+**Progress.** When stderr is a terminal, `ig` prints `ig: building graph…`, `ig: base graph <sha7>…` (cache miss), `ig: running <checker>…` and `ig: <checker> done (<s> s)` on stderr; never on stdout, never when stderr is not a terminal.
 
 **Output formats:**
 
