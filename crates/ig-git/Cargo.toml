@@ -1,0 +1,10 @@
+[package]
+name = "ig-git"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ig-core = { path = "../ig-core" }
+
+[dev-dependencies]
+ig-core = { path = "../ig-core", features = ["testing"] }

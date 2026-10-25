@@ -237,7 +237,7 @@ pub fn gitlab(root: &Path) -> Result<u8> {
     let prefix = run
         .repo
         .as_ref()
-        .map(|r| r.prefix.clone())
+        .map(|r| r.prefix().to_string())
         .unwrap_or_default();
     let artifact_path = if prefix.is_empty() {
         ".ig/view.html".to_string()

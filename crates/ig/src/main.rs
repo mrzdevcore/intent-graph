@@ -28,6 +28,7 @@ mod view;
 mod workspace;
 
 use anyhow::{Result, bail};
+use ig_core::ports::Vcs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -382,7 +383,7 @@ fn query_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
         bail!("query: expected a node id");
     };
     let cfg = config::load(root)?;
-    let repo_head = git::Repo::open(root).and_then(|r| r.head());
+    let repo_head = git::GitVcs::open(root).and_then(|r| r.head());
     let built = graph::build(root, &cfg, repo_head)?;
     let v = mcp::query(
         &built.graph,
@@ -420,7 +421,7 @@ fn query_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
 
 fn review_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
     let cfg = config::load(root)?;
-    let repo_head = git::Repo::open(root).and_then(|r| r.head());
+    let repo_head = git::GitVcs::open(root).and_then(|r| r.head());
     let built = graph::build(root, &cfg, repo_head)?;
     let tests = workspace::globset(&cfg.tests)?;
     let eps = workspace::globset(&cfg.entry_points)?;
@@ -430,7 +431,9 @@ fn review_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
         packages: &built.workspace.packages,
         entry_points: &eps,
     };
-    let history = review::history(root, cfg.review.history_commits);
+    let history = git::GitVcs::open(root)
+        .map(|v| v.history(cfg.review.history_commits))
+        .unwrap_or_default();
     let items = review::review(&built.graph, &ctx, &history);
     let (head, rest) = review::rank(items, cfg.review.top);
     let dir = root.join(".ig");

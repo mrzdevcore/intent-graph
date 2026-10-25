@@ -4,12 +4,12 @@ use crate::check::{self, Run};
 use crate::checks::{self, Layers};
 use crate::config::{Config, Severity};
 use crate::diff::Status;
-use crate::git::Repo;
+use crate::git::GitVcs;
 use crate::model::{Edge, Finding, Node, sha1_bytes, sha1_hex};
 use crate::plan::{self, Plan, PlanStatus};
 use crate::view::LaneMap;
 use anyhow::{Context, Result, bail};
-use ig_core::ports::Files;
+use ig_core::ports::{Files, Vcs};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -89,7 +89,7 @@ fn hashes(root: &Path, plan: &str, config: &Config) -> BTreeMap<String, String> 
 pub fn start(root: &Path, plan_path: &Path) -> Result<()> {
     let (rel, text) = plan::read(root, plan_path)?;
     plan::parse(&rel, &text)?;
-    let Some(base) = Repo::open(root).and_then(|r| r.head()) else {
+    let Some(base) = GitVcs::open(root).and_then(|r| r.head()) else {
         bail!("apply start: needs a git repository with at least one commit");
     };
     let hashes = hashes(root, &rel, &crate::config::load(root)?);
