@@ -78,6 +78,16 @@ the blast radius (nodes that reach a changed or removed node, by layer), `ig/arc
 planned edges, structural regressions, and `plan/unknown-node` / `plan/unknown-edge-end` errors for
 ids that are not in the graph. It records the plan in `.ig/current-plan`.
 
+## Apply
+
+`/ig:apply` (`$ig-apply`) implements a checked plan: `ig apply start`, `ig check --agent` after every
+step, then a reviewer agent judges the change against `rules.md`. In Claude the `ig:reviewer`
+subagent (installed by `ig init` in `.claude/skills/ig/agents/`) runs; in Codex the skill calls
+`codex exec --sandbox read-only`. Its JSON array is piped into `ig apply review` (stored in
+`.ig/agent-review.json`, findings `review/<rule>` block like any other). `ig apply finish` exits 0
+only when nothing blocks and the review matches the current change. Codex has no Stop hook, so the
+skill runs `ig check --agent` itself before ending a turn.
+
 ## Intents
 
 `intents.md` holds one intent per line:

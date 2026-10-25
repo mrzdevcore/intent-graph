@@ -32,7 +32,7 @@ const USAGE: &str =
     "usage: ig [--version] | init [claude|codex|all] | setup [--json] | setup claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
-   | plan check <file> [--json] | apply start [<plan>] | apply accept | apply finish
+   | plan check <file> [--json] | apply start [<plan>] | apply accept | apply review | apply finish
    | except <fingerprint> --reason <text>
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
@@ -200,8 +200,19 @@ fn real_main() -> Result<u8> {
                 apply::accept(&root)?;
                 Ok(0)
             }
+            (Some("review"), []) => {
+                let mut input = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
+                println!(
+                    "review: {} finding(s)",
+                    apply::review_ingest(&root, &input)?
+                );
+                Ok(0)
+            }
             (Some("finish"), []) => apply::finish(&root),
-            _ => bail!("apply: expected `apply start [<plan>]`, `apply accept` or `apply finish`"),
+            _ => bail!(
+                "apply: expected `apply start [<plan>]`, `apply accept`, `apply review` or `apply finish`"
+            ),
         },
         "except" => match (a.sub.as_deref(), a.reason.as_deref()) {
             (Some(fp), Some(reason)) if !reason.trim().is_empty() => {

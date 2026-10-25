@@ -7,10 +7,10 @@ use crate::intents::Intent;
 use crate::model::{Finding, Graph, Node};
 use crate::workspace::{self, Package};
 use globset::GlobMatcher;
+use regex::Regex;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Read;
 use std::path::Path;
-use regex::Regex;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
@@ -326,7 +326,7 @@ fn urlish_decode(s: &str) -> Result<String, ()> {
 }
 
 /// Attaches the innermost graph node to each finding (module-level files only).
-fn attach_nodes(head: &Graph, findings: Vec<Finding>) -> Vec<Finding> {
+pub(crate) fn attach_nodes(head: &Graph, findings: Vec<Finding>) -> Vec<Finding> {
     let mut by_file: HashMap<&str, Vec<Node>> = HashMap::new();
     for n in &head.nodes {
         by_file.entry(n.file.as_str()).or_default().push(n.clone());
@@ -453,7 +453,10 @@ fn parse_checkstyle(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding
                 Some("info") => Severity::Note,
                 _ => Severity::Warning,
             };
-            let rule = a.get("source").filter(|s| !s.is_empty()).map_or(tool, |s| s);
+            let rule = a
+                .get("source")
+                .filter(|s| !s.is_empty())
+                .map_or(tool, |s| s);
             out.push(Finding::new(
                 rule,
                 sev,
@@ -600,8 +603,7 @@ pub fn checkers(root: &Path, config: &Config, head: &Graph) -> CheckerOutput {
 pub(crate) fn read_baseline(root: &Path) -> anyhow::Result<Vec<serde_json::Value>> {
     let path = root.join(".ig/baseline.json");
     match std::fs::read_to_string(&path) {
-        Ok(t) => serde_json::from_str(&t)
-            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display())),
+        Ok(t) => serde_json::from_str(&t).map_err(|e| anyhow::anyhow!("{}: {e}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
         Err(e) => Err(anyhow::anyhow!("{}: {e}", path.display())),
     }
@@ -657,24 +659,63 @@ mod tests {
         let g = Graph::empty();
         let eslint = br#"[{"filePath":"/repo/src/a.ts","messages":[{"ruleId":"no-var","severity":2,"message":"Unexpected var","line":3}]}]"#;
         let f = parse_output(root, "eslint", Format::EslintJson, eslint, &g).unwrap();
-        assert_eq!((f[0].rule_id.as_str(), f[0].file.as_str(), f[0].line, f[0].severity), ("no-var", "src/a.ts", 3, Severity::Error));
+        assert_eq!(
+            (
+                f[0].rule_id.as_str(),
+                f[0].file.as_str(),
+                f[0].line,
+                f[0].severity
+            ),
+            ("no-var", "src/a.ts", 3, Severity::Error)
+        );
 
         let stylelint = br#"[{"source":"/repo/src/a.scss","warnings":[{"line":7,"column":1,"rule":"media-feature-range-notation","severity":"warning","text":"Expected context notation"}]}]"#;
         let f = parse_output(root, "stylelint", Format::StylelintJson, stylelint, &g).unwrap();
-        assert_eq!((f[0].rule_id.as_str(), f[0].line, f[0].severity), ("media-feature-range-notation", 7, Severity::Warning));
+        assert_eq!(
+            (f[0].rule_id.as_str(), f[0].line, f[0].severity),
+            ("media-feature-range-notation", 7, Severity::Warning)
+        );
 
         let cs = br#"<?xml version="1.0"?><checkstyle><file name="src/b.ts"><error line="2" column="1" severity="error" message="Use an arrow function &amp; const" source="prefer-arrow"/></file></checkstyle>"#;
         let f = parse_output(root, "oxlint", Format::Checkstyle, cs, &g).unwrap();
-        assert_eq!((f[0].file.as_str(), f[0].message.as_str(), f[0].rule_id.as_str()), ("src/b.ts", "Use an arrow function & const", "prefer-arrow"));
+        assert_eq!(
+            (
+                f[0].file.as_str(),
+                f[0].message.as_str(),
+                f[0].rule_id.as_str()
+            ),
+            ("src/b.ts", "Use an arrow function & const", "prefer-arrow")
+        );
 
         let tsc = b"src/c.ts(4,10): error TS2322: Type 'string' is not assignable to type 'number'.\nnoise line\nsrc/d.ts:9:2: something odd\n";
         let f = parse_output(root, "tsc", Format::Lines, tsc, &g).unwrap();
         assert_eq!(f.len(), 2);
-        assert_eq!((f[0].file.as_str(), f[0].line, f[0].rule_id.as_str(), f[0].severity), ("src/c.ts", 4, "TS2322", Severity::Error));
-        assert_eq!((f[1].file.as_str(), f[1].line, f[1].severity), ("src/d.ts", 9, Severity::Warning));
+        assert_eq!(
+            (
+                f[0].file.as_str(),
+                f[0].line,
+                f[0].rule_id.as_str(),
+                f[0].severity
+            ),
+            ("src/c.ts", 4, "TS2322", Severity::Error)
+        );
+        assert_eq!(
+            (f[1].file.as_str(), f[1].line, f[1].severity),
+            ("src/d.ts", 9, Severity::Warning)
+        );
 
-        for fmt in [Format::Sarif, Format::Checkstyle, Format::EslintJson, Format::StylelintJson, Format::Lines] {
-            assert!(parse_output(root, "x", fmt, b"  \n", &g).unwrap().is_empty());
+        for fmt in [
+            Format::Sarif,
+            Format::Checkstyle,
+            Format::EslintJson,
+            Format::StylelintJson,
+            Format::Lines,
+        ] {
+            assert!(
+                parse_output(root, "x", fmt, b"  \n", &g)
+                    .unwrap()
+                    .is_empty()
+            );
         }
     }
 
@@ -707,7 +748,11 @@ mod tests {
         let ok = run("exit 0");
         std::fs::remove_dir_all(&dir).ok();
         assert_eq!(bad.errors.len(), 1);
-        assert!(bad.errors[0].message.contains("boom"), "{}", bad.errors[0].message);
+        assert!(
+            bad.errors[0].message.contains("boom"),
+            "{}",
+            bad.errors[0].message
+        );
         assert!(bad.errors[0].message.contains("exited 127"));
         assert!(ok.errors.is_empty() && ok.findings.is_empty());
     }
