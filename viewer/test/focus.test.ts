@@ -24,3 +24,9 @@ test("focus reaches one edge away at depth 1, more at depth 2", () => {
   expect(one).toContain("packages/core/src/math.ts#double");
   expect(two.length).toBeGreaterThan(one.length);
 });
+
+test("focus accepts several start ids", () => {
+  const ix = index(D);
+  const ids = Object.keys(focusIds(ix, ["packages/core/src/math.ts#add", "packages/core/src/export.ts#exportRows"], 0));
+  expect(ids.sort()).toEqual(["packages/core/src/export.ts#exportRows", "packages/core/src/math.ts#add"]);
+});

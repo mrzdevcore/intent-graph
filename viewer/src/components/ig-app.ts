@@ -16,6 +16,8 @@ import type { SideView } from "./ig-side-panel";
 import "./ig-tree";
 import type { IgTree } from "./ig-tree";
 
+const STATE_LABEL = { planned: "Planning", applying: "Applying", done: "Done", plain: "Plan" };
+
 type Mode = "changed" | "architecture" | "focus" | "blueprint";
 
 const MODES: [Mode, string, string][] = [
@@ -32,6 +34,8 @@ export class IgApp extends LitElement {
   @state() private scope!: Group;
   @state() private focusId: string | null = null;
   @state() private focusDepth = 1;
+  /** Extra start nodes from `D.focus`; cleared when the user focuses on one node. */
+  private focusRoots: string[] = [];
   @state() private journey: string | null = null;
   @state() private uiOnly = false;
   @state() private side: SideView = { kind: "overview" };
@@ -51,6 +55,11 @@ export class IgApp extends LitElement {
       this.ix = index(this.data);
       this.mode = this.data.mode;
       this.scope = initialScope(this.ix);
+      this.focusRoots = (this.data.focus ?? []).filter((id) => this.ix.byId[id]);
+      if (this.focusRoots.length) {
+        this.focusId = this.focusRoots[0];
+        this.mode = "focus";
+      }
     }
   }
 
@@ -68,7 +77,7 @@ export class IgApp extends LitElement {
     const mode = this.mode;
     const els =
       mode === "architecture" ? architecture(ix, this.scope)
-      : mode === "focus" ? exact(ix, focusIds(ix, this.focusId!, this.focusDepth))
+      : mode === "focus" ? exact(ix, focusIds(ix, this.focusRoots.length ? this.focusRoots : this.focusId!, this.focusDepth))
       : mode === "blueprint" ? blueprint(ix, this.journey, this.uiOnly)
       : exact(ix, changedIds(ix));
     const fresh = mode !== this.lastMode;
@@ -103,6 +112,7 @@ export class IgApp extends LitElement {
   private focusOn(id: string) {
     if (!this.ix.byId[id]) return;
     this.focusId = id;
+    this.focusRoots = [];
     this.mode = "focus";
     this.draw();
     this.details(id);
@@ -185,7 +195,7 @@ export class IgApp extends LitElement {
     return html`<header>
         <h1>ig</h1>
         <span id="status" class="status ${D.blocking ? "block" : "ok"}">${D.blocking ? "blocking" : "not blocking"}</span>
-        <span id="plan" class="status">${D.plan ? "Plan · " + D.plan.title : ""}</span>
+        <span id="plan" class="status">${D.plan ? STATE_LABEL[D.state] + " · " + D.plan.title : ""}</span>
         <div class="modes" role="group" aria-label="View mode">
           ${MODES.map(([m, label, title]) => html`<button data-mode=${m} title=${title} aria-pressed=${String(m === this.mode)}
             ?disabled=${m === "focus" && !this.focusId} @click=${() => this.setMode(m)}>${label}</button>`)}
