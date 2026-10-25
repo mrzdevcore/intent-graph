@@ -250,11 +250,23 @@ impl Drop for Worktree {
 }
 
 /// Bump whenever extraction or resolution changes output, so cached base graphs are rebuilt.
-const GRAPH_REVISION: u32 = 13;
+const GRAPH_REVISION: u32 = 14;
 
-pub fn cache_key(config: &Config) -> String {
+/// Config, tool and revision, plus the `autoImports` file contents (base graphs read the
+/// working tree's copy when the commit lacks them, e.g. a gitignored `.nuxt/`).
+pub fn cache_key(root: &Path, config: &Config) -> String {
+    let decls: String = crate::autoimports::files(root, &config.auto_imports)
+        .0
+        .iter()
+        .map(|f| {
+            format!(
+                "|{f}:{}",
+                std::fs::read_to_string(root.join(f)).unwrap_or_default()
+            )
+        })
+        .collect();
     sha1_hex(&format!(
-        "{TOOL_VERSION}|{GRAPH_REVISION}|{}",
+        "{TOOL_VERSION}|{GRAPH_REVISION}|{}{decls}",
         config.graph_key_input()
     ))[..12]
         .to_string()
@@ -278,7 +290,7 @@ pub fn node_modules_sources(root: &Path, config: &Config) -> Vec<PathBuf> {
 /// Builds (or loads from cache) the graph of commit `sha`.
 pub fn base_graph(root: &Path, repo: &Repo, sha: &str, config: &Config) -> Result<Graph> {
     let cache_dir = root.join(".ig/cache");
-    let path = cache_dir.join(format!("{sha}-{}.json", cache_key(config)));
+    let path = cache_dir.join(format!("{sha}-{}.json", cache_key(root, config)));
     if let Ok(text) = std::fs::read_to_string(&path)
         && let Ok(g) = serde_json::from_str::<Graph>(&text)
     {
@@ -324,6 +336,22 @@ mod tests {
         };
         link_missing_auto_imports(&src, &target, &config);
         assert!(target.join(".nuxt/imports.d.ts").is_file());
+    }
+
+    #[test]
+    fn cache_key_tracks_auto_import_contents() {
+        let root = crate::autoimports::tmp_with(&[(".nuxt/imports.d.ts", "export {}\n")]);
+        let config = Config {
+            auto_imports: vec![".nuxt/*.d.ts".into()],
+            ..Config::default()
+        };
+        let before = cache_key(&root, &config);
+        std::fs::write(
+            root.join(".nuxt/imports.d.ts"),
+            "export { a } from '../a'\n",
+        )
+        .unwrap();
+        assert_ne!(before, cache_key(&root, &config));
     }
 
     #[test]

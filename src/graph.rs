@@ -252,8 +252,8 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
         let (Some(from), Some(to)) = (known.get(e.from.as_str()), known.get(e.to.as_str())) else {
             continue;
         };
-        // Non-test code never resolves into test files (stubs, mocks).
-        if tests.is_match(to) && !tests.is_match(from) {
+        // Non-test code never resolves into test files (stubs, mocks); the import itself stays.
+        if e.kind != "imports" && tests.is_match(to) && !tests.is_match(from) {
             continue;
         }
         let key = (e.from.clone(), e.kind.clone(), e.to.clone());
@@ -588,10 +588,11 @@ impl<'f> Index<'f> {
         }
     }
 
-    /// Method `m` of class `t`, else class `t` itself (`m` is a property), as a `calls` edge.
-    /// For an interface, method `m` of the classes implementing it (a `dispatch`
+    /// Method `m` of class `t` as a `calls` edge. Otherwise (an interface, or a base class
+    /// lacking `m`) method `m` of the classes implementing or extending it (a `dispatch`
     /// edge: the code depends on the interface, so arch rules and review ignore it). Confidence is
-    /// `guessed` when several implementations match.
+    /// `guessed` when several implementations match. A class with neither: class `t` itself
+    /// (`m` is a property).
     fn typed(
         &self,
         f: &FileFacts,
@@ -601,9 +602,9 @@ impl<'f> Index<'f> {
         let Some(tid) = self.target(f, t) else {
             return vec![];
         };
-        if self.classes.contains_key(tid.as_str()) {
-            // Not a method (a property like `this.db.knex`): the code still depends on the class.
-            let to = self.method(&tid, m, false).unwrap_or(tid);
+        if self.classes.contains_key(tid.as_str())
+            && let Some(to) = self.method(&tid, m, false)
+        {
             return vec![(to, "calls", "resolved")];
         }
         let hits: Vec<String> = self
@@ -613,6 +614,10 @@ impl<'f> Index<'f> {
             .flatten()
             .filter_map(|c| self.method(c, m, false))
             .collect();
+        if hits.is_empty() && self.classes.contains_key(tid.as_str()) {
+            // Not a method (a property like `this.db.knex`): the code still depends on the class.
+            return vec![(tid, "calls", "resolved")];
+        }
         let conf = if hits.len() == 1 {
             "resolved"
         } else {
@@ -922,6 +927,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // A base-class receiver reaches a method only a subclass has (dispatch); a method of the
+    // class itself is a call to it; a class from node_modules gives no edge.
+    #[test]
+    fn typed_base_class_and_external_receivers() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "node_modules/ext/package.json",
+                r#"{"name":"ext","types":"index.d.ts"}"#,
+            ),
+            (
+                "node_modules/ext/index.d.ts",
+                "export declare class Ext { go(): void }\n",
+            ),
+            (
+                "animal.ts",
+                "export class Animal { eat() {} }\nexport class Dog extends Animal { bark() {} }\n",
+            ),
+            (
+                "pet.ts",
+                "import { Animal } from './animal';\nimport { Ext } from 'ext';\nexport function pet(a: Animal) { a.bark(); }\nexport function feed(a: Animal) { a.eat(); }\nexport function ext(x: Ext) { x.go(); }\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::default(), None).unwrap().graph;
+        let kind = |from: &str, to: &str| {
+            g.edges
+                .iter()
+                .find(|e| e.from == from && e.to == to)
+                .map(|e| (e.kind.clone(), e.confidence.clone()))
+        };
+        assert_eq!(
+            kind("pet.ts#pet", "animal.ts#Dog.bark"),
+            Some(("dispatch".into(), "resolved".into())),
+            "{:#?}",
+            g.edges
+        );
+        assert_eq!(kind("pet.ts#pet", "animal.ts#Animal"), None);
+        assert_eq!(
+            kind("pet.ts#feed", "animal.ts#Animal.eat"),
+            Some(("calls".into(), "resolved".into()))
+        );
+        assert!(
+            !g.edges.iter().any(|e| e.from == "pet.ts#ext"),
+            "{:#?}",
+            g.edges
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // A page calling an auto-imported composable resolves.
     #[test]
     fn auto_imported_calls_resolve() {
@@ -1065,9 +1119,17 @@ mod tests {
             .unwrap()
             .graph;
         assert!(
-            !g.edges
+            !g.edges.iter().any(|e| e.from.starts_with("src/")
+                && e.to.starts_with("test/")
+                && e.kind != "imports"),
+            "{:#?}",
+            g.edges
+        );
+        // The import itself stays: code importing a test file is a smell arch rules can flag.
+        assert!(
+            g.edges
                 .iter()
-                .any(|e| e.from.starts_with("src/") && e.to.starts_with("test/")),
+                .any(|e| e.from == "src/a.ts" && e.to == "test/stub.ts" && e.kind == "imports"),
             "{:#?}",
             g.edges
         );
@@ -1246,7 +1308,7 @@ mod tests {
             ),
             (
                 "src/page.ts",
-                "const q = (u: string, x?: number) => (x ? `${u}?x=${x}` : u);\nexport function load() { return fetch(`/p`); }\nexport function wrapped() { return fetch(q('/p', 1)); }\n",
+                "const q = (u: string, x?: number) => (x ? `${u}?x=${x}` : u);\nexport function load() { return fetch(`/p`); }\nexport function wrapped() { return fetch(q('/p', 1)); }\nexport function joined(id: string) { return fetch(join('/p', 'users', id)); }\nexport function joinedT(id: string) { return fetch(join('/p', `${id}`)); }\n",
             ),
         ]);
         let g = build(&dir, &Config::load(&dir).unwrap(), None)
@@ -1270,6 +1332,15 @@ mod tests {
             g.edges
                 .iter()
                 .any(|e| e.from == "src/page.ts#wrapped" && e.kind == "http" && e.to == route.id),
+            "{:#?}",
+            g.edges
+        );
+        // A helper given more string segments (`join('/p', 'users', id)`) builds another URL.
+        assert!(
+            !g.edges.iter().any(|e| (e.from == "src/page.ts#joined"
+                || e.from == "src/page.ts#joinedT")
+                && e.kind == "http"
+                && e.to == route.id),
             "{:#?}",
             g.edges
         );
