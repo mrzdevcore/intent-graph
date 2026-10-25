@@ -48,6 +48,7 @@ export class IgOverlay extends LitElement {
   @property({ attribute: false }) mermaid?: string;
   @property({ attribute: false }) plantUml?: string;
   @property({ attribute: false }) steps?: { n: number; text: string; target: string }[];
+  @property({ attribute: false }) truncated = 0;
   @property({ attribute: false }) onPick?: (target: string) => void;
 
   private esc = (e: KeyboardEvent) => e.key === "Escape" && this.close();
@@ -74,7 +75,7 @@ export class IgOverlay extends LitElement {
       ${this.code
         ? codeBlock(this.code, true)
         : html`<div class="chain"><div class="seq"></div>${this.steps
-            ? stepList(this.steps, (t) => { this.close(); this.onPick?.(t); })
+            ? stepList(this.steps, (t) => { this.close(); this.onPick?.(t); }, this.truncated)
             : null}</div>`}
     </div>`;
   }
@@ -85,7 +86,7 @@ export class IgOverlay extends LitElement {
 }
 
 /** Opens an overlay on top of the page. */
-export function openOverlay(o: Partial<Pick<IgOverlay, "code" | "mermaid" | "plantUml" | "steps" | "onPick">> & { heading: string }) {
+export function openOverlay(o: Partial<Pick<IgOverlay, "code" | "mermaid" | "plantUml" | "steps" | "truncated" | "onPick">> & { heading: string }) {
   document.body.appendChild(Object.assign(new IgOverlay(), o));
 }
 

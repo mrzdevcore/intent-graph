@@ -112,7 +112,7 @@ export class IgSidePanel extends LitElement {
       </div>
       ${n.intents.length ? html`<p>${n.intents.map((t) => html`<span class="tag">${t}</span>`)}</p>` : null}
       ${n.planned ? html`<p class="loc">planned, not written yet</p>` : this.code(n)}
-      ${this.sequence(id)}
+      ${this.callsDown(id)}
       ${fs.length ? html`<h2>Findings</h2>${this.findings(fs)}` : null}
       ${this.edgeList("Used by", ins, "from")}
       ${this.edgeList("Uses", outs, "to")}`;
@@ -131,7 +131,7 @@ export class IgSidePanel extends LitElement {
 
   private chainDepth = 6;
 
-  private sequence(id: string) {
+  private callsDown(id: string) {
     const c = callChain(this.ix, id, { depth: this.chainDepth });
     const stepper = html`<span class="loc">depth ${this.chainDepth}</span>
       <button ?disabled=${this.chainDepth <= 1} @click=${() => this.setDepth(-1)}>−</button>
@@ -142,7 +142,7 @@ export class IgSidePanel extends LitElement {
     const rows = stepRows(c);
     const open = (t: string) => emit(this, "ig-focus", t);
     const show = () =>
-      openOverlay({ heading: "Calls down from " + this.ix.byId[id].name, mermaid: mm, plantUml: pu, steps: rows, onPick: open });
+      openOverlay({ heading: "Calls down from " + this.ix.byId[id].name, mermaid: mm, plantUml: pu, steps: rows, truncated: c.truncated, onPick: open });
     return html`<h2>Calls down (${c.steps.length} steps)</h2>
       <div class="btns"><button @click=${show}>Show diagram</button>${copyButton("Copy Mermaid", mm)}${copyButton("Copy PlantUML", pu)}${stepper}</div>
       ${stepList(rows, open, c.truncated)}`;

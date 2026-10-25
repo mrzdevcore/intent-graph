@@ -4,7 +4,7 @@
 import type { ViewEdge, ViewNode } from "../data";
 import { base, type Index } from "./graph";
 
-const KINDS: Record<string, boolean> = { calls: true, dispatch: true, http: true, uses: true };
+const KINDS: Record<string, boolean> = { calls: true, dispatch: true, http: true, uses: true, renders: true };
 
 export interface Lifeline {
   key: string;
@@ -17,7 +17,7 @@ export interface Step {
   to: number;
   label: string;
   target: string;
-  kind: "calls" | "dispatch" | "http" | "uses";
+  kind: "calls" | "dispatch" | "http" | "uses" | "renders";
   file: string;
   line: number;
 }
@@ -62,8 +62,9 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
   const same = (n: ViewNode, e: ViewEdge) => ix.byId[e.to].kind !== "system" && ix.byId[e.to].file === n.file;
   const edgesOf = (id: string) => (ix.outEdges[id] || []).filter(okEdge).sort((a, b) => (a.line || 0) - (b.line || 0));
 
-  // The cross-file edges a node makes as its own, with same-file calls folded in. Computed once per node
-  // (own visited set, so cycles end and shared helpers are not repeated within one caller), reused by every caller.
+  // The cross-file edges a node makes as its own, with same-file calls folded in, then its inner members'
+  // (a module's members, a function's closures, a class's methods). Computed once per node (own visited set,
+  // so cycles end and shared helpers are not repeated within one caller), reused by every caller.
   const memo: Record<string, { e: ViewEdge; file: string }[]> = {};
   const reach: Record<string, Record<string, boolean>> = {};
   const flat = (id: string) => {
@@ -80,31 +81,38 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
       out.forEach((e) => (same(m, e) ? go(e.to) : res.push({ e, file: m.file })));
     };
     go(id);
-    reach[id] = visited;
-    if (n.module) {
-      // The module's members are start points too: first those nothing in the file calls, then any
-      // still unreached (members only calling each other in a cycle).
-      const members = ix.membersOf[id] || [];
-      const called: Record<string, boolean> = {};
-      members.concat(id).forEach((m) => edgesOf(m).forEach((e) => same(n, e) && (called[e.to] = true)));
-      const covered: Record<string, boolean> = { ...visited };
-      members.filter((m) => !called[m]).concat(members).forEach((m) => {
-        if (covered[m]) return;
-        res.push(...flat(m));
-        Object.assign(covered, reach[m]);
-      });
-    }
+    // Inner members are start points too: first those nothing in the file calls, then any still
+    // unreached (members only calling each other in a cycle). A module's are its top-level members.
+    const members = (ix.membersOf[n.file] || []).filter((m) => {
+      const p = ix.byId[m].parent;
+      return p === id || (n.module && !p);
+    });
+    const called: Record<string, boolean> = {};
+    members.concat(id).forEach((m) => edgesOf(m).forEach((e) => same(n, e) && (called[e.to] = true)));
+    const covered: Record<string, boolean> = { ...visited };
+    members.filter((m) => !called[m]).concat(members).forEach((m) => {
+      if (covered[m]) return;
+      res.push(...flat(m));
+      Object.assign(covered, reach[m]);
+    });
+    reach[id] = covered;
     return (memo[id] = res);
   };
 
+  const usesShown = new Set<ViewEdge>();
   const collect = (id: string, caller: string, hops: number) => {
     flat(id).forEach(({ e, file }) => {
       const t = ix.byId[e.to];
+      // A file's `uses` edge is folded into each of its members; show it once per chain.
+      if (e.kind === "uses") {
+        if (usesShown.has(e)) return;
+        usesShown.add(e);
+      }
       // ponytail: once full, only edges already in hand are counted in `truncated`; deeper calls are not walked.
       if (steps.length >= max) return void truncated++;
       const kind = e.kind as Step["kind"];
       steps.push({
-        n: steps.length + 1, from: lifeline(caller), to: lifeline(t.id), label: kind === "uses" ? "uses" : t.name,
+        n: steps.length + 1, from: lifeline(caller), to: lifeline(t.id), label: kind === "uses" ? "uses" : kind === "renders" ? base(t.file).replace(/\.[a-z]+$/, "") : t.name,
         target: t.id, kind, file, line: e.line || 0,
       });
       if (t.kind !== "system" && hops < depth && !seen[t.id]) {
