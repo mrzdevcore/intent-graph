@@ -358,17 +358,20 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
 
 const FOCUS: &str = ".ig/focus.json";
 
-/// The plan to show: `--plan`, else the plan being applied, else the last checked one.
-pub fn pick_plan(root: &Path, explicit: Option<&Path>, no_plan: bool) -> Option<PathBuf> {
+/// The plan to show and whether it is being applied: `--plan`, else the plan of a valid apply
+/// state, else `.ig/current-plan`; `--no-plan` shows none. One apply-state read decides both.
+pub type Picked = (Option<PathBuf>, bool);
+
+pub fn pick_plan(root: &Path, explicit: Option<&Path>, no_plan: bool) -> Picked {
     if no_plan {
-        return None;
+        return (None, false);
     }
-    explicit.map(Path::to_path_buf).or_else(|| {
-        crate::apply::load(root)
-            .filter(|st| crate::apply::stale(root, st).is_none())
-            .map(|st| root.join(st.plan))
-            .or_else(|| plan::current(root))
-    })
+    let st = crate::apply::load(root).filter(|st| crate::apply::stale(root, st).is_none());
+    let plan = explicit
+        .map(Path::to_path_buf)
+        .or_else(|| st.as_ref().map(|st| root.join(&st.plan)))
+        .or_else(|| plan::current(root));
+    (plan, st.is_some())
 }
 
 pub fn render(run: &Run, root: &Path, opts: &Opts, live: bool) -> String {
@@ -387,9 +390,10 @@ fn fill(template: &str, data_json: &str, live: bool) -> String {
 }
 
 /// `check::run` with the plan at `plan` overlaid. A plan that fails to load becomes a notice.
-fn run_with_plan(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<Run> {
+fn run_with_plan(root: &Path, opts: &Opts, (plan, applying): &Picked) -> Result<Run> {
     let mut run = check::run(root, opts)?;
     let Some(path) = plan else { return Ok(run) };
+    let path = path.as_path();
     let loaded = plan::read(root, path).and_then(|(rel, text)| {
         Ok((
             plan::parse(&rel, &text)?,
@@ -402,6 +406,7 @@ fn run_with_plan(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<Run> {
             let shown = run.plan.as_mut().unwrap();
             shown["volume"] = v["volume"].clone();
             shown["findings"] = v["findings"].clone();
+            shown["applying"] = json!(applying);
         }
         Err(e) => run
             .result
@@ -412,12 +417,12 @@ fn run_with_plan(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<Run> {
 }
 
 /// `ig view --json`: the data the page is built from.
-pub fn json(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<Value> {
+pub fn json(root: &Path, opts: &Opts, plan: &Picked) -> Result<Value> {
     let run = run_with_plan(root, opts, plan)?;
     Ok(data(&run, root, opts))
 }
 
-pub fn write(root: &Path, opts: &Opts, plan: Option<&Path>) -> Result<PathBuf> {
+pub fn write(root: &Path, opts: &Opts, plan: &Picked) -> Result<PathBuf> {
     let run = run_with_plan(root, opts, plan)?;
     let html = render(&run, root, opts, false);
     let path = root.join(".ig/view.html");
@@ -478,13 +483,14 @@ pub fn watch(
         let run = run_with_plan(
             root,
             opts,
-            pick_plan(root, plan.as_deref(), no_plan).as_deref(),
+            &pick_plan(root, plan.as_deref(), no_plan),
         )?;
         let html = render(&run, root, opts, true);
         let _ = check::write_atomic(
             &root.join(".ig/view.html"),
             render(&run, root, opts, false).as_bytes(),
         );
+        let _ = std::fs::remove_file(root.join(FOCUS)); // a focus is shown once
         Ok(html)
     };
     let page_html: Arc<Mutex<String>> = Arc::new(Mutex::new(build(root)?));
@@ -587,9 +593,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn state_and_focus() {
-        let dir = std::env::temp_dir().join(format!("ig-view-state-{}", std::process::id()));
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ig-view-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/monorepo");
         assert!(
@@ -601,24 +606,104 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        let dir = dir.canonicalize().unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    fn state(dir: &Path) -> (Picked, Value) {
+        let p = pick_plan(dir, None, false);
+        let d = json(dir, &Opts::default(), &p).unwrap();
+        (p, d["state"].clone())
+    }
+
+    #[test]
+    fn state_and_focus() {
+        let dir = scratch("state");
         let o = Opts::default();
-        assert_eq!(json(&dir, &o, None).unwrap()["state"], "plain");
-        assert!(json(&dir, &o, None).unwrap().get("focus").is_none());
+        assert_eq!(state(&dir).1, "plain");
+        assert!(
+            json(&dir, &o, &pick_plan(&dir, None, false))
+                .unwrap()
+                .get("focus")
+                .is_none()
+        );
         std::fs::create_dir_all(dir.join("plans")).unwrap();
         std::fs::write(dir.join("plans/export.md"), crate::plan::tests::PLAN).unwrap();
         crate::plan::check(&dir, &dir.join("plans/export.md")).unwrap();
-        let plan = pick_plan(&dir, None, false);
-        assert_eq!(json(&dir, &o, plan.as_deref()).unwrap()["state"], "planned");
-        assert_eq!(pick_plan(&dir, None, true), None);
+        assert_eq!(state(&dir).1, "planned");
+        assert_eq!(pick_plan(&dir, None, true), (None, false));
         std::fs::create_dir_all(dir.join(".ig")).unwrap();
         std::fs::write(dir.join(FOCUS), r#"["a.ts","b.ts"]"#).unwrap();
+        let p = pick_plan(&dir, None, false);
         assert_eq!(
-            json(&dir, &o, None).unwrap()["focus"],
+            json(&dir, &o, &p).unwrap()["focus"],
             json!(["a.ts", "b.ts"])
         );
-        write(&dir, &o, None).unwrap();
+        write(&dir, &o, &p).unwrap();
         assert!(!dir.join(FOCUS).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_state_picks_its_plan_until_stale_and_done_follows_the_plan() {
+        let dir = scratch("apply");
+        let git = |a: &[&str]| {
+            assert!(
+                std::process::Command::new("git")
+                    .args(a)
+                    .current_dir(&dir)
+                    .status()
+                    .unwrap()
+                    .success()
+            )
+        };
+        git(&["init", "-q"]);
+        git(&["add", "-A"]);
+        git(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-qm",
+            "i",
+        ]);
+        let head = crate::git::git(&dir, &["rev-parse", "HEAD"])
+            .unwrap()
+            .trim()
+            .to_string();
+        std::fs::create_dir_all(dir.join("plans")).unwrap();
+        std::fs::write(dir.join("plans/export.md"), crate::plan::tests::PLAN).unwrap();
+        std::fs::write(dir.join("plans/other.md"), crate::plan::tests::PLAN).unwrap();
+        crate::plan::check(&dir, &dir.join("plans/export.md")).unwrap();
+        std::fs::write(
+            dir.join(".ig/apply.json"),
+            json!({"plan": "plans/other.md", "base": head, "hashes": {}}).to_string(),
+        )
+        .unwrap();
+        let (p, s) = state(&dir);
+        assert_eq!(
+            (p, s),
+            ((Some(dir.join("plans/other.md")), true), json!("applying"))
+        );
+        std::fs::remove_file(dir.join("plans/other.md")).unwrap();
+        let (p, s) = state(&dir);
+        assert_eq!(
+            (p, s),
+            ((Some(dir.join("plans/export.md")), false), json!("planned"))
+        );
+        std::fs::remove_file(dir.join(".ig/apply.json")).unwrap();
+        std::fs::write(
+            dir.join("plans/export.md"),
+            crate::plan::tests::PLAN.replace(
+                "# Export
+",
+                "# Export
+Status: done
+",
+            ),
+        )
+        .unwrap();
+        assert_eq!(state(&dir).1, "done");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

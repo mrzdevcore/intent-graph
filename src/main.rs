@@ -249,7 +249,7 @@ fn real_main() -> Result<u8> {
         "view" => {
             let plan = view::pick_plan(&root, a.plan.as_deref(), a.no_plan);
             if a.json {
-                let d = view::json(&root, &opts(&a), plan.as_deref())?;
+                let d = view::json(&root, &opts(&a), &plan)?;
                 println!("{}", serde_json::to_string_pretty(&d)?);
             } else if a.watch {
                 if a.head.is_some() {
@@ -257,7 +257,7 @@ fn real_main() -> Result<u8> {
                 }
                 view::watch(&root, &opts(&a), a.plan.clone(), a.no_plan, !a.no_open)?;
             } else {
-                let path = view::write(&root, &opts(&a), plan.as_deref())?;
+                let path = view::write(&root, &opts(&a), &plan)?;
                 if !a.no_open {
                     view::open(&path);
                 }
