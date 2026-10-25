@@ -137,7 +137,8 @@ pub struct FrontendOutput {
 }
 
 pub trait LanguageFrontend: Sync {
-    fn handles(&self, path: &str) -> bool;
+    /// `config` is the one the tree is built with (`embedded` extensions, say).
+    fn handles(&self, path: &str, config: &Config) -> bool;
     /// Extracts and resolves `files` (path and source) of `ws`, the ones this frontend handles.
     fn build(
         &self,
@@ -155,4 +156,9 @@ pub trait LanguageFrontend: Sync {
         config: &Config,
         link_auto_imports: bool,
     ) -> Result<(), PortError>;
+    /// Files under `root` (posix, root-relative, sorted) outside the source files whose contents
+    /// change this frontend's output: their contents key the base-graph cache.
+    fn cache_inputs(&self, _root: &Path, _config: &Config) -> Vec<String> {
+        vec![]
+    }
 }

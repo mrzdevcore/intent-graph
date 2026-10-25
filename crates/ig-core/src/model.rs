@@ -197,6 +197,20 @@ pub fn sha1_bytes(b: &[u8]) -> String {
     d.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// The innermost node (smallest line range) containing `line`; the module (index 0) otherwise.
+pub fn innermost_at(nodes: &[Node], line: u32) -> &str {
+    let mut best = &nodes[0];
+    for n in &nodes[1..] {
+        if n.range.start_line <= line && line <= n.range.end_line {
+            let span = n.range.end_line - n.range.start_line;
+            if span <= best.range.end_line - best.range.start_line {
+                best = n;
+            }
+        }
+    }
+    &best.id
+}
+
 /// Up to 5 ids close to `id`: those containing it (shortest first), then near misses by edit
 /// distance.
 pub fn suggest(g: &Graph, id: &str) -> Vec<String> {

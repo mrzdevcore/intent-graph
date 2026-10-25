@@ -3,10 +3,10 @@
 pub use ig_core::rules::*;
 
 use crate::config::{Checker, Config};
+use crate::model::innermost_at;
 use crate::model::{Finding, Graph, Node};
 use ig_checkers::ProcessRunner;
 use ig_core::ports::CheckerRunner;
-use ig_lang_ts::extract::innermost_at;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;

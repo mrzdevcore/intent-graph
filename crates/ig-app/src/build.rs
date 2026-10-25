@@ -42,7 +42,10 @@ pub fn build_graph(
         let mine: Vec<(SourceFile, String)> = ws
             .files
             .iter()
-            .filter(|f| fe.handles(&f.path) && !frontends[..i].iter().any(|p| p.handles(&f.path)))
+            .filter(|f| {
+                fe.handles(&f.path, config)
+                    && !frontends[..i].iter().any(|p| p.handles(&f.path, config))
+            })
             .map(|f| (f.clone(), files.read(&f.path).unwrap_or_default()))
             .collect();
         let out = fe.build(&mine, &ws, config);
@@ -302,7 +305,7 @@ mod tests {
     struct Fake;
 
     impl LanguageFrontend for Fake {
-        fn handles(&self, path: &str) -> bool {
+        fn handles(&self, path: &str, _: &Config) -> bool {
             path.ends_with(".ts")
         }
         fn build(

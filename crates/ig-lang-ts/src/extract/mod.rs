@@ -2,7 +2,7 @@
 
 use crate::embedded::{self, MarkupRef};
 use globset::GlobSet;
-use ig_core::model::{Metrics, Node, Range, sha1_bytes, sha1_hex};
+use ig_core::model::{Metrics, Node, Range, innermost_at, sha1_bytes, sha1_hex};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::*;
 use oxc_ast_visit::{Visit, walk};
@@ -464,20 +464,6 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         classes,
         script: script.map(|s| s.source).unwrap_or_default(),
     }
-}
-
-/// The innermost node (smallest line range) containing `line`; the module (index 0) otherwise.
-pub fn innermost_at(nodes: &[Node], line: u32) -> &str {
-    let mut best = &nodes[0];
-    for n in &nodes[1..] {
-        if n.range.start_line <= line && line <= n.range.end_line {
-            let span = n.range.end_line - n.range.start_line;
-            if span <= best.range.end_line - best.range.start_line {
-                best = n;
-            }
-        }
-    }
-    &best.id
 }
 
 pub fn is_test_file(path: &str, tests: &GlobSet) -> bool {
