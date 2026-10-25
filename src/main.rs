@@ -14,6 +14,7 @@ mod linediff;
 mod mcp;
 mod model;
 mod patterns;
+mod plan;
 mod report;
 mod review;
 mod setup;
@@ -30,6 +31,7 @@ const USAGE: &str =
     "usage: ig [--version] | init [claude|codex|all] | setup [--json] | setup claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
+   | plan check <file> [--json]
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] | report --gitlab | mcp | hook claude
@@ -84,7 +86,7 @@ fn parse_args() -> Result<Args> {
             Long("both") => a.dir = Some("both".into()),
             Long("depth") => a.depth = Some(p.value()?.parse()?),
             Value(v) if a.sub.is_none() => a.sub = Some(v.string()?),
-            Value(v) if a.cmd == "focus" => a.more.push(v.string()?),
+            Value(v) if a.cmd == "focus" || a.cmd == "plan" => a.more.push(v.string()?),
             _ => return Err(arg.unexpected().into()),
         }
     }
@@ -157,6 +159,18 @@ fn real_main() -> Result<u8> {
         }
         "review" => review_cmd(&root, &a),
         "query" => query_cmd(&root, &a),
+        "plan" => match (a.sub.as_deref(), a.more.as_slice()) {
+            (Some("check"), [file]) => {
+                let v = plan::check(&root, std::path::Path::new(file))?;
+                if a.json {
+                    println!("{}", serde_json::to_string_pretty(&v)?);
+                } else {
+                    print!("{}", plan::text(&v));
+                }
+                Ok(if v["ok"] == true { 0 } else { 1 })
+            }
+            _ => bail!("plan: expected `plan check <file>`"),
+        },
         "focus" => {
             let ids: Vec<&String> = a.sub.iter().chain(a.more.iter()).collect();
             if ids.is_empty() {

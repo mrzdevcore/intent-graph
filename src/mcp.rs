@@ -192,15 +192,7 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
 
 pub fn query(g: &Graph, id: &str, dir: &str, depth: usize) -> Value {
     if !g.nodes.iter().any(|n| n.id == id) {
-        let mut sugg: Vec<&str> = g
-            .nodes
-            .iter()
-            .map(|n| n.id.as_str())
-            .filter(|n| n.contains(id))
-            .collect();
-        sugg.sort_by_key(|s| (s.len(), *s));
-        sugg.truncate(5);
-        return json!({"error": format!("unknown node {id}"), "suggestions": sugg});
+        return json!({"error": format!("unknown node {id}"), "suggestions": suggest(g, id)});
     }
     let mut seen: BTreeSet<&str> = BTreeSet::from([id]);
     let mut edges = HashSet::new();
@@ -241,6 +233,40 @@ pub fn query(g: &Graph, id: &str, dir: &str, depth: usize) -> Value {
         })
         .collect();
     json!({"id": id, "nodes": nodes, "edges": edges})
+}
+
+/// Up to 5 ids close to `id`: those containing it (shortest first), then near misses by edit
+/// distance.
+pub fn suggest(g: &Graph, id: &str) -> Vec<String> {
+    let max = (id.chars().count() / 4).max(2);
+    let mut sugg: Vec<(bool, usize, &str)> = g
+        .nodes
+        .iter()
+        .map(|n| n.id.as_str())
+        .map(|n| (!n.contains(id), edit_distance(id, n), n))
+        .filter(|(far, d, _)| !*far || *d <= max)
+        .collect();
+    sugg.sort();
+    sugg.dedup();
+    sugg.into_iter()
+        .take(5)
+        .map(|(_, _, n)| n.to_string())
+        .collect()
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for j in 0..b.len() {
+            let cur = row[j + 1];
+            row[j + 1] = (prev + (ca != b[j]) as usize).min(row[j] + 1).min(cur + 1);
+            prev = cur;
+        }
+    }
+    row[b.len()]
 }
 
 #[cfg(test)]
