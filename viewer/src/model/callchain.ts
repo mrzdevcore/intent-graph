@@ -1,6 +1,7 @@
 // Call chain: calls followed from a page or function across modules, through HTTP into
 // routes, down to systems; one lifeline per blueprint lane (else layer, else module).
 
+import type { ViewEdge, ViewNode } from "../data";
 import { base, type Index } from "./graph";
 
 const KINDS: Record<string, boolean> = { calls: true, dispatch: true, http: true, uses: true };
@@ -33,8 +34,8 @@ export function clean(s: string): string {
 export function callChain(ix: Index, start: string, opts: { depth?: number; max?: number } = {}): CallChain {
   const depth = opts.depth ?? 6;
   const max = opts.max ?? 60;
-  const lifelines: Lifeline[] = [{ key: "user", label: "User" }];
-  const at: Record<string, number> = { user: 0 };
+  const lifelines: Lifeline[] = [];
+  const at: Record<string, number> = {};
   const steps: Step[] = [];
   let truncated = 0;
   const seen: Record<string, boolean> = {};
@@ -55,7 +56,14 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
     return at[l.key];
   };
 
-  // Walk `id`'s calls as `caller`'s own. Same-file targets are folded into the caller.
+  const okEdge = (e: ViewEdge) => {
+    const t = ix.byId[e.to];
+    return KINDS[e.kind] && t && !t.test && e.confidence !== "guessed" && !(t.kind === "class" && /(Error|Exception)$/.test(t.name));
+  };
+  const same = (n: ViewNode, e: ViewEdge) => ix.byId[e.to].kind !== "system" && ix.byId[e.to].file === n.file;
+  const path: Record<string, boolean> = {};
+
+  // Walk `id`'s calls as `caller`'s own. Same-file targets are folded into the caller, once per caller.
   const collect = (id: string, caller: string, hops: number) => {
     const n = ix.byId[id];
     if (!n) return;
@@ -64,26 +72,18 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
       usesDone[n.file] = true;
       out = out.concat((ix.outEdges[n.file] || []).filter((e) => e.kind === "uses"));
     }
-    if (n.module)
-      (ix.membersOf[id] || []).forEach((m) => {
-        seen[m] = true;
-        out = out.concat(ix.outEdges[m] || []);
-      });
-    out = out
-      .filter((e) => {
-        const t = ix.byId[e.to];
-        return KINDS[e.kind] && t && !t.test && e.confidence !== "guessed" && !(t.kind === "class" && /(Error|Exception)$/.test(t.name));
-      })
-      .sort((a, b) => (a.line || 0) - (b.line || 0));
+    out = out.filter(okEdge).sort((a, b) => (a.line || 0) - (b.line || 0));
+    if (n.module) {
+      // The module's members are all start points: fold the ones nothing else in the file calls.
+      const members = ix.membersOf[id] || [];
+      const called: Record<string, boolean> = {};
+      members.forEach((m) => (ix.outEdges[m] || []).filter(okEdge).forEach((e) => same(n, e) && (called[e.to] = true)));
+      out.forEach((e) => same(n, e) && (called[e.to] = true));
+      members.filter((m) => !called[m]).forEach((m) => fold(m, caller, hops));
+    }
     out.forEach((e) => {
       const t = ix.byId[e.to];
-      if (t.kind !== "system" && t.file === n.file) {
-        if (!seen[t.id]) {
-          seen[t.id] = true;
-          collect(t.id, caller, hops);
-        }
-        return;
-      }
+      if (same(n, e)) return fold(t.id, caller, hops);
       if (steps.length >= max) truncated++;
       else {
         const kind = e.kind as Step["kind"];
@@ -98,11 +98,17 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
       }
     });
   };
+  const fold = (id: string, caller: string, hops: number) => {
+    if (path[id]) return;
+    path[id] = true;
+    collect(id, caller, hops);
+    delete path[id];
+  };
 
   if (!ix.byId[start]) return { lifelines, steps, truncated };
   lifeline(start);
   seen[start] = true;
-  collect(start, start, 0);
+  fold(start, start, 0);
   return { lifelines, steps, truncated };
 }
 
