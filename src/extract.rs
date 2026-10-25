@@ -575,7 +575,7 @@ impl<'s, 'a> Extractor<'s, 'a> {
         }
     }
 
-    /// Counts callees whose first argument looks like a URL, for `ig explore` (http.calls candidates).
+    /// Counts callees whose first argument looks like a URL, for `ig setup` (http.calls candidates).
     fn count_url_callee(&mut self, it: &CallExpression<'a>) {
         let name = match it.callee.get_inner_expression() {
             Expression::Identifier(id) => id.name.as_str(),

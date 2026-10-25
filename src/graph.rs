@@ -74,7 +74,7 @@ fn effective_tsconfig(path: &Path) -> PathBuf {
 pub struct Built {
     pub graph: Graph,
     pub workspace: Workspace,
-    /// Facts that are not graph data, for `ig explore`.
+    /// Facts that are not graph data, for `ig setup`.
     pub extras: Extras,
 }
 
