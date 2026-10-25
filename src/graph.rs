@@ -588,7 +588,8 @@ impl<'f> Index<'f> {
         }
     }
 
-    /// Method `m` of type `t` (a `calls` edge), else of the classes implementing it (a `dispatch`
+    /// Method `m` of class `t`, else class `t` itself (`m` is a property), as a `calls` edge.
+    /// For an interface, method `m` of the classes implementing it (a `dispatch`
     /// edge: the code depends on the interface, so arch rules and review ignore it). Confidence is
     /// `guessed` when several implementations match.
     fn typed(
@@ -600,10 +601,10 @@ impl<'f> Index<'f> {
         let Some(tid) = self.target(f, t) else {
             return vec![];
         };
-        if self.classes.contains_key(tid.as_str())
-            && let Some(x) = self.method(&tid, m, false)
-        {
-            return vec![(x, "calls", "resolved")];
+        if self.classes.contains_key(tid.as_str()) {
+            // Not a method (a property like `this.db.knex`): the code still depends on the class.
+            let to = self.method(&tid, m, false).unwrap_or(tid);
+            return vec![(to, "calls", "resolved")];
         }
         let hits: Vec<String> = self
             .implementers
@@ -893,6 +894,31 @@ mod tests {
         );
         // Interfaces are not nodes, and edges to them are dropped.
         assert!(!g.nodes.iter().any(|n| n.id == "src/domain/repo.ts#Repo"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // `this.db.knex(...)` where `knex` is a property of the injected class reaches the class.
+    #[test]
+    fn typed_field_property_reaches_class() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            ("db.ts", "export class Db { knex = 1 }\n"),
+            (
+                "repo.ts",
+                "import { Db } from './db';\nexport class Repo { constructor(private db: Db) {} find() { return this.db.knex('t') } }\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::default(), None).unwrap().graph;
+        let e = g
+            .edges
+            .iter()
+            .find(|e| e.from == "repo.ts#Repo.find" && e.to == "db.ts#Db");
+        assert_eq!(
+            e.map(|e| (e.kind.as_str(), e.confidence.as_str())),
+            Some(("calls", "resolved")),
+            "{:#?}",
+            g.edges
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
