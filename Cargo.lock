@@ -684,6 +684,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-checkers"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "ig-core"
 version = "0.1.0"
 dependencies = [
@@ -769,6 +778,7 @@ dependencies = [
  "ast-grep-core",
  "ast-grep-language",
  "globset",
+ "ig-checkers",
  "ig-core",
  "ig-fs",
  "ig-git",

@@ -10,6 +10,7 @@ ast-grep-language = { version = "0.51.0", default-features = false, features = [
 globset = "0.4.20"
 ig-core = { path = "../ig-core" }
 ig-fs = { path = "../ig-fs" }
+ig-checkers = { path = "../ig-checkers" }
 ig-git = { path = "../ig-git" }
 lexopt = "0.3.2"
 notify = "8.2.0"

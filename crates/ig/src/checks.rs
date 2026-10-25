@@ -1,18 +1,15 @@
-//! `ig_core::rules` plus the SARIF/lines checker runner and the baseline file.
+//! `ig_core::rules` plus the checker orchestration over `ig_checkers` and the baseline file.
 
 pub use ig_core::rules::*;
 
-use crate::config::{Checker, Config, Format, Severity};
+use crate::config::{Checker, Config};
 use crate::extract::innermost_at;
 use crate::model::{Finding, Graph, Node};
-use crate::workspace;
-use regex::Regex;
+use ig_checkers::ProcessRunner;
+use ig_core::ports::CheckerRunner;
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub use ig_core::ports::CheckerOutput;
 
@@ -20,151 +17,17 @@ pub use ig_core::ports::CheckerOutput;
 const SCRIPT_STYLE: &[&str] = &[
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".css", ".scss", ".less",
 ];
-const MAX_COMMAND: usize = 100 << 10;
 
-fn shell_quote(f: &str) -> String {
-    // A leading `-` would read as a flag.
-    let f = if f.starts_with('-') {
-        format!("./{f}")
-    } else {
-        f.to_string()
-    };
-    format!("'{}'", f.replace('\'', r"'\''"))
-}
-
-/// The checker's `run` with `{files}` replaced by the changed files it cares about, quoted; `.`
-/// when `changed` is None (`--all`) or the list is too long. None: nothing to check, skip it.
-pub(crate) fn expand_files(
-    c: &Checker,
-    changed: Option<&[String]>,
-    known: &HashSet<&str>,
-    notices: &mut Vec<String>,
-) -> Option<String> {
-    if !c.run.contains("{files}") {
-        return Some(c.run.clone());
-    }
-    let whole = || Some(c.run.replace("{files}", "."));
-    let Some(changed) = changed else {
-        return whole();
-    };
-    let files: Vec<String> = changed
+/// The changed files checker `c` cares about.
+fn filter_files(c: &Checker, changed: &[String], known: &HashSet<&str>) -> Vec<String> {
+    changed
         .iter()
         .filter(|f| match c.extensions.is_empty() {
             true => known.contains(f.as_str()) || SCRIPT_STYLE.iter().any(|e| f.ends_with(e)),
             false => c.extensions.iter().any(|e| f.ends_with(e.as_str())),
         })
-        .map(|f| shell_quote(f))
-        .collect();
-    if files.is_empty() {
-        return None;
-    }
-    let cmd = c.run.replace("{files}", &files.join(" "));
-    if cmd.len() > MAX_COMMAND {
-        notices.push(format!(
-            "checker {}: {} changed files make too long a command; checking the whole root",
-            c.name,
-            files.len()
-        ));
-        return whole();
-    }
-    Some(cmd)
-}
-
-const TIMEOUT: Duration = Duration::from_secs(120);
-const CAP: usize = 64 << 20;
-
-fn read_capped(mut r: impl Read + Send + 'static) -> std::thread::JoinHandle<(Vec<u8>, bool)> {
-    std::thread::spawn(move || {
-        let mut buf = vec![];
-        let mut chunk = [0u8; 65536];
-        let mut over = false;
-        loop {
-            match r.read(&mut chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(n) if buf.len() + n > CAP => {
-                    over = true;
-                    buf.extend_from_slice(&chunk[..CAP - buf.len()]);
-                }
-                Ok(n) if !over => buf.extend_from_slice(&chunk[..n]),
-                Ok(_) => {}
-            }
-        }
-        (buf, over)
-    })
-}
-
-/// Runs one checker as `sh -c <run>` in `root`.
-fn run_checker(root: &Path, run: &str) -> Result<(Vec<u8>, Option<i32>, String), String> {
-    let mut child = Command::new("sh")
-        .arg("-c")
-        .arg(run)
-        .current_dir(root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    let out = read_capped(child.stdout.take().unwrap());
-    let err = read_capped(child.stderr.take().unwrap());
-    let start = Instant::now();
-    let mut code = None;
-    let timed_out = loop {
-        match child.try_wait() {
-            Ok(Some(st)) => {
-                code = st.code();
-                break false;
-            }
-            Ok(None) if start.elapsed() > TIMEOUT => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break true;
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-            Err(e) => return Err(e.to_string()),
-        }
-    };
-    let (stdout, over) = out.join().unwrap_or_default();
-    let (stderr, _) = err.join().unwrap_or_default();
-    let stderr: String = String::from_utf8_lossy(&stderr).chars().take(300).collect();
-    if timed_out {
-        return Err(format!("timed out after 120 s; stderr: {stderr}"));
-    }
-    if over {
-        return Err(format!("output exceeded 64 MB; stderr: {stderr}"));
-    }
-    Ok((stdout, code, stderr))
-}
-
-fn repo_path(root: &Path, uri: &str) -> String {
-    let mut p = uri.strip_prefix("file://").unwrap_or(uri).to_string();
-    if let Ok(d) = urlish_decode(&p) {
-        p = d;
-    }
-    let path = Path::new(&p);
-    if path.is_absolute() {
-        let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        if let Some(r) = workspace::rel(root, &canon).or_else(|| workspace::rel(root, path)) {
-            return r;
-        }
-    }
-    workspace::normalize(p.trim_start_matches("./"))
-}
-
-fn urlish_decode(s: &str) -> Result<String, ()> {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            let h = std::str::from_utf8(&b[i + 1..i + 3]).map_err(|_| ())?;
-            out.push(u8::from_str_radix(h, 16).map_err(|_| ())?);
-            i += 3;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8(out).map_err(|_| ())
+        .cloned()
+        .collect()
 }
 
 /// Attaches the innermost graph node to each finding (module-level files only).
@@ -188,210 +51,6 @@ pub(crate) fn attach_nodes(head: &Graph, findings: Vec<Finding>) -> Vec<Finding>
         .collect()
 }
 
-pub fn parse_output(
-    root: &Path,
-    tool: &str,
-    format: Format,
-    bytes: &[u8],
-    head: &Graph,
-) -> Result<Vec<Finding>, String> {
-    if bytes.iter().all(u8::is_ascii_whitespace) {
-        return Ok(vec![]);
-    }
-    let found = match format {
-        Format::Sarif => parse_sarif(root, tool, bytes)?,
-        Format::Checkstyle => parse_checkstyle(root, tool, bytes)?,
-        Format::EslintJson => parse_eslint(root, tool, bytes)?,
-        Format::StylelintJson => parse_stylelint(root, tool, bytes)?,
-        Format::Lines => parse_lines(root, tool, bytes),
-    };
-    Ok(attach_nodes(head, found))
-}
-
-fn json_array(bytes: &[u8]) -> Result<Vec<serde_json::Value>, String> {
-    match serde_json::from_slice(bytes) {
-        Ok(serde_json::Value::Array(a)) => Ok(a),
-        Ok(_) => Err("expected a JSON array".into()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-fn parse_eslint(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>, String> {
-    let mut out = vec![];
-    for file in json_array(bytes)? {
-        let path = repo_path(root, file["filePath"].as_str().unwrap_or(""));
-        for m in file["messages"].as_array().into_iter().flatten() {
-            let sev = if m["severity"].as_u64() == Some(2) {
-                Severity::Error
-            } else {
-                Severity::Warning
-            };
-            out.push(Finding::new(
-                m["ruleId"].as_str().unwrap_or(tool),
-                sev,
-                tool,
-                &path,
-                m["line"].as_u64().unwrap_or(1) as u32,
-                m["message"].as_str().unwrap_or("").to_string(),
-            ));
-        }
-    }
-    Ok(out)
-}
-
-fn parse_stylelint(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>, String> {
-    let mut out = vec![];
-    for file in json_array(bytes)? {
-        let path = repo_path(root, file["source"].as_str().unwrap_or(""));
-        for w in file["warnings"].as_array().into_iter().flatten() {
-            let sev = if w["severity"].as_str() == Some("error") {
-                Severity::Error
-            } else {
-                Severity::Warning
-            };
-            out.push(Finding::new(
-                w["rule"].as_str().unwrap_or(tool),
-                sev,
-                tool,
-                &path,
-                w["line"].as_u64().unwrap_or(1) as u32,
-                w["text"].as_str().unwrap_or("").to_string(),
-            ));
-        }
-    }
-    Ok(out)
-}
-
-fn xml_unescape(s: &str) -> String {
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
-}
-
-fn xml_attrs(s: &str) -> HashMap<&str, String> {
-    static ATTR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(\w+)="([^"]*)""#).unwrap());
-    ATTR.captures_iter(s)
-        .map(|c| (c.get(1).unwrap().as_str(), xml_unescape(&c[2])))
-        .collect()
-}
-
-fn parse_checkstyle(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>, String> {
-    static FILE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?s)<file\b([^>]*?)(?:/>|>(.*?)</file>)").unwrap());
-    static ERR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<error\b([^>]*?)/?>").unwrap());
-    let text = String::from_utf8_lossy(bytes);
-    if !text.contains("<checkstyle") {
-        return Err("no <checkstyle> element".into());
-    }
-    let mut out = vec![];
-    for f in FILE.captures_iter(&text) {
-        let path = repo_path(root, xml_attrs(&f[1]).get("name").map_or("", |s| s));
-        for e in ERR.captures_iter(f.get(2).map_or("", |m| m.as_str())) {
-            let a = xml_attrs(&e[1]);
-            let sev = match a.get("severity").map(String::as_str) {
-                Some("error") => Severity::Error,
-                Some("info") => Severity::Note,
-                _ => Severity::Warning,
-            };
-            let rule = a
-                .get("source")
-                .filter(|s| !s.is_empty())
-                .map_or(tool, |s| s);
-            out.push(Finding::new(
-                rule,
-                sev,
-                tool,
-                &path,
-                a.get("line").and_then(|l| l.parse().ok()).unwrap_or(1),
-                a.get("message").cloned().unwrap_or_default(),
-            ));
-        }
-    }
-    Ok(out)
-}
-
-fn parse_lines(root: &Path, tool: &str, bytes: &[u8]) -> Vec<Finding> {
-    // tsc: `path(line,col): error TS1234: message`; generic: `path:line[:col][: ]message`
-    static TSC: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^(.+?)\((\d+),\d+\):\s*(.*)$").unwrap());
-    static GEN: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^(.+?):(\d+)(?::\d+)?:?\s*(.*)$").unwrap());
-    static CODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bTS\d+\b").unwrap());
-    static SEV: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?i)^\W*(error|warning)\b").unwrap());
-    let mut out = vec![];
-    for l in String::from_utf8_lossy(bytes).lines() {
-        let Some(c) = TSC.captures(l).or_else(|| GEN.captures(l)) else {
-            continue;
-        };
-        let msg = c[3].trim();
-        let sev = match SEV.captures(msg).map(|s| s[1].to_lowercase()) {
-            Some(s) if s == "error" => Severity::Error,
-            _ => Severity::Warning,
-        };
-        let rule = CODE.find(msg).map_or(tool, |m| m.as_str());
-        out.push(Finding::new(
-            rule,
-            sev,
-            tool,
-            &repo_path(root, &c[1]),
-            c[2].parse().unwrap_or(1),
-            msg.to_string(),
-        ));
-    }
-    out
-}
-
-pub fn parse_sarif(root: &Path, tool: &str, bytes: &[u8]) -> Result<Vec<Finding>, String> {
-    let v: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    let runs = v
-        .get("runs")
-        .and_then(|r| r.as_array())
-        .ok_or("no runs[]")?;
-    let mut out = vec![];
-    for run in runs {
-        for r in run
-            .get("results")
-            .and_then(|r| r.as_array())
-            .into_iter()
-            .flatten()
-        {
-            let loc = r.pointer("/locations/0/physicalLocation");
-            let uri = loc
-                .and_then(|l| l.pointer("/artifactLocation/uri"))
-                .and_then(|u| u.as_str())
-                .unwrap_or("");
-            let file = repo_path(root, uri);
-            let line = loc
-                .and_then(|l| l.pointer("/region/startLine"))
-                .and_then(|x| x.as_u64())
-                .unwrap_or(1) as u32;
-            let sev = match r.get("level").and_then(|l| l.as_str()) {
-                Some("error") => Severity::Error,
-                Some("note") | Some("none") => Severity::Note,
-                _ => Severity::Warning,
-            };
-            let rule = r.get("ruleId").and_then(|x| x.as_str()).unwrap_or(tool);
-            let msg = r
-                .pointer("/message/text")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string();
-            let mut f = Finding::new(rule, sev, tool, &file, line, msg);
-            if let Some(fix) = r
-                .pointer("/fixes/0/description/text")
-                .and_then(|x| x.as_str())
-            {
-                f = f.fix(fix);
-            }
-            out.push(f);
-        }
-    }
-    Ok(out)
-}
-
 /// Runs all checkers (in parallel) against the tree at `root`. `changed` fills `{files}`.
 pub fn checkers(
     root: &Path,
@@ -400,53 +59,32 @@ pub fn checkers(
     changed: Option<&[String]>,
 ) -> CheckerOutput {
     use rayon::prelude::*;
-    let mut out = CheckerOutput::default();
     let known: HashSet<&str> = head.nodes.iter().map(|n| n.file.as_str()).collect();
-    let runs: Vec<(&Checker, String)> = config
+    let runs: Vec<(&Checker, Option<Vec<String>>)> = config
         .checkers
         .iter()
-        .filter_map(|c| Some((c, expand_files(c, changed, &known, &mut out.notices)?)))
-        .collect();
-    let results: Vec<(String, Result<Vec<Finding>, String>)> = runs
-        .par_iter()
-        .map(|(c, run)| {
-            crate::check::progress(&format!("running {}…", c.name));
-            let start = Instant::now();
-            let r = run_checker(root, run).and_then(|(b, code, stderr)| {
-                let tail = |t: &str| t.chars().take(300).collect::<String>();
-                let found = parse_output(root, &c.name, c.format, &b, head)
-                    .map_err(|e| format!("{e}; stderr: {stderr}"))?;
-                match code {
-                    Some(0) => Ok(found),
-                    _ if !found.is_empty() => Ok(found),
-                    _ => {
-                        let msg = if stderr.trim().is_empty() {
-                            tail(&String::from_utf8_lossy(&b))
-                        } else {
-                            stderr
-                        };
-                        let code = code.map_or("a signal".into(), |c| c.to_string());
-                        Err(format!("exited {code} with no findings; stderr: {msg}"))
-                    }
-                }
-            });
-            let secs = start.elapsed().as_secs_f32();
-            crate::check::progress(&format!("{} done ({secs:.1} s)", c.name));
-            (c.name.clone(), r)
+        .map(|c| (c, changed.map(|ch| filter_files(c, ch, &known))))
+        // Nothing to check: skipped, without a progress line.
+        .filter(|(c, files)| {
+            !(c.run.contains("{files}") && files.as_ref().is_some_and(Vec::is_empty))
         })
         .collect();
-    for (name, r) in results {
-        match r {
-            Ok(f) => out.findings.extend(f),
-            Err(e) => out.errors.push(Finding::new(
-                "ig/checker-error",
-                Severity::Warning,
-                &name,
-                "ig.yaml",
-                1,
-                format!("checker {name}: {e}"),
-            )),
-        }
+    let outs: Vec<CheckerOutput> = runs
+        .par_iter()
+        .map(|(c, files)| {
+            crate::check::progress(&format!("running {}…", c.name));
+            let start = Instant::now();
+            let o = ProcessRunner.run(root, c, files.as_deref());
+            let secs = start.elapsed().as_secs_f32();
+            crate::check::progress(&format!("{} done ({secs:.1} s)", c.name));
+            o
+        })
+        .collect();
+    let mut out = CheckerOutput::default();
+    for o in outs {
+        out.notices.extend(o.notices);
+        out.findings.extend(attach_nodes(head, o.findings));
+        out.errors.extend(o.errors);
     }
     out
 }
@@ -486,114 +124,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn checker_formats() {
-        let root = Path::new("/repo");
-        let g = Graph::empty();
-        let eslint = br#"[{"filePath":"/repo/src/a.ts","messages":[{"ruleId":"no-var","severity":2,"message":"Unexpected var","line":3}]}]"#;
-        let f = parse_output(root, "eslint", Format::EslintJson, eslint, &g).unwrap();
-        assert_eq!(
-            (
-                f[0].rule_id.as_str(),
-                f[0].file.as_str(),
-                f[0].line,
-                f[0].severity
-            ),
-            ("no-var", "src/a.ts", 3, Severity::Error)
-        );
-
-        let stylelint = br#"[{"source":"/repo/src/a.scss","warnings":[{"line":7,"column":1,"rule":"media-feature-range-notation","severity":"warning","text":"Expected context notation"}]}]"#;
-        let f = parse_output(root, "stylelint", Format::StylelintJson, stylelint, &g).unwrap();
-        assert_eq!(
-            (f[0].rule_id.as_str(), f[0].line, f[0].severity),
-            ("media-feature-range-notation", 7, Severity::Warning)
-        );
-
-        let cs = br#"<?xml version="1.0"?><checkstyle><file name="src/b.ts"><error line="2" column="1" severity="error" message="Use an arrow function &amp; const" source="prefer-arrow"/></file></checkstyle>"#;
-        let f = parse_output(root, "oxlint", Format::Checkstyle, cs, &g).unwrap();
-        assert_eq!(
-            (
-                f[0].file.as_str(),
-                f[0].message.as_str(),
-                f[0].rule_id.as_str()
-            ),
-            ("src/b.ts", "Use an arrow function & const", "prefer-arrow")
-        );
-
-        let tsc = b"src/c.ts(4,10): error TS2322: Type 'string' is not assignable to type 'number'.\nnoise line\nsrc/d.ts:9:2: something odd\n";
-        let f = parse_output(root, "tsc", Format::Lines, tsc, &g).unwrap();
-        assert_eq!(f.len(), 2);
-        assert_eq!(
-            (
-                f[0].file.as_str(),
-                f[0].line,
-                f[0].rule_id.as_str(),
-                f[0].severity
-            ),
-            ("src/c.ts", 4, "TS2322", Severity::Error)
-        );
-        assert_eq!(
-            (f[1].file.as_str(), f[1].line, f[1].severity),
-            ("src/d.ts", 9, Severity::Warning)
-        );
-
-        for fmt in [
-            Format::Sarif,
-            Format::Checkstyle,
-            Format::EslintJson,
-            Format::StylelintJson,
-            Format::Lines,
-        ] {
-            assert!(
-                parse_output(root, "x", fmt, b"  \n", &g)
-                    .unwrap()
-                    .is_empty()
-            );
-        }
-    }
-
-    #[test]
-    fn lines_checker_ignores_exit_status() {
-        let dir = std::env::temp_dir().join(format!("ig-lines-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let c = Config::parse(
-            "checkers:\n  - name: t\n    format: lines\n    run: \"echo 'src/a.ts:1: boom'; exit 3\"\n",
-        )
-        .unwrap();
-        let out = checkers(&dir, &c, &Graph::empty(), None);
-        std::fs::remove_dir_all(&dir).ok();
-        assert!(out.errors.is_empty(), "{:?}", out.errors);
-        assert_eq!(out.findings.len(), 1);
-    }
-
-    #[test]
-    fn broken_checker_is_reported() {
-        let dir = std::env::temp_dir().join(format!("ig-broken-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let run = |cmd: &str| {
-            let c = Config::parse(&format!(
-                "checkers:\n  - name: t\n    format: lines\n    run: \"{cmd}\"\n"
-            ))
-            .unwrap();
-            checkers(&dir, &c, &Graph::empty(), None)
-        };
-        let bad = run("echo boom >&2; exit 127");
-        let ok = run("exit 0");
-        std::fs::remove_dir_all(&dir).ok();
-        assert_eq!(bad.errors.len(), 1);
-        assert!(
-            bad.errors[0].message.contains("boom"),
-            "{}",
-            bad.errors[0].message
-        );
-        assert!(bad.errors[0].message.contains("exited 127"));
-        assert!(ok.errors.is_empty() && ok.findings.is_empty());
-    }
-
-    #[test]
-    fn files_placeholder() {
-        let c = |run: &str, exts: &str| {
+    fn files_filter() {
+        let c = |exts: &str| {
             Config::parse(&format!(
-                "checkers:\n  - name: t\n    run: \"{run}\"\n{exts}"
+                "checkers:\n  - name: t\n    run: \"lint {{files}}\"\n{exts}"
             ))
             .unwrap()
             .checkers
@@ -603,34 +137,15 @@ mod tests {
             .map(String::from)
             .into();
         let known: HashSet<&str> = ["d.rs"].into();
-        let mut notes = vec![];
-        let lint = c("lint {files}", "");
         assert_eq!(
-            expand_files(&lint, Some(&changed), &known, &mut notes).unwrap(),
-            r#"lint 'src/it'\''s a.ts' 'b.vue' 'd.rs' './-x.ts'"#
+            filter_files(&c(""), &changed, &known),
+            ["src/it's a.ts", "b.vue", "d.rs", "-x.ts"]
         );
-        let vue = c("lint {files}", "    extensions: ['.vue']\n");
         assert_eq!(
-            expand_files(&vue, Some(&changed), &known, &mut notes).unwrap(),
-            "lint 'b.vue'"
+            filter_files(&c("    extensions: ['.vue']\n"), &changed, &known),
+            ["b.vue"]
         );
-        let md = c("lint {files}", "    extensions: ['.css']\n");
-        assert!(expand_files(&md, Some(&changed), &known, &mut notes).is_none());
-        assert_eq!(
-            expand_files(&lint, None, &known, &mut notes).unwrap(),
-            "lint ."
-        );
-        let plain = c("lint", "");
-        assert_eq!(
-            expand_files(&plain, Some(&[]), &known, &mut notes).unwrap(),
-            "lint"
-        );
-        let many: Vec<String> = (0..20000).map(|i| format!("f{i}.ts")).collect();
-        assert_eq!(
-            expand_files(&lint, Some(&many), &known, &mut notes).unwrap(),
-            "lint ."
-        );
-        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(filter_files(&c("    extensions: ['.css']\n"), &changed, &known).is_empty());
 
         // Nothing to check: skipped, not an error.
         let dir = std::env::temp_dir().join(format!("ig-files-{}", std::process::id()));
@@ -646,12 +161,5 @@ mod tests {
             "{:?}",
             out.errors
         );
-    }
-
-    #[test]
-    fn sarif_paths() {
-        let root = Path::new("/repo");
-        assert_eq!(repo_path(root, "file:///repo/src/a%20b.ts"), "src/a b.ts");
-        assert_eq!(repo_path(root, "./src/a.ts"), "src/a.ts");
     }
 }
