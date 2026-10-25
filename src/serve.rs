@@ -153,9 +153,14 @@ impl Server {
         match (post, url.as_str()) {
             (false, "/" | "/index.html") => {
                 let html = self.built.lock().unwrap().page.clone();
-                let h = tiny_http::Header::from_bytes("Content-Type", "text/html; charset=utf-8")
-                    .unwrap();
-                let _ = req.respond(tiny_http::Response::from_string(html).with_header(h));
+                let h = |k: &str, v: &str| tiny_http::Header::from_bytes(k, v).unwrap();
+                // The page holds the token: no other site may frame it.
+                let _ = req.respond(
+                    tiny_http::Response::from_string(html)
+                        .with_header(h("Content-Type", "text/html; charset=utf-8"))
+                        .with_header(h("X-Frame-Options", "DENY"))
+                        .with_header(h("Content-Security-Policy", "frame-ancestors 'none'")),
+                );
             }
             (false, "/api/events") => {
                 let mut w = req.into_writer();
@@ -209,7 +214,21 @@ impl Server {
             },
             (true, u) if u.starts_with("/api/notes/") => {
                 let id = &u["/api/notes/".len()..];
-                let v: Value = serde_json::from_str(&body).unwrap_or(json!({}));
+                let Ok(v) = serde_json::from_str::<Value>(&body)
+                    .map_err(drop)
+                    .and_then(|v| {
+                        let ok = v.is_object()
+                            && (v["done"].is_null() || v["done"].is_boolean())
+                            && (v["reply"].is_null() || v["reply"].is_string());
+                        if ok { Ok(v) } else { Err(()) }
+                    })
+                else {
+                    return respond(
+                        req,
+                        400,
+                        &json!({"error": "expected {\"done\": bool, \"reply\": string}"}),
+                    );
+                };
                 let plan = self.built.lock().unwrap().plan.clone();
                 let r = match &plan {
                     Some(p) => notes::set_done(
@@ -345,13 +364,16 @@ pub fn run(
     };
     let info_path = root.join(INFO);
     std::fs::create_dir_all(root.join(".ig"))?;
-    check::write_atomic(&info_path, &serde_json::to_vec_pretty(&info)?)?;
+    // Created 0600 from the start: it holds the token.
+    let _ = std::fs::remove_file(&info_path);
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&info_path, std::fs::Permissions::from_mode(0o600));
-        on_exit::remove(&info_path);
-    }
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    o.open(&info_path)?
+        .write_all(&serde_json::to_vec_pretty(&info)?)?;
+    #[cfg(unix)]
+    on_exit::remove(&info_path);
     let url = info.url("/");
     eprintln!("ig: serving {url} (Ctrl-C to stop)");
     if open_browser {
@@ -520,6 +542,39 @@ pub(crate) mod tests {
             .position(|l| l == "event: note")
             .expect("a note event");
         assert!(got[i + 1].contains("why here?"), "{got:?}");
+        for bad in [json!("x"), json!({"done": "yes"}), json!({"reply": 3})] {
+            assert_eq!(
+                post(&info, "/api/notes/N1", &bad, Some(&info.token), None).0,
+                400,
+                "{bad}"
+            );
+        }
+        assert!(
+            !std::fs::read_to_string(dir.join("plans/export.notes.md"))
+                .unwrap()
+                .contains("[x]")
+        );
+        let link = json!({"kind": "link", "target": COMMENT, "to": COMMENT, "text": "eats"});
+        assert_eq!(
+            post(&info, "/api/notes", &link, Some(&info.token), None).0,
+            400
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join(".ig/serve.json"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let mut page = agent(None).get(info.url("/")).call().unwrap();
+        assert_eq!(page.headers().get("X-Frame-Options").unwrap(), "DENY");
+        assert_eq!(
+            page.headers().get("Content-Security-Policy").unwrap(),
+            "frame-ancestors 'none'"
+        );
+        page.body_mut().read_to_string().unwrap();
         let (code, v) = post(
             &info,
             "/api/notes/N1",

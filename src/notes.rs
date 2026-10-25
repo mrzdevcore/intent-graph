@@ -141,13 +141,24 @@ pub fn read(plan: &Path) -> Vec<Note> {
     parse(&std::fs::read_to_string(path_for(plan)).unwrap_or_default())
 }
 
-/// One line, and no " — " (which starts the reply).
+/// One line, and no "—" (" — " starts the reply; a dash at either end would make one).
 fn clean(s: &str) -> String {
     s.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-        .replace(" — ", " - ")
+        .replace('—', "-")
 }
+
+/// The edge kinds the graph has.
+const LINK_KINDS: &[&str] = &[
+    "calls",
+    "imports",
+    "http",
+    "uses",
+    "renders",
+    "extends",
+    "implements",
+];
 
 /// Validates `input` against `merged` (the graph with the plan applied), gives it the next id and
 /// appends its line to the plan's notes file.
@@ -181,7 +192,15 @@ pub fn append(plan: &Path, input: NoteInput, merged: &Graph) -> Result<Note> {
     match input.kind {
         NoteKind::Comment => need(&text, "text")?,
         NoteKind::Move => need(&layer, "a layer")?,
-        NoteKind::Link => need(&to, "a `to` node")?,
+        NoteKind::Link => {
+            need(&to, "a `to` node")?;
+            if let Some(k) = text.as_deref().filter(|k| !LINK_KINDS.contains(k)) {
+                bail!(
+                    "unknown link kind {k:?}; expected one of {}",
+                    LINK_KINDS.join(", ")
+                );
+            }
+        }
         NoteKind::Remove => {}
         NoteKind::Add => {
             need(&layer, "a file or layer")?;
@@ -452,6 +471,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(n3.id, "N3");
+        // A dash at either end of the text or reply must not read as the reply separator.
+        let c = |t: &str| NoteInput {
+            text: Some(t.into()),
+            ..input(NoteKind::Comment, "a.ts#foo")
+        };
+        assert_eq!(append(&plan, c("— x"), &g).unwrap().id, "N4");
+        assert_eq!(append(&plan, c("foo —"), &g).unwrap().id, "N5");
+        set_done(&plan, "N5", false, Some("— reply —")).unwrap();
         set_done(&plan, "N2", true, Some("moved")).unwrap();
         assert!(set_done(&plan, "N9", true, None).is_err());
         let text = std::fs::read_to_string(path_for(&plan)).unwrap();
@@ -462,8 +489,25 @@ mod tests {
         let all = parse(&text);
         assert_eq!(
             all.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
-            ["N1", "N2", "N3"]
+            ["N1", "N2", "N3", "N4", "N5"]
         );
+        assert_eq!(all[3].text.as_deref(), Some("- x"));
+        assert_eq!(
+            (all[4].text.as_deref(), all[4].reply.as_deref()),
+            (Some("foo -"), Some("- reply -"))
+        );
+        let link = |k: &str| NoteInput {
+            to: Some("b.ts".into()),
+            text: Some(k.into()),
+            ..input(NoteKind::Link, "a.ts")
+        };
+        assert!(
+            append(&plan, link("eats"), &g)
+                .unwrap_err()
+                .to_string()
+                .contains("unknown link kind")
+        );
+        assert!(append(&plan, link("imports"), &g).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

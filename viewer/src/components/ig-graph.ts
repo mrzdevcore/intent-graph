@@ -119,7 +119,18 @@ export class IgGraph extends LitElement {
         emit(this, "ig-context", { id: t.id(), edge: t.isEdge(), source: t.data("source"), target: t.data("target"), x: o.clientX, y: o.clientY });
       });
       cy.on("dragfree", "node", (e) => emit(this, "ig-drop", { id: e.target.id(), y: e.target.position().y }));
-      const shift = (e: KeyboardEvent) => e.key === "Shift" && cy.autoungrabify(e.type === "keydown");
+      // Shift holds the boxes still for drawing a link; keyup restores what was set before.
+      let grabBefore: boolean | null = null;
+      const shift = (e: KeyboardEvent) => {
+        if (e.key !== "Shift") return;
+        if (e.type === "keydown" && grabBefore === null) {
+          grabBefore = cy.autoungrabify();
+          cy.autoungrabify(true);
+        } else if (e.type === "keyup" && grabBefore !== null) {
+          cy.autoungrabify(grabBefore);
+          grabBefore = null;
+        }
+      };
       window.addEventListener("keydown", shift);
       window.addEventListener("keyup", shift);
       let linkFrom: string | null = null;
