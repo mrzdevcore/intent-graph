@@ -707,6 +707,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-git"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+]
+
+[[package]]
 name = "ignore"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -764,6 +771,7 @@ dependencies = [
  "globset",
  "ig-core",
  "ig-fs",
+ "ig-git",
  "lexopt",
  "notify",
  "oxc_allocator",

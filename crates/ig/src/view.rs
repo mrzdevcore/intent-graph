@@ -215,7 +215,7 @@ impl<'r> Sources<'r> {
         self.after_files
             .entry(file.to_string())
             .or_insert_with(|| match (head, &run.repo) {
-                (Some(h), Some(r)) => r.show(h, file).unwrap_or_default(),
+                (Some(h), Some(r)) => ig_core::ports::Vcs::show(r, h, file).unwrap_or_default(),
                 _ => std::fs::read_to_string(root.join(file)).unwrap_or_default(),
             })
     }
@@ -225,7 +225,7 @@ impl<'r> Sources<'r> {
         self.before_files
             .entry(file.to_string())
             .or_insert_with(|| match (&run.result.base, &run.repo) {
-                (Some(b), Some(r)) => r.show(b, file).unwrap_or_default(),
+                (Some(b), Some(r)) => ig_core::ports::Vcs::show(r, b, file).unwrap_or_default(),
                 _ => String::new(),
             })
     }

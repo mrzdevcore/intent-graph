@@ -3,13 +3,14 @@
 use crate::checks;
 use crate::config::{Config, Severity};
 use crate::diff::{GraphDiff, Status};
-use crate::git::{self, Repo, Worktree};
+use crate::git::{self, GitVcs};
 use crate::graph;
 use crate::intents::{self, IntentChange};
 use crate::model::{Finding, Graph, TOOL_VERSION};
 use crate::review;
 use crate::workspace::{self, Package};
 use anyhow::{Result, bail};
+use ig_core::ports::{Checkout, Vcs};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -35,21 +36,13 @@ pub fn progress(msg: &str) {
 /// against the base or untracked. Repo-relative to the ig root, existing ones only.
 fn changed_files(t: &Trees, diff: &GraphDiff, notices: &mut Vec<String>) -> Vec<String> {
     let mut set: BTreeSet<String> = diff.touched_files.iter().cloned().collect();
-    if t.repo.is_some() {
-        let mut runs = vec![vec!["ls-files", "-z", "--others", "--exclude-standard"]];
-        if let Some(b) = &t.base {
-            runs.push(vec!["diff", "-z", "--name-only", "--relative", b]);
-        }
-        for args in runs {
-            match git::git(&t.head_root, &args) {
-                Ok(out) => set.extend(
-                    out.split('\0')
-                        .filter(|f| !f.is_empty() && t.head_root.join(f).is_file())
-                        .map(String::from),
-                ),
-                Err(e) => notices.push(format!("changed files for checkers: {e}")),
-            }
-        }
+    if let Some(repo) = &t.repo {
+        let head = repo.at(&t.head_root);
+        set.extend(
+            head.changed_files(t.base.as_deref(), notices)
+                .into_iter()
+                .filter(|f| t.head_root.join(f).is_file()),
+        );
     }
     set.into_iter().collect()
 }
@@ -109,7 +102,7 @@ pub struct Run {
     pub diff: GraphDiff,
     pub config: Config,
     pub packages: Vec<Package>,
-    pub repo: Option<Repo>,
+    pub repo: Option<GitVcs>,
     pub intents: Vec<intents::Intent>,
     /// Ids and edge keys added from a plan; empty without one.
     pub planned: HashSet<String>,
@@ -121,17 +114,17 @@ pub struct Trees {
     pub head_root: PathBuf,
     pub head_commit: Option<String>,
     pub base: Option<String>,
-    pub repo: Option<Repo>,
+    pub repo: Option<GitVcs>,
     pub config: Config,
     pub notices: Vec<String>,
-    pub _wt: Option<Worktree>,
+    pub _wt: Option<Checkout>,
 }
 
 /// Resolves base and head; materialises `--head` when needed.
 pub fn trees(root: &Path, opts: &Opts) -> Result<Trees> {
     let work_cfg = crate::config::load(root)?;
     let mut notices = vec![];
-    let repo = Repo::open(root);
+    let repo = GitVcs::open(root);
     let Some(repo) = repo else {
         if opts.head.is_some() || opts.base.is_some() {
             bail!("--base/--head need a git repository");
@@ -152,20 +145,20 @@ pub fn trees(root: &Path, opts: &Opts) -> Result<Trees> {
     let (head_root, head_commit, wt, config) = match &opts.head {
         None => (root.to_path_buf(), head_sha, None, work_cfg),
         Some(h) => {
-            let Some(sha) = git::verify(&repo.top, h) else {
+            let Some(sha) = repo.verify(h) else {
                 bail!("--head {h}: not a commit")
             };
             if Some(&sha) == head_sha.as_ref() && repo.is_clean() {
                 (root.to_path_buf(), Some(sha), None, work_cfg)
             } else {
-                let wt = Worktree::add(&repo, &sha, &git::node_modules_sources(root, &work_cfg))?;
-                let r = wt.root(&repo);
-                // Trust boundary: checkers always come from the working tree's ig.yaml.
-                let mut cfg = if r.is_dir() {
-                    crate::config::load(&r)?
-                } else {
-                    Config::default()
+                let wt = repo.checkout(&sha)?;
+                let Some(r) = wt.root().map(Path::to_path_buf) else {
+                    // The ig root did not exist at that commit: the graph build fails on it.
+                    return Err(std::io::Error::from_raw_os_error(2).into());
                 };
+                git::link_node_modules(root, &work_cfg, &r);
+                // Trust boundary: checkers always come from the working tree's ig.yaml.
+                let mut cfg = crate::config::load(&r)?;
                 cfg.checkers = work_cfg.checkers.clone();
                 (r, Some(sha), Some(wt), cfg)
             }
