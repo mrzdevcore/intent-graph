@@ -4,7 +4,6 @@ mod checks;
 mod config;
 mod diff;
 mod embedded;
-mod explore;
 mod extract;
 mod git;
 mod graph;
@@ -17,6 +16,8 @@ mod model;
 mod patterns;
 mod report;
 mod review;
+mod setup;
+mod skills;
 mod tsconfig;
 mod view;
 mod workspace;
@@ -26,7 +27,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: ig [--version] | init [claude|codex|all] | explore [--json] | explore claude|codex
+    "usage: ig [--version] | init [claude|codex|all] | setup [--json] | setup claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
@@ -194,21 +195,24 @@ fn real_main() -> Result<u8> {
             _ => bail!("hook: expected `hook claude`"),
         },
         "init" => {
-            let agents: Vec<&explore::Agent> = match a.sub.as_deref() {
-                None | Some("all") => explore::AGENTS.iter().collect(),
-                Some(name) => vec![explore::agent(name)?],
+            let agents: Vec<&skills::Agent> = match a.sub.as_deref() {
+                None | Some("all") => skills::AGENTS.iter().collect(),
+                Some(name) => vec![skills::agent(name)?],
             };
             init::run(&root, &agents)?;
             Ok(0)
         }
-        "explore" => match a.sub.as_deref() {
-            Some(name) => explore::run_agent(&root, name),
-            None => {
-                let f = explore::facts(&root)?;
+        "setup" | "explore" => match a.sub.as_deref() {
+            Some(name) if a.cmd == "setup" => setup::run_agent(&root, name),
+            _ => {
+                if a.cmd == "explore" {
+                    eprintln!("ig: `ig explore` is now `ig setup`");
+                }
+                let f = setup::facts(&root)?;
                 if a.json {
                     println!("{}", serde_json::to_string_pretty(&f)?);
                 } else {
-                    print!("{}", explore::report(&f));
+                    print!("{}", setup::report(&f));
                 }
                 Ok(0)
             }
