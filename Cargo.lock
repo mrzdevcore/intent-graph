@@ -687,7 +687,12 @@ dependencies = [
 name = "ig-app"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "globset",
  "ig-core",
+ "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
