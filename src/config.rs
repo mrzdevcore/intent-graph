@@ -46,7 +46,6 @@ pub struct Checker {
     pub run: String,
     pub format: Format,
     /// Globs naming the tool's own config files (tamper detection).
-    #[allow(dead_code)] // read by tamper detection (Task 6)
     pub configs: Vec<String>,
 }
 

@@ -1,3 +1,4 @@
+mod apply;
 mod brief;
 mod check;
 mod checks;
@@ -31,7 +32,8 @@ const USAGE: &str =
     "usage: ig [--version] | init [claude|codex|all] | setup [--json] | setup claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
-   | plan check <file> [--json]
+   | plan check <file> [--json] | apply start [<plan>] | apply accept | apply finish
+   | except <fingerprint> --reason <text>
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
@@ -58,6 +60,7 @@ struct Args {
     more: Vec<String>,
     plan: Option<PathBuf>,
     no_plan: bool,
+    reason: Option<String>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -83,6 +86,7 @@ fn parse_args() -> Result<Args> {
             Long("md") => a.md = true,
             Long("plan") => a.plan = Some(p.value()?.into()),
             Long("no-plan") => a.no_plan = true,
+            Long("reason") => a.reason = Some(p.value()?.string()?),
             Long("out") if a.cmd == "query" => a.dir = Some("out".into()),
             Long("out") => a.out = Some(p.value()?.into()),
             Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
@@ -90,7 +94,9 @@ fn parse_args() -> Result<Args> {
             Long("both") => a.dir = Some("both".into()),
             Long("depth") => a.depth = Some(p.value()?.parse()?),
             Value(v) if a.sub.is_none() => a.sub = Some(v.string()?),
-            Value(v) if a.cmd == "focus" || a.cmd == "plan" => a.more.push(v.string()?),
+            Value(v) if matches!(a.cmd.as_str(), "focus" | "plan" | "apply") => {
+                a.more.push(v.string()?)
+            }
             _ => return Err(arg.unexpected().into()),
         }
     }
@@ -174,6 +180,35 @@ fn real_main() -> Result<u8> {
                 Ok(if v["ok"] == true { 0 } else { 1 })
             }
             _ => bail!("plan: expected `plan check <file>`"),
+        },
+        "apply" => match (a.sub.as_deref(), a.more.as_slice()) {
+            (Some("start"), more) if more.len() <= 1 => {
+                let Some(plan) = more
+                    .first()
+                    .map(PathBuf::from)
+                    .or_else(|| plan::current(&root))
+                else {
+                    bail!(
+                        "apply start: no plan given and no current plan (run `ig plan check <file>`)"
+                    );
+                };
+                apply::start(&root, &plan)?;
+                println!("apply started: {}", plan.display());
+                Ok(0)
+            }
+            (Some("accept"), []) => {
+                apply::accept(&root)?;
+                Ok(0)
+            }
+            (Some("finish"), []) => apply::finish(&root),
+            _ => bail!("apply: expected `apply start [<plan>]`, `apply accept` or `apply finish`"),
+        },
+        "except" => match (a.sub.as_deref(), a.reason.as_deref()) {
+            (Some(fp), Some(reason)) if !reason.trim().is_empty() => {
+                apply::except(&root, fp, reason)?;
+                Ok(0)
+            }
+            _ => bail!("except: expected `except <fingerprint> --reason <text>`"),
         },
         "focus" => {
             let ids: Vec<&String> = a.sub.iter().chain(a.more.iter()).collect();

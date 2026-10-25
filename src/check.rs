@@ -164,9 +164,36 @@ fn snippet(lines: &[&str], line: u32) -> Option<String> {
 }
 
 pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
+    // Apply in progress: compare against its base. Stale state is ignored, never fatal.
+    let mut stale = None;
+    let apply = crate::apply::load(root)
+        .filter(|_| opts.base.is_none())
+        .filter(|st| {
+            stale = if !root.join(&st.plan).is_file() {
+                Some(format!("plan {} is missing", st.plan))
+            } else if git::git(
+                root,
+                &["cat-file", "-e", &format!("{}^{{commit}}", st.base)],
+            )
+            .is_err()
+            {
+                Some(format!("base commit {} is missing", st.base))
+            } else {
+                None
+            };
+            stale.is_none()
+        });
+    let mut opts = opts.clone();
+    if let Some(st) = &apply {
+        opts.base = Some(st.base.clone());
+    }
+    let opts = &opts;
     let t = trees(root, opts)?;
     let config = t.config.clone();
     let mut notices = t.notices.clone();
+    if let Some(r) = stale {
+        notices.push(format!("apply state is stale ({r}); ignoring it"));
+    }
     let built = graph::build(&t.head_root, &config, t.head_commit.clone())?;
     let head = built.graph;
     let packages = built.workspace.packages;
@@ -242,38 +269,22 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
     // Post-processing.
     let baseline = checks::load_baseline(root);
     let mut files: HashMap<String, String> = HashMap::new();
-    let mut out = vec![];
-    for mut f in fingerprinted {
+    let mut post = |mut f: Finding| {
         if let Some(s) = config.severity_for(&f.rule_id) {
             f.severity = s;
-        }
-        if baseline.contains(&f.fingerprint) {
-            continue;
         }
         let text = files.entry(f.file.clone()).or_insert_with(|| {
             std::fs::read_to_string(t.head_root.join(&f.file)).unwrap_or_default()
         });
         let lines: Vec<&str> = text.lines().collect();
         f.snippet = snippet(&lines, f.line);
-        out.push(f);
-    }
-    out.sort_by(|a, b| {
-        (
-            std::cmp::Reverse(a.severity),
-            &a.file,
-            a.line,
-            &a.rule_id,
-            &a.message,
-        )
-            .cmp(&(
-                std::cmp::Reverse(b.severity),
-                &b.file,
-                b.line,
-                &b.rule_id,
-                &b.message,
-            ))
-    });
-    let blocking = out.iter().any(|f| f.severity >= config.block_on);
+        f
+    };
+    let out: Vec<Finding> = fingerprinted
+        .into_iter()
+        .filter(|f| !baseline.contains(&f.fingerprint))
+        .map(&mut post)
+        .collect();
     for n in &notices {
         eprintln!("ig: {n}");
     }
@@ -284,7 +295,6 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
         tool_version: TOOL_VERSION.into(),
         base: t.base.clone(),
         head: t.head_commit.clone(),
-        blocking,
         notices,
         intent_changes,
         counts: Counts {
@@ -306,20 +316,48 @@ pub fn run(root: &Path, opts: &Opts) -> Result<Run> {
             .map(|(k, v)| (k.clone(), *v))
             .collect(),
         findings: out,
+        blocking: false,
         graph: head,
     };
-    write_state(root, &result)?;
-    Ok(Run {
+    let mut run = Run {
         result,
         base_graph,
         diff,
-        config,
+        config: config.clone(),
         packages,
         repo: t.repo,
         intents: head_intents,
         planned: HashSet::new(),
         plan: None,
-    })
+    };
+    // Apply findings come after the baseline filter: they cannot be baselined.
+    if let Some(st) = &apply {
+        let extra: Vec<Finding> = crate::apply::findings(root, st, &run, false)
+            .into_iter()
+            .map(&mut post)
+            .collect();
+        run.result.findings.extend(extra);
+    }
+    run.result.findings.sort_by(|a, b| {
+        (
+            std::cmp::Reverse(a.severity),
+            &a.file,
+            a.line,
+            &a.rule_id,
+            &a.message,
+        )
+            .cmp(&(
+                std::cmp::Reverse(b.severity),
+                &b.file,
+                b.line,
+                &b.rule_id,
+                &b.message,
+            ))
+    });
+    let block_on = run.config.block_on;
+    run.result.blocking = run.result.findings.iter().any(|f| f.severity >= block_on);
+    write_state(root, &run.result)?;
+    Ok(run)
 }
 
 pub fn write_state(root: &Path, r: &CheckResult) -> Result<()> {
