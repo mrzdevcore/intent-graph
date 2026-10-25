@@ -56,11 +56,20 @@ rules:
 
 ```yaml
 embedded: [".vue"]                     # single-file components with <script>
+autoImports: [".nuxt/imports.d.ts", ".nuxt/components.d.ts"]   # framework auto-imports
 ignore: ["**/generated/**"]            # generated code, fixtures, vendored files
 tests: ["**/*.test.*", "**/*.spec.*", "**/__tests__/**"]
 testCalls: ["describe", "it", "test"]
 entryPoints: ["apps/*/src/main.ts"]    # used from outside the repo (review skips their exports)
 ```
+
+- **Auto-imports.** Without them, calls to auto-imported composables and components stay guessed.
+  In a Nuxt repo (a `nuxt.config.*` file, or `.nuxt/` present), set `autoImports` to the app's
+  `.nuxt/imports.d.ts` and `.nuxt/components.d.ts`, one pair per Nuxt app in a monorepo
+  (`apps/web/.nuxt/imports.d.ts`, ...). These files are generated: `nuxt prepare` (or a dev/build
+  run) must have run, or ig reports them missing. With `unplugin-auto-import` and
+  `unplugin-vue-components`, list their generated `auto-imports.d.ts` and `components.d.ts`
+  (the `dts` option says where).
 
 ## 4. Patterns (route nodes and other framework concepts)
 

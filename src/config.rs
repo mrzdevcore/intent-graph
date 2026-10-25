@@ -145,6 +145,8 @@ pub struct Config {
     pub complexity_max: u32,
     pub complexity_max_increase: u32,
     pub embedded: Vec<String>,
+    /// Generated declaration files (globs) listing a framework's auto-imports.
+    pub auto_imports: Vec<String>,
     pub ignore: Vec<String>,
     pub tests: Vec<String>,
     pub test_calls: Vec<String>,
@@ -167,6 +169,7 @@ impl Default for Config {
             complexity_max: 15,
             complexity_max_increase: 5,
             embedded: vec![],
+            auto_imports: vec![],
             ignore: vec![],
             tests: vec![
                 "**/*.test.*".into(),
@@ -252,6 +255,7 @@ impl Config {
                         })
                         .collect()
                 }
+                "autoImports" => c.auto_imports = strings(v, "autoImports")?,
                 "ignore" => c.ignore = strings(v, "ignore")?,
                 "tests" => c.tests = strings(v, "tests")?,
                 "testCalls" => c.test_calls = strings(v, "testCalls")?,
@@ -371,7 +375,7 @@ impl Config {
             .collect();
         let b = &self.blueprint;
         format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:?}",
             self.embedded,
             self.ignore,
             self.tests,
@@ -380,7 +384,8 @@ impl Config {
             b.http_calls,
             b.route_kind,
             b.http_prefix,
-            b.systems
+            b.systems,
+            self.auto_imports
         )
     }
 }

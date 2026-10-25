@@ -53,6 +53,8 @@ pub enum Callee {
     },
     /// Anything else: matched by bare name.
     Guess(String),
+    /// A template tag or word neither imported nor local: resolved only through `autoImports`.
+    Auto(String),
     /// `x.m()` / `x.m` where `x` has a declared or constructed type: method `m` of that type (or,
     /// for an interface, of its implementations).
     Typed(Box<Callee>, String),
@@ -1284,16 +1286,21 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
                 MarkupRef::Tag(t) => ("renders", vec![t.clone(), embedded::pascal(t)]),
                 MarkupRef::Word(w) => ("calls", vec![w.clone()]),
             };
-            let callee = names.iter().find_map(|n| {
-                if let Some((spec, name)) = x.imports_map.get(n) {
-                    return Some(Callee::Import(spec.clone(), name.clone()));
-                }
-                x.top_names.get(n).map(|id| Callee::Node(id.clone()))
-            });
-            if let Some(c) = callee {
-                x.refs
-                    .push((Some(input.path.to_string()), kind, Pending::Ready(c), line));
-            }
+            let callee = names
+                .iter()
+                .find_map(|n| {
+                    if let Some((spec, name)) = x.imports_map.get(n) {
+                        return Some(Callee::Import(spec.clone(), name.clone()));
+                    }
+                    x.top_names.get(n).map(|id| Callee::Node(id.clone()))
+                })
+                .unwrap_or_else(|| Callee::Auto(names.last().unwrap().clone()));
+            x.refs.push((
+                Some(input.path.to_string()),
+                kind,
+                Pending::Ready(callee),
+                line,
+            ));
         }
     }
 
