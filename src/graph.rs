@@ -185,7 +185,11 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     let index = Index::new(&facts, &auto);
     let mut edge_lists: Vec<Vec<Edge>> = facts.par_iter().map(|f| index.edges_of(f)).collect();
     let mut stale: BTreeMap<&str, std::collections::BTreeSet<&str>> = BTreeMap::new();
-    for r in facts.iter().flat_map(|f| &f.refs) {
+    for r in facts
+        .iter()
+        .filter(|f| !tests.is_match(&f.file))
+        .flat_map(|f| &f.refs)
+    {
         if let Callee::Free(name) = &r.callee
             && let Some((_, decl)) = index.stale_hit(name)
         {
@@ -1122,6 +1126,82 @@ mod tests {
                 .any(|e| e.from.starts_with("src/pages/") && e.to.starts_with("test/")),
             "{:#?}",
             g.edges
+        );
+    }
+
+    // A name declared from an unresolvable path (Nuxt's `../node_modules/...` module composables)
+    // is external too: never guessed.
+    #[test]
+    fn node_modules_names_never_guess() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "ig.yaml",
+                "embedded: ['.vue']\nautoImports: ['.nuxt/imports.d.ts']\n",
+            ),
+            (
+                ".nuxt/imports.d.ts",
+                "export { useX } from '../node_modules/pkg/x';\n",
+            ),
+            ("test/stub.ts", "export const useX = () => 1;\n"),
+            (
+                "src/pages/index.vue",
+                "<script setup lang=\"ts\">\nconst x = useX();\n</script>\n",
+            ),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        assert!(
+            !g.edges.iter().any(|e| e.from.starts_with("src/pages/")),
+            "{:#?}",
+            g.edges
+        );
+    }
+
+    // Two same-named exports across covered dirs: no stale resolve. Test files calling a stale
+    // name don't count towards the notice.
+    #[test]
+    fn stale_ambiguous_and_test_callers() {
+        use crate::autoimports::tmp_with;
+        let dir = tmp_with(&[
+            (
+                "ig.yaml",
+                "embedded: ['.vue']\nautoImports: ['.nuxt/imports.d.ts']\ntests: ['**/*.spec.ts']\n",
+            ),
+            (
+                ".nuxt/imports.d.ts",
+                "export { useA } from '../src/a/a';\nexport { useC } from '../src/c/c';\n",
+            ),
+            ("src/a/a.ts", "export const useA = () => 1;\n"),
+            (
+                "src/a/b.ts",
+                "export const useB = () => 2;\nexport const useD = () => 4;\n",
+            ),
+            ("src/c/c.ts", "export const useC = () => 3;\n"),
+            ("src/c/b.ts", "export const useB = () => 2;\n"),
+            (
+                "src/pages/index.vue",
+                "<script setup lang=\"ts\">\nconst b = useB();\n</script>\n",
+            ),
+            ("src/x.spec.ts", "export function t() { useD(); }\n"),
+        ]);
+        let g = build(&dir, &Config::load(&dir).unwrap(), None)
+            .unwrap()
+            .graph;
+        assert!(
+            !g.edges
+                .iter()
+                .any(|e| e.from.starts_with("src/pages/") && e.resolved()),
+            "{:#?}",
+            g.edges
+        );
+        assert!(
+            !g.parse_errors
+                .iter()
+                .any(|e| e.message.contains("resolved from its directories")),
+            "{:#?}",
+            g.parse_errors
         );
     }
 

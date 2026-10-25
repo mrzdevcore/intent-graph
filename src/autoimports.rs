@@ -116,18 +116,18 @@ pub fn load(root: &Path, patterns: &[String], ws: &Workspace) -> (AutoImports, V
         };
         let dir = decl.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
         let mut add = |name: &str, spec: &str, export: &str| {
-            if !spec.starts_with('.') {
+            // A package, `#alias` or `../node_modules/...` spec: nothing in the repo.
+            let Some(file) = resolve(dir, spec, &known) else {
                 ai.external.insert(name.to_string());
-            }
-            if let Some(file) = resolve(dir, spec, &known) {
-                let src = file.rsplit_once('/').map_or("", |(d, _)| d);
-                ai.dirs
-                    .entry(src.to_string())
-                    .or_insert_with(|| decl.clone());
-                ai.names
-                    .entry(name.to_string())
-                    .or_insert((file, export.to_string()));
-            }
+                return;
+            };
+            let src = file.rsplit_once('/').map_or("", |(d, _)| d);
+            ai.dirs
+                .entry(src.to_string())
+                .or_insert_with(|| decl.clone());
+            ai.names
+                .entry(name.to_string())
+                .or_insert((file, export.to_string()));
         };
         for c in REEXPORT.captures_iter(&text) {
             for item in c[1].split(',') {
