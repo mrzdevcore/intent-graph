@@ -35,7 +35,13 @@ pub fn files(root: &Path, patterns: &[String]) -> (Vec<String>, Vec<String>) {
             if !dir.canonicalize().is_ok_and(|c| seen.insert(c)) {
                 continue;
             }
-            for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let mut entries: Vec<_> = std::fs::read_dir(&dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect();
+            entries.sort_by_key(|e| e.file_name());
+            for e in entries {
                 let p = e.path();
                 if p.is_dir() {
                     if e.file_name() != "node_modules" && e.file_name() != ".git" {
@@ -224,9 +230,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn glob_walk_follows_symlinked_dirs_without_looping() {
-        let dir = tmp_with(&[("real/.nuxt/imports.d.ts", "export {}\n")]);
-        std::os::unix::fs::symlink(dir.join("real/.nuxt"), dir.join(".nuxt")).unwrap();
-        std::os::unix::fs::symlink(&dir, dir.join("real/loop")).unwrap();
+        // As in a base-graph worktree: `.nuxt` links to a dir outside the root.
+        let outside = tmp_with(&[("imports.d.ts", "export {}\n")]);
+        let dir = tmp_with(&[("src/a.ts", "")]);
+        std::os::unix::fs::symlink(&outside, dir.join(".nuxt")).unwrap();
+        std::os::unix::fs::symlink(&dir, dir.join("src/loop")).unwrap();
         let (found, unmatched) = files(&dir, &[".nuxt/*.d.ts".into()]);
         assert_eq!(found, [".nuxt/imports.d.ts"]);
         assert!(unmatched.is_empty());
