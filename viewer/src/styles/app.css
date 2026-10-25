@@ -7,8 +7,8 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; }
 .status { font-weight: 600; }
 .status.block { color: var(--error); } .status.ok { color: var(--added); }
 .modes { display: flex; gap: 4px; }
-.modes button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
-.modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.modes button, header .toggle { font: inherit; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+header .toggle[aria-pressed="true"], .modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .counts { color: var(--muted); }
 main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; flex: 1; min-height: 0; }
 #tree { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }

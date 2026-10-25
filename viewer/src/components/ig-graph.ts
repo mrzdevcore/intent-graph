@@ -2,9 +2,10 @@
 // up as `ig-tap`.
 
 import { LitElement } from "lit";
-import { customElement } from "lit/decorators.js";
+import { customElement, property } from "lit/decorators.js";
 import cytoscape from "cytoscape";
 import fcose from "cytoscape-fcose";
+import { iconFor, iconUri } from "../icons";
 import type { El } from "../model/graph";
 import { emit } from "./shared";
 
@@ -38,14 +39,17 @@ function stylesheet(): cytoscape.Stylesheet[] {
     { selector: "node[?bp]", style: { "font-size": 14, "min-zoomed-font-size": 4, "text-max-width": 230, "text-wrap": "ellipsis" } },
     { selector: "edge[kind = 'dispatch']", style: { "line-style": "dashed" } },
     { selector: "node[kind = 'lane']", style: {
-      "shape": "rectangle", "width": "data(w)", "height": 120, "background-color": line, "background-opacity": 0.18,
+      "shape": "rectangle", "width": "data(w)", "height": "data(h)", "background-color": line, "background-opacity": 0.18,
       "border-width": 0, "label": "", "events": "no", "z-index": 0 } },
     { selector: "node[kind = 'lanelabel']", style: {
       "shape": "rectangle", "width": 1, "height": 1, "background-opacity": 0, "border-width": 0, "text-valign": "center",
       "text-halign": "center", "font-size": 18, "font-weight": 700, "color": muted, "events": "no", "min-zoomed-font-size": 3 } },
     { selector: "node[kind = 'journey']", style: { "shape": "round-rectangle", "width": 34, "height": 34, "background-color": accent, "font-size": 12, "font-weight": 700 } },
     { selector: "node[kind = 'route']", style: { "shape": "tag", "width": 22, "height": 22, "background-color": css("--note") } },
-    { selector: "node[kind = 'system']", style: { "shape": "barrel", "width": 38, "height": 44, "background-color": css("--warning"), "font-size": 12, "font-weight": 700 } },
+    { selector: "node[kind = 'system']", style: {
+      "shape": "round-rectangle", "width": 44, "height": 44, "background-color": panel, "border-width": 1, "border-color": line,
+      "background-image": (n: cytoscape.NodeSingular) => iconUri(iconFor(n.data("label"), n.data("packages") || [], n.data("category")), fg),
+      "background-width": "70%", "background-height": "70%", "font-size": 12, "font-weight": 700 } },
     { selector: "edge[kind = 'http']", style: { "line-color": css("--note"), "target-arrow-color": css("--note"), "line-style": "dashed", "opacity": 0.95, "width": 2 } },
     { selector: "edge[kind = 'uses']", style: { "line-color": css("--warning"), "target-arrow-color": css("--warning"), "opacity": 0.9 } },
     { selector: "node[?outer]", style: { "opacity": 0.55, "border-style": "dashed" } },
@@ -66,6 +70,7 @@ function stylesheet(): cytoscape.Stylesheet[] {
     { selector: "edge[?ctx]", style: { "opacity": 0.22 } },
     { selector: "edge[?violation]", style: { "line-color": err, "target-arrow-color": err, "opacity": 1, "width": "mapData(count, 1, 40, 2.5, 8)" } },
     { selector: ".faded", style: { "opacity": 0.12 } },
+    { selector: "edge.nolink", style: { "display": "none" } },
   ];
   return s as unknown as cytoscape.Stylesheet[];
 }
@@ -81,6 +86,8 @@ const FCOSE = {
 @customElement("ig-graph")
 export class IgGraph extends LitElement {
   private _cy?: cytoscape.Core;
+  /** Edges shown; when false only the selected node's are. */
+  @property({ type: Boolean }) links = true;
 
   createRenderRoot() {
     return this;
@@ -98,8 +105,19 @@ export class IgGraph extends LitElement {
         }
         if (t.isNode()) emit(this, "ig-tap", { id: t.id(), kind: t.data("kind") });
       });
+      cy.on("select unselect", "node", () => this.applyLinks());
     }
     return this._cy;
+  }
+
+  protected updated() {
+    this.applyLinks();
+  }
+
+  private applyLinks() {
+    const cy = this.cy;
+    cy.edges().toggleClass("nolink", !this.links);
+    if (!this.links) cy.$("node:selected").connectedEdges().removeClass("nolink");
   }
 
   /** Replaces the elements. Unless `fresh`, nodes keep their positions and new ones start next to the
@@ -112,10 +130,13 @@ export class IgGraph extends LitElement {
     cy.elements().remove();
     cy.add(els as cytoscape.ElementDefinition[]);
     const byParent: Record<string, string | undefined> = {};
+    const placed: Record<string, boolean> = {};
     els.forEach((x) => {
       if (x.group === "nodes") byParent[x.data.id] = x.data.parent;
+      if (x.position) placed[x.data.id] = true;
     });
     cy.nodes().forEach((n) => {
+      if (placed[n.id()]) return; // a preset position wins over the previous one
       let p: cytoscape.Position | undefined = prev[n.id()];
       let up: string | undefined = n.id();
       while (!p && up) {
@@ -125,6 +146,7 @@ export class IgGraph extends LitElement {
       if (p) n.position({ x: p.x + (prev[n.id()] ? 0 : Math.random() * 40 - 20), y: p.y + (prev[n.id()] ? 0 : Math.random() * 40 - 20) });
     });
     cy.endBatch();
+    this.applyLinks();
     const layout = cy.layout(o.preset ? { name: "preset", fit: false } : FCOSE);
     layout.one("layoutstop", () => {
       const target = o.zoomTo ? cy.getElementById(o.zoomTo) : null;

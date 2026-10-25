@@ -70,6 +70,34 @@ impl<'c> LaneMap<'c> {
     }
 }
 
+#[rustfmt::skip]
+const SYSTEM_CATEGORIES: &[(&str, &[&str])] = &[
+    ("database", &["postgres", "pg", "mysql", "mariadb", "mongo", "mongoose", "prisma", "typeorm", "knex", "sequelize", "sqlite", "redis", "ioredis", "dynamo", "firestore", "supabase", "cassandra"]),
+    // Never plain "elastic": "Elastic APM" is monitoring.
+    ("search", &["elastic search", "elasticsearch", "@elastic/elasticsearch", "algolia", "meili", "typesense", "opensearch"]),
+    ("monitoring", &["apm", "datadog", "sentry", "newrelic", "opentelemetry", "grafana", "prometheus", "logrocket"]),
+    ("auth", &["auth0", "okta", "keycloak", "cognito", "clerk", "firebase-auth", "next-auth", "passport"]),
+    ("cms", &["contentful", "strapi", "sanity", "prismic", "storyblok", "directus", "ghost"]),
+    ("analytics", &["power bi", "powerbi", "segment", "mixpanel", "amplitude", "google-analytics", "gtag", "matomo", "posthog"]),
+    ("queue", &["kafka", "rabbit", "amqp", "sqs", "bull", "nats"]),
+    ("storage", &["s3", "@aws-sdk/client-s3", "minio", "cloudinary", "blob"]),
+    ("payment", &["stripe", "paypal", "adyen"]),
+    ("email", &["sendgrid", "mailgun", "nodemailer", "postmark", "ses"]),
+];
+
+/// The icon category of a blueprint system: the first whose keywords occur (case-insensitive) in
+/// its name or one of its packages, else "service".
+pub fn system_category(name: &str, packages: &[String]) -> &'static str {
+    let hay: Vec<String> = std::iter::once(name)
+        .chain(packages.iter().map(String::as_str))
+        .map(str::to_lowercase)
+        .collect();
+    SYSTEM_CATEGORIES
+        .iter()
+        .find(|(_, kws)| kws.iter().any(|k| hay.iter().any(|h| h.contains(k))))
+        .map_or("service", |(c, _)| c)
+}
+
 /// Node ids of the changed nodes plus their direct neighbours.
 pub fn changed_set<'a>(run: &'a Run, all_edges: &[(&'a str, &'a str)]) -> BTreeSet<&'a str> {
     let changed: HashSet<&str> = run.result.changes.keys().map(String::as_str).collect();
@@ -259,6 +287,12 @@ pub fn data(run: &Run, root: &Path, opts: &Opts) -> Value {
                 "endLine": n.range.end_line, "parent": n.parent, "status": s, "complexity": n.metrics.complexity,
                 "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file), "lane": lane_of(n), "test": test_files.is_match(&n.file),
             });
+            if n.kind == "system" {
+                let none = vec![];
+                let pkgs = bp.systems.iter().find(|(s, _)| *s == n.name).map_or(&none, |(_, p)| p);
+                v["category"] = json!(system_category(&n.name, pkgs));
+                v["packages"] = json!(pkgs);
+            }
             if run.planned.contains(&n.id) {
                 v["planned"] = json!(true);
                 return v;
@@ -712,6 +746,56 @@ Status: done
         )
         .unwrap();
         assert_eq!(state(&dir).1, "done");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn system_categories() {
+        let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(system_category("PostgreSQL", &p(&["pg"])), "database");
+        assert_eq!(system_category("MongoDB", &p(&["mongoose"])), "database");
+        assert_eq!(
+            system_category("Elastic APM", &p(&["elastic-apm-node"])),
+            "monitoring"
+        );
+        assert_eq!(
+            system_category("Search", &p(&["@elastic/elasticsearch"])),
+            "search"
+        );
+        assert_eq!(
+            system_category("Auth0", &p(&["@auth0/auth0-react"])),
+            "auth"
+        );
+        assert_eq!(system_category("Contentful", &p(&["contentful"])), "cms");
+        assert_eq!(
+            system_category("Power BI", &p(&["powerbi-client"])),
+            "analytics"
+        );
+        assert_eq!(system_category("Maite BFF", &p(&["@maite/sdk"])), "service");
+    }
+
+    #[test]
+    fn system_nodes_carry_category_and_packages() {
+        let dir = scratch("systems");
+        let mut cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap();
+        cfg.push_str("blueprint:\n  systems:\n    PostgreSQL: [pg]\n");
+        std::fs::write(dir.join("ig.yaml"), cfg).unwrap();
+        std::fs::write(
+            dir.join("packages/core/src/db.ts"),
+            "import { Pool } from \"pg\";\nexport const pool = new Pool();\n",
+        )
+        .unwrap();
+        let d = json(&dir, &Opts::default(), &(None, false)).unwrap();
+        let n = d["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == "system:PostgreSQL")
+            .unwrap();
+        assert_eq!(
+            (n["category"].clone(), n["packages"].clone()),
+            (json!("database"), json!(["pg"]))
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

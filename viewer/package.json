@@ -12,7 +12,9 @@
     "cytoscape": "3.30.2",
     "cytoscape-fcose": "2.2.0",
     "lit": "3.3.3",
-    "mermaid": "11.4.1"
+    "lucide-static": "1.61.0",
+    "mermaid": "11.4.1",
+    "simple-icons": "16.35.0"
   },
   "devDependencies": {
     "@types/cytoscape": "3.21.9",

@@ -1,7 +1,7 @@
 // Blueprint: one page (a journey), then everything behind it, in swimlanes.
 
 import type { ViewEdge, ViewNode } from "../data";
-import { base, nodeData, type El, type Index } from "./graph";
+import { base, lane, nodeData, type El, type Index } from "./graph";
 
 function laneOf(n: ViewNode): number | null {
   return n.lane === null || n.lane === undefined ? null : n.lane;
@@ -162,8 +162,7 @@ export function blueprint(ix: Index, journey: string | null, uiOnly: boolean): E
   used.forEach((l, row) => {
     const y = row * gapY;
     const offset = (width - widths[l]) / 2;
-    els.push({ group: "nodes", data: { id: "lane:" + l, label: lanes[l], kind: "lane", w: width + 300 }, position: { x: width / 2 - 60, y }, selectable: false, grabbable: false });
-    els.push({ group: "nodes", data: { id: "lanelabel:" + l, label: lanes[l], kind: "lanelabel" }, position: { x: -150, y }, selectable: false, grabbable: false });
+    els.push(...lane(l, lanes[l], y, width));
     rows[l].forEach((u) => {
       const n = byId[u];
       const d = nodeData(ix, n);
