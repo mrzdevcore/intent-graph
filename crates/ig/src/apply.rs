@@ -9,6 +9,7 @@ use crate::model::{Edge, Finding, Node, sha1_bytes, sha1_hex};
 use crate::plan::{self, Plan, PlanStatus};
 use crate::view::LaneMap;
 use anyhow::{Context, Result, bail};
+use ig_core::ports::Files;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -64,35 +65,7 @@ fn hash_file(root: &Path, rel: &str) -> String {
 
 /// Files under `root` (posix, root-relative) matching `globs`; skips node_modules, .git and .ig.
 fn matching(root: &Path, globs: &[String]) -> Vec<String> {
-    let mut out = vec![];
-    let Ok(set) = crate::workspace::globset(globs) else {
-        return out;
-    };
-    if globs.is_empty() {
-        return out;
-    }
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for e in rd.flatten() {
-            let p = e.path();
-            let Some(r) = crate::workspace::rel(root, &p) else {
-                continue;
-            };
-            let Ok(ft) = e.file_type() else { continue };
-            if ft.is_dir() {
-                let name = e.file_name();
-                if !matches!(name.to_str(), Some("node_modules" | ".git" | ".ig")) {
-                    stack.push(p);
-                }
-            } else if ft.is_file() && set.is_match(&r) {
-                out.push(r);
-            }
-        }
-    }
-    out
+    ig_fs::FsFiles::new(root).glob(globs).unwrap_or_default()
 }
 
 /// Guarded files: path → sha1 of the contents, or `"absent"`.

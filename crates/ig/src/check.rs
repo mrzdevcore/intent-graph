@@ -436,10 +436,7 @@ pub fn write_state(root: &Path, r: &CheckResult) -> Result<()> {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+    Ok(ig_fs::write_atomic(path, bytes)?)
 }
 
 pub fn summary_text(r: &CheckResult) -> String {
