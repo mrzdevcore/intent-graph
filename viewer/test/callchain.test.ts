@@ -91,3 +91,16 @@ test("a same-file helper is folded into every caller", () => {
   expect(callChain(h, "a.ts#bar").steps.map((s) => s.label)).toEqual(["x"]);
   expect(callChain(h, "a.ts").steps.map((s) => s.label)).toEqual(["x", "x"]);
 });
+
+test("a dense same-file graph is fast and respects max", () => {
+  const ids = Array.from({ length: 12 }, (_, i) => `a.ts#f${i}`);
+  const dense = build(
+    [node("a.ts"), node("b.ts#x"), ...ids.map((id) => node(id))],
+    ids.flatMap((a, i) => [...ids.filter((b) => b !== a).map((b) => edge(a, b)), edge(a, "b.ts#x", "calls", 100 + i)]),
+  );
+  const t0 = performance.now();
+  const c = callChain(dense, "a.ts", { max: 5 });
+  expect(performance.now() - t0).toBeLessThan(200);
+  expect(c.steps.length).toBe(5);
+  expect(callChain(dense, "a.ts#f0").steps.length).toBe(12);
+});

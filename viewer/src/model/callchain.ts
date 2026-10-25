@@ -39,7 +39,6 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
   const steps: Step[] = [];
   let truncated = 0;
   const seen: Record<string, boolean> = {};
-  const usesDone: Record<string, boolean> = {};
 
   const lifeline = (id: string): number => {
     const n = ix.byId[id];
@@ -61,54 +60,64 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
     return KINDS[e.kind] && t && !t.test && e.confidence !== "guessed" && !(t.kind === "class" && /(Error|Exception)$/.test(t.name));
   };
   const same = (n: ViewNode, e: ViewEdge) => ix.byId[e.to].kind !== "system" && ix.byId[e.to].file === n.file;
-  const path: Record<string, boolean> = {};
+  const edgesOf = (id: string) => (ix.outEdges[id] || []).filter(okEdge).sort((a, b) => (a.line || 0) - (b.line || 0));
 
-  // Walk `id`'s calls as `caller`'s own. Same-file targets are folded into the caller, once per caller.
-  const collect = (id: string, caller: string, hops: number) => {
+  // The cross-file edges a node makes as its own, with same-file calls folded in. Computed once per node
+  // (own visited set, so cycles end and shared helpers are not repeated within one caller), reused by every caller.
+  const memo: Record<string, { e: ViewEdge; file: string }[]> = {};
+  const reach: Record<string, Record<string, boolean>> = {};
+  const flat = (id: string) => {
+    if (memo[id]) return memo[id];
     const n = ix.byId[id];
-    if (!n) return;
-    let out = ix.outEdges[id] || [];
-    if (!n.module && !usesDone[n.file]) {
-      usesDone[n.file] = true;
-      out = out.concat((ix.outEdges[n.file] || []).filter((e) => e.kind === "uses"));
-    }
-    out = out.filter(okEdge).sort((a, b) => (a.line || 0) - (b.line || 0));
+    const res: { e: ViewEdge; file: string }[] = [];
+    const visited: Record<string, boolean> = {};
+    const go = (x: string) => {
+      if (visited[x]) return;
+      visited[x] = true;
+      const m = ix.byId[x];
+      let out = edgesOf(x);
+      if (x === id && !n.module) out = out.concat(edgesOf(n.file).filter((e) => e.kind === "uses")).sort((a, b) => (a.line || 0) - (b.line || 0));
+      out.forEach((e) => (same(m, e) ? go(e.to) : res.push({ e, file: m.file })));
+    };
+    go(id);
+    reach[id] = visited;
     if (n.module) {
-      // The module's members are all start points: fold the ones nothing else in the file calls.
+      // The module's members are start points too: first those nothing in the file calls, then any
+      // still unreached (members only calling each other in a cycle).
       const members = ix.membersOf[id] || [];
       const called: Record<string, boolean> = {};
-      members.forEach((m) => (ix.outEdges[m] || []).filter(okEdge).forEach((e) => same(n, e) && (called[e.to] = true)));
-      out.forEach((e) => same(n, e) && (called[e.to] = true));
-      members.filter((m) => !called[m]).forEach((m) => fold(m, caller, hops));
+      members.concat(id).forEach((m) => edgesOf(m).forEach((e) => same(n, e) && (called[e.to] = true)));
+      const covered: Record<string, boolean> = { ...visited };
+      members.filter((m) => !called[m]).concat(members).forEach((m) => {
+        if (covered[m]) return;
+        res.push(...flat(m));
+        Object.assign(covered, reach[m]);
+      });
     }
-    out.forEach((e) => {
+    return (memo[id] = res);
+  };
+
+  const collect = (id: string, caller: string, hops: number) => {
+    flat(id).forEach(({ e, file }) => {
       const t = ix.byId[e.to];
-      if (same(n, e)) return fold(t.id, caller, hops);
-      if (steps.length >= max) truncated++;
-      else {
-        const kind = e.kind as Step["kind"];
-        steps.push({
-          n: steps.length + 1, from: lifeline(caller), to: lifeline(t.id), label: kind === "uses" ? "uses" : t.name,
-          target: t.id, kind, file: n.file, line: e.line || 0,
-        });
-      }
+      // ponytail: once full, only edges already in hand are counted in `truncated`; deeper calls are not walked.
+      if (steps.length >= max) return void truncated++;
+      const kind = e.kind as Step["kind"];
+      steps.push({
+        n: steps.length + 1, from: lifeline(caller), to: lifeline(t.id), label: kind === "uses" ? "uses" : t.name,
+        target: t.id, kind, file, line: e.line || 0,
+      });
       if (t.kind !== "system" && hops < depth && !seen[t.id]) {
         seen[t.id] = true;
         collect(t.id, t.id, hops + 1);
       }
     });
   };
-  const fold = (id: string, caller: string, hops: number) => {
-    if (path[id]) return;
-    path[id] = true;
-    collect(id, caller, hops);
-    delete path[id];
-  };
 
   if (!ix.byId[start]) return { lifelines, steps, truncated };
   lifeline(start);
   seen[start] = true;
-  fold(start, start, 0);
+  collect(start, start, 0);
   return { lifelines, steps, truncated };
 }
 
