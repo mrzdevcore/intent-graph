@@ -91,14 +91,7 @@ pub struct ExportTable {
     pub stars: Vec<String>,
 }
 
-/// An HTTP client call: method and URL with dynamic parts as `:`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpCall {
-    pub from: String,
-    pub method: String,
-    pub url: String,
-    pub line: u32,
-}
+pub use ig_core::http::HttpCall;
 
 #[derive(Debug, Default)]
 pub struct FileFacts {

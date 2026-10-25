@@ -14,12 +14,7 @@ use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-#[derive(Default)]
-pub struct CheckerOutput {
-    pub findings: Vec<Finding>,
-    pub errors: Vec<Finding>,
-    pub notices: Vec<String>,
-}
+pub use ig_core::ports::CheckerOutput;
 
 /// `{files}` keeps these when a checker sets no `extensions` (plus files in the graph).
 const SCRIPT_STYLE: &[&str] = &[

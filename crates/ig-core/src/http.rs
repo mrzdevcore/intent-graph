@@ -2,6 +2,15 @@
 
 use std::collections::HashMap;
 
+/// An HTTP client call: method and URL with dynamic parts as `:`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpCall {
+    pub from: String,
+    pub method: String,
+    pub url: String,
+    pub line: u32,
+}
+
 /// URL path segments with dynamic parts (`${x}`, `{param}`, `:param`) as `:`, without scheme, host,
 /// query or fragment.
 pub fn url_segments(url: &str) -> Vec<String> {
