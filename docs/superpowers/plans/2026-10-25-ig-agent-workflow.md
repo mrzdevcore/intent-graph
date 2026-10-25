@@ -9,7 +9,7 @@
 - a plan file parser that merges planned nodes and edges onto the head graph, which is reused for the plan check and the viewer;
 - an apply state (`.ig/apply.json`) that `ig check` reads to add plan conformance, tamper detection and reviewer findings.
 
-**Tech Stack:** Rust 2024, existing crates only (serde, serde_json, serde_yaml_ng, regex, sha1, lexopt, rayon). The viewer is `assets/view.js`, plain JS, offline, until Task 10 moves it to `viewer/` (TypeScript, Lit, Vite, bun). **Execution order: 1–7, 10, 8, 9.**
+**Tech Stack:** Rust 2024, existing crates only (serde, serde_json, serde_yaml_ng, regex, sha1, lexopt, rayon). The viewer is `assets/view.js`, plain JS, offline, until Task 10 moves it to `viewer/` (TypeScript, Lit, Vite, bun). **Execution order: 1–7, 10, 8, 9, 11.**
 
 **Spec:** `docs/superpowers/specs/2026-10-25-ig-agent-workflow-design.md`
 
@@ -814,3 +814,72 @@ Added on 2026-10-25 at the user's request. The viewer must become a properly org
   - Run `cargo clippy --all-targets -- -D warnings` (no new errors) and `bun run typecheck` (`tsc --noEmit`, clean).
 
 - [ ] **Step 5: Commit** (explicit paths; check `git status` to make sure nothing in `node_modules` or `dist` is staged): `git commit -m "Viewer as a TypeScript + Lit project in viewer/, built with bun and Vite, embedded by build.rs"`
+
+---
+
+### Task 11: Live plan co-design in the viewer (runs after Task 9)
+
+Added on 2026-10-25 at the user's request. While planning, the user chats with the agent and also works directly in the viewer: comments, moving a box to another layer, drawing a link, marking something for removal. **Every interaction is stored as text**, the agent turns it into plan edits, and the viewer shows the updated design live.
+
+**Decisions** (the user's: interactions in the viewer, stored as text; the rest are the controller's calls):
+- **The text store** is a sidecar file next to the plan, `plans/<slug>.notes.md`. It is committed with the plan and is human-readable. It holds one Markdown task line per interaction, appended by the viewer:
+  - `- [ ] N1 comment on <id>: <text>`
+  - `- [ ] N2 move <id> to layer <layer>`
+  - `- [ ] N3 link <from> -> <to> (<kind>)`
+  - `- [ ] N4 remove <id>`
+  - `- [ ] N5 add <kind> <name> in <file or layer>`
+  
+  Ids are sequential (`N<n>`). The agent ticks a line (`- [x]`) and may append ` — <one-line reply>`. The viewer never edits the plan itself; only the agent does, and only from these lines or the chat.
+- **The transport** is `ig view --watch`'s local server (tiny_http on 127.0.0.1). It gets:
+  - `POST /notes` with a JSON note `{kind, target, to?, layer?, text?}`: the server validates it (target ids must exist in the merged graph, or be planned), appends the formatted line, and returns the line;
+  - `GET /notes`: returns the parsed list.
+  
+  The static `ig view` (no `--watch`) shows notes read-only, and its interaction controls explain "run `ig view --watch` to edit".
+- **The agent side** is `ig plan notes [--wait] [--json]`, which prints the unticked notes of the current plan. With `--wait` it blocks until there is at least one unticked note that wasn't there when it started, then prints them. The timeout is 10 minutes, after which it exits 0 with nothing.
+  - The plan skill (`assets/skills/plan.md`) gets a "live" section: after the first `ig plan check`, start `ig view --watch` and a background `ig plan notes --wait`.
+  - When it returns: apply each note to the plan, run `ig plan check`, tick the notes with a reply, tell the user in one line per note, and start `--wait` again.
+  - A note the agent disagrees with gets a reply and stays unticked; the user decides.
+  - In Codex, if a background command can't wake the agent, the user says "check notes" and the agent runs `ig plan notes`. The skill says this.
+- **Live refresh:** `--watch` re-reads `.ig/current-plan`, the plan file and the notes file on every rebuild (this fixes the Task 5 deferred minor). The viewer reflects agent edits within about a second.
+- **Viewer UI** (in `viewer/`, built on Tasks 10 and 9):
+  - **Comment:** in planning state, a node or edge context menu offers "Comment".
+  - **Move to layer:** drag a box into another layer row (the Architecture rows from Task 9); dropping creates a `move` note and shows the box ghosted at its target until the agent applies it.
+  - **Link:** shift-drag from box to box, then pick a kind (calls/imports/http/uses).
+  - **Remove:** offered from the node context menu.
+  - **Add:** a "+" in a layer row, which asks for kind and name.
+  - Open notes appear as numbered pins on their targets and in a "Notes" list in the Plan panel. Ticked notes show the agent's reply.
+
+**Files:**
+- Create: `src/notes.rs` (parse and format note lines, append, wait)
+- Modify: `src/view.rs` (watch server routes, re-read on rebuild), `src/main.rs` (`plan notes`), `assets/skills/plan.md`, `viewer/src/` (interactions, pins, Notes list, API client), `README.md`
+- Test: `src/notes.rs` tests, Vitest for the viewer note client and pin model
+
+**Interfaces:**
+- `pub enum NoteKind { Comment, Move, Link, Remove, Add }`
+- `pub struct Note { pub id: String, pub done: bool, pub kind: NoteKind, pub target: String, pub to: Option<String>, pub layer: Option<String>, pub text: Option<String>, pub reply: Option<String> }`
+- `pub fn parse(text: &str) -> Vec<Note>` and `pub fn format(n: &Note) -> String` (round-trip safe)
+- `pub fn path_for(plan: &Path) -> PathBuf` (`<plan stem>.notes.md`)
+- `pub fn append(plan: &Path, n: NoteInput, merged: &Graph) -> anyhow::Result<Note>` (validates ids, assigns the next id)
+- `pub fn wait(plan: &Path, timeout: Duration) -> Vec<Note>`
+
+- [ ] **Step 1: Write the failing tests.**
+  - `notes::tests`:
+    - `format`/`parse` round-trip all five kinds, done and not done, with a reply;
+    - `append` rejects an unknown target id with `unknown node <id>` (plus suggestions from `mcp::suggest`) and numbers sequentially;
+    - `wait` returns a note appended from another thread within the timeout, and returns empty when none arrives (use a 1-second timeout in tests).
+  - Rust `view::tests`: a `POST /notes` on a started watch server appends the line (bind on port 0 and read the port).
+  - Vitest: dropping box X into layer row L produces the `move` payload `{kind: "move", target: X, layer: L}`.
+
+- [ ] **Step 2: Run them.** Expected: FAIL.
+
+- [ ] **Step 3: Implement** `notes.rs`, the server routes, `plan notes`, the skill section and the viewer UI.
+
+- [ ] **Step 4: Check by hand** in a scratch git copy of the monorepo fixture:
+  1. `ig plan check plans/x.md`, then `ig view --watch`.
+  2. In a headless or real browser, add a comment and a move.
+  3. `ig plan notes` lists both.
+  4. Edit the plan as the agent would; the page refreshes; tick the notes; the pins show the replies.
+  
+  Then run `make test` and clippy (no new errors).
+
+- [ ] **Step 5: Commit** (explicit paths): `git commit -m "Live plan co-design: viewer notes stored as text, ig plan notes --wait"`

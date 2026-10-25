@@ -352,6 +352,10 @@ mode.
 - System icons come from packages: `simple-icons` brand logos for known systems, and `lucide` icons by category as the fallback. They replace the hand-drawn icons first planned for Task 9.
 - The Architecture view gets a layered row layout like Blueprint, with external services in the bottom row, and a toggle to hide links.
 
+## Live plan co-design (added 2026-10-25, decided with the user)
+
+During `/ig:plan`, the user can chat with the agent and also work directly in the live viewer (`ig view --watch`): comment on a box or link, drag a box into another layer, draw a link, mark something for removal, or add a box. Every interaction is stored as text, one line per note in `plans/<slug>.notes.md`, committed next to the plan. The agent picks notes up with `ig plan notes --wait`, edits the plan, re-checks it, and ticks each note with a one-line reply. The viewer refreshes live. The viewer never edits the plan itself.
+
 ## Constraints
 
 - Rust, existing crates. No new runtime dependency for users. External tools are run only if the
