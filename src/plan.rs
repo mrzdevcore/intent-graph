@@ -113,6 +113,12 @@ pub fn parse(path: &str, text: &str) -> Result<Plan> {
 }
 
 fn synthetic(id: &str, kind: Option<&str>, exported: bool) -> Node {
+    if let Some(name) = id.strip_prefix("system:") {
+        // Like graph.rs's system nodes: kind `system`, no file.
+        let mut n = synthetic("", Some("system"), false);
+        (n.id, n.name) = (id.into(), name.into());
+        return n;
+    }
     let (file, member) = match id.split_once('#') {
         Some((f, m)) => (f, Some(m)),
         None => (id, None),
@@ -164,7 +170,7 @@ pub fn merge(head: &Graph, plan: &Plan) -> (Graph, HashSet<String>, Vec<Finding>
                 continue;
             }
             let node = synthetic(&n.id, n.kind.as_deref(), n.exported);
-            if node.file != node.id && ids.insert(node.file.clone()) {
+            if !node.file.is_empty() && node.file != node.id && ids.insert(node.file.clone()) {
                 added.insert(node.file.clone());
                 g.nodes.push(synthetic(&node.file, None, false));
             }
@@ -178,6 +184,13 @@ pub fn merge(head: &Graph, plan: &Plan) -> (Graph, HashSet<String>, Vec<Finding>
                 msg += &format!("; did you mean {}?", sugg[..sugg.len().min(3)].join(", "));
             }
             findings.push(plan_finding("plan/unknown-node", &n.id, msg));
+        }
+    }
+    for name in &plan.systems {
+        let id = format!("system:{name}");
+        if ids.insert(id.clone()) {
+            g.nodes.push(synthetic(&id, None, false));
+            added.insert(id);
         }
     }
     let files: HashMap<String, String> = g
@@ -333,13 +346,13 @@ pub fn check_text(root: &Path, path: &str, text: &str) -> Result<Value> {
     let new_files: BTreeSet<&str> = added_nodes
         .iter()
         .map(|n| n.file.as_str())
-        .filter(|f| !head_files.contains(f))
+        .filter(|f| !f.is_empty() && !head_files.contains(f))
         .collect();
     let declared: HashSet<&str> = plan.nodes.iter().map(|n| n.id.as_str()).collect();
     let mut new_nodes: BTreeMap<&str, usize> = BTreeMap::new();
     for n in added_nodes
         .iter()
-        .filter(|n| declared.contains(n.id.as_str()))
+        .filter(|n| declared.contains(n.id.as_str()) && n.kind != "system")
     {
         *new_nodes.entry(n.kind.as_str()).or_default() += 1;
     }
@@ -543,6 +556,53 @@ mod tests {
                 .any(|x| x.rule_id == "plan/unknown-node" && x.message.contains("Repo.find"))
         );
         assert!(!g.nodes.iter().any(|n| n.id.ends_with("Repo.fnd")));
+    }
+
+    #[test]
+    fn planned_system_can_be_used() {
+        let text = PLAN.replace(
+            "edges:\n",
+            "systems: [PostgreSQL]\nedges:\n  - from: packages/core/src/repo.ts\n    to: system:PostgreSQL\n    kind: uses\n",
+        );
+        let p = parse("p.md", &text).unwrap();
+        let (g, added, f) = merge(&fixture_graph("monorepo"), &p);
+        assert!(f.is_empty(), "{f:?}");
+        assert!(
+            g.nodes
+                .iter()
+                .any(|n| n.id == "system:PostgreSQL" && n.kind == "system" && n.file.is_empty())
+        );
+        assert!(added.contains("packages/core/src/repo.ts|uses|system:PostgreSQL"));
+        let v = check_text(&fixture_dir("monorepo"), "p.md", &text).unwrap();
+        let base = check_text(&fixture_dir("monorepo"), "p.md", PLAN).unwrap();
+        assert_eq!(v["volume"]["newSystems"], serde_json::json!(["PostgreSQL"]));
+        assert_eq!(v["volume"]["newFiles"], base["volume"]["newFiles"]);
+        assert_eq!(v["volume"]["newNodes"], base["volume"]["newNodes"]);
+    }
+
+    #[test]
+    fn check_records_current_plan() {
+        let dir = std::env::temp_dir().join(format!("ig-plan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            std::process::Command::new("cp")
+                .arg("-R")
+                .arg(fixture_dir("monorepo"))
+                .arg(&dir)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let dir = dir.canonicalize().unwrap();
+        std::fs::create_dir_all(dir.join("plans")).unwrap();
+        std::fs::write(dir.join("plans/x.md"), PLAN).unwrap();
+        assert_eq!(current(&dir), None);
+        let v = check(&dir, &dir.join("plans/x.md")).unwrap();
+        assert_eq!(v["plan"], "plans/x.md");
+        assert_eq!(current(&dir), Some(dir.join("plans/x.md")));
+        std::fs::remove_file(dir.join("plans/x.md")).unwrap();
+        assert_eq!(current(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
