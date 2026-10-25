@@ -36,7 +36,7 @@ const USAGE: &str =
    | except <fingerprint> --reason <text>
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
-   | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
+   | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--json] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
    (all accept --root <dir>)";
 
 #[derive(Default)]
@@ -252,7 +252,10 @@ fn real_main() -> Result<u8> {
             } else {
                 a.plan.clone().or_else(|| plan::current(&root))
             };
-            if a.watch {
+            if a.json {
+                let d = view::json(&root, &opts(&a), plan.as_deref())?;
+                println!("{}", serde_json::to_string_pretty(&d)?);
+            } else if a.watch {
                 if a.head.is_some() {
                     bail!("view --watch: --head is not supported");
                 }

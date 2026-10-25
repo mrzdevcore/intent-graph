@@ -268,7 +268,7 @@ A change is read as architecture plus real code, scoped to functions and ordered
 - **Function diffs:** for a changed node, its old text (from `git show base:file`, at the base node's range) and new text (from the tree or the head commit) are diffed line by line (LCS; deletions before additions). Hunks keep 3 lines of context. Added and removed nodes show their full text (80 lines max in the brief).
 - **Sequences** start from a node and follow `calls`, `dispatch`, `http` and `uses` edges in source-line order to depth 4 (60 messages max), skipping guessed edges and construction of `*Error`/`*Exception` classes. Participants are classes (for members of a class), modules, or systems. They render as Mermaid (`sequenceDiagram`) and export as PlantUML.
 - **`ig brief [--base] [--head] [--md] [--out <file>]`** runs a check and prints: added/changed/removed functions grouped by blueprint lane (or by layer); new dependencies on systems; new links between lanes or layers; the code of each changed function (its diff) and each new one, in lane order, skipping a node whose changed parts are shown on their own (a class whose methods changed); sequences from the entry points of the change (changed nodes no other changed node calls; at most 5); blocking findings. `--md` (implied by `--out`) writes Markdown with `diff` and `mermaid` blocks, which GitLab and GitHub render.
-- **Viewer:** the side panel shows a node's code (diff with line numbers when it changed; "Open wide" shows it full-window) and its sequence (vendored Mermaid in a full-window overlay, with "Copy Mermaid" and "Copy PlantUML"). A tree of folders, files and functions sits on the left, synced with the graph both ways, with a filter and an "only what is on screen" switch.
+- **Viewer:** the side panel shows a node's code (diff with line numbers when it changed; "Open wide" shows it full-window) and its sequence (Mermaid, offline, in a full-window overlay, with "Copy Mermaid" and "Copy PlantUML"). A tree of folders, files and functions sits on the left, synced with the graph both ways, with a filter and an "only what is on screen" switch.
 
 ### Review
 
@@ -333,7 +333,8 @@ Their fingerprint = the rule plus the sorted module set. The file is the first s
   - *Changed*: the changed nodes and their neighbours, boxed by module.
   - *Architecture*: a flat, scoped drill-down. The scope's children (layers, then directories, then modules; single-child directory chains are merged and single-module directories show as the module) are the main nodes, and the siblings at every level above that connect to the scope are dimmed context. Edges are aggregated with counts, and arch violations are red. A breadcrumb leads back up.
   - *Focus*: the depth-1 or depth-2 neighbourhood of one node, reached by clicking a node, a finding or the search box.
-- **Assets:** vendored Cytoscape and fcose (compound-aware layout) bundles, plus a small client script with the side panel for findings, intents, used-by/uses lists and a before/after pane per node. All are embedded in the binary via `include_str!` *(call: keep them under `assets/`)*.
+- **The page:** `viewer/` is a TypeScript project (strict, Lit web components, Vite, Vitest, bun as package manager and script runner; node 20+ works too) with Cytoscape, cytoscape-fcose and Mermaid as pinned npm packages. `viewer/src/model/` holds the pure, DOM-free logic (indexing, architecture, blueprint, focus, changed, sequence, tree) and `viewer/src/components/` the Lit components (`ig-app`, `ig-tree`, `ig-graph`, `ig-side-panel`, `ig-plan-panel`, `ig-overlay`). `bun run build` makes `viewer/dist/index.html`, one offline file with everything inlined and two markers, `/*IG_DATA*/` and `/*IG_LIVE*/`, which `ig view` fills. `build.rs` copies it into the binary (`include_str!` from `OUT_DIR`); when it is missing, a placeholder page that shows the data as JSON takes its place, with a cargo warning, so Rust-only builds need no bun. `make build` runs both steps.
+- **`ig view --json`** prints the data instead of writing the page (for `bun run dev`, which loads `viewer/dev-data.json`).
 
 **`ig view --watch`** serves `/` and `/events` (server-sent events) on `127.0.0.1` at a random port, and rebuilds on file changes:
 
@@ -426,7 +427,7 @@ Exit codes: 0 ok, 1 blocking findings, 2 usage or error (`ig: <message>` on stde
 
 | Purpose | Crates |
 |---|---|
-| Viewer (vendored under `assets/`) | Cytoscape, cytoscape-fcose (+ layout-base, cose-base), Mermaid |
+| Viewer (npm packages in `viewer/package.json`, pinned) | Cytoscape, cytoscape-fcose, Mermaid, Lit; Vite, Vitest, TypeScript to build and test |
 | Parsing and resolution | `oxc_parser`, `oxc_ast`, `oxc_semantic`, `oxc_span`, `oxc_allocator`, `oxc_resolver` (pin these versions together) |
 | Patterns | `ast-grep-core`, `ast-grep-language` |
 | Serialisation | `serde`, `serde_json`, a maintained YAML crate (`serde_yaml_ng`), `json_comments` |

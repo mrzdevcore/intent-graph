@@ -12,10 +12,18 @@ Design: [docs/specs/design.md](docs/specs/design.md)
 ## Install
 
 ```sh
-cargo install --path .   # installs the `ig` binary
+make viewer              # builds the viewer page (viewer/dist/index.html)
+cargo install --path .   # installs the `ig` binary, with the viewer embedded
 ```
 
 `ig` needs `git` on `PATH` and nothing else.
+
+## Build
+
+`make build` (needs bun or node, plus cargo): the viewer first (`viewer/`, TypeScript, Lit and Vite,
+built into one offline HTML file), then `cargo build --release`, which embeds it. `make test` runs the
+viewer tests, then `cargo test`. Without bun: `cd viewer && npm install && npm run build`. Without a built
+viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
 
 ## Quick start
 
@@ -38,7 +46,7 @@ ig view            # open the change as a graph in the browser
 | `ig query <id> [--in\|--out\|--both] [--depth N] [--json]` | Neighbours of a node (default both, depth 2) as `kind id (file:line)` and `from -kind-> to`. Unknown id: suggestions, exit 1. |
 | `ig plan check <file> [--json]` | Checks a plan file before any code is written (see [Plans](#plans)). Exit 1 if it has errors. |
 | `ig focus <id>...` | Writes `.ig/focus.json`, the ids the viewer should highlight. |
-| `ig view [--watch] [--no-open]` | Writes `.ig/view.html`. `--watch` serves it on localhost and reloads on every save. |
+| `ig view [--watch] [--no-open] [--json]` | Writes `.ig/view.html`. `--watch` serves it on localhost and reloads on every save. `--json` prints the page's data instead. |
 | `ig report --gitlab` | Checks `HEAD` and creates or updates one MR note (needs `IG_GITLAB_TOKEN` or `GITLAB_TOKEN`). |
 | `ig mcp` | MCP server on stdio with `check`, `get_findings`, `get_intents` and `graph_query`. |
 | `ig hook claude` | Claude Code Stop hook: blocks the agent on blocking findings, up to `hookMaxRounds`. |
@@ -171,4 +179,6 @@ ig:
 ```sh
 cargo test                      # unit tests plus golden fixture tests
 UPDATE_GOLDEN=1 cargo test      # rewrite tests/golden/ after an intended change
+cd viewer && bun run test       # viewer model tests (Vitest); bun run typecheck for tsc
+ig view --json > viewer/dev-data.json && cd viewer && bun run dev   # the viewer live in Vite
 ```
