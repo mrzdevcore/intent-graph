@@ -296,6 +296,7 @@ pub fn base_graph(root: &Path, repo: &Repo, sha: &str, config: &Config) -> Resul
     {
         return Ok(g);
     }
+    crate::check::progress(&format!("base graph {}…", &sha[..sha.len().min(7)]));
     let g = graph_at(root, repo, sha, config)?;
     std::fs::create_dir_all(&cache_dir)?;
     let tmp = cache_dir.join(format!(

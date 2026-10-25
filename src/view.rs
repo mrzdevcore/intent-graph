@@ -727,4 +727,48 @@ Status: done
         assert!(render(&run, &dir, &Opts::default()).contains("planned"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn view_reuses_saved_checker_findings() {
+        let dir = std::env::temp_dir().join(format!("ig-view-checkers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/monorepo");
+        assert!(
+            std::process::Command::new("cp")
+                .arg("-R")
+                .arg(&src)
+                .arg(&dir)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let dir = dir.canonicalize().unwrap();
+        let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap()
+            + "checkers:\n  - name: t\n    format: lines\n    run: \"touch marker; echo 'packages/core/src/math.ts:1: boom'\"\n";
+        std::fs::write(dir.join("ig.yaml"), cfg).unwrap();
+        let view = Opts {
+            skip_checkers: true,
+            ..Default::default()
+        };
+        let boom = |v: &Value| {
+            v["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["tool"] == "t" && f["message"] == "boom")
+        };
+        write(&dir, &view, &(None, false)).unwrap();
+        assert!(!dir.join("marker").exists(), "view ran a checker");
+        check::run(&dir, &Opts::default()).unwrap();
+        assert!(dir.join("marker").exists(), "check did not run the checker");
+        std::fs::remove_file(dir.join("marker")).unwrap();
+        let d = json(&dir, &view, &(None, false)).unwrap();
+        assert!(!dir.join("marker").exists(), "view ran a checker");
+        assert!(boom(&d), "{}", d["findings"]);
+        let saved: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(".ig/findings.json")).unwrap())
+                .unwrap();
+        assert!(boom(&saved), "view build dropped the saved checker finding");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

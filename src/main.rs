@@ -39,8 +39,8 @@ const USAGE: &str =
    | except <fingerprint> --reason <text>
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
-   | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--json] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
-   | serve [--port N] [--plan <file> | --no-plan] | serve claude
+   | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--json] [--checkers] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
+   | serve [--port N] [--checkers] [--plan <file> | --no-plan] | serve claude
    (all accept --root <dir>)";
 
 #[derive(Default)]
@@ -67,6 +67,7 @@ struct Args {
     reason: Option<String>,
     port: Option<u16>,
     wait: bool,
+    checkers: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -95,6 +96,7 @@ fn parse_args() -> Result<Args> {
             Long("reason") => a.reason = Some(p.value()?.string()?),
             Long("port") => a.port = Some(p.value()?.parse()?),
             Long("wait") => a.wait = true,
+            Long("checkers") => a.checkers = true,
             Long("out") if a.cmd == "query" => a.dir = Some("out".into()),
             Long("out") => a.out = Some(p.value()?.into()),
             Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
@@ -116,6 +118,7 @@ fn opts(a: &Args) -> check::Opts {
         base: a.base.clone(),
         head: a.head.clone(),
         all: a.all,
+        skip_checkers: matches!(a.cmd.as_str(), "view" | "serve") && !a.checkers,
     }
 }
 
