@@ -16,6 +16,7 @@ const AGENTS_SNIPPET: &str = "<!-- ig:agents -->
 - Run `ig check --agent` before finishing; fix every blocking finding.
 - Tag code that implements an intent from `intents.md` with `// @intent ID-1`, and its tests too.
 - Add new intents to `intents.md` as `- ID-1: one line`.
+- To set up or improve `ig.yaml`, use the `ig-explore` skill (`ig explore` prints the facts it needs).
 ";
 
 const HOOK: &str = r#"{
@@ -89,7 +90,24 @@ fn create(root: &Path, path: &Path, content: &str, created: &mut Vec<String>) ->
     Ok(true)
 }
 
-pub fn run(root: &Path) -> Result<()> {
+const SKILL: &str = include_str!("../assets/skill-explore.md");
+
+/// Writes the ig-explore skill for `agent` unless it already exists. Returns the path if written.
+pub fn install_skill(
+    root: &Path,
+    agent: &crate::explore::Agent,
+) -> Result<Option<std::path::PathBuf>> {
+    let path = root.join(agent.skill_dir).join("ig-explore/SKILL.md");
+    if path.exists() {
+        return Ok(None);
+    }
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, SKILL)?;
+    Ok(Some(path))
+}
+
+/// `agents`: the coding agents to set up (the ig-explore skill each, and the Stop hook for Claude).
+pub fn run(root: &Path, agents: &[&crate::explore::Agent]) -> Result<()> {
     let mut created = vec![];
 
     // ig.yaml
@@ -177,13 +195,25 @@ pub fn run(root: &Path) -> Result<()> {
         &mut created,
     )?;
 
-    let settings = root.join(".claude/settings.json");
-    if !create(root, &settings, HOOK, &mut created)? {
-        println!("ig: .claude/settings.json exists; add this Stop hook to it:\n{HOOK}");
+    if agents.iter().any(|a| a.name == "claude") {
+        let settings = root.join(".claude/settings.json");
+        if !create(root, &settings, HOOK, &mut created)? {
+            println!("ig: .claude/settings.json exists; add this Stop hook to it:\n{HOOK}");
+        }
+    }
+    for a in agents {
+        if let Some(p) = install_skill(root, a)? {
+            created.push(
+                p.strip_prefix(root)
+                    .unwrap_or(&p)
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
     }
 
-    let agents = root.join("AGENTS.md");
-    let existing = std::fs::read_to_string(&agents).unwrap_or_default();
+    let agents_md = root.join("AGENTS.md");
+    let existing = std::fs::read_to_string(&agents_md).unwrap_or_default();
     if !existing.contains(AGENTS_MARKER) {
         let sep = if existing.is_empty() || existing.ends_with("\n\n") {
             ""
@@ -192,7 +222,7 @@ pub fn run(root: &Path) -> Result<()> {
         } else {
             "\n\n"
         };
-        std::fs::write(&agents, format!("{existing}{sep}{AGENTS_SNIPPET}"))?;
+        std::fs::write(&agents_md, format!("{existing}{sep}{AGENTS_SNIPPET}"))?;
         created.push("AGENTS.md (snippet)".into());
     }
 
@@ -230,6 +260,19 @@ pub fn run(root: &Path) -> Result<()> {
     if created.is_empty() {
         println!("ig init: nothing to do");
     }
+    let next: Vec<String> = agents
+        .iter()
+        .map(|a| {
+            format!(
+                "`ig explore {}` (or {} inside {})",
+                a.name, a.invoke, a.name
+            )
+        })
+        .collect();
+    println!(
+        "\nNext: let your coding agent populate ig.yaml: {}.",
+        next.join(", ")
+    );
     Ok(())
 }
 
@@ -276,7 +319,16 @@ mod tests {
         std::fs::create_dir_all(dir.join("src/core")).unwrap();
         std::fs::write(dir.join("src/core/a.ts"), "export const a = () => 1;\n").unwrap();
         std::fs::write(dir.join("intents.md"), "mine\n").unwrap();
-        run(&dir).unwrap();
+        run(
+            &dir,
+            &[
+                crate::explore::agent("claude").unwrap(),
+                crate::explore::agent("codex").unwrap(),
+            ],
+        )
+        .unwrap();
+        assert!(dir.join(".claude/skills/ig-explore/SKILL.md").is_file());
+        assert!(dir.join(".agents/skills/ig-explore/SKILL.md").is_file());
         assert_eq!(
             std::fs::read_to_string(dir.join("intents.md")).unwrap(),
             "mine\n"
@@ -284,7 +336,12 @@ mod tests {
         let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap();
         assert!(cfg.contains("core: [\"src/core/**\"]"));
         std::fs::write(dir.join("ig.yaml"), "rules: []\n").unwrap();
-        run(&dir).unwrap();
+        std::fs::write(dir.join(".claude/skills/ig-explore/SKILL.md"), "mine").unwrap();
+        run(&dir, &[crate::explore::agent("claude").unwrap()]).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join(".claude/skills/ig-explore/SKILL.md")).unwrap(),
+            "mine"
+        );
         assert_eq!(
             std::fs::read_to_string(dir.join("ig.yaml")).unwrap(),
             "rules: []\n"

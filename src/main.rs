@@ -3,6 +3,7 @@ mod checks;
 mod config;
 mod diff;
 mod embedded;
+mod explore;
 mod extract;
 mod git;
 mod graph;
@@ -23,7 +24,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: ig [--version] | init | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
+    "usage: ig [--version] | init [claude|codex|all] | explore [--json] | explore claude|codex
+   | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] | report --gitlab | mcp | hook claude
    (all accept --root <dir>)";
@@ -170,9 +172,25 @@ fn real_main() -> Result<u8> {
             _ => bail!("hook: expected `hook claude`"),
         },
         "init" => {
-            init::run(&root)?;
+            let agents: Vec<&explore::Agent> = match a.sub.as_deref() {
+                None | Some("all") => explore::AGENTS.iter().collect(),
+                Some(name) => vec![explore::agent(name)?],
+            };
+            init::run(&root, &agents)?;
             Ok(0)
         }
+        "explore" => match a.sub.as_deref() {
+            Some(name) => explore::run_agent(&root, name),
+            None => {
+                let f = explore::facts(&root)?;
+                if a.json {
+                    println!("{}", serde_json::to_string_pretty(&f)?);
+                } else {
+                    print!("{}", explore::report(&f));
+                }
+                Ok(0)
+            }
+        },
         "" => {
             eprintln!("{USAGE}");
             Ok(2)

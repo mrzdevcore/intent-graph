@@ -29,7 +29,7 @@ Everything else is **the author's call**, marked *(call)*. The builder can revis
 
 ## Goals
 
-- Commands: `init`, `check`, `diff`, `review`, `view` (static and `--watch`), `report --gitlab`, `mcp`, `hook claude`, `--version`. All of them accept `--root <dir>`.
+- Commands: `init`, `explore`, `check`, `diff`, `review`, `view` (static and `--watch`), `report --gitlab`, `mcp`, `hook claude`, `--version`. All of them accept `--root <dir>`.
 - A single static binary with no runtime dependencies besides `git`.
 - Deterministic output: the same source always gives the same node IDs, hashes, edges, fingerprints and sort order.
 
@@ -370,19 +370,30 @@ The note contains, in order:
 
 ### Init
 
-`ig init` never overwrites anything. It creates:
+`ig init [claude|codex|all]` never overwrites anything. The argument picks the coding agents to set up (default: all). It creates:
 
 - **`ig.yaml`:** with proposed layers (one per workspace package, or one per `src/*` dir), empty rules, the complexity defaults, detected `embedded` extensions (unknown extensions that relative imports point at), and commented examples;
 - **`intents.md`;**
-- **`.claude/settings.json`:** with the Stop hook (`ig hook claude`, timeout 300). If the file already exists, the snippet is printed instead;
+- **`.claude/settings.json`** (Claude only): with the Stop hook (`ig hook claude`, timeout 300). If the file already exists, the snippet is printed instead;
+- **the `ig-explore` skill** per agent, in the open SKILL.md format: `.claude/skills/ig-explore/SKILL.md` for Claude Code (`/ig-explore`), `.agents/skills/ig-explore/SKILL.md` for Codex (`$ig-explore`). The text is embedded in the binary (`assets/skill-explore.md`);
 - **the `AGENTS.md` snippet:** appended once, guarded by the `<!-- ig:agents -->` marker;
 - **the `.gitignore` entries:** an existing `.ig/` or `.ig` line is rewritten;
 - **the initial baseline:** from `check --all`, excluding checker and parse errors.
 
+### Explore
+
+`ig.yaml` is project knowledge that `ig` cannot infer on its own, so a coding agent writes it, following the `ig-explore` skill and grounded in facts from `ig explore`.
+
+- **`ig explore [--json]`** builds the graph with the current config (or defaults if it is missing or invalid) and prints: config status; workspace packages; module counts per directory (depth 3); directories named `pages`, `views`, `routes` or `screens` (journey candidates); modules without a layer; external packages by importing module count, with the system each is mapped to; callee names whose first argument looks like a URL (`http.calls` candidates); route count, linked and unmatched HTTP calls (with samples); node and edge counts; parse errors; arch violations per rule over the whole repo. Test files are left out of the package and callee counts.
+- **`ig explore claude|codex`** installs the skill for that agent if it is missing, then runs the agent's CLI interactively in the root with the skill invoked (`claude /ig-explore`, `codex '$ig-explore'`). The agent edits `ig.yaml` only, validates with `ig check --all` and `ig explore`, and reports what it changed and why.
+
+A namespaced `/ig:explore` would need `ig` packaged as a Claude Code plugin; project skills are named `ig-explore`.
+
 ### CLI
 
 ```
-ig [--version] | init | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
+ig [--version] | init [claude|codex|all] | explore [--json] | explore claude|codex
+   | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] | report --gitlab | mcp | hook claude
    (all accept --root <dir>)

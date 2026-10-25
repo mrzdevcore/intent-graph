@@ -73,8 +73,19 @@ fn effective_tsconfig(path: &Path) -> PathBuf {
 
 pub struct Built {
     pub graph: Graph,
-    /// Pattern-matching source per file (extracted script for embedded files); only kept when asked.
     pub workspace: Workspace,
+    /// Facts that are not graph data, for `ig explore`.
+    pub extras: Extras,
+}
+
+#[derive(Default)]
+pub struct Extras {
+    /// External package → number of modules importing it.
+    pub packages: BTreeMap<String, usize>,
+    /// Callee name → calls whose first argument looks like a URL.
+    pub url_callees: BTreeMap<String, u32>,
+    /// HTTP client calls that matched no route: (file, line, method, url).
+    pub http_unmatched: Vec<(String, u32, String, String)>,
 }
 
 /// Builds the graph of the tree at `root` (which may be a worktree).
@@ -170,7 +181,22 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     // Pass 2.
     let index = Index::new(&facts);
     let mut edge_lists: Vec<Vec<Edge>> = facts.par_iter().map(|f| index.edges_of(f)).collect();
-    let (system_nodes, blueprint_edges, renames) = blueprint_links(&facts, config);
+    let (system_nodes, blueprint_edges, renames, http_unmatched) = blueprint_links(&facts, config);
+    let mut extras = Extras {
+        http_unmatched,
+        ..Extras::default()
+    };
+    for f in facts.iter().filter(|f| !tests.is_match(&f.file)) {
+        let mut seen = HashSet::new();
+        for (p, _) in &f.packages {
+            if seen.insert(p) {
+                *extras.packages.entry(p.clone()).or_default() += 1;
+            }
+        }
+        for (k, v) in &f.url_callees {
+            *extras.url_callees.entry(k.clone()).or_default() += v;
+        }
+    }
     edge_lists.push(blueprint_edges);
     for f in &mut facts {
         for n in &mut f.nodes {
@@ -229,6 +255,7 @@ pub fn build(root: &Path, config: &Config, commit: Option<String>) -> Result<Bui
     Ok(Built {
         graph,
         workspace: ws,
+        extras,
     })
 }
 
@@ -268,9 +295,15 @@ fn seg_match(route: &[String], call: &[String], loose: bool) -> bool {
 fn blueprint_links(
     facts: &[FileFacts],
     config: &Config,
-) -> (Vec<Node>, Vec<Edge>, HashMap<String, String>) {
+) -> (
+    Vec<Node>,
+    Vec<Edge>,
+    HashMap<String, String>,
+    Vec<(String, u32, String, String)>,
+) {
     let bp = &config.blueprint;
     let mut edges = vec![];
+    let mut unmatched = vec![];
     // Route node id → display name with `${CONST}` substituted (the id stays as matched).
     let mut renames = HashMap::new();
     let edge = |from: &str, to: &str, kind: &str, conf: &str, file: &str, line: u32| Edge {
@@ -367,6 +400,9 @@ fn blueprint_links(
                         _ => (suffix(), "guessed"),
                     },
                 };
+                if hits.is_empty() {
+                    unmatched.push((f.file.clone(), h.line, h.method.clone(), h.url.clone()));
+                }
                 for id in hits {
                     edges.push(edge(&h.from, id, "http", conf, &f.file, h.line));
                 }
@@ -409,7 +445,7 @@ fn blueprint_links(
             intents: vec![],
         })
         .collect();
-    (nodes, edges, renames)
+    (nodes, edges, renames, unmatched)
 }
 
 fn n_name_differs(facts: &[FileFacts], id: &str, m: &str, p: &str) -> bool {

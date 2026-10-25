@@ -115,6 +115,8 @@ pub struct FileFacts {
     pub packages: Vec<(String, u32)>,
     /// `const NAME = '<url-ish string>'` anywhere in the file, for route paths built from constants.
     pub url_consts: HashMap<String, String>,
+    /// Callee name → calls whose first argument looks like a URL.
+    pub url_callees: HashMap<String, u32>,
 }
 
 pub struct FileInput<'c> {
@@ -218,6 +220,7 @@ struct Extractor<'s, 'a> {
     url_consts: HashMap<String, String>,
     /// Declared or constructed types of variables and parameters.
     typed: HashMap<SymbolId, Pending>,
+    url_callees: HashMap<String, u32>,
     /// class node id → field name → type
     fields: HashMap<String, HashMap<String, Pending>>,
     http: Vec<HttpCall>,
@@ -572,6 +575,26 @@ impl<'s, 'a> Extractor<'s, 'a> {
         }
     }
 
+    /// Counts callees whose first argument looks like a URL, for `ig explore` (http.calls candidates).
+    fn count_url_callee(&mut self, it: &CallExpression<'a>) {
+        let name = match it.callee.get_inner_expression() {
+            Expression::Identifier(id) => id.name.as_str(),
+            Expression::StaticMemberExpression(m) => m.property.name.as_str(),
+            _ => return,
+        };
+        let Some(url) = it
+            .arguments
+            .first()
+            .and_then(|a| a.as_expression())
+            .and_then(|a| self.url_of(a))
+        else {
+            return;
+        };
+        if url.starts_with('/') || url.contains("://") {
+            *self.url_callees.entry(name.to_string()).or_insert(0) += 1;
+        }
+    }
+
     fn http_call(&mut self, it: &CallExpression<'a>) {
         let name = match it.callee.get_inner_expression() {
             Expression::Identifier(id) => id.name.as_str(),
@@ -833,7 +856,7 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
                 }
             }
         }
-        if !self.http_calls.is_empty() {
+        {
             for d in &it.declarations {
                 if let (BindingPattern::BindingIdentifier(b), Some(init)) = (&d.id, &d.init)
                     && let (Some(sym), Some(url)) = (b.symbol_id.get(), self.url_of(init))
@@ -970,6 +993,7 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
         if let Some(c) = self.callee_of(&it.callee) {
             self.add_ref("calls", c, it.span.start);
         }
+        self.count_url_callee(it);
         if !self.http_calls.is_empty() {
             self.http_call(it);
         }
@@ -1243,6 +1267,7 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         url_vars: HashMap::new(),
         url_consts: HashMap::new(),
         typed: HashMap::new(),
+        url_callees: HashMap::new(),
         fields: HashMap::new(),
         http: vec![],
         default_ident: None,
@@ -1338,7 +1363,10 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
     }
     let mut packages = vec![];
     for i in &x.import_refs {
-        let bare = !i.spec.starts_with('.') && !i.spec.starts_with('/') && !i.spec.contains(':');
+        let bare = !i.spec.starts_with('.')
+            && !i.spec.starts_with('/')
+            && !i.spec.starts_with('#')
+            && !i.spec.contains(':');
         if bare && !resolved.contains_key(&i.spec) {
             let mut parts = i.spec.split('/');
             let first = parts.next().unwrap_or("");
@@ -1354,6 +1382,7 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         file: input.path.into(),
         http: x.http,
         url_consts: x.url_consts,
+        url_callees: x.url_callees,
         packages,
         nodes: x.nodes,
         parse_error,

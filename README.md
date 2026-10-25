@@ -20,7 +20,8 @@ cargo install --path .   # installs the `ig` binary
 ## Quick start
 
 ```sh
-ig init            # ig.yaml, intents.md, Stop hook, AGENTS.md snippet, .gitignore, baseline
+ig init            # ig.yaml, intents.md, Stop hook, ig-explore skill, AGENTS.md snippet, .gitignore, baseline
+ig explore claude  # let Claude Code (or: ig explore codex) explore the repo and populate ig.yaml
 ig check           # findings that touch your change (exit 1 if blocking)
 ig check --agent   # the same, written for a coding agent
 ig view            # open the change as a graph in the browser
@@ -37,7 +38,9 @@ ig view            # open the change as a graph in the browser
 | `ig report --gitlab` | Checks `HEAD` and creates or updates one MR note (needs `IG_GITLAB_TOKEN` or `GITLAB_TOKEN`). |
 | `ig mcp` | MCP server on stdio with `check`, `get_findings`, `get_intents` and `graph_query`. |
 | `ig hook claude` | Claude Code Stop hook: blocks the agent on blocking findings, up to `hookMaxRounds`. |
-| `ig init` | Scaffolding. Never overwrites anything. |
+| `ig init [claude\|codex\|all]` | Scaffolding, including the `ig-explore` skill for the chosen agents (default all). Never overwrites anything. |
+| `ig explore [--json]` | Facts for writing `ig.yaml`: packages, directories, page candidates, unlayered modules, unmapped external packages, HTTP calls, arch violations. |
+| `ig explore claude\|codex` | Starts that coding agent on the `ig-explore` skill (`/ig-explore` in Claude Code, `$ig-explore` in Codex), which populates and validates `ig.yaml`. |
 
 Every command accepts `--root <dir>`. Exit codes: 0 ok, 1 blocking findings, 2 usage or error.
 
