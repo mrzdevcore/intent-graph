@@ -282,6 +282,53 @@ fn missing(plan: &Plan, run: &Run) -> Vec<Finding> {
     out
 }
 
+const REVIEW: &str = ".ig/agent-review.json";
+
+/// `ig apply review`: stores the reviewer agent's JSON array (prose around it is ignored) for
+/// the current change; returns the finding count.
+pub fn review_ingest(root: &Path, json: &str) -> Result<usize> {
+    let (Some(a), Some(b)) = (json.find('['), json.rfind(']')) else {
+        bail!("apply review: no JSON array in the input");
+    };
+    let items: Vec<Value> = serde_json::from_str(&json[a..=b.max(a)])
+        .context("apply review: the reviewer output is not a JSON array")?;
+    let run = check::run(root, &check::Opts::default())?;
+    std::fs::create_dir_all(root.join(".ig"))?;
+    check::write_atomic(
+        &root.join(REVIEW),
+        &serde_json::to_vec_pretty(&json!({"change": change_hash(&run), "findings": items}))?,
+    )?;
+    Ok(items.len())
+}
+
+/// Reviewer findings, when the stored review matches the current change.
+fn reviewed(root: &Path, run: &Run) -> Vec<Finding> {
+    let Some(v) = std::fs::read_to_string(root.join(REVIEW))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .filter(|v| v["change"].as_str() == Some(change_hash(run).as_str()))
+    else {
+        return vec![];
+    };
+    let found = v["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|i| {
+            let s = |k| i[k].as_str().unwrap_or_default();
+            Finding::new(
+                &format!("review/{}", s("rule")),
+                Severity::parse(s("severity")).unwrap_or(Severity::Error),
+                "ig-review",
+                s("file"),
+                i["line"].as_u64().unwrap_or(0) as u32,
+                s("message").into(),
+            )
+        })
+        .collect();
+    checks::attach_nodes(&run.result.graph, found)
+}
+
 /// Apply findings: unplanned (and, when `final_`, missing) `ig/plan`, plus `ig/tamper`.
 pub fn findings(root: &Path, st: &ApplyState, run: &Run, final_: bool) -> Vec<Finding> {
     let mut out = vec![];
@@ -309,6 +356,7 @@ pub fn findings(root: &Path, st: &ApplyState, run: &Run, final_: bool) -> Vec<Fi
             ));
         }
     }
+    out.extend(reviewed(root, run));
     out.into_iter().map(Finding::fingerprinted).collect()
 }
 
@@ -329,11 +377,11 @@ pub fn finish(root: &Path) -> Result<u8> {
         .filter(|f| !seen.contains(&f.fingerprint))
         .collect();
     run.result.findings.extend(extra);
-    let reviewed = std::fs::read_to_string(root.join(".ig/agent-review.json"))
+    let has_review = std::fs::read_to_string(root.join(REVIEW))
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .is_some_and(|v| v["change"].as_str() == Some(change_hash(&run).as_str()));
-    if !reviewed {
+    if !has_review {
         run.result.findings.push(
             err(
                 "ig/review-missing",
@@ -390,6 +438,8 @@ mod tests {
             &["init", "-q"][..],
             &["add", "-A"],
             &[
+                "-c",
+                "commit.gpgsign=false",
                 "-c",
                 "user.email=t@t",
                 "-c",
@@ -591,5 +641,40 @@ mod tests {
         let items = checks::read_baseline(&dir).unwrap();
         assert_eq!(items.len(), 2, "{items:?}");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reviewer_findings_block_until_the_change_moves() {
+        let dir = git_fixture("monorepo");
+        write(&dir, "plans/x.md", PLAN);
+        start(&dir, &dir.join("plans/x.md")).unwrap();
+        write(
+            &dir,
+            "packages/core/src/export.ts",
+            "export const exportRows = () => 1;\n",
+        );
+        let n = review_ingest(&dir, "Here you go:\n[{\"rule\":\"R-PURE\",\"file\":\"packages/core/src/export.ts\",\"line\":1,\"message\":\"side effect\",\"severity\":\"error\"}]").unwrap();
+        assert_eq!(n, 1);
+        let run = check::run(&dir, &Default::default()).unwrap();
+        assert!(
+            run.result.blocking
+                && run
+                    .result
+                    .findings
+                    .iter()
+                    .any(|f| f.rule_id == "review/R-PURE")
+        );
+        write(
+            &dir,
+            "packages/core/src/export.ts",
+            "export const exportRows = () => 2;\n",
+        );
+        let run = check::run(&dir, &Default::default()).unwrap();
+        assert!(
+            !run.result
+                .findings
+                .iter()
+                .any(|f| f.rule_id == "review/R-PURE")
+        );
     }
 }

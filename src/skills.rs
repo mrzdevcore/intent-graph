@@ -22,7 +22,13 @@ pub const SKILLS: &[Skill] = &[
         name: "plan",
         body: include_str!("../assets/skills/plan.md"),
     },
+    Skill {
+        name: "apply",
+        body: include_str!("../assets/skills/apply.md"),
+    },
 ];
+
+pub const REVIEWER: &str = include_str!("../assets/agents/reviewer.md");
 
 const LEGACY_EXPLORE: &str = include_str!("../assets/legacy/ig-explore-v1.md");
 
@@ -98,6 +104,9 @@ pub fn install(root: &Path, agent: &Agent) -> Result<Vec<PathBuf>> {
             &mut written,
         )?;
     }
+    if agent.name == "claude" {
+        write_missing(base.join("agents/reviewer.md"), REVIEWER, &mut written)?;
+    }
     for s in SKILLS {
         if agent.name == "claude" {
             write_missing(
@@ -160,6 +169,8 @@ mod tests {
             dir.join(".claude/skills/ig/skills/setup/SKILL.md")
                 .is_file()
         );
+        assert!(dir.join(".claude/skills/ig/agents/reviewer.md").is_file());
+        assert!(dir.join(".agents/skills/ig-apply/SKILL.md").is_file());
         assert!(dir.join(".agents/skills/ig-setup/SKILL.md").is_file());
         assert!(
             std::fs::read_to_string(dir.join(".agents/skills/ig-setup/SKILL.md"))
