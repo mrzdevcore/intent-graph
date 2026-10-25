@@ -30,6 +30,7 @@ const USAGE: &str =
     "usage: ig [--version] | init [claude|codex|all] | setup [--json] | setup claude|codex
    | check [--base <ref>] [--head <ref>] [--all] [--json] [--agent]
    | brief [--base <ref>] [--head <ref>] [--md] [--out <file>]
+   | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] | report --gitlab | mcp | hook claude
    (all accept --root <dir>)";
@@ -50,6 +51,9 @@ struct Args {
     version: bool,
     md: bool,
     out: Option<PathBuf>,
+    dir: Option<String>,
+    depth: Option<usize>,
+    more: Vec<String>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -73,9 +77,14 @@ fn parse_args() -> Result<Args> {
             Long("no-open") => a.no_open = true,
             Long("gitlab") => a.gitlab = true,
             Long("md") => a.md = true,
+            Long("out") if a.cmd == "query" => a.dir = Some("out".into()),
             Long("out") => a.out = Some(p.value()?.into()),
             Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
+            Long("in") => a.dir = Some("in".into()),
+            Long("both") => a.dir = Some("both".into()),
+            Long("depth") => a.depth = Some(p.value()?.parse()?),
             Value(v) if a.sub.is_none() => a.sub = Some(v.string()?),
+            Value(v) if a.cmd == "focus" => a.more.push(v.string()?),
             _ => return Err(arg.unexpected().into()),
         }
     }
@@ -147,6 +156,17 @@ fn real_main() -> Result<u8> {
             Ok(0)
         }
         "review" => review_cmd(&root, &a),
+        "query" => query_cmd(&root, &a),
+        "focus" => {
+            let ids: Vec<&String> = a.sub.iter().chain(a.more.iter()).collect();
+            if ids.is_empty() {
+                bail!("focus: expected at least one node id");
+            }
+            let dir = root.join(".ig");
+            std::fs::create_dir_all(&dir)?;
+            check::write_atomic(&dir.join("focus.json"), &serde_json::to_vec_pretty(&ids)?)?;
+            Ok(0)
+        }
         "brief" => {
             let run = check::run(&root, &opts(&a))?;
             let text = brief::brief(&run, &root, &opts(&a), a.md || a.out.is_some());
@@ -223,6 +243,47 @@ fn real_main() -> Result<u8> {
         }
         other => bail!("unknown command {other:?}\n{USAGE}"),
     }
+}
+
+fn query_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {
+    let Some(id) = a.sub.as_deref() else {
+        bail!("query: expected a node id");
+    };
+    let cfg = config::Config::load(root)?;
+    let repo_head = git::Repo::open(root).and_then(|r| r.head());
+    let built = graph::build(root, &cfg, repo_head)?;
+    let v = mcp::query(
+        &built.graph,
+        id,
+        a.dir.as_deref().unwrap_or("both"),
+        a.depth.unwrap_or(2),
+    );
+    let failed = v.get("error").is_some();
+    if a.json {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else if failed {
+        println!("{}", v["error"].as_str().unwrap_or_default());
+        for s in v["suggestions"].as_array().into_iter().flatten() {
+            println!("  did you mean {}", s.as_str().unwrap_or_default());
+        }
+    } else {
+        let s = |x: &serde_json::Value| x.as_str().unwrap_or_default().to_string();
+        println!("nodes:");
+        for n in v["nodes"].as_array().into_iter().flatten() {
+            println!(
+                "  {} {} ({}:{})",
+                s(&n["kind"]),
+                s(&n["id"]),
+                s(&n["file"]),
+                n["line"]
+            );
+        }
+        println!("edges:");
+        for e in v["edges"].as_array().into_iter().flatten() {
+            println!("  {} -{}-> {}", s(&e["from"]), s(&e["kind"]), s(&e["to"]));
+        }
+    }
+    Ok(failed as u8)
 }
 
 fn review_cmd(root: &std::path::Path, a: &Args) -> Result<u8> {

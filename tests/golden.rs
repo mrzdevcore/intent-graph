@@ -77,3 +77,46 @@ fn monorepo() {
 fn cycle() {
     fixture("cycle");
 }
+
+#[test]
+fn query_cli() {
+    let dir = std::env::temp_dir().join(format!("ig-query-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    copy_dir(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/monorepo"),
+        &dir,
+    );
+    let v = run(
+        &dir,
+        &[
+            "query",
+            "packages/core/src/repo.ts#Repo",
+            "--in",
+            "--depth",
+            "1",
+            "--json",
+        ],
+    );
+    assert!(
+        v["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["id"] == "apps/web/src/main.tsx")
+    );
+    let v = run(&dir, &["query", "Rep", "--json"]);
+    assert!(!v["suggestions"].as_array().unwrap().is_empty());
+    let st = Command::new(env!("CARGO_BIN_EXE_ig"))
+        .args(["focus", "a", "b", "--root"])
+        .arg(&dir)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".ig/focus.json"))
+            .unwrap()
+            .matches('"')
+            .count(),
+        4
+    );
+}
