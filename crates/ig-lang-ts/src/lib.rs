@@ -59,7 +59,6 @@ mod tests {
 
     #[test]
     fn ts_frontend_meets_the_contract() {
-        let config = Config::default();
         ig_core::testing::frontend_contract(
             &TsFrontend,
             "src/a.ts",
