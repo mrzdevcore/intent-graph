@@ -110,3 +110,29 @@ test("stepRows formats lane arrows and locations", () => {
   expect(rows[1]).toEqual({ n: 2, text: "Front → API  GET /api/catalog  web/composables/catalog.ts:1", target: "api/routes.ts#GET /api/catalog" });
   expect(stepRows({ lifelines: [], steps: [], truncated: 0 })).toEqual([]);
 });
+
+test("follows renders into components", () => {
+  const r = build(
+    [node("page.vue"), node("C.vue", { kind: "component" }), node("C.vue#setup"), node("x.ts#useX"), node("x.ts")],
+    [edge("page.vue", "C.vue", "renders"), edge("C.vue#setup", "x.ts#useX")],
+  );
+  const c = callChain(r, "page.vue");
+  expect(c.steps.map((s) => [s.label, s.kind])).toEqual([["C", "renders"], ["useX", "calls"]]);
+});
+
+test("walks inner members of a called function", () => {
+  const r = build(
+    [node("page.vue"), node("a.ts#useA"), node("a.ts#useA.load", { parent: "a.ts#useA" }), node("a.ts"), node("svc.ts#Svc.list"), node("svc.ts")],
+    [edge("page.vue", "a.ts#useA"), edge("a.ts#useA.load", "svc.ts#Svc.list")],
+  );
+  expect(callChain(r, "page.vue").steps.map((s) => s.label)).toEqual(["useA", "Svc.list"]);
+});
+
+test("module start adds uses once", () => {
+  const sys = node("system:DB", { kind: "system", name: "DB", file: "", module: false });
+  const r = build(
+    [node("m.ts"), node("m.ts#a"), node("m.ts#b"), node("m.ts#c"), sys],
+    [edge("m.ts", "system:DB", "uses")],
+  );
+  expect(callChain(r, "m.ts").steps.filter((s) => s.kind === "uses").length).toBe(1);
+});
