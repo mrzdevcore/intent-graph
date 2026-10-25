@@ -281,3 +281,44 @@ test("mermaid uses lifeline labels and step numbers", () => {
   3. If maite isn't available, use the `tests/fixtures/monorepo` scratch copy with a `.nuxt/imports.d.ts` added.
 
 - [ ] **Step 5: Commit:** `git commit -m "Viewer: Calls down — call chain list and diagram replace the sequence"` (explicit paths).
+
+---
+
+### Task 5: Graph gaps found on maite (added after Task 4's review)
+
+The Task 4 review ran the chain for maite's `dashboard/[reportName]/index.vue` and found it stops early, for graph reasons:
+
+- **A. Stale declarations.** maite's `.nuxt/imports.d.ts` predates `useDashboardCatalog` (`nuxt prepare` wasn't re-run), so the call stays a guess. Rule: a `Callee::Free(name)` that autoImports can't resolve, but whose name has **exactly one** exported definition inside a directory already covered by the declaration file's entries (the set of source directories its specs point into, such as `src/application/composables/`), resolves to that definition with confidence `resolved`. Each build then adds one notice: `autoImports: N names not in <file> resolved from its directories (run nuxt prepare): a, b, c` (at most 10 names listed).
+- **B. Package-sourced names.** A name declared in a declaration file from a package (`export { useI18n } from 'vue-i18n'`) is recorded as external. A `Free` call to it resolves to **nothing**: no by-name guess, so it never lands on `test/nuxt-imports.stub.ts#useI18n`.
+- **C. Bare-constant route paths.** Route ids like `GET BASE_PATH` (pattern `path: BASE_PATH`, with `const BASE_PATH = '/powerbi-integration'` in the same file) substitute same-file string constants for a **bare identifier** path, not only inside `${…}`. The result here is `GET /powerbi-integration`, so the existing HTTP matching links the template call `/api/powerbi-integration/${…}/embed-config` to `GET ${BASE_PATH}/{reportName}/embed-config`, whose id becomes `GET /powerbi-integration/{reportName}/embed-config`.
+
+**Files:** `src/autoimports.rs`, `src/graph.rs`, `src/patterns.rs` (or wherever route ids substitute constants), `src/git.rs` (`GRAPH_REVISION` → 12). Tests go in the same modules.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `stale_declarations_resolve_from_covered_dirs`: the declaration covers `src/composables/a.ts`; `b.ts` in the same directory exports `useB`, which isn't declared; a page calls `useB()`. Expect a resolved edge and one notice naming `useB`.
+  - `package_names_never_guess`: the declaration has `export { useI18n } from 'vue-i18n'`; `test/stub.ts` exports `useI18n`; a page calls `useI18n()`. Expect no edge at all from the page to `test/stub.ts`, even with no `tests` globs set.
+  - `bare_constant_route_path`: `const BASE_PATH = '/p'; app.get(BASE_PATH, h)` with the Express pattern. Expect route id `GET /p`, and a page calling `` fetch(`/p`) `` gets an `http` edge to it.
+- [ ] **Step 2: Run them.** Expected: FAIL.
+- [ ] **Step 3: Implement.** Bump `GRAPH_REVISION` to 12.
+- [ ] **Step 4: Run** `cargo test` (golden files unchanged, or reviewed). Then repeat the e2e on the scratch maite copy with its **real**, stale `.nuxt`. `useDashboardCatalog` must now appear in the chain, along with the notice, and `dashboard.service.ts` must have `http` edges.
+- [ ] **Step 5: Commit:** `git commit -m "autoImports: resolve stale names from covered dirs, never guess package names; bare-constant route paths"`
+
+### Task 6: The chain follows components and inner members (added after Task 4's review)
+
+- **D. Renders.** `callChain` follows `renders` edges into non-test components, as step kind `"renders"` labelled with the component name. It uses the same seen set and memo, so a shared child appears once per start. A page's data usually comes from its child components.
+- **E. Inner members.** When a step's target is a function or class (not a module), the target's own members (its returned closures, or a class's methods) are walked as start points. This mirrors what a module start does. For example, `useDashboardCatalog`'s `loadDashboardCatalog`, which calls `DashboardService.list`, and `new DashboardService` reaching its methods.
+- **Minors:**
+  - A module start adds the file's `uses` steps once, not once per member.
+  - The overlay step list shows "+N more" when truncated.
+  - Rename `IgSidePanel.sequence()` to `callsDown()`.
+
+**Files:** `viewer/src/model/callchain.ts`, `viewer/src/components/ig-side-panel.ts`, `viewer/src/components/ig-overlay.ts`, and `viewer/test/callchain.test.ts`.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `follows renders into components`: a page renders `C.vue`, and `C.vue` calls `useX` (another file). Expect the steps `C` (renders), then `useX`.
+  - `walks inner members of a called function`: page calls `useA`; `useA` has member `load`, which calls `svc.ts#Svc.list`. Expect a `list` step.
+  - `module start adds uses once`: a module with 3 members and one file `uses` edge gives exactly 1 `uses` step.
+- [ ] **Step 2: Run them.** Expected: FAIL.
+- [ ] **Step 3: Implement** the changes above.
+- [ ] **Step 4: Run** `bun run test` and `bun run typecheck`. Then run the e2e on the scratch maite copy (after Task 5). The dashboard page's chain should reach `DashboardReport`, `useDashboardCatalog` and `DashboardService`, through the HTTP routes to the API use cases and adapters, and to Power BI.
+- [ ] **Step 5: Commit:** `git commit -m "Call chain follows rendered components and inner members"`
