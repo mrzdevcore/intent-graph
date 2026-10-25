@@ -135,3 +135,12 @@ export function chainToPlantUml(c: CallChain): string {
   out.push("@enduml");
   return out.join("\n");
 }
+
+/** One list row per step, shared by the side panel and the overlay. */
+export function stepRows(c: CallChain): { n: number; text: string; target: string }[] {
+  return c.steps.map((s) => ({
+    n: s.n,
+    text: `${c.lifelines[s.from].label} → ${c.lifelines[s.to].label}  ${s.label}${s.file ? "  " + s.file + ":" + s.line : ""}`,
+    target: s.target,
+  }));
+}
