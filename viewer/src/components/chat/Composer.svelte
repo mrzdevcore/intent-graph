@@ -1,0 +1,91 @@
+<!-- The message box: Enter sends, Shift+Enter is a newline, Esc stops a running turn; `/`
+     completes the session's commands (ig's first). "Attach selection" and "Plan this" take the
+     graph's or the Files panel's selection. -->
+<script module lang="ts">
+  export interface Selection {
+    ids: string[];
+    files: string[];
+  }
+</script>
+
+<script lang="ts">
+  import { completions } from "../../model/chat";
+
+  let { commands, running, selection, attached = $bindable(), onsend, oncancel, onplan }: {
+    commands: { name: string; description: string }[];
+    running: boolean;
+    selection: Selection | null;
+    attached: Selection;
+    onsend: (text: string) => void;
+    oncancel: () => void;
+    onplan: () => void;
+  } = $props();
+
+  let text = $state("");
+  let active = $state(0);
+  const list = $derived(completions(commands, text).slice(0, 8));
+
+  function complete(name: string) {
+    text = "/" + name + " ";
+    active = 0;
+  }
+
+  function key(e: KeyboardEvent) {
+    if (e.key === "Escape" && running) {
+      e.preventDefault();
+      return oncancel();
+    }
+    if (list.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      active = (active + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length;
+      return;
+    }
+    if (list.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
+      e.preventDefault();
+      return complete(list[Math.min(active, list.length - 1)].name);
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!text.trim() || running) return;
+      onsend(text.trim());
+      text = "";
+    }
+  }
+
+  function attach() {
+    if (!selection) return;
+    attached = {
+      ids: [...new Set([...attached.ids, ...selection.ids])],
+      files: [...new Set([...attached.files, ...selection.files])],
+    };
+  }
+</script>
+
+<div class="composer">
+  {#if attached.ids.length || attached.files.length}
+    <div class="chips" aria-label="Attached">
+      {#each attached.ids as id}<span class="chip-ctx">{id}</span>{/each}
+      {#each attached.files as f}<span class="chip-ctx">{f}</span>{/each}
+      <button class="link" onclick={() => (attached = { ids: [], files: [] })}>Clear</button>
+    </div>
+  {/if}
+  {#if list.length}
+    <ul class="complete" role="listbox" aria-label="Commands">
+      {#each list as c, i}
+        <li role="option" aria-selected={i === active}>
+          <button tabindex="-1" onclick={() => complete(c.name)}><strong>/{c.name}</strong> <span class="muted">{c.description}</span></button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+  <textarea rows="3" placeholder="Message the agent; / for commands" aria-label="Message" bind:value={text} onkeydown={key}></textarea>
+  <div class="row">
+    <button disabled={!selection} onclick={attach}>Attach selection</button>
+    <button disabled={!selection || running} onclick={onplan}>Plan this</button>
+    {#if running}
+      <button class="primary" onclick={oncancel}>Stop</button>
+    {:else}
+      <button class="primary" disabled={!text.trim()} onclick={() => { if (text.trim()) { onsend(text.trim()); text = ""; } }}>Send</button>
+    {/if}
+  </div>
+</div>

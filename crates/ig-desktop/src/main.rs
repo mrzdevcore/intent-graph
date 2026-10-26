@@ -136,7 +136,10 @@ fn main() {
             agent::agent_cancel,
             agent::agent_answer,
             agent::agent_list,
-            agent::agent_install
+            agent::agent_install,
+            agent::agent_reply,
+            agent::agent_set_config,
+            commands::open_url
         ])
         .on_window_event(|w, e| {
             // The window is gone: its agent stops, rejecting what still waits for an answer.

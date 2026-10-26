@@ -3,12 +3,13 @@
 //! on its own sends `Stopped`. Dropping the `Session` stops the process.
 
 use crate::events::{self, AgentEvent};
-use crate::permissions::Pending;
+use crate::permissions::{Ask, Pending};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, Implementation, InitializeRequest, ListSessionsRequest,
+    CancelNotification, ClientCapabilities, ContentBlock, ElicitationCapabilities,
+    ElicitationFormCapabilities, Implementation, InitializeRequest, ListSessionsRequest,
     LoadSessionRequest, Meta, NewSessionRequest, PromptRequest, RequestPermissionRequest,
-    ResourceLink, SessionId, TextContent,
+    ResourceLink, SessionId, SetSessionConfigOptionRequest, TextContent,
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, JsonRpcNotification};
 use futures::channel::oneshot;
@@ -55,6 +56,7 @@ pub struct Session {
     task: Mutex<Option<JoinHandle<()>>>,
     /// False once the adapter went away by itself.
     alive: Arc<AtomicBool>,
+    sink: Sink,
 }
 
 /// A future that is ready after `ms` (the app's tokio has no timers).
@@ -136,8 +138,10 @@ impl Session {
         });
 
         let pending = Arc::new(Pending::default());
+        let sink_c = sink.clone();
         let (tx, rx) = oneshot::channel();
         let (s1, s2, s3, p) = (sink.clone(), sink.clone(), sink.clone(), pending.clone());
+        let (s4, p4) = (sink.clone(), pending.clone());
         let conn = Client
             .builder()
             .name("ig")
@@ -160,6 +164,15 @@ impl Session {
             .on_receive_request(
                 async move |r: RequestPermissionRequest, responder, _cx| {
                     s3(p.add(r, responder));
+                    Ok(())
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |q: Ask, responder, _cx| {
+                    if let Some(e) = p4.ask(q.0, responder) {
+                        s4(e);
+                    }
                     Ok(())
                 },
                 agent_client_protocol::on_receive_request!(),
@@ -205,7 +218,11 @@ impl Session {
 
         let conn = rx.await.map_err(|_| err("the adapter did not start"))?;
         let init = InitializeRequest::new(ProtocolVersion::V1)
-            .client_info(Implementation::new("ig", env!("CARGO_PKG_VERSION")));
+            .client_info(Implementation::new("ig", env!("CARGO_PKG_VERSION")))
+            // Form questions only: the adapter then turns `AskUserQuestion` on and asks through us.
+            .client_capabilities(ClientCapabilities::new().elicitation(
+                ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()),
+            ));
         let init = conn.send_request(init).block_task().await.map_err(err)?;
         if init.protocol_version != ProtocolVersion::V1 {
             return Err(err(format!(
@@ -221,7 +238,18 @@ impl Session {
             quit: Mutex::new(Some(quit)),
             task: Mutex::new(Some(task)),
             alive,
+            sink: sink_c,
         })
+    }
+
+    fn config(&self, id: &str, options: impl Serialize) {
+        let options = serde_json::to_value(options).unwrap_or_default();
+        if !options.is_null() {
+            (self.sink)(AgentEvent::Config {
+                session_id: id.into(),
+                options,
+            });
+        }
     }
 
     /// A new session (`session/new`); with a feature, its id is kept in `.ig/sessions.json`.
@@ -234,6 +262,7 @@ impl Session {
             .await
             .map_err(err)?;
         let id = r.session_id.0.to_string();
+        self.config(&id, r.config_options);
         if let Some(f) = feature {
             remember(&self.root, f, &id).map_err(|e| format!("{SESSIONS}: {e}"))?;
         }
@@ -244,12 +273,14 @@ impl Session {
     /// Resumes an earlier session (`session/load`): the adapter replays it as updates.
     pub async fn load(&self, id: &str) -> Result<(), String> {
         let req = LoadSessionRequest::new(SessionId::new(id), &self.root).meta(meta(&self.root));
-        self.conn
+        let r = self
+            .conn
             .send_request(req)
             .block_task()
             .await
             .map_err(err)?;
         *self.id.lock().unwrap() = Some(id.into());
+        self.config(id, r.config_options);
         Ok(())
     }
 
@@ -306,6 +337,29 @@ impl Session {
 
     pub fn answer(&self, request_id: u64, option_id: &str) -> Result<(), String> {
         self.pending.answer(request_id, option_id)
+    }
+
+    /// The answer to a `Question`: the picks by field, or `None` to skip it.
+    pub fn reply(&self, request_id: u64, content: Option<Value>) -> Result<(), String> {
+        self.pending.reply(request_id, content)
+    }
+
+    /// Sets one of the session's `configOptions` (mode, model, ...) to one of its values.
+    pub async fn set_config(&self, config_id: &str, value: &str) -> Result<(), String> {
+        let sid = self.sid()?;
+        let req = SetSessionConfigOptionRequest::new(
+            SessionId::new(sid.clone()),
+            config_id.to_string(),
+            value,
+        );
+        let r = self
+            .conn
+            .send_request(req)
+            .block_task()
+            .await
+            .map_err(err)?;
+        self.config(&sid, r.config_options);
+        Ok(())
     }
 
     /// False once the adapter went away by itself (crashed): start a new one.

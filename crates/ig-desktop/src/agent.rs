@@ -333,6 +333,33 @@ pub async fn agent_answer(
     agent.running(&root)?.answer(request_id, &option_id)
 }
 
+/// The user's answer to a `Question`: `{field: label | [labels]}`, or null to skip it. Once.
+#[tauri::command]
+pub async fn agent_reply(
+    app: AppHandle,
+    project: State<'_, Project>,
+    agent: State<'_, Agent>,
+    request_id: u64,
+    content: Option<Value>,
+) -> Result<(), String> {
+    let (root, _) = open_root_and_data(&project, &app)?;
+    agent.running(&root)?.reply(request_id, content)
+}
+
+/// Sets a session `configOptions` entry (mode, model, ...); a `Config` event follows.
+#[tauri::command]
+pub async fn agent_set_config(
+    app: AppHandle,
+    project: State<'_, Project>,
+    agent: State<'_, Agent>,
+    config_id: String,
+    value: String,
+) -> Result<(), String> {
+    let (root, data) = open_root_and_data(&project, &app)?;
+    gate_for(&root, &data)?;
+    agent.running(&root)?.set_config(&config_id, &value).await
+}
+
 /// `{sessions, features}`: the adapter's sessions here and the feature → session map.
 #[tauri::command]
 pub async fn agent_list(

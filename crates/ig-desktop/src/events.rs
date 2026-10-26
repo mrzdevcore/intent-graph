@@ -58,6 +58,20 @@ pub enum AgentEvent {
         tool_call: Value,
         options: Value,
     },
+    /// The agent asks the user (`AskUserQuestion`): a form `schema` (`properties` of
+    /// `question_<n>` with `oneOf`/`items.anyOf` options); answer once with `agent_reply`.
+    Question {
+        request_id: u64,
+        session_id: String,
+        message: String,
+        schema: Value,
+    },
+    /// The session's settings (`configOptions`: mode, model, effort, ...), from `session/new`,
+    /// `session/load` and `config_option_update`; change one with `agent_set_config`.
+    Config {
+        session_id: String,
+        options: Value,
+    },
     /// `needed`: not logged in; the user runs `claude` and `/login` in a terminal. Never the account.
     Auth {
         needed: bool,
@@ -122,6 +136,10 @@ pub fn from_update(params: &Value) -> Option<AgentEvent> {
                     })
                 })
                 .collect(),
+        },
+        "config_option_update" => Config {
+            session_id,
+            options: field("configOptions"),
         },
         "plan" => Plan {
             session_id,

@@ -11,6 +11,7 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; display: flex; align-i
 header .toggle[aria-pressed="true"], .modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .counts { color: var(--muted); }
 main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; flex: 1; min-height: 0; }
+main.with-chat { grid-template-columns: 240px minmax(0, 1fr) 300px 400px; }
 #tree { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #tree-filter { font: inherit; font-size: 13px; margin: 10px 10px 4px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
 #tree > label { margin: 0 12px 6px; }
@@ -74,6 +75,7 @@ a { color: var(--accent); }
   #tree { border-right: 0; border-bottom: 1px solid var(--line); }
   #search { width: 100%; }
   #side { border-left: 0; border-top: 1px solid var(--line); }
+  main.with-chat { grid-template-columns: minmax(0, 1fr); grid-template-rows: 35vh 55vh auto 70vh; }
   header { padding: 10px 16px; }
 }
 #app { display: contents; }
@@ -92,3 +94,61 @@ ul.notes li.done { color: var(--muted); }
 #ig-code > header button { margin-left: auto; }
 #ig-code .host { flex: 1; min-height: 0; overflow: auto; }
 #ig-code .cm-mergeView { height: 100%; overflow: auto; }
+
+/* The chat panel (desktop app). */
+#chat { border-left: 1px solid var(--line); background: var(--panel); min-width: 0; min-height: 0; display: flex; }
+#chat[hidden] { display: none; }
+#ig-chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; font-size: 13px; }
+#ig-chat button { font: inherit; padding: 3px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+#ig-chat button:disabled { opacity: .5; cursor: default; }
+#ig-chat button.primary { background: var(--brand); border-color: var(--brand); color: #1d1d1b; font-weight: 600; }
+#ig-chat button:focus-visible, #ig-chat .card:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+#ig-chat select, #ig-chat textarea, #ig-chat input { font: inherit; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+#ig-chat .chat-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: nowrap; }
+#ig-chat .chat-head .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ig-chat .chat-head select { max-width: 55%; }
+#ig-chat .chat-bar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--muted); }
+#ig-chat .chat-bar label { display: flex; gap: 4px; align-items: center; }
+#ig-chat .usage { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+#ig-chat .usage meter { width: 60px; accent-color: var(--brand); }
+#ig-chat .transcript { flex: 1; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+#ig-chat .empty { margin: auto 0; text-align: center; }
+#ig-chat .msg.user { align-self: flex-end; max-width: 90%; background: var(--code); border-radius: 10px; padding: 6px 10px; white-space: pre-wrap; }
+#ig-chat .msg.thought { color: var(--muted); font-style: italic; }
+#ig-chat .msg.error { color: var(--error); padding: 4px 12px; }
+#ig-chat .md :first-child { margin-top: 0; } #ig-chat .md :last-child { margin-bottom: 0; }
+#ig-chat .md pre, #ig-chat pre { background: var(--code); padding: 6px 8px; border-radius: 6px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+#ig-chat code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+#ig-chat .card { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--bg); }
+#ig-chat .card.open { border-left: 3px solid var(--brand); }
+#ig-chat .card .row, #ig-chat .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+#ig-chat .card .reject { color: var(--error); }
+#ig-chat .card button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: #1d1d1b; }
+#ig-chat .qtitle { margin-top: 6px; font-weight: 600; }
+#ig-chat .other { width: 100%; margin-top: 6px; padding: 3px 8px; }
+#ig-chat .tool summary { cursor: pointer; display: flex; gap: 8px; align-items: center; }
+#ig-chat .tool .ttitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ig-chat .tool .loc { color: var(--muted); font-size: 12px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ig-chat .chip { font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
+#ig-chat .chip.completed { color: var(--added); border-color: var(--added); }
+#ig-chat .chip.failed { color: var(--error); border-color: var(--error); }
+#ig-chat .chip.in_progress { color: var(--brand); border-color: var(--brand); }
+#ig-chat .diff .row button { margin-left: auto; }
+#ig-chat .code-inline { height: 220px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 6px; margin-top: 6px; overflow: hidden; }
+#ig-chat .code-inline .host { flex: 1; min-height: 0; overflow: auto; }
+#ig-chat .screen { padding: 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+#ig-chat .screen h2 { font-size: 14px; margin: 0 0 8px; }
+#ig-chat .screen.stopped { border: 1px solid var(--error); border-radius: 8px; }
+#ig-chat .muted { color: var(--muted); }
+#ig-chat .composer { border-top: 1px solid var(--line); padding: 8px 12px; position: relative; }
+#ig-chat .composer textarea { width: 100%; resize: vertical; padding: 6px 8px; }
+#ig-chat .composer .row { justify-content: flex-end; }
+#ig-chat .composer .row .primary { margin-left: auto; }
+#ig-chat .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; align-items: center; }
+#ig-chat .chip-ctx { background: var(--code); border-radius: 6px; padding: 0 6px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+#ig-chat button.link { border: 0; background: none; color: var(--accent); padding: 0 4px; }
+#ig-chat .complete { position: absolute; bottom: 100%; left: 12px; right: 12px; margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.2); max-height: 240px; overflow: auto; }
+#ig-chat .complete button { width: 100%; text-align: left; border: 0; background: none; padding: 3px 6px; }
+#ig-chat .complete li[aria-selected="true"] button { background: var(--code); }
+#ig-chat #ig-trust { overflow: auto; border-bottom: 1px solid var(--line); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

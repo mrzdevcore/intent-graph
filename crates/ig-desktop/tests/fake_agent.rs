@@ -2,7 +2,9 @@
 //! no app build ships it; it serves only with `--serve`). It speaks
 //! the real adapter's message shapes (ACP spike, adapter 0.95.0); each prompt text picks a script:
 //! `stream`, `perm` (one permission request), `two` (two at once), `hang` (until cancelled),
-//! `crash` (exits mid-turn), `auth` (not logged in), `meta` (echoes session/new's `_meta`).
+//! `crash` (exits mid-turn), `auth` (not logged in), `meta` (echoes session/new's `_meta`),
+//! `ask` (an `AskUserQuestion` form, the answer echoed), `tour` (commands, title, usage, text, a
+//! permission and a question: what the chat's recorded fixture comes from).
 //! `--serve <file>` also appends what happened to `<file>`: `spawn`, then `answer <optionId>`s.
 
 use serde_json::{Value, json};
@@ -44,8 +46,18 @@ fn chunk(sid: &str, text: &str) {
     );
 }
 
+/// The adapter's `configOptions` (spike, trimmed): mode and model.
+fn config(mode: &str) -> Value {
+    json!([{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": mode,
+        "options": [{"value": "default", "name": "Manual"}, {"value": "acceptEdits", "name": "Accept edits"},
+            {"value": "plan", "name": "Plan"}]},
+        {"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "default",
+        "options": [{"value": "default", "name": "Default (recommended)"}, {"value": "sonnet", "name": "Sonnet"}]}])
+}
+
 fn tool_call(sid: &str, id: &str) -> Value {
     let call = json!({"toolCallId": id, "status": "pending", "title": format!("Write {id}.txt"), "kind": "edit",
+        "locations": [{"path": format!("/p/{id}.txt")}],
         "content": [{"type": "diff", "path": format!("/p/{id}.txt"), "oldText": null, "newText": "hi\n"}]});
     let mut u = call.clone();
     u["sessionUpdate"] = json!("tool_call");
@@ -101,8 +113,57 @@ impl Agent {
         }
     }
 
+    /// An `AskUserQuestion` as the adapter renders it (elicitation.js); the reply echoed as text.
+    fn question(&mut self, sid: &str) {
+        self.next_id += 1;
+        let id = self.next_id;
+        let field = json!({"type": "string", "title": "Scope", "oneOf": [
+            {"const": "Small", "title": "Small", "description": "One module"},
+            {"const": "Large", "title": "Large"}]});
+        send(
+            json!({"jsonrpc": "2.0", "id": id, "method": "elicitation/create", "params": {"mode": "form",
+            "sessionId": sid, "toolCallId": "q", "message": "How big?", "requestedSchema": {"type": "object",
+            "properties": {"question_0": field, "question_0_custom": {"type": "string", "title": "Other"}}}}}),
+        );
+        loop {
+            let m = self.read();
+            if m["id"] == id {
+                record(&format!("reply {}", m["result"]));
+                chunk(sid, &format!("answer: {}", m["result"]));
+                return;
+            }
+        }
+    }
+
     fn prompt(&mut self, sid: &str, text: &str) -> &'static str {
         match text {
+            "ask" => self.question(sid),
+            "tour" => {
+                update(
+                    sid,
+                    json!({"sessionUpdate": "available_commands_update", "availableCommands": [
+                    {"name": "compact", "description": "Compact the context", "input": null},
+                    {"name": "ig:plan", "description": "Plan a change", "input": {"hint": "what"}},
+                    {"name": "ig:explore", "description": "Explore the repo", "input": null}]}),
+                );
+                update(
+                    sid,
+                    json!({"sessionUpdate": "session_info_update", "title": "Tour"}),
+                );
+                for t in ["Here is **the", " plan**:\n\n- one", "\n- two\n"] {
+                    chunk(sid, t);
+                }
+                let call = tool_call(sid, "a");
+                let id = self.ask(sid, call);
+                self.answers(sid, &[(id, "a")]);
+                self.question(sid);
+                update(
+                    sid,
+                    json!({"sessionUpdate": "usage_update", "used": 31639, "size": 1000000,
+                    "cost": {"amount": 0.16, "currency": "USD"},
+                    "_meta": {"_claude/rateLimit": {"status": "allowed", "utilization": 0.42}}}),
+                );
+            }
             "stream" => {
                 for t in ["Hel", "lo", " world"] {
                     chunk(sid, t);
@@ -164,7 +225,7 @@ fn main() {
             }
             Some("session/new") => {
                 a.meta = p["_meta"].clone();
-                json!({"sessionId": "fake-1"})
+                json!({"sessionId": "fake-1", "configOptions": config("default")})
             }
             Some("session/load") => {
                 let sid = p["sessionId"].as_str().unwrap().to_string();
@@ -173,6 +234,10 @@ fn main() {
                     json!({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "earlier"}}),
                 );
                 json!({})
+            }
+            Some("session/set_config_option") => {
+                record(&format!("config {} {}", p["configId"], p["value"]));
+                json!({"configOptions": config(p["value"].as_str().unwrap_or(""))})
             }
             Some("session/list") => {
                 json!({"sessions": [{"sessionId": "fake-1", "cwd": p["cwd"], "title": "Fake"}]})

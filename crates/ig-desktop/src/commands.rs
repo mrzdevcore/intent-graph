@@ -178,6 +178,31 @@ pub fn remember(file: &Path, root: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(list)
 }
 
+/// An `http(s)` link only (the chat's links are agent text): never `file:`, `javascript:`, ...
+pub fn web_url(raw: &str) -> Option<String> {
+    let u = url::Url::parse(raw).ok()?;
+    matches!(u.scheme(), "http" | "https").then(|| u.to_string())
+}
+
+/// Opens a web link in the system browser; the webview never navigates away.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let u = web_url(&url).ok_or(format!("not a web link: {url}"))?;
+    let (cmd, pre): (&str, &[&str]) = if cfg!(target_os = "macos") {
+        ("open", &[])
+    } else if cfg!(windows) {
+        ("rundll32", &["url.dll,FileProtocolHandler"])
+    } else {
+        ("xdg-open", &[])
+    };
+    std::process::Command::new(cmd)
+        .args(pre)
+        .arg(u)
+        .spawn()
+        .map(drop)
+        .map_err(|e| format!("{cmd}: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,6 +230,22 @@ mod tests {
         let v = view_data_for(&dir, None, false).unwrap();
         assert!(v["nodes"].as_array().is_some_and(|n| !n.is_empty()), "{v}");
         assert!(view_data_for(&dir, Some(".."), false).is_err());
+    }
+
+    #[test]
+    fn only_web_links_open() {
+        assert_eq!(
+            web_url("https://x.org/a b").as_deref(),
+            Some("https://x.org/a%20b")
+        );
+        for bad in [
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "x",
+            "-a https://x.org",
+        ] {
+            assert_eq!(web_url(bad), None, "{bad}");
+        }
     }
 
     #[test]

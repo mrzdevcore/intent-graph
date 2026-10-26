@@ -152,6 +152,99 @@ fn a_permission_is_answered_once_with_the_adapters_option() {
 }
 
 #[test]
+fn a_question_is_answered_once_with_its_own_fields() {
+    block_on(async {
+        let r = Rig::new("ask").await;
+        r.s.start(None).await.unwrap();
+        let turn = r.prompt_in_background("ask");
+        let (id, message, schema) = r.next(|e| match e {
+            AgentEvent::Question {
+                request_id,
+                message,
+                schema,
+                ..
+            } => Some((request_id, message, schema)),
+            _ => None,
+        });
+        assert_eq!(message, "How big?");
+        assert_eq!(
+            schema["properties"]["question_0"]["oneOf"][0]["const"],
+            "Small"
+        );
+        assert!(r.s.answer(id, "reject").is_err(), "not a permission");
+        assert!(
+            r.s.reply(id, Some(json!({"other": "x"}))).is_err(),
+            "not its field"
+        );
+        assert!(
+            r.s.reply(id, Some(json!({"question_0": 3}))).is_err(),
+            "not a label"
+        );
+        r.s.reply(id, Some(json!({"question_0": "Small"}))).unwrap();
+        assert!(r.s.reply(id, None).is_err(), "answered twice");
+        assert_eq!(
+            r.text(),
+            r#"answer: {"action":"accept","content":{"question_0":"Small"}}"#
+        );
+        assert_eq!(turn.await.unwrap(), "end_turn");
+    });
+}
+
+#[test]
+fn config_options_arrive_with_the_session_and_can_be_set() {
+    block_on(async {
+        let r = Rig::new("config").await;
+        let mode = |r: &Rig| {
+            r.next(|e| match e {
+                AgentEvent::Config { options, .. } => Some(options[0]["currentValue"].clone()),
+                _ => None,
+            })
+        };
+        r.s.start(None).await.unwrap();
+        assert_eq!(mode(&r), "default");
+        r.s.set_config("mode", "plan").await.unwrap();
+        assert_eq!(mode(&r), "plan");
+        let rec = std::fs::read_to_string(r.root.join("rec.log")).unwrap();
+        assert!(rec.contains("config \"mode\" \"plan\""), "{rec}");
+    });
+}
+
+/// Records the `tour` script's events (a reject, a picked answer) as the chat reducer's fixture:
+/// `cargo test -p ig-desktop record_chat_fixture -- --ignored`.
+#[test]
+#[ignore]
+fn record_chat_fixture() {
+    block_on(async {
+        let r = Rig::new("fixture").await;
+        r.s.start(None).await.unwrap();
+        let turn = r.prompt_in_background("tour");
+        let mut all = vec![];
+        loop {
+            let e = r.next(Some);
+            all.push(serde_json::to_value(&e).unwrap());
+            match e {
+                AgentEvent::Permission { request_id, .. } => {
+                    r.s.answer(request_id, "reject").unwrap()
+                }
+                AgentEvent::Question { request_id, .. } => {
+                    r.s.reply(request_id, Some(json!({"question_0": "Small"})))
+                        .unwrap()
+                }
+                AgentEvent::Usage { .. } => break,
+                _ => {}
+            }
+        }
+        assert_eq!(turn.await.unwrap(), "end_turn");
+        let out = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../viewer/test/fixtures/agent-events.json"
+        );
+        std::fs::create_dir_all(Path::new(out).parent().unwrap()).unwrap();
+        std::fs::write(out, serde_json::to_string_pretty(&all).unwrap() + "\n").unwrap();
+    });
+}
+
+#[test]
 fn two_concurrent_permissions_are_each_answered_once() {
     block_on(async {
         let r = Rig::new("two").await;
@@ -382,5 +475,61 @@ fn real_adapter() {
         eprintln!("hello.txt exists: {}", root.join("hello.txt").exists());
         eprintln!("list: {}", r.s.list().await.unwrap());
         r.s.stop();
+    });
+}
+
+/// Task 7's check of `session/load` on the real adapter (2 prompts at most): a session with one
+/// tiny turn, then a new adapter process loads it and the history must replay. Same env as above.
+#[test]
+#[ignore]
+fn real_adapter_load() {
+    use crate::agent::adapter;
+    let var = |k| PathBuf::from(std::env::var_os(k).unwrap_or_else(|| panic!("{k} unset")));
+    let (root, data) = (
+        var("IG_AGENT_PROJ").canonicalize().unwrap(),
+        var("IG_AGENT_DATA"),
+    );
+    let cmd = adapter(&data, std::env::var_os("IG_AGENT_CMD").map(PathBuf::from)).unwrap();
+    let rig = |s: Session, rx| Rig {
+        root: PathBuf::new(),
+        s: Arc::new(s),
+        rx,
+    };
+    let sink = || {
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(tx);
+        let sink: Sink = Arc::new(move |e| {
+            let _ = tx.lock().unwrap().send(e);
+        });
+        (sink, rx)
+    };
+    block_on(async {
+        let (k, rx) = sink();
+        let r = rig(Session::spawn(&cmd, &[], &root, k).await.unwrap(), rx);
+        let id = r.s.start(None).await.unwrap();
+        let stop = r.s.prompt("Reply with the single word: pong", &[]).await;
+        eprintln!("session {id}: first turn {stop:?}");
+        wait(r.s.stop().unwrap(), 2000).await;
+
+        let (k, rx) = sink();
+        let r2 = rig(Session::spawn(&cmd, &[], &root, k).await.unwrap(), rx);
+        r2.s.load(&id).await.unwrap();
+        nap(1500).await.unwrap();
+        for e in r2.rx.try_iter() {
+            match e {
+                AgentEvent::MessageChunk { role, content, .. } => {
+                    eprintln!("replay {role}: {:?}", content["text"])
+                }
+                AgentEvent::Config { options, .. } => eprintln!(
+                    "replay config: {} options",
+                    options.as_array().map_or(0, Vec::len)
+                ),
+                e => eprintln!(
+                    "replay other: {}",
+                    serde_json::to_value(&e).unwrap()["type"]
+                ),
+            }
+        }
+        r2.s.stop();
     });
 }
