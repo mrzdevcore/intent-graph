@@ -10,7 +10,7 @@ use ig_fs::FsFiles;
 use ig_git::GitVcs;
 use ig_lang_ts::TsFrontend;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -101,6 +101,41 @@ pub fn ignored(root: &Path, p: &Path) -> bool {
     })
 }
 
+/// The `rel` paths (at most `MAX_CHECKED`; the rest count as not ignored) git ignores, by
+/// .gitignore, .git/info/exclude and the global excludes. Outside a repository: none.
+fn git_ignored(root: &Path, rel: &BTreeSet<PathBuf>) -> BTreeSet<PathBuf> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    const MAX_CHECKED: usize = 500;
+    let mut input = Vec::new();
+    for p in rel.iter().take(MAX_CHECKED) {
+        input.extend_from_slice(p.to_string_lossy().as_bytes());
+        input.push(0);
+    }
+    let Ok(mut child) = Command::new("git")
+        .current_dir(root)
+        .args(["check-ignore", "--stdin", "-z"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return BTreeSet::new();
+    };
+    let mut stdin = child.stdin.take().unwrap();
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let out = child.wait_with_output();
+    let _ = writer.join();
+    let Ok(out) = out else {
+        return BTreeSet::new();
+    };
+    out.stdout
+        .split(|b| *b == 0)
+        .filter(|s| !s.is_empty())
+        .map(|s| PathBuf::from(String::from_utf8_lossy(s).into_owned()))
+        .collect()
+}
+
 /// What changed in one quiet period: `full` when anything but plan notes (`*.notes.*`) and the
 /// files of a feature folder (all but its `plan.md`) did, `show` when `.ig/show.json` did (an
 /// agent's `ig_show`), `designs` the slugs of the feature folders touched.
@@ -146,19 +181,24 @@ pub fn watch(
     std::thread::spawn(move || {
         while let Ok(e) = rx.recv() {
             let (mut any, mut c) = (false, Changed::default());
+            let mut maybe: BTreeSet<PathBuf> = BTreeSet::new();
             let mut see = |e: notify::Result<notify::Event>| {
                 for p in e.iter().flat_map(|e| &e.paths) {
                     if *p == show {
                         any = true;
                         c.show = true;
                     } else if !ignored(&root, p) {
-                        any = true;
-                        if let Some(slug) = design_slug(p.strip_prefix(&root).unwrap_or(p)) {
+                        let rel = p.strip_prefix(&root).unwrap_or(p);
+                        if let Some(slug) = design_slug(rel) {
+                            any = true;
                             c.designs.insert(slug);
+                        } else if !rel
+                            .file_name()
+                            .is_some_and(|f| f.to_string_lossy().contains(".notes."))
+                        {
+                            maybe.insert(rel.to_path_buf());
                         } else {
-                            c.full |= !p
-                                .file_name()
-                                .is_some_and(|f| f.to_string_lossy().contains(".notes."));
+                            any = true;
                         }
                     }
                 }
@@ -166,6 +206,14 @@ pub fn watch(
             see(e);
             while let Ok(e) = rx.recv_timeout(Duration::from_millis(300)) {
                 see(e);
+            }
+            // Source-ish changes count unless git ignores every one of them (.nx, dist, coverage).
+            if !maybe.is_empty() {
+                let skip = git_ignored(&root, &maybe);
+                if maybe.iter().any(|p| !skip.contains(p)) {
+                    any = true;
+                    c.full = true;
+                }
             }
             if any {
                 on_change(c);
@@ -201,6 +249,40 @@ mod tests {
                 ..Changed::default()
             })
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn watch_skips_gitignored_changes_but_not_tracked_sources() {
+        let dir = std::env::temp_dir().join(format!("ig-wire-gi-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("dist")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let git = |a: &[&str]| {
+            assert!(
+                std::process::Command::new("git")
+                    .current_dir(&dir)
+                    .args(a)
+                    .status()
+                    .unwrap()
+                    .success()
+            )
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join(".gitignore"), "dist/\n").unwrap();
+        std::fs::create_dir_all(dir.join(".git/info")).unwrap();
+        std::fs::write(dir.join(".git/info/exclude"), "cov.out\n").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _w = watch(&dir, move |c| {
+            let _ = tx.send(c);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        std::fs::write(dir.join("dist/a.js"), "x").unwrap();
+        std::fs::write(dir.join("cov.out"), "x").unwrap();
+        assert!(rx.recv_timeout(Duration::from_secs(2)).is_err(), "ignored");
+        std::fs::write(dir.join("a.ts"), "export const a = 1;").unwrap();
+        assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().full);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
