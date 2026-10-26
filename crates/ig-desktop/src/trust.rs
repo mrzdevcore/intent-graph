@@ -20,8 +20,10 @@ const PLUGIN: &str = ".claude/skills/ig";
 const CLAUDE_DIR: &str = ".claude";
 /// A bigger file is not read: its path and size are hashed and it is listed as too large to inspect.
 const MAX_FILE: u64 = 1 << 20;
-/// The walk of `.claude/` stops here (ponytail: the rest goes unhashed; a note says so).
+/// The walk of `.claude/` stops here, and the project cannot be trusted (fails closed).
 const MAX_FILES: usize = 5_000;
+const TOO_MANY: &str =
+    "Too many files under .claude (over 5,000) for ig to check; trust is not possible";
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct HookSummary {
@@ -46,6 +48,8 @@ pub struct Inventory {
     pub any_files: bool,
     pub ig_plugin: bool,
     pub hash: String,
+    /// Why `.claude/` could not be fully checked: then the project cannot be trusted.
+    pub incomplete: Option<String>,
 }
 
 /// One hashed path's content, read once: the displayed inventory and the hash both come from it.
@@ -100,28 +104,30 @@ fn read_fixed(p: &Path) -> Content {
 }
 
 /// Every file under `dir`, sorted, at most `MAX_FILES`; symlinked directories are listed as links,
-/// not entered. Returns false when it stopped at the cap.
-fn files_under(dir: &Path, out: &mut Vec<PathBuf>) -> bool {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return true;
-    };
-    let mut kids: Vec<_> = rd.flatten().collect();
+/// not entered. An error when it stopped at the cap or a directory could not be read.
+fn files_under(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let rd = std::fs::read_dir(dir).map_err(|e| {
+        format!(
+            "{} cannot be read ({e}); trust is not possible",
+            dir.display()
+        )
+    })?;
+    let mut kids = vec![];
+    for e in rd {
+        kids.push(e.map_err(|e| format!("{}: {e}; trust is not possible", dir.display()))?);
+    }
     kids.sort_by_key(|e| e.file_name());
     for e in kids {
         if out.len() >= MAX_FILES {
-            return false;
+            return Err(TOO_MANY.into());
         }
         let p = e.path();
         match e.file_type() {
-            Ok(t) if t.is_dir() => {
-                if !files_under(&p, out) {
-                    return false;
-                }
-            }
+            Ok(t) if t.is_dir() => files_under(&p, out)?,
             _ => out.push(p),
         }
     }
-    true
+    Ok(())
 }
 
 /// "skill: x", "command: y", "agent: z" for a path relative to the root, if it is one.
@@ -261,12 +267,12 @@ fn settings_notes(rel: &str, v: &Value, hooks: &mut Vec<HookSummary>, notes: &mu
 pub fn inventory(root: &Path) -> Inventory {
     let (mut hooks, mut mcp, mut notes, mut unreadable) = (vec![], vec![], vec![], vec![]);
     let mut walked = vec![];
-    let complete = files_under(&root.join(CLAUDE_DIR), &mut walked);
-    if !complete {
-        notes.push(format!(
-            "more than {MAX_FILES} files under {CLAUDE_DIR}: the rest are not inspected"
-        ));
-    }
+    let claude = root.join(CLAUDE_DIR);
+    let incomplete = if claude.is_dir() {
+        files_under(&claude, &mut walked).err()
+    } else {
+        None
+    };
     // Each file is read once, path-sorted; an absent file hashes as absent, so adding one changes the hash.
     let mut files: BTreeMap<PathBuf, Content> = SETTINGS
         .iter()
@@ -405,6 +411,7 @@ pub fn inventory(root: &Path) -> Inventory {
         ig_plugin: root.join(PLUGIN).is_dir(),
         any_files,
         hash: h.finalize().iter().map(|b| format!("{b:02x}")).collect(),
+        incomplete,
     }
 }
 
@@ -427,10 +434,13 @@ fn key(root: &Path) -> String {
 }
 
 pub fn is_trusted(data_dir: &Path, root: &Path, inv: &Inventory) -> bool {
-    decisions(data_dir).get(&key(root)) == Some(&inv.hash)
+    inv.incomplete.is_none() && decisions(data_dir).get(&key(root)) == Some(&inv.hash)
 }
 
 pub fn trust(data_dir: &Path, root: &Path, inv: &Inventory) -> std::io::Result<()> {
+    if let Some(why) = &inv.incomplete {
+        return Err(std::io::Error::other(why.clone()));
+    }
     std::fs::create_dir_all(data_dir)?;
     let file = store(data_dir);
     // A trust.json that does not parse is kept aside, not silently erased.
@@ -460,6 +470,9 @@ pub fn trust_if(
     confirm: impl FnOnce(&Inventory) -> bool,
 ) -> Result<(), String> {
     let inv = inventory(root);
+    if let Some(why) = inv.incomplete {
+        return Err(why);
+    }
     if inv.hash != hash {
         return Err("the project's agent files changed: review them again".into());
     }

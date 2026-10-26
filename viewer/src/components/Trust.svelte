@@ -30,8 +30,9 @@
   {#if !state.any_files}
     <p>Nothing in the project runs on its own.</p>
   {/if}
+  {#if state.incomplete}<p role="alert"><strong>{state.incomplete}</strong></p>{/if}
   <p>
-    <button onclick={() => ontrust(state.hash)}>Trust</button>
+    {#if !state.incomplete}<button onclick={() => ontrust(state.hash)}>Trust</button>{/if}
     <button onclick={oncancel}>Cancel</button>
   </p>
 </div>

@@ -31,6 +31,8 @@
   let sessions = $state.raw<{ sessionId: string; title?: string }[]>([]);
   let features = $state.raw<Record<string, string>>({});
   let attached = $state<Selection>({ ids: [], files: [] });
+  /** The composer's draft: a send stopped by the trust card puts its text back. */
+  let draft = $state("");
   let transcript: HTMLElement;
 
   const msg = (e: unknown) => String((e as Error)?.message ?? e);
@@ -109,7 +111,7 @@
   async function send(text: string) {
     if (busy) return void (error = "The agent is starting; send again in a moment.");
     if (!s.sessionId) await start();
-    if (!s.sessionId) return;
+    if (!s.sessionId) return void (draft ||= text);
     const refs = attached.ids.map((id) => "node `" + id + "`");
     const full = refs.length ? text + "\n\nAttached: " + refs.join(", ") : text;
     const files = attached.files;
@@ -119,6 +121,7 @@
       dispatch({ type: "TurnEnded", stopReason: await agent.prompt(full, files) });
     } catch (e) {
       if (msg(e).startsWith("not trusted")) {
+        draft ||= text;
         await trusted();
         return;
       }
@@ -271,7 +274,7 @@
   {#if error}<div class="msg error" role="alert">{error}</div>{/if}
 
   {#if !trust}
-    <Composer commands={s.commands} running={s.running} {selection} bind:attached onsend={send}
+    <Composer commands={s.commands} running={s.running} {selection} bind:attached bind:text={draft} onsend={send}
       oncancel={() => agent.cancel().catch((e) => (error = msg(e)))} onplan={plan} />
   {/if}
 </section>

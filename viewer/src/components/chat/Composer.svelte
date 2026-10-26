@@ -11,17 +11,18 @@
 <script lang="ts">
   import { completions } from "../../model/chat";
 
-  let { commands, running, selection, attached = $bindable(), onsend, oncancel, onplan }: {
+  let { commands, running, selection, attached = $bindable(), text = $bindable(""), onsend, oncancel, onplan }: {
     commands: { name: string; description: string }[];
     running: boolean;
     selection: Selection | null;
     attached: Selection;
+    /** The draft: the chat keeps it while the composer is hidden (the trust card). */
+    text?: string;
     onsend: (text: string) => void;
     oncancel: () => void;
     onplan: () => void;
   } = $props();
 
-  let text = $state("");
   let active = $state(0);
   /** Esc closed the list: it stays closed until the text changes. */
   let closedAt = $state<string | null>(null);
