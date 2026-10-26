@@ -31,6 +31,8 @@ export function alpha(color: string, a: number): string {
 }
 
 const CLEAR = "rgba(0,0,0,0)";
+/** How far apart (pixels, each side) the two edges of an opposite pair run. */
+export const OFFSET = 4;
 
 export interface NodeAttrs {
   x: number;
@@ -72,6 +74,8 @@ export interface EdgeAttrs {
   step?: string;
   /** Between boxes (Architecture), whose names sigma doesn't draw: the count is drawn anyway. */
   boxed?: boolean;
+  /** Pixels to the edge's left: set when the opposite edge exists too. */
+  offset?: number;
   [k: string]: unknown;
 }
 
@@ -94,10 +98,12 @@ export interface Drawn {
 
 export interface ViewState {
   selected: string | null;
+  /** Forces the hovered node's label; <Graph> leaves it null, as sigma draws hovers itself. */
   hovered: string | null;
   show: { nodes: Set<string>; edges: Set<string> } | null;
-  tests: boolean;
   links: boolean;
+  /** Test nodes shown; <Graph> passes true, since App already drops them (`withTests`). */
+  tests: boolean;
   /** Fading (a click, a tree folder): only these stay bright. */
   focus: Set<string> | null;
 }
@@ -181,6 +187,8 @@ export function toGraphology(els: El[]): Graph<NodeAttrs, EdgeAttrs> {
       ctx: !!d.ctx, count: d.count, boxed: isBoxEnd(g.getNodeAttributes(d.source!)) && isBoxEnd(g.getNodeAttributes(d.target!)),
     });
   });
+  // Opposite edges run side by side: each shifts to its own left, so the pair lands on both sides.
+  g.forEachEdge((id, a) => g.setEdgeAttribute(id, "offset", g.outEdges(a.to, a.from).length ? OFFSET : 0));
   return g;
 }
 
