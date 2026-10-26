@@ -24,7 +24,7 @@ pub enum PortError {
 pub type Progress = dyn Fn(&str) + Sync;
 
 /// Files under a root fixed at construction; paths are posix and relative to that root.
-pub trait Files: Sync {
+pub trait Files: Send + Sync {
     /// None when missing or not a regular file.
     fn read_bytes(&self, path: &str) -> Option<Vec<u8>>;
     /// UTF-8 (lossy) contents.
@@ -69,7 +69,7 @@ impl Checkout {
 }
 
 /// The version control system the ig root lives in. Paths are relative to the ig root.
-pub trait Vcs {
+pub trait Vcs: Send + Sync {
     /// The same repository seen from `root` (a checkout's ig root).
     fn at(&self, root: &Path) -> Box<dyn Vcs>;
     /// The HEAD commit; None without commits.
@@ -105,7 +105,7 @@ pub struct CheckerOutput {
     pub notices: Vec<String>,
 }
 
-pub trait CheckerRunner: Sync {
+pub trait CheckerRunner: Send + Sync {
     /// Runs `checker` in `root`. `files` fills `{files}`: the files it should check, already
     /// filtered (None: the whole root). An empty list skips a `{files}` checker.
     fn run(&self, root: &Path, checker: &Checker, files: Option<&[String]>) -> CheckerOutput;
@@ -136,7 +136,7 @@ pub struct FrontendOutput {
     pub notices: Vec<String>,
 }
 
-pub trait LanguageFrontend: Sync {
+pub trait LanguageFrontend: Send + Sync {
     /// `config` is the one the tree is built with (`embedded` extensions, say).
     fn handles(&self, path: &str, config: &Config) -> bool;
     /// Extracts and resolves `files` (path and source) of `ws`, the ones this frontend handles.

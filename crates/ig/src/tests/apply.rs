@@ -7,11 +7,11 @@ use std::path::Path;
 
 fn start(dir: &Path, plan: &Path) -> anyhow::Result<()> {
     let (rel, text) = crate::read_plan(dir, plan)?;
-    apply::start(&env(dir), &rel, &text)
+    Ok(apply::start(&env(dir), &rel, &text)?)
 }
 
 fn finish(dir: &Path) -> anyhow::Result<u8> {
-    apply::finish(&env(dir), &mut String::new())
+    Ok(apply::finish(&env(dir), &mut String::new())?)
 }
 
 #[test]

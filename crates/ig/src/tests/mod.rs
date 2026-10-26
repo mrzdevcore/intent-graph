@@ -25,21 +25,21 @@ pub(crate) fn env(dir: &Path) -> ig_app::Env<'static> {
 pub(crate) fn build(root: &Path, config: &Config, commit: Option<String>) -> anyhow::Result<Built> {
     let w = Wired::new(root);
     let env = w.env();
-    ig_app::graph(&env, env.files, config, commit)
+    Ok(ig_app::graph(&env, env.files, config, commit)?)
 }
 
 pub(crate) fn load(root: &Path) -> anyhow::Result<Config> {
-    ig_app::config::load(&ig_fs::FsFiles::new(root))
+    Ok(ig_app::config::load(&ig_fs::FsFiles::new(root))?)
 }
 
 pub(crate) fn check_run(root: &Path, opts: &Opts) -> anyhow::Result<Run> {
-    check::run(&Wired::new(root).env(), opts)
+    Ok(check::run(&Wired::new(root).env(), opts)?)
 }
 
 /// `ig plan check` on the plan at `path`.
 pub(crate) fn plan_check(root: &Path, path: &Path) -> anyhow::Result<serde_json::Value> {
     let (rel, text) = crate::read_plan(root, path)?;
-    ig_app::plan::check(&Wired::new(root).env(), &rel, &text)
+    Ok(ig_app::plan::check(&Wired::new(root).env(), &rel, &text)?)
 }
 
 pub(crate) fn fixture_dir(name: &str) -> PathBuf {

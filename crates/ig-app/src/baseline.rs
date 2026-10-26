@@ -1,6 +1,6 @@
 //! `.ig/baseline.json`: accepted fingerprints and exceptions.
 
-use crate::Env;
+use crate::{Env, Error, Result};
 use ig_core::rules::baseline;
 use std::collections::HashSet;
 
@@ -8,16 +8,18 @@ pub const PATH: &str = ".ig/baseline.json";
 
 /// Baseline entries: fingerprint strings, or `{"fingerprint", "reason"}` exceptions. Empty when
 /// the file is absent; an error when it exists but doesn't parse.
-pub fn read(env: &Env) -> anyhow::Result<Vec<serde_json::Value>> {
-    let shown = env.root.join(PATH);
+pub fn read(env: &Env) -> Result<Vec<serde_json::Value>> {
+    let bad = |reason: String| Error::BaselineUnreadable {
+        path: env.root.join(PATH),
+        reason,
+    };
     match env.files.read_bytes(PATH) {
-        None if env.files.exists(PATH) => anyhow::bail!("{}: cannot be read", shown.display()),
+        None if env.files.exists(PATH) => Err(bad("cannot be read".into())),
         None => Ok(vec![]),
         Some(b) => {
-            let text = String::from_utf8(b).map_err(|_| {
-                anyhow::anyhow!("{}: stream did not contain valid UTF-8", shown.display())
-            })?;
-            baseline::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", shown.display()))
+            let text = String::from_utf8(b)
+                .map_err(|_| bad("stream did not contain valid UTF-8".into()))?;
+            baseline::parse(&text).map_err(|e| bad(e.to_string()))
         }
     }
 }
@@ -28,7 +30,7 @@ pub fn load(env: &Env) -> HashSet<String> {
 }
 
 /// Writes `fingerprints` as strings, keeping existing exception objects.
-pub fn write(env: &Env, fingerprints: impl IntoIterator<Item = String>) -> anyhow::Result<()> {
+pub fn write(env: &Env, fingerprints: impl IntoIterator<Item = String>) -> Result<()> {
     let items = baseline::with_fingerprints(fingerprints, read(env).unwrap_or_default());
     env.files
         .write_atomic(PATH, baseline::render(&items)?.as_bytes())?;

@@ -4,7 +4,7 @@
 
 pub use ig_core::notes::*;
 
-use anyhow::{Result, bail};
+use crate::{Result, bail};
 use ig_core::model::{Graph, suggest};
 use ig_core::ports::Files;
 use std::path::{Path, PathBuf};

@@ -335,7 +335,7 @@ pub struct ShownPlan {
 }
 
 /// `check::run` with `plan` overlaid. A plan that fails to load becomes a notice.
-pub fn run_with_plan(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> anyhow::Result<Run> {
+pub fn run_with_plan(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> crate::Result<Run> {
     let mut run = check::run(env, opts)?;
     let Some(ShownPlan {
         path,
@@ -368,7 +368,7 @@ pub fn run_with_plan(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> anyhow:
 }
 
 /// `ig view --json`: the data the page is built from.
-pub fn json(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> anyhow::Result<Value> {
+pub fn json(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> crate::Result<Value> {
     let run = run_with_plan(env, opts, plan)?;
     Ok(data(env, &run, opts))
 }

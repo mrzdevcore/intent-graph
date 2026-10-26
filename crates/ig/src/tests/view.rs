@@ -12,7 +12,7 @@ fn pick_plan(dir: &Path, explicit: Option<&Path>, no_plan: bool) -> Picked {
 }
 
 fn json(dir: &Path, opts: &Opts, p: &Picked) -> anyhow::Result<Value> {
-    view_data::json(&env(dir), opts, crate::shown_plan(dir, p))
+    Ok(view_data::json(&env(dir), opts, crate::shown_plan(dir, p))?)
 }
 
 fn write(dir: &Path, opts: &Opts, p: &Picked) -> anyhow::Result<PathBuf> {
