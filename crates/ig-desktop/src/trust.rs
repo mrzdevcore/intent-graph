@@ -43,6 +43,8 @@ enum Content {
     File(Vec<u8>),
     /// A symlink: its target path, never followed.
     Link(Vec<u8>),
+    /// A fixed top-level file that is a symlink to a regular file: its target path and the target's bytes.
+    Followed(Vec<u8>, Vec<u8>),
     /// A directory entry that is neither (FIFO, socket, ...): not read.
     Other,
 }
@@ -67,6 +69,19 @@ fn read_one(p: &Path) -> Content {
         }
         Ok(m) if m.is_file() => std::fs::read(p).map_or(Content::Absent, Content::File),
         Ok(_) => Content::Other,
+    }
+}
+
+/// A fixed top-level file: a symlink is followed for content; a dangling or non-regular target stays a `Link`.
+fn read_fixed(p: &Path) -> Content {
+    match (std::fs::symlink_metadata(p), std::fs::metadata(p)) {
+        (Ok(l), Ok(m)) if l.is_symlink() && m.is_file() => {
+            let target = std::fs::read_link(p).map(|t| raw(&t)).unwrap_or_default();
+            std::fs::read(p).map_or(Content::Link(target.clone()), |b| {
+                Content::Followed(target, b)
+            })
+        }
+        _ => read_one(p),
     }
 }
 
@@ -183,7 +198,7 @@ pub fn inventory(root: &Path) -> Inventory {
         .iter()
         .chain(&[MCP])
         .chain(&INSTRUCTIONS)
-        .map(|r| (PathBuf::from(r), read_one(&root.join(r))))
+        .map(|r| (PathBuf::from(r), read_fixed(&root.join(r))))
         .collect();
     for p in skill {
         if let Ok(rel) = p.strip_prefix(root) {
@@ -191,9 +206,30 @@ pub fn inventory(root: &Path) -> Inventory {
         }
     }
     let parsed = |rel: &str| match &files[Path::new(rel)] {
-        Content::File(b) => Some(serde_json::from_slice::<Value>(b).map_err(|_| ())),
-        _ => None,
+        Content::File(b) | Content::Followed(_, b) => {
+            Some(serde_json::from_slice::<Value>(b).map_err(|_| ()))
+        }
+        Content::Link(_) | Content::Other => Some(Err(())),
+        Content::Absent => None,
     };
+    // Fixed files that are symlinks: say where they point, or that they lead nowhere.
+    for rel in SETTINGS.iter().chain(&[MCP]).chain(&INSTRUCTIONS) {
+        match &files[Path::new(rel)] {
+            Content::Followed(t, _) => {
+                notes.push(format!("{rel} (symlink to {})", String::from_utf8_lossy(t)))
+            }
+            Content::Link(t) => {
+                notes.push(format!(
+                    "{rel} (symlink to {}) cannot be read",
+                    String::from_utf8_lossy(t)
+                ));
+                if INSTRUCTIONS.contains(rel) {
+                    unreadable.push(rel.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
     for rel in SETTINGS {
         match parsed(rel) {
             Some(Ok(v)) => settings_notes(rel, &v, &mut hooks, &mut notes),
@@ -229,7 +265,12 @@ pub fn inventory(root: &Path) -> Inventory {
     }
     let instructions = INSTRUCTIONS
         .iter()
-        .filter(|r| matches!(files[Path::new(r)], Content::File(_)))
+        .filter(|r| {
+            matches!(
+                files[Path::new(r)],
+                Content::File(_) | Content::Followed(..)
+            )
+        })
         .map(|r| r.to_string())
         .collect();
     let any_files = files.values().any(|c| !matches!(c, Content::Absent));
@@ -241,6 +282,13 @@ pub fn inventory(root: &Path) -> Inventory {
         match c {
             Content::Absent => h.update([0]),
             Content::Other => h.update([3]),
+            Content::Followed(t, b) => {
+                h.update([4]);
+                h.update((t.len() as u64).to_le_bytes());
+                h.update(t);
+                h.update((b.len() as u64).to_le_bytes());
+                h.update(b);
+            }
             Content::File(b) | Content::Link(b) => {
                 h.update([if matches!(c, Content::File(_)) { 1 } else { 2 }]);
                 h.update((b.len() as u64).to_le_bytes());
@@ -398,6 +446,38 @@ mod tests {
         }
         assert_eq!(inv.mcp, ["s: npx -y x"]);
         assert!(inv.any_files);
+        done(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_agent_files_are_followed() {
+        let (root, data) = scratch("follow");
+        let real = root.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("c.md"), "a").unwrap();
+        std::fs::write(
+            real.join("s.json"),
+            r#"{"hooks":{"Stop":[{"hooks":[{"command":"ig hook claude"}]}]}}"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(real.join("c.md"), root.join("CLAUDE.md")).unwrap();
+        std::os::unix::fs::symlink(real.join("s.json"), root.join(".claude/settings.json"))
+            .unwrap();
+        std::os::unix::fs::symlink(real.join("nope"), root.join("AGENTS.md")).unwrap();
+        let inv = inventory(&root);
+        assert_eq!(inv.instructions, ["CLAUDE.md"]);
+        assert_eq!(inv.hooks[0].command, "ig hook claude");
+        assert!(
+            inv.notes
+                .iter()
+                .any(|n| n.starts_with("CLAUDE.md (symlink to"))
+        );
+        assert_eq!(inv.unreadable, ["AGENTS.md"]);
+        trust(&data, &root, &inv).unwrap();
+        assert!(is_trusted(&data, &root, &inventory(&root)));
+        std::fs::write(real.join("c.md"), "b").unwrap();
+        assert!(!is_trusted(&data, &root, &inventory(&root)));
         done(&root);
     }
 
