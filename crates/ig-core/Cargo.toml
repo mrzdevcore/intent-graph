@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+ig-design = { path = "../ig-design" }
 globset = "0.4.20"
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }

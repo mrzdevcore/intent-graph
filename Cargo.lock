@@ -2099,11 +2099,21 @@ name = "ig-core"
 version = "0.1.0"
 dependencies = [
  "globset",
+ "ig-design",
  "regex",
  "serde",
  "serde_json",
  "serde_yaml_ng",
  "sha1",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ig-design"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
