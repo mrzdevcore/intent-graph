@@ -49,6 +49,22 @@ The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in developmen
 - **Chat:** streaming replies, tool cards, diffs in the merge view, permission and question cards, mode and model selectors (switching to a bypass mode asks to confirm), "Attach selection", "Plan this" and `/` commands.
 - **Code:** a file tree and a read-only code view with before/after. A **Tests** toggle shows test and spec files, hidden by default in every graph mode (the `tests` globs in `ig.yaml` decide what a test file is).
 
+### Design a feature
+
+The **Design** button (desktop app only) opens boards for a feature, with the chat docked on the right. A feature is a folder `plans/<slug>/` that you commit: `design.json` (the architecture), `screens/*.json` (your mockups), `assets/` (imported images), `notes.md` and `plan.md`. The spec is [docs/specs/design.md](docs/specs/design.md#design-boards).
+
+- **Architecture board:** pick a feature or press **New feature**, then place modules, functions, routes, external systems, sticky notes and frames next to the real code, and link them (calls, imports, renders, http, uses). Tools have one-key shortcuts shown in their tooltips (V select, M module, F function, R route, E external system, L link, N note, G frame). Cmd/Ctrl+Z and Shift+Z undo and redo, Cmd/Ctrl+C, V, D copy, paste and duplicate, Shift+1 fits the view. "Design around this" in the graph's side panel starts from the modules around a node.
+- **Live checks:** every edit is checked by the same Rust code as `ig plan check`. A forbidden link turns red with the reason on hover, and the header says how many questions are open, what is not built yet and how long the check took.
+- **Sticky notes** can be marked as questions. Answer them on the board or in the chat.
+- **Screens:** the **Screens** tab sketches the UI: screen frames, buttons, inputs, tables, modals and more (U opens the palette), a pen (P), arrows (A, an arrow onto another screen is a nav), states such as loading and error, and a PNG or JPEG as a locked background (I, paste or drop; SVG and GIF are refused, 10 MB at most).
+- **Bridge:** link a UI piece to the architecture by dragging it onto the architecture dock, or with K (by name). Hover a link to see the call chain from the screen to the data, with planned boxes dashed. Plan and Apply carry these links as requirements.
+- **Claude edits the boards:** ask in the docked chat. Claude changes the boards through `design_edit`; its changes glow gold, show in an edit card with **Show** and **Undo**, and are one undo step per turn. Your own edits are sent to Claude as short messages (adding or linking, not moving).
+- **Plan, then Apply:** **Plan** (Cmd/Ctrl+Enter) starts `/ig:plan` from the design. The plan must build every element, link and bridge, or list it under `omitted` with a reason; otherwise `ig plan check` reports `plan/design-gap`. **Apply** is enabled when the plan checks clean and runs `/ig:apply`, and the reviewer gets the screens and links. Mockups are context, never code: the UI uses your project's own components, and a missing one becomes a question.
+- **Keyboard and screen readers:** the board has a hidden element list: Up and Down select, Enter renames, Delete removes, and Claude's edits are announced.
+- **Graph view:** the Graph runs on WebGL (sigma.js) and highlights what Claude shows with `ig_show`.
+
+Dev hooks, for screenshots without clicking (set before launching the app): `IG_DESIGN=<slug>` opens Design on that feature, `IG_THEME=light|dark`, `IG_SURFACE=screens`, `IG_LINK=1` opens link mode. They are debug aids, not settings.
+
 ## Quick start
 
 ```sh

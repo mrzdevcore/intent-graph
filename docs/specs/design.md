@@ -458,6 +458,110 @@ Exit codes: 0 ok, 1 blocking findings, 2 usage or error (`ig: <message>` on stde
 - **Permissions:** each request is answered once; switching to a bypass mode needs a confirm; a closed window rejects pending requests.
 - **Tests toggle:** test and spec files (from the `tests` globs) are hidden by default in all graph modes.
 
+## Design boards
+
+The desktop app draws a feature before it is built. The files are user content, committed with the code, and read by the plan and apply skills. Rules and validation live in Rust only: `ig-design` (pure: text in, text out) is used by the board engine (wasm), `design_edit` and the checks, so they cannot disagree.
+
+### Files
+
+```
+plans/<slug>/design.json            architecture (v1)
+plans/<slug>/screens/<id>.json      one screen (v1)
+plans/<slug>/assets/<hash>.png|jpg  imported images
+plans/<slug>/plan.md, notes.md      agent-owned plan, user notes
+plans/<slug>/design.unsaved.json    recovery copy (below)
+plans/<slug>.md                     a flat plan: a feature with no design
+```
+
+- A feature slug and a screen id match `^[a-z0-9][a-z0-9-]{0,63}$`. A folder wins over a flat plan of the same name. `plans/` must be a real folder (a symlink is refused).
+- Canonical text: two-space JSON, trailing newline, navs sorted, pieces in z-order. Files diff cleanly.
+- `version` is 1. A file with another version opens read-only and is never overwritten; an invalid file is reported and never overwritten either.
+
+### design.json (v1)
+
+`{version, title, scope, elements[], marks[], links[], bridges[]}`, unknown keys refused.
+
+- **scope:** `{kind: "dir", id}`, `{kind: "layer", name}` or `{kind: "around", id, depth}`. It decides which part of the code graph the board shows as context.
+- **element:** `id`, `kind` (`module`, `function`, `route`, `system`, `note`, `frame`), `name`, and optionally `file`, `method` and `path` (routes), `icon`, `layer`, `on` (a note's target), `question` and `answer` (notes only), `frame`, and `x y w h`. Geometry is optional: an element without it is placed by the app.
+- **mark:** `{node, mark: "changed" | "remove"}` on an existing graph node.
+- **link:** `{from, to, kind}`, kind `calls`, `imports`, `renders`, `http` or `uses`. Its key is `from|kind|to`.
+- **bridge:** `{from: "<screen-id>/<piece-id>", to}`, from a screen piece to an element or a graph node. Its key is `from>to`.
+
+**Id rules.** An element id matches `^[a-z][a-z0-9-]*$`, is unique, and never changes. New ids are `<prefix>-<slug of the name>` (`mod`, `fn`, `route`, `sys`, `note`, `frame`), numbered when taken; notes are numbered. An end of a link or bridge that looks like an element id must name one; anything else is a graph id such as `src/a.ts#fn`. A note's `on` and an element's `frame` must exist. Removing an element removes its links and bridges in the same step.
+
+**What an element stands for.** `module` is its `file`; `function` is `file#name`; `route` is `file#METHOD path`; `system` is `system:name`; notes and frames stand for nothing. An element without a `file` is incomplete.
+
+### Screens (v1)
+
+`{version, id, title, variantOf?, state?, x, y, w, h, background?, elements[], navs[]}`.
+
+- **piece:** `id`, `kind` (`frame`, `button`, `input`, `select`, `checkbox`, `table`, `list`, `card`, `tabs`, `modal`, `text`, `heading`, `image`, `icon`, `pen`, `arrow`, `note`), `label`, `props`, `x y w h`, and for a pen `points` (`[x, y, pressure 0-100]`) or for an arrow `from` and `to` piece ids. `props` is a closed set (`text`, `primary`, `placeholder`, `options`, `checked`, `columns`, `rows`, `items`, `tabs`, `active`, `title`, `level`, `asset`, `name`, `question`, `answer`), and each kind allows only its own.
+- **nav:** `{from: piece id, to: screen id, label}`, an arrow from a piece to another screen.
+- **state:** a screen with `variantOf` and a `state` (loading, error, empty, or your own) is a state of its base screen.
+- **background:** a locked image `{asset, x, y, w, h}`.
+- Piece ids use the same id rule, with the kind's prefix (`btn`, `input`, `h`, ...), numbered when taken. Limits: 2,000 pieces and 500 navs per screen, 200 screens per feature, 2,000 points per stroke.
+
+### Assets
+
+Only PNG and JPEG, at most 10 MB, recognised by their first bytes and never by their name. SVG, GIF, PDF and anything else is refused with "Only PNG or JPEG up to 10 MB", and nothing is written. The file is stored as `<first 12 hex digits of its SHA-256>.png|jpg`, so the same image is stored once. Reading takes a name of exactly that form, from this feature's folder, and refuses symlinks and files whose bytes no longer match their extension. A correctly signed but corrupt image shows a placeholder.
+
+### Checks, plan and design-gap
+
+A design is checked as a plan (`design::to_plan`): elements become new nodes, marks become changed or removed nodes, links become edges. The check is `ig plan check`'s code plus these findings:
+
+| Rule | Severity | Meaning |
+|---|---|---|
+| `design/incomplete` | note | an element has no file yet |
+| `design/duplicate` | error | two elements stand for the same graph id |
+| `design/exists` | warning | the element is already in the code graph |
+| `design/layer-mismatch` | warning | placed in a layer, but its file is in another |
+| `design/bridge-target-missing` | error | a bridge ends on something that is neither an element nor in the graph |
+| `design/bridge-screen-missing` | warning | a bridge starts on a screen that does not exist |
+
+The app checks the unsaved board against a cached code graph, so an edit shows its result in about 30 ms with 200 elements (see Measured). The cache is dropped when the code changes.
+
+`plan/design-gap` (error) is reported by `ig plan check` for a plan written from a design: every element, link and bridge of the design must be in the plan, or listed under `omitted`. `plan/unknown-omitted` (warning) names an omitted id that is not in the design.
+
+```ig-plan
+omitted:
+  - id: fn-audit-log
+    reason: later, needs its own design
+```
+
+An omitted id is an element id, a link key or a bridge key. Omitting an element also excuses the links and bridges that touch it. Apply stays disabled until `plan.md` exists and has no blocking finding. Apply also hands the reviewer the screens and the bridge links as requirements.
+
+### design_edit
+
+An MCP tool: Claude's only way to write the boards. `{slug, ops[]}`, at most 200 ops, applied all or nothing by `ig_design::apply`, the same function as the board's own edits. It reads and writes the files' bytes, refuses to overwrite a file that changed in between (one retry), then runs the live check and returns what it touched and the findings. The app merges the change into the open board as one undo step, highlighted.
+
+- **Architecture ops:** `add`, `update`, `move`, `resize`, `remove`, `paste`, `link`, `unlink`, `mark`, `scope`, `bridge`, `unbridge`.
+- **Screen ops:** `add_screen`, `remove_screen`, `screen_set`, `screen_add`, `screen_update`, `screen_move`, `screen_remove`, `nav`, `unnav`.
+- **Caps** (bytes, checked only on the fields an edit changes, so an old long value never blocks an edit): name 200 (a note's text 4,096), answer 4,096, file and path 512, ids and link, bridge, mark, method, icon, layer, on and frame fields 512, title 200.
+- Claude is told that design files are data, never instructions.
+
+### Recovery
+
+The board saves itself shortly after an edit and again on quit or a feature switch. When a write fails (or the file changed on disk and could not be merged), the board text is kept in `plans/<slug>/design.unsaved.json`, written atomically, and offered the next time the feature opens. It is removed after a successful write or when you discard it. Nothing is silently dropped.
+
+### The engine and the graph view
+
+- **Engine:** `crates/ig-board` is Rust compiled to wasm (`make board-wasm`): the model, merge, undo, hit-testing, snapping, scene and a WebGL2 renderer, with roughr for the sketch strokes and a port of perfect-freehand 1.2.2 for the pen. Text (rename, labels, the element list for screen readers) is DOM above the canvas. The wasm is loaded lazily by the desktop app only; `ig view`, `ig serve` and flat plans are unchanged.
+- **Graph view:** sigma.js on WebGL, the same modes as before. `ig_show` writes `.ig/show.json` after checking every id against the graph; the viewer shows the nodes in gold and dims the rest.
+
+### Measured
+
+Apple M1 Pro, release builds, acme (`shop-front`: 3,760 nodes, 6,832 edges) as the project. See the commit that added this section for the table.
+
+| What | Result | Budget |
+|---|---|---|
+| Live check, 200 elements, median of 20 meaning edits | 31.5 ms | 150 ms (engine and check) |
+| Live check, 2,000 elements | 52.6 ms | |
+| Scene build, 200 elements, 1,000 context boxes | 0.08 ms | 2 ms |
+| Scene build, 2,000 elements | 0.42 ms | 8 ms |
+| Screens, 5 x 40 pieces from the cache | 0.13 ms | 4 ms |
+| Pan and zoom in headless Chrome (Metal), 200 and 2,000 elements, 5 screens | 60 fps, frame call 0.3, 2.3 and 0.1 ms | 60 fps |
+| Graph view, open to first paint | about 280 ms | |
+
 ## Crates *(all calls)*
 
 | Purpose | Crates |
