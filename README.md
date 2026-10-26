@@ -1,6 +1,8 @@
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/brand/lockup-dark.svg"><img alt="ig — intent-graph" src="assets/brand/lockup.svg" width="360"></picture></p>
+
 # intent-graph (`ig`)
 
-Code graph and change checker for TypeScript/JavaScript monorepos, written in Rust.
+**ig** (say *"eye-gee"*, short for *intent graph*) — code graph and change checker for TypeScript/JavaScript monorepos, written in Rust.
 
 `ig` parses the repo with oxc into a graph of modules, classes, functions, methods, tests and your own
 pattern nodes, then checks each change against it: architecture layers, complexity, `@intent` coverage,

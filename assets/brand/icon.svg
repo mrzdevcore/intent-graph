@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" role="img" aria-label="ig app icon">
+  <title>ig app icon</title>
+  <rect width="120" height="120" rx="27" fill="#1F232B"/>
+  <g transform="translate(9 9) scale(0.85)">
+  <path d="M30 42 Q30 22 60 22 Q90 22 90 42 V86 Q90 104 60 104 Q30 104 30 86 Z" stroke="#F3F4F6" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M35 28 L30 13 L46 23" stroke="#F3F4F6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M85 28 L90 13 L74 23" stroke="#F3F4F6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M56 62 L60 68 L64 62" stroke="#F3F4F6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="47" cy="48" r="11" stroke="#F3F4F6" stroke-width="3"/>
+  <circle cx="73" cy="48" r="11" stroke="#F3F4F6" stroke-width="3"/>
+  <circle cx="47" cy="48" r="4.5" fill="#F0BD4F"/>
+  <circle cx="73" cy="48" r="4.5" fill="#F0BD4F"/>
+  <path d="M60 78 L50 91" stroke="#F3F4F6" stroke-width="2.4"/>
+  <path d="M60 78 L70 91" stroke="#F0BD4F" stroke-width="2.4" stroke-dasharray="3 3"/>
+  <circle cx="60" cy="78" r="4" fill="#F3F4F6"/>
+  <circle cx="50" cy="91" r="4" fill="#F3F4F6"/>
+  <circle cx="70" cy="91" r="4" fill="#1F232B" stroke="#F0BD4F" stroke-width="2.2" stroke-dasharray="2.5 2.5"/>
+  </g>
+</svg>
