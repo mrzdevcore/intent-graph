@@ -185,14 +185,20 @@ impl Vcs for GitVcs {
     }
 
     fn list_files(&self) -> Vec<String> {
-        let Ok(out) = git(&self.root, &["ls-files", "-z", "-co", "--exclude-standard"]) else {
-            return vec![];
+        let list = |args: &[&str]| -> Vec<String> {
+            git(&self.root, args)
+                .map(|o| {
+                    o.split('\0')
+                        .filter(|f| !f.is_empty())
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default()
         };
-        let mut v: Vec<String> = out
-            .split('\0')
-            .filter(|f| !f.is_empty())
-            .map(String::from)
-            .collect();
+        let gone: std::collections::HashSet<String> =
+            list(&["ls-files", "-z", "--deleted"]).into_iter().collect();
+        let mut v = list(&["ls-files", "-z", "-co", "--exclude-standard"]);
+        v.retain(|f| !gone.contains(f));
         v.sort_unstable();
         v.dedup();
         v
