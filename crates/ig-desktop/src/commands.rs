@@ -1,6 +1,7 @@
 //! The project the app shows, the `view_data` command, and the recent-projects list.
 
-use crate::file_tree::{Entry, file_tree_for};
+use crate::bounded::{FileList, Gate};
+use crate::file_tree::{Entry, children, list_all};
 use crate::read_file::{FileText, read_file_for};
 use ig_app::check::Opts;
 use ig_app::view_data;
@@ -48,6 +49,7 @@ pub fn view_data_for(root: &Path, plan: Option<&str>, no_plan: bool) -> Result<V
 #[tauri::command]
 pub async fn view_data(
     project: tauri::State<'_, Project>,
+    gate: tauri::State<'_, Gate>,
     plan: Option<String>,
     no_plan: bool,
 ) -> Result<Value, String> {
@@ -55,39 +57,38 @@ pub async fn view_data(
     let Some(root) = root else {
         return Err("no project open: Project > Open… (⌘O)".into());
     };
-    tauri::async_runtime::spawn_blocking(move || view_data_for(&root, plan.as_deref(), no_plan))
-        .await
-        .map_err(|e| e.to_string())?
+    gate.run(move || view_data_for(&root, plan.as_deref(), no_plan))
+        .await?
 }
 
 /// The children of `dir` (None: the project root); see `file_tree::file_tree_for`.
 #[tauri::command]
 pub async fn file_tree(
     project: tauri::State<'_, Project>,
+    gate: tauri::State<'_, Gate>,
+    list: tauri::State<'_, FileList>,
     dir: Option<String>,
 ) -> Result<Vec<Entry>, String> {
     let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
     let Some(root) = root else {
         return Err("no project open: Project > Open… (⌘O)".into());
     };
-    tauri::async_runtime::spawn_blocking(move || file_tree_for(&root, dir.as_deref()))
-        .await
-        .map_err(|e| e.to_string())
+    let all = list.get(move || list_all(&root)).await?;
+    gate.run(move || children(&all, dir.as_deref())).await
 }
 
 /// One text file of the project; see `read_file::read_file_for`.
 #[tauri::command]
 pub async fn read_file(
     project: tauri::State<'_, Project>,
+    gate: tauri::State<'_, Gate>,
     path: String,
 ) -> Result<FileText, String> {
     let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
     let Some(root) = root else {
         return Err("no project open: Project > Open… (⌘O)".into());
     };
-    tauri::async_runtime::spawn_blocking(move || read_file_for(&root, &path))
-        .await
-        .map_err(|e| e.to_string())?
+    gate.run(move || read_file_for(&root, &path)).await?
 }
 
 /// What a session in the open project would run, and whether the user already trusted exactly that.

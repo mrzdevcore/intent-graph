@@ -39,17 +39,21 @@ fn walk(root: &Path, rel: &str, out: &mut Vec<String>) {
 
 /// The children of `dir` (None: the root), directories first, then files, alphabetical. Uses
 /// `git ls-files -co --exclude-standard`; outside git, a walk that skips `.git` and `node_modules`.
+#[cfg(test)]
 pub fn file_tree_for(root: &Path, dir: Option<&str>) -> Vec<Entry> {
-    let w = Wired::new(root);
-    let all = match w.vcs() {
+    children(&list_all(root), dir)
+}
+
+/// Every project file, relative and posix: the expensive part, cached by the command.
+pub fn list_all(root: &Path) -> Vec<String> {
+    match Wired::new(root).vcs() {
         Some(v) => v.list_files(),
         None => {
             let mut all = vec![];
             walk(root, "", &mut all);
             all
         }
-    };
-    children(&all, dir)
+    }
 }
 
 /// The children of `dir` (None: the root) among the project-relative `all` paths: directories first, then files.
