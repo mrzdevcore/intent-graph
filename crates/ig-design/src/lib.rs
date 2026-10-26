@@ -1,7 +1,9 @@
 //! design.json (v1): the user's architecture drawing for a feature. Pure: text in, text out.
 
+mod caps;
 mod ops;
 
+pub use caps::{MAX_FILE, MAX_ID, MAX_NAME, MAX_TEXT};
 pub use ops::{Board, ElementPatch, Op, Touched, apply};
 
 use serde::{Deserialize, Serialize};

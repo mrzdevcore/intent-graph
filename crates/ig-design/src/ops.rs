@@ -324,63 +324,6 @@ fn blank(id: &str, kind: ElementKind, name: &str) -> Element {
     }
 }
 
-/// Byte caps on what an edit writes (the board and `design_edit` alike).
-pub const MAX_NAME: usize = 200;
-pub const MAX_FILE: usize = 512;
-pub const MAX_TEXT: usize = 4096;
-pub const MAX_ID: usize = 512;
-
-fn cap(what: &str, s: &str, max: usize) -> Result<(), DesignError> {
-    if s.len() > max {
-        return Err(DesignError::Invalid(format!(
-            "{what} is longer than {max} bytes"
-        )));
-    }
-    Ok(())
-}
-
-/// The caps, on what the edit touched only: an old file never blocks an unrelated edit.
-fn caps(d: &Design, t: &Touched) -> Result<(), DesignError> {
-    for e in d.elements.iter().filter(|e| t.elements.contains(&e.id)) {
-        cap("an id", &e.id, MAX_ID)?;
-        let id = &e.id;
-        let name = if e.kind == ElementKind::Note {
-            MAX_TEXT
-        } else {
-            MAX_NAME
-        };
-        cap(&format!("{id}: the name"), &e.name, name)?;
-        cap(
-            &format!("{id}: the answer"),
-            e.answer.as_deref().unwrap_or(""),
-            MAX_TEXT,
-        )?;
-        for (f, v, max) in [
-            ("file", &e.file, MAX_FILE),
-            ("path", &e.path, MAX_FILE),
-            ("method", &e.method, MAX_ID),
-            ("icon", &e.icon, MAX_ID),
-            ("layer", &e.layer, MAX_ID),
-            ("on", &e.on, MAX_ID),
-            ("frame", &e.frame, MAX_ID),
-        ] {
-            cap(&format!("{id}: {f}"), v.as_deref().unwrap_or(""), max)?;
-        }
-    }
-    for l in d.links.iter().filter(|l| t.links.contains(&l.key())) {
-        cap("a link end", &l.from, MAX_ID)?;
-        cap("a link end", &l.to, MAX_ID)?;
-    }
-    for b in d.bridges.iter().filter(|b| t.bridges.contains(&b.key())) {
-        cap("a bridge end", &b.from, MAX_ID)?;
-        cap("a bridge end", &b.to, MAX_ID)?;
-    }
-    for m in d.marks.iter().filter(|m| t.elements.contains(&m.node)) {
-        cap("a marked node", &m.node, MAX_ID)?;
-    }
-    Ok(())
-}
-
 /// All or nothing: on any error the input board is untouched, and the result passes `validate`.
 pub fn apply(b: &Board, ops: &[Op]) -> Result<(Board, Touched), DesignError> {
     let mut d = b.design.clone();
@@ -388,7 +331,7 @@ pub fn apply(b: &Board, ops: &[Op]) -> Result<(Board, Touched), DesignError> {
     for op in ops {
         step(&mut d, op, &mut t)?;
     }
-    caps(&d, &t)?;
+    crate::caps::caps(&b.design, &d)?;
     validate(&d)?;
     Ok((Board { design: d }, t))
 }
@@ -396,6 +339,7 @@ pub fn apply(b: &Board, ops: &[Op]) -> Result<(Board, Touched), DesignError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::caps::*;
     use crate::empty;
 
     fn board() -> Board {
@@ -469,6 +413,26 @@ mod tests {
             )
             .is_ok()
         );
+        // a move of the over-long element itself is fine too: its name did not change
+        assert!(
+            apply(
+                &b,
+                &[Op::Move {
+                    id: "fn-b".into(),
+                    x: 1,
+                    y: 2
+                }]
+            )
+            .is_ok()
+        );
+        let scope = |id: String| {
+            vec![Op::Scope {
+                scope: Scope::Dir { id },
+            }]
+        };
+        assert!(apply(&b, &scope(long(MAX_ID))).is_ok());
+        let e = apply(&b, &scope(long(MAX_ID + 1))).unwrap_err().to_string();
+        assert_eq!(e, "design.json: the scope is longer than 512 bytes");
     }
 
     #[test]
