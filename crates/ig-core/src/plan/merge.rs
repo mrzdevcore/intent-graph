@@ -100,6 +100,8 @@ pub fn merge(head: &Graph, plan: &Plan) -> (Graph, HashSet<String>, Vec<Finding>
             .collect();
         if !missing.is_empty() {
             for m in missing {
+                // ig-app's design check finds the link of this finding by the message prefix
+                // "edge <from> <kind> <to>:" (design.rs, `link_of_message`): keep that format.
                 findings.push(plan_finding(
                     "plan/unknown-edge-end",
                     &e.from,

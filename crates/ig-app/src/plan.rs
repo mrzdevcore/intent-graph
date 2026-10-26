@@ -80,31 +80,52 @@ impl Head {
 pub fn check_text(env: &Env, path: &str, text: &str) -> crate::Result<Value> {
     let plan = parse(path, text)?;
     let mut v = check_plan(&Head::load(env)?, &plan)?;
-    let design = path
+    let dpath = path
         .strip_suffix("/plan.md")
-        .map(|d| format!("{d}/design.json"))
-        .and_then(|p| env.files.read_bytes(&p))
-        .and_then(|b| ig_core::design::parse(std::str::from_utf8(&b).ok()?).ok());
-    if let Some(d) = design {
-        let gaps = ig_core::design::gaps(&d, &plan);
-        v["design"] = json!({
-            "gaps": gaps.iter().filter(|f| f.rule_id == "plan/design-gap").count(),
-            "omitted": plan.omitted.iter().map(|o| json!({"id": o.id, "reason": o.reason})).collect::<Vec<_>>(),
-            "added": ig_core::design::extras(&d, &plan),
-        });
-        let f = v["findings"].as_array_mut().expect("findings");
-        f.extend(
-            gaps.iter()
-                .map(|g| serde_json::to_value(g).expect("finding")),
-        );
-        v["ok"] = json!(
-            !v["findings"]
-                .as_array()
-                .expect("findings")
-                .iter()
-                .any(|f| f["severity"] == "error")
-        );
+        .map(|d| format!("{d}/design.json"));
+    let Some(bytes) = dpath.as_ref().and_then(|p| env.files.read_bytes(p)) else {
+        return Ok(v);
+    };
+    let dpath = dpath.expect("read above");
+    let parsed = std::str::from_utf8(&bytes)
+        .map_err(|_| "not UTF-8".to_string())
+        .and_then(|t| ig_core::design::parse(t).map_err(|e| e.to_string()));
+    let mut add: Vec<Finding> = vec![];
+    match parsed {
+        Err(e) => {
+            let n = Finding::new(
+                "plan/design-unreadable",
+                Severity::Warning,
+                "ig",
+                &dpath,
+                0,
+                format!("{dpath} unreadable: {e}; design gaps not checked"),
+            )
+            .fingerprinted();
+            add.push(n);
+        }
+        Ok(d) => {
+            let gaps = ig_core::design::gaps(&d, &plan);
+            v["design"] = json!({
+                "gaps": gaps.iter().filter(|f| f.rule_id == "plan/design-gap").count(),
+                "omitted": plan.omitted.iter().map(|o| json!({"id": o.id, "reason": o.reason})).collect::<Vec<_>>(),
+                "added": ig_core::design::extras(&d, &plan),
+            });
+            add.extend(gaps);
+        }
     }
+    let f = v["findings"].as_array_mut().expect("findings");
+    f.extend(
+        add.iter()
+            .map(|g| serde_json::to_value(g).expect("finding")),
+    );
+    v["ok"] = json!(
+        !v["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .any(|f| f["severity"] == "error")
+    );
     Ok(v)
 }
 
@@ -296,6 +317,21 @@ mod tests {
         let v = check_text(&e, "plans/l.md", plan).unwrap();
         // Compared as values: key order depends on serde_json features other crates switch on.
         assert_eq!(v, serde_json::from_str::<Value>(PINNED).unwrap());
+    }
+
+    #[test]
+    fn a_malformed_sibling_design_is_a_warning_not_a_silent_skip() {
+        let files = MemFiles::with(&[("ig.yaml", CFG), ("plans/f/design.json", "<<<<<<< HEAD\n")]);
+        let (runner, fe) = (FakeRunner::default(), Fake::default());
+        let e = env(&files, None, &runner, &fe);
+        let v = check_text(&e, "plans/f/plan.md", "# F\n\n```ig-plan\nnodes: []\n```\n").unwrap();
+        let f = &v["findings"][0];
+        assert_eq!(
+            (f["ruleId"].as_str(), f["severity"].as_str()),
+            (Some("plan/design-unreadable"), Some("warning"))
+        );
+        assert_eq!(v["ok"], true);
+        assert!(v["design"].is_null());
     }
 
     #[test]

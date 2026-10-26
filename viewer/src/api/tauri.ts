@@ -34,7 +34,7 @@ export function tauri(): IgApi {
       read: (slug) => invoke<Design>("read_design", { slug }),
       write: (slug, design) => invoke<void>("write_design", { slug, design }),
       // Task 3 adds the command.
-      check: (slug, design) => invoke("check_design", { slug, design }),
+      check: (slug, design, seq) => invoke("check_design", { slug, design, seq }),
       onChanged: (cb) => subscribe<{ slug: string }>("design-changed", (e) => cb(e.slug)),
     },
     agent: {
