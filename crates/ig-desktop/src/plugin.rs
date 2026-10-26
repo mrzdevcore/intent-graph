@@ -27,9 +27,12 @@ fn ensure(
         return Ok(());
     }
     // An export that lists nothing (an older ig) must not prune what it just wrote.
-    let r = export(dir).and_then(|keep| match keep.is_empty() {
-        true => Err("ig plugin export listed no files".to_string()),
-        false => Ok(prune(dir, dir, &keep)),
+    let r = export(dir).and_then(|keep| {
+        if keep.is_empty() {
+            return Err("ig plugin export listed no files".to_string());
+        }
+        prune(dir, dir, &keep);
+        Ok(())
     });
     *done = r.is_ok();
     r
