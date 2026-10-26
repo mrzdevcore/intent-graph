@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { Design, Screen } from "../src/api";
 import type { ViewData, ViewEdge, ViewNode } from "../src/data";
+import { refitter } from "../src/board/host";
 import { Bridges, bridgeChain, designIndex, pickerItems, requirement, withDesign, type Board } from "../src/board/bridge";
 
 const node = (id: string, o: Partial<ViewNode> = {}): ViewNode => {
@@ -117,6 +118,9 @@ test("an element whose code exists is its real node: the chain goes on into real
     ? { ...e, method: "GET", path: "/api/patients", file: "api/routes/patients.ts" } : e) };
   const real = { ...D, edges: [...D.edges, edge("api/routes/patients.ts#GET /api/patients", "api/use-cases/list.ts#listPatients")] } as ViewData;
   expect(withDesign(real, d).nodes.some((n) => n.id === "export-route")).toBe(false);
+  const listed = pickerItems(real, { design: d, screens: {} }, "patients").filter((i) => i.id === "api/routes/patients.ts#GET /api/patients");
+  expect(listed).toEqual([{ id: "api/routes/patients.ts#GET /api/patients", label: "GET /api/patients", kind: "route" }]);
+  expect(pickerItems(real, { design: d, screens: {} }, "patients").some((i) => i.id === "export-route")).toBe(false);
   const c = bridgeChain(designIndex(real, d), d, "patients/export-csv", "Patient list")!;
   expect(c.steps.map((s) => [s.label, !!s.planned])).toEqual([
     ["GET /api/patients", false], ["exportPatients", true], ["PatientRepo.findAll", true], ["uses", false], ["listPatients", false],
@@ -133,4 +137,13 @@ test("a chain is not computed again for an edit that does not change its meaning
   const renamed: Design = { ...moved, elements: moved.elements.map((e) => (e.id === "export-patients" ? { ...e, name: "exportAll" } : e)) };
   expect(br.chain(D, renamed, "patients/export-csv", "Patient list")!.steps[1].label).toBe("exportAll");
   expect(br.builds).toBe(2);
+});
+
+test("a wanted fit waits for the size to change", () => {
+  const r = refitter();
+  expect(r.sized(800, 600)).toBe(false);
+  r.want();
+  expect(r.sized(800, 600)).toBe(false);
+  expect(r.sized(400, 600)).toBe(true);
+  expect(r.sized(800, 600)).toBe(false);
 });

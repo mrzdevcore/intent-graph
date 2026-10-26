@@ -526,7 +526,8 @@
       onclear={clearShow} onback={backShow} onstep={onStep} />{/if}
     {#if __BOARDS__ && api.design && designOpen}{#key designTry}{#await DesignView!() then V}<V.default {ix} api={api.design} graphScope={scope} {around} initial={initialDesign}
       beforeClose={api.beforeClose?.bind(api)} {chat} screensApi={api.screens ?? null} openCode={api.readFile ? openFile : undefined}
-      initialSurface={initialDesign && new URLSearchParams(location.search).get("surface")} />{:catch e}<div role="alert" style="position:absolute;inset:0;z-index:2;padding:15vh 16px 0;background:var(--bg)"><p>{loadFailed(e instanceof Error ? e.message : String(e))}</p><button onclick={() => designTry++}>Retry</button></div>{/await}{/key}{/if}
+      initialSurface={initialDesign && new URLSearchParams(location.search).get("surface")}
+      initialLink={!!initialDesign && new URLSearchParams(location.search).get("link") === "1"} />{:catch e}<div role="alert" style="position:absolute;inset:0;z-index:2;padding:15vh 16px 0;background:var(--bg)"><p>{loadFailed(e instanceof Error ? e.message : String(e))}</p><button onclick={() => designTry++}>Retry</button></div>{/await}{/key}{/if}
     {#if code}<CodeView path={code.path} text={code.text} merge={code.merge} line={code.line} onword={onWord} onclose={() => (code = null)} />{/if}
   </div>
   <div id="side" role="complementary">

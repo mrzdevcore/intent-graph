@@ -10,6 +10,11 @@
   } = $props();
 
   let q = $state("");
+  let input = $state<HTMLInputElement>();
+  /** Back to the search (K again while docked). */
+  export function focus() {
+    input?.focus();
+  }
   let at = $state(0);
   const list = $derived(items(q));
   const active = $derived(list[Math.min(at, list.length - 1)]);
@@ -26,7 +31,7 @@
 
 <div class="picker" role="dialog" aria-label="Link {piece} to the architecture">
   <!-- svelte-ignore a11y_autofocus -->
-  <input bind:value={q} autofocus placeholder="Link {piece} to…" aria-label="Filter link targets" role="combobox"
+  <input bind:this={input} bind:value={q} autofocus placeholder="Link {piece} to…" aria-label="Filter link targets" role="combobox"
     aria-expanded="true" aria-controls="bridge-targets" aria-activedescendant={active ? "bridge-" + list.indexOf(active) : undefined}
     oninput={() => (at = 0)} {onkeydown}>
   <ul id="bridge-targets" role="listbox">

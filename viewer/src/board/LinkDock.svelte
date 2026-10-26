@@ -13,7 +13,7 @@
   import type { BoardEngine, EngineOut } from "./engine";
   import Picker from "./Picker.svelte";
 
-  let { ix, context, version, engine, screens, selected, hover, ops, openCode, canvas, ondock }: {
+  let { ix, context, version, engine, screens, selected, hover, ops, openCode, canvas, ondock, initialLink = false }: {
     ix: Index;
     /** The architecture's context JSON. */
     context: string;
@@ -30,6 +30,8 @@
     /** The screens' canvas cell: where a drag leaves it, and where focus goes back. */
     canvas: () => HTMLElement | undefined;
     ondock: (docked: boolean) => void;
+    /** Opens link mode on the first linked (else first) piece once there is one (dev hook). */
+    initialLink?: boolean;
   } = $props();
 
   const EMPTY_CONTEXT = '{"lanes":[],"boxes":[],"edges":[]}';
@@ -37,6 +39,7 @@
   const bridges = new Bridges();
   let mini = $state<ReturnType<typeof Board>>();
   let host = $state<HTMLDivElement>();
+  let picker = $state<ReturnType<typeof Picker>>();
   /** Link mode: the piece being linked. */
   let linking = $state<string | null>(null);
   let hint = $state<string | null>(null);
@@ -83,9 +86,10 @@
     canvas()?.querySelector("canvas")?.focus();
   }
 
-  /** K: link mode for the selected piece. */
+  /** K: link mode for the selected piece; again while docked, back to the search. */
   export function start() {
-    if (isPiece(selected)) dock(selected);
+    if (linking) picker?.focus();
+    else if (isPiece(selected)) dock(selected);
     else hint = "Select a piece, then K links it to the architecture.";
   }
 
@@ -100,7 +104,7 @@
   /** A piece let go outside the screens' view at a client point: linked to the box there. */
   export function dropAt(id: string, cx: number, cy: number) {
     const r = host?.getBoundingClientRect();
-    if (!r || !inside(r, cx, cy)) return;
+    if (!r || !inside(r, cx, cy)) return collapse(); // let go on nothing
     const t = mini?.run((m) => m.hit(cx - r.left, cy - r.top));
     if (t) link(id, t);
   }
@@ -160,22 +164,38 @@
     });
   });
 
-  // docked or not, the board fits its new size
+  // docked or not, the board fits its new size once it has it
   $effect(() => {
     void linking;
-    untrack(() => mini?.fit());
+    untrack(() => mini?.fitAfterResize());
+  });
+
+  // Esc leaves link mode wherever focus is (the search, the docked board, the screens)
+  $effect(() => {
+    if (!linking) return;
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && collapse();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  });
+
+  // the IG_LINK dev hook: link mode on the first linked piece, else the first piece
+  let opened = false;
+  $effect(() => {
+    if (!initialLink || opened || !design) return;
+    const pieces = Object.values(screens).flatMap((sc) => sc.elements.map((p) => `${sc.id}/${p.id}`));
+    const k = design.bridges.find((b) => pieces.includes(b.from))?.from ?? pieces[0];
+    if (k) untrack(() => ((opened = true), dock(k)));
   });
   $effect(() => () => ondock(false));
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="dock" class:docked={!!linking} bind:this={host} onkeydown={(e) => e.key === "Escape" && (e.preventDefault(), collapse())}
+<div class="dock" class:docked={!!linking} bind:this={host}
   title={linking ? undefined : "The architecture: drag a piece here, or select one and click a box, to link it (K: by name)"}>
   <Board bind:this={mini} pick label="The architecture, to link pieces to; the element list follows"
     source={() => ({ board: engine()?.board() ?? BLANK, context: context || EMPTY_CONTEXT })} onout={miniOut} />
   {#if hint}<p class="hint" role="status">{hint}</p>{/if}
   {#if linking && design}
-    <Picker piece={describe(linking)} items={(q) => pickerItems(ix.D, { design, screens }, q)} onpick={(id) => link(linking!, id)} onclose={collapse} />
+    <Picker bind:this={picker} piece={describe(linking)} items={(q) => pickerItems(ix.D, { design, screens }, q)} onpick={(id) => link(linking!, id)} onclose={collapse} />
   {/if}
 </div>
 {#if badge}<div class="badge" aria-hidden="true">{badge}</div>{/if}

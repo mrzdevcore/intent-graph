@@ -7,7 +7,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { registerBoard } from "../model/boardselect";
   import type { A11yItem, BoardEngine, Camera, EngineInput, EngineOut, Label } from "./engine";
-  import { loadEngine, loadFailed, palette, release, type Importer } from "./host";
+  import { loadEngine, loadFailed, palette, refitter, release, type Importer } from "./host";
   import Labels from "./Labels.svelte";
   import EditOverlay from "./EditOverlay.svelte";
   import A11yList from "./A11yList.svelte";
@@ -233,10 +233,18 @@
     schedule();
   }
 
+  const refit = refitter();
   $effect(() => {
     void [width, height];
     resize();
+    if (refit.sized(width, height)) fit();
   });
+
+  /** Fits now and again once the board's size has changed (a CSS move resizes it later). */
+  export function fitAfterResize() {
+    refit.want();
+    fit();
+  }
 
   onMount(() => {
     void start();

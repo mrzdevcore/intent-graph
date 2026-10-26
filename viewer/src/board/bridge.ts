@@ -158,8 +158,13 @@ export function requirement(b: Board, from: string): string {
  *  elements before the graph's; at most 20. */
 export function pickerItems(D: ViewData, b: Board, q: string): { id: string; label: string; kind: string }[] {
   const k = q.trim().toLowerCase();
-  const items = b.design.elements.filter(drawn).map((e) => ({ id: e.id, name: e.name, label: label(e), kind: e.kind as string }))
-    .concat(D.nodes.filter((n) => !n.test && !n.planned).map((n) => ({ id: n.id, name: n.name, label: n.name, kind: n.kind })));
+  // an element whose code exists is listed once, as its real node with the design's name
+  const real = aliases(D, b.design);
+  const own = b.design.elements.filter(drawn)
+    .map((e) => ({ id: real.get(e.id) ?? e.id, name: e.name, label: label(e), kind: e.kind as string }));
+  const taken = new Set(own.map((i) => i.id));
+  const items = own.concat(D.nodes.filter((n) => !n.test && !n.planned && !taken.has(n.id))
+    .map((n) => ({ id: n.id, name: n.name, label: n.name, kind: n.kind })));
   const prefix = (i: { name: string; label: string }) => !!k && (i.name.toLowerCase().startsWith(k) || i.label.toLowerCase().startsWith(k));
   return items.filter((i) => !k || i.label.toLowerCase().includes(k) || i.id.toLowerCase().includes(k))
     .sort((a, b) => Number(prefix(b)) - Number(prefix(a))).slice(0, 20)
