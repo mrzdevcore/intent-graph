@@ -6,7 +6,7 @@
   import { NodeCircleProgram } from "sigma/rendering";
   import type { NodeDisplayData, PartialButFor } from "sigma/types";
   import { createNodeImageProgram } from "@sigma/node-image";
-  import { EdgeProgramWithDash } from "./dashed";
+  import { CurvedEdgeProgram, EdgeProgramWithDash, guide } from "./dashed";
   import { palette, setPalette } from "../model/sigma";
 
   type Drawn = PartialButFor<NodeDisplayData, "x" | "y" | "size" | "label" | "color"> & {
@@ -72,13 +72,19 @@
   }
 
   /** An edge's count or step badge, upright on a plate a third of the way from its source (two edges
-   *  between the same boxes, one each way, keep apart; one passing through a box's row skips its middle). */
-  function drawEdgeLabel(ctx: CanvasRenderingContext2D, d: { label?: string | null; color: string; offset?: number }, s: { x: number; y: number }, t: { x: number; y: number }) {
+   *  between the same boxes, one each way, keep apart; one passing through a box's row skips its
+   *  middle), or at a curve's apex. */
+  function drawEdgeLabel(ctx: CanvasRenderingContext2D, d: { label?: string | null; color: string; offset?: number; curve?: number }, s: { x: number; y: number }, t: { x: number; y: number }) {
     if (!d.label) return;
     // On its line's side when the pair is offset (the line's left, with the viewport's y down).
     const [dx, dy] = [t.x - s.x, t.y - s.y];
     const k = d.offset ? (d.offset * 2.5) / (Math.hypot(dx, dy) || 1) : 0;
-    const [x, y] = [s.x + dx * 0.35 + dy * k, s.y + dy * 0.35 - dx * k];
+    let [x, y] = [s.x + dx * 0.35 + dy * k, s.y + dy * 0.35 - dx * k];
+    if (d.curve) {
+      // The Bézier's middle; the viewport's y is flipped, so its left is the curve's -curve side.
+      const c = guide(s, t, -d.curve);
+      [x, y] = [(s.x + 2 * c.x + t.x) / 4 + dy * k, (s.y + 2 * c.y + t.y) / 4 - dx * k];
+    }
     ctx.font = `700 11px ${FONT}`;
     const w = ctx.measureText(d.label).width + 6;
     ctx.fillStyle = palette.panel;
@@ -101,8 +107,8 @@
   import type { Lane } from "../model/architecture";
   import type { El } from "../model/graph";
   import { positions } from "../model/layout";
-  import { alpha, background, badge, edgeReducer, groupAt, nodeReducer, toGraphology, type Background, type EdgeAttrs,
-    type NodeAttrs, type ViewState } from "../model/sigma";
+  import { alpha, background, badge, edgeReducer, edgeTip, frame, groupAt, LAYERS, MIN_SCALE, nodeReducer, toGraphology,
+    type Background, type EdgeAttrs, type NodeAttrs, type ViewState } from "../model/sigma";
 
   type Context = { id: string; edge: boolean; source: string; target: string; x: number; y: number };
   let { links, ontap, oncontext, ondrop, onlink }: {
@@ -115,6 +121,8 @@
   } = $props();
 
   let el: HTMLElement;
+  /** The hovered edge's tooltip. */
+  let tip = $state<{ text: string; x: number; y: number } | null>(null);
   let sg: Sigma<NodeAttrs, EdgeAttrs>;
   let g: Graph<NodeAttrs, EdgeAttrs>;
   let els: El[] = [];
@@ -213,7 +221,7 @@
       stagePadding: 30,
       defaultEdgeType: "dash",
       nodeProgramClasses: { circle: NodeCircleProgram as never, image: createNodeImageProgram({ size: { mode: "force", value: 96 }, padding: 0.15 }) as never },
-      edgeProgramClasses: { dash: EdgeProgramWithDash as never },
+      edgeProgramClasses: { dash: EdgeProgramWithDash as never, curve: CurvedEdgeProgram as never },
       defaultDrawNodeLabel: drawLabel as never,
       defaultDrawNodeHover: drawHover as never,
       defaultDrawEdgeLabel: drawEdgeLabel as never,
@@ -221,8 +229,8 @@
       edgeReducer: edgeReducer(st) as never,
     }));
     // Typed without the layer options, which it passes on.
-    s.createCanvasContext("bg", { beforeLayer: "edges" } as object);
-    s.createCanvasContext("boxes", { afterLayer: "edges" } as object);
+    s.createCanvasContext("bg", { beforeLayer: LAYERS.under } as object);
+    s.createCanvasContext("boxes", { afterLayer: LAYERS.over } as object);
     s.resize(true);
     s.on("beforeRender", () => taken.clear());
     s.on("afterRender", () => {
@@ -240,9 +248,18 @@
     };
     /** The click that ends a drag or a link is not a tap. */
     let swallow = false;
-    s.on("clickNode", ({ node }) => {
+    /** The box under a viewport point, for clicks that land on an invisible band anchor. */
+    const boxAt = (x: number, y: number) => {
+      const p = fromView(x, y);
+      return groupAt(bg, p.x, p.y);
+    };
+    s.on("clickNode", ({ node, event }) => {
       if (swallow) return void (swallow = false);
       const a = g.getNodeAttributes(node);
+      if (a.kind === "band") {
+        const hit = boxAt(event.x, event.y);
+        return void (hit && ontap({ id: hit, kind: kindOf[hit] }));
+      }
       if (!a.anchor) select(node);
       ontap({ id: node, kind: a.kind });
     });
@@ -254,9 +271,20 @@
       st.focus = null;
       select(null);
     });
-    // sigma draws the hovered node's label itself (drawHover): no reducer pass on hover.
-    s.on("enterNode", () => (el.style.cursor = "pointer"));
-    s.on("leaveNode", () => (el.style.cursor = ""));
+    // The hovered node's edges come forward with their counts (sigma draws its label, drawHover).
+    const hover = (id: string | null) => {
+      el.style.cursor = id ? "pointer" : "";
+      if (st.hovered === id) return;
+      st.hovered = id;
+      refresh();
+    };
+    s.on("enterNode", ({ node }) => hover(g.getNodeAttribute(node, "kind") === "band" ? null : node));
+    s.on("leaveNode", () => hover(null));
+    s.on("enterEdge", ({ edge, event }) => {
+      const m = event.original as MouseEvent;
+      tip = { text: edgeTip(g.getEdgeAttributes(edge), (n) => g.getNodeAttribute(n, "label")), x: m.clientX, y: m.clientY };
+    });
+    s.on("leaveEdge", () => (tip = null));
     // Planning gestures, turned into notes by <App>: right-click, drop, shift-drag a link.
     const context = (id: string, edge: boolean, o: MouseEvent | TouchEvent) => {
       const m = o as MouseEvent;
@@ -275,7 +303,7 @@
       const a = g.getNodeAttributes(node);
       swallow = false;
       if ((event.original as MouseEvent).button) return; // only the main button drags or links
-      if ((event.original as MouseEvent).shiftKey) linkFrom = node;
+      if ((event.original as MouseEvent).shiftKey) linkFrom = a.kind === "band" ? null : node;
       else if (!a.anchor && !["laneadd", "lane", "lanelabel"].includes(a.kind)) [dragged, moved] = [node, false];
     });
     s.on("moveBody", ({ event }) => {
@@ -296,7 +324,7 @@
       if (dragged && moved && g.hasNode(dragged)) ondrop({ id: dragged, y: -g.getNodeAttribute(dragged, "y") });
       [linkFrom, dragged, moved] = [null, null, false];
     };
-    s.on("upNode", ({ node }) => up(node));
+    s.on("upNode", ({ node, event }) => up(g.getNodeAttribute(node, "kind") === "band" ? boxAt(event.x, event.y) : node));
     s.on("upStage", ({ event }) => {
       const p = fromView(event.x, event.y);
       up(groupAt(bg, p.x, p.y));
@@ -328,7 +356,8 @@
     return el.clientWidth;
   }
 
-  /** Fits the camera on `ids` (all nodes, boxes and rows when empty), never closer than 1.4x. */
+  /** Fits the camera on `ids` (all nodes, boxes and rows when empty), never closer than 1.4x and, with
+   *  Architecture's boxes, never so far that their names drop under 11 px (`frame`). */
   function fit(ids: string[]) {
     const home = { x: 0.5, y: 0.5, ratio: 1, angle: 0 };
     // The matrix only follows the camera on the next frame: convert against the home state.
@@ -344,9 +373,10 @@
     const o = at(0, 0);
     const unit = Math.hypot(at(1, 0).x - o.x, at(1, 0).y - o.y); // pixels per graph unit at ratio 1
     const { width: W, height: H } = sg.getDimensions();
-    const ratio = Math.max((q.x - p.x) / Math.max(W - 60, 50), (q.y - p.y) / Math.max(H - 60, 50), unit / 1.4);
-    const c = sg.viewportToFramedGraph({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }, { cameraState: home });
-    sg.getCamera().setState({ x: c.x, y: c.y, ratio, angle: 0 });
+    const boxes = bg.groups.some((b) => b.kind === "layer" || b.kind === "dir");
+    const f = frame(p, q, W, H, unit, boxes ? MIN_SCALE : undefined);
+    const c = sg.viewportToFramedGraph({ x: f.x, y: f.y }, { cameraState: home });
+    sg.getCamera().setState({ x: c.x, y: c.y, ratio: f.ratio, angle: 0 });
   }
 
   /** Replaces the elements. Unless `fresh`, laid-out nodes keep their positions, so a new depth or a
@@ -473,3 +503,19 @@
 </script>
 
 <div id="cy" role="img" aria-label="Code graph" bind:this={el}></div>
+{#if tip}<div class="edge-tip" role="tooltip" style="left:{tip.x + 12}px;top:{tip.y + 12}px">{tip.text}</div>{/if}
+
+<style>
+  .edge-tip {
+    position: fixed;
+    z-index: 20;
+    pointer-events: none;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--fg);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+</style>
