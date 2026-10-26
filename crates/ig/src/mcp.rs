@@ -83,7 +83,7 @@ fn tools() -> Value {
                     "ops": {"type": "array", "maxItems": 200, "items": {"type": "object", "properties": {"op": {"type": "string", "enum":
                         ["add", "update", "move", "resize", "remove", "paste", "link", "unlink", "mark", "scope", "bridge", "unbridge"]}},
                         "required": ["op"]},
-                        "description": "Applied all or nothing, e.g. {op: add, kind: function, name, file, layer}, {op: link, from, to, kind: calls}, {op: update, id, set: {name}}, {op: remove, id}"}
+                        "description": "At most 200 ops, applied all or nothing, e.g. {op: add, kind: function, name, file, layer}, {op: link, from, to, kind: calls}, {op: update, id, set: {name}}, {op: remove, id}"}
                 },
                 "required": ["slug", "ops"]
             }
