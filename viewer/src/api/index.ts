@@ -21,6 +21,17 @@ export interface FileText {
   language: string;
 }
 
+/** What a Claude Code session in the project would run, and whether the user trusted exactly that. */
+export interface TrustState {
+  hooks: { event: string; command: string }[];
+  instructions: string[];
+  mcp: string[];
+  unreadable: string[];
+  ig_plugin: boolean;
+  hash: string;
+  trusted: boolean;
+}
+
 export interface IgApi {
   /** The plan options apply to the desktop app; `ig serve` picks its own. */
   viewData(opts?: { plan?: string; noPlan?: boolean }): Promise<ViewData>;
@@ -32,6 +43,10 @@ export interface IgApi {
   fileTree?(dir?: string): Promise<FileEntry[]>;
   /** Desktop app only: the text of a project file (relative path), read-only. Turns on the code view. */
   readFile?(path: string): Promise<FileText>;
+  /** Desktop app only: the trust gate. Show `Trust.svelte` before starting an agent unless `trusted`. */
+  trustInventory?(): Promise<TrustState>;
+  /** Desktop app only: trust the project as hashed (rejects if it changed since). */
+  trustProject?(hash: string): Promise<void>;
   /** Present when the backend supports plan notes (serve, desktop). */
   notes?: NotesApi;
 }
