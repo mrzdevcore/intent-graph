@@ -3,8 +3,10 @@
 //! skipped with a warning instead of failing every resolution in the package. Workspace packages are
 //! found by name, so `extends: "@acme/tsconfig/base.json"` works without `node_modules`.
 
+use ig_core::model::ParseError;
 use ig_core::workspace::WorkspaceInfo;
 use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -30,6 +32,45 @@ fn lexical(p: &Path) -> PathBuf {
             }
             c => out.push(c),
         }
+    }
+    out
+}
+
+/// A problem with a tsconfig: about one file, or a package specifier in `extends` that is not
+/// installed (reported once for every tsconfig that names it).
+#[derive(Debug)]
+pub enum Warning {
+    File(PathBuf, String),
+    MissingPackage(String, PathBuf),
+}
+
+/// The warnings as findings: one per file problem, one per missing package specifier (on the
+/// first tsconfig naming it, with the count).
+pub fn parse_errors(warnings: Vec<Warning>, root: &Path) -> Vec<ParseError> {
+    let rel =
+        |f: &Path| ig_core::workspace::rel(root, f).unwrap_or_else(|| f.display().to_string());
+    let mut missing: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut out = vec![];
+    for w in warnings {
+        match w {
+            Warning::File(f, message) => out.push(ParseError {
+                file: rel(&f),
+                message,
+            }),
+            Warning::MissingPackage(spec, f) => missing.entry(spec).or_default().push(rel(&f)),
+        }
+    }
+    for (spec, mut files) in missing {
+        files.sort();
+        files.dedup();
+        let n = files.len();
+        out.push(ParseError {
+            file: files.swap_remove(0),
+            message: format!(
+                "extends {spec:?}, which is not installed (no node_modules entry; install dependencies): the paths it would bring are ignored in {n} tsconfig{}",
+                if n == 1 { "" } else { "s" }
+            ),
+        });
     }
     out
 }
@@ -66,9 +107,15 @@ fn resolve_extends(from_dir: &Path, spec: &str, ws: &WorkspaceInfo) -> Option<Pa
             return Some(f);
         }
     }
+    // Node resolution, as TypeScript does it: node_modules walking up; a bare package may name its
+    // config in package.json "tsconfig" (ponytail: "exports" maps are not read).
     let mut dir = Some(from_dir);
     while let Some(d) = dir {
-        if let Some(f) = file_or_json(d.join("node_modules").join(spec)) {
+        let p = d.join("node_modules").join(spec);
+        let field = read_jsonc(&p.join("package.json"))
+            .and_then(|v| v.get("tsconfig")?.as_str().map(|t| p.join(t)))
+            .filter(|t| t.is_file());
+        if let Some(f) = field.or_else(|| file_or_json(p)) {
             return Some(f);
         }
         dir = d.parent();
@@ -80,7 +127,7 @@ fn load(
     path: &Path,
     ws: &WorkspaceInfo,
     seen: &mut Vec<PathBuf>,
-    warnings: &mut Vec<(PathBuf, String)>,
+    warnings: &mut Vec<Warning>,
 ) -> Flat {
     let mut flat = Flat::default();
     if seen.contains(&path.to_path_buf()) || seen.len() > 32 {
@@ -88,7 +135,7 @@ fn load(
     }
     seen.push(path.to_path_buf());
     let Some(v) = read_jsonc(path) else {
-        warnings.push((
+        warnings.push(Warning::File(
             path.to_path_buf(),
             "cannot be parsed; its paths are ignored".into(),
         ));
@@ -111,7 +158,10 @@ fn load(
                     flat.paths = parent.paths;
                 }
             }
-            None => warnings.push((
+            None if !e.starts_with('.') && !e.starts_with('/') => {
+                warnings.push(Warning::MissingPackage(e.to_string(), path.to_path_buf()))
+            }
+            None => warnings.push(Warning::File(
                 path.to_path_buf(),
                 format!("extends {e:?}, which is not found; its paths are ignored"),
             )),
@@ -162,13 +212,13 @@ impl Flattened {
     }
 
     /// Writes a flattened config for `path` and returns it (None when it has no baseUrl or paths),
-    /// plus warnings as (tsconfig path, message).
+    /// plus warnings (`parse_errors` turns them into findings).
     pub fn flatten(
         &self,
         idx: usize,
         path: &Path,
         ws: &WorkspaceInfo,
-    ) -> (Option<PathBuf>, Vec<(PathBuf, String)>) {
+    ) -> (Option<PathBuf>, Vec<Warning>) {
         let mut warnings = vec![];
         let flat = load(path, ws, &mut vec![], &mut warnings);
         if flat.base_url.is_none() && flat.paths.is_empty() {
@@ -238,7 +288,7 @@ mod tests {
         let f = Flattened::new();
         let (out, warnings) = f.flatten(0, &ws.root.join("apps/web/tsconfig.json"), &ws);
         assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].1.contains(".nuxt/tsconfig.json"));
+        assert!(matches!(&warnings[0], Warning::File(_, m) if m.contains(".nuxt/tsconfig.json")));
         let v: Value =
             serde_json::from_str(&std::fs::read_to_string(out.unwrap()).unwrap()).unwrap();
         let co = &v["compilerOptions"];
@@ -256,6 +306,60 @@ mod tests {
                 .unwrap()
                 .ends_with("packages/tsconfig/src/*")
         );
+
+        // Package specifiers resolve through node_modules, walking up: a file in the package, the
+        // package root's tsconfig.json, or its package.json "tsconfig" field.
+        w(
+            "node_modules/@tsconfig/node22/tsconfig.json",
+            r#"{"compilerOptions":{"baseUrl":"./a"}}"#,
+        );
+        w(
+            "node_modules/@acme/cfg/package.json",
+            r#"{"name":"@acme/cfg","tsconfig":"./cfg/base.json"}"#,
+        );
+        w(
+            "node_modules/@acme/cfg/cfg/base.json",
+            r#"{"compilerOptions":{"baseUrl":"./b"}}"#,
+        );
+        for (name, ext) in [
+            ("node1", "@tsconfig/node22/tsconfig.json"),
+            ("node2", "@tsconfig/node22"),
+            ("node3", "@acme/cfg"),
+        ] {
+            w(
+                &format!("apps/web/{name}.json"),
+                &format!(r#"{{"extends":"{ext}"}}"#),
+            );
+            let (out, warnings) = f.flatten(1, &ws.root.join(format!("apps/web/{name}.json")), &ws);
+            assert!(warnings.is_empty(), "{ext}");
+            assert!(out.is_some(), "{ext}");
+        }
+
+        // A package that is not installed: one finding per specifier, however many tsconfigs.
+        let mut all = vec![];
+        for app in ["a", "b", "c"] {
+            w(
+                &format!("micro/{app}/tsconfig.node.json"),
+                r#"{"extends":"@tsconfig/node20/tsconfig.json"}"#,
+            );
+            all.extend(
+                f.flatten(
+                    2,
+                    &ws.root.join(format!("micro/{app}/tsconfig.node.json")),
+                    &ws,
+                )
+                .1,
+            );
+        }
+        all.extend(warnings);
+        let errors = parse_errors(all, &ws.root);
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        let pkg = errors
+            .iter()
+            .find(|e| e.message.contains("node20"))
+            .unwrap();
+        assert_eq!(pkg.file, "micro/a/tsconfig.node.json");
+        assert!(pkg.message.contains("3 tsconfigs"), "{}", pkg.message);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
