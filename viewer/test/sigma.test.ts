@@ -3,7 +3,7 @@ import type { ViewData } from "../src/data";
 import { architecture } from "../src/model/architecture";
 import { changedIds, exact } from "../src/model/changed";
 import { index, type El } from "../src/model/graph";
-import { background, edgeReducer, groupAt, nodeReducer, palette, toGraphology, type ViewState } from "../src/model/sigma";
+import { background, edgeReducer, groupAt, nodeReducer, OFFSET, palette, toGraphology, type ViewState } from "../src/model/sigma";
 import fixture from "./fixture-data.json";
 
 const ix = index(fixture as ViewData);
@@ -97,4 +97,14 @@ test("edgeReducer: planned dashed, violations red, cross links hidden when links
   const shown = edgeReducer(state({ show: { nodes: new Set(), edges: new Set(["a|b"]) } }));
   expect(shown("e", e).color).toBe(palette.brand);
   expect(shown("f", { ...e, to: "c" }).color).toMatch(/0\.15\)$/);
+});
+
+test("opposite edges run side by side, single edges on the line", () => {
+  const g = toGraphology(architecture(ix, ix.root));
+  const at = (a: string, b: string) => g.getEdgeAttributes(g.outEdges(a, b)[0]).offset;
+  // core → ui and ui → core: each shifts OFFSET to its own left, so they sit on opposite sides.
+  expect(at("g:/L:core", "g:/L:ui")).toBe(OFFSET);
+  expect(at("g:/L:ui", "g:/L:core")).toBe(OFFSET);
+  expect(OFFSET).toBeGreaterThan(0);
+  expect(at("g:/L:app", "g:/L:ui")).toBe(0);
 });

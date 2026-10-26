@@ -73,9 +73,12 @@
 
   /** An edge's count or step badge, upright on a plate a third of the way from its source (two edges
    *  between the same boxes, one each way, keep apart; one passing through a box's row skips its middle). */
-  function drawEdgeLabel(ctx: CanvasRenderingContext2D, d: { label?: string | null; color: string }, s: { x: number; y: number }, t: { x: number; y: number }) {
+  function drawEdgeLabel(ctx: CanvasRenderingContext2D, d: { label?: string | null; color: string; offset?: number }, s: { x: number; y: number }, t: { x: number; y: number }) {
     if (!d.label) return;
-    const [x, y] = [s.x + (t.x - s.x) * 0.35, s.y + (t.y - s.y) * 0.35];
+    // On its line's side when the pair is offset (the line's left, with the viewport's y down).
+    const [dx, dy] = [t.x - s.x, t.y - s.y];
+    const k = d.offset ? (d.offset * 2.5) / (Math.hypot(dx, dy) || 1) : 0;
+    const [x, y] = [s.x + dx * 0.35 + dy * k, s.y + dy * 0.35 - dx * k];
     ctx.font = `700 11px ${FONT}`;
     const w = ctx.measureText(d.label).width + 6;
     ctx.fillStyle = palette.panel;
@@ -229,7 +232,7 @@
         performance.mark("ig:graph-painted");
       }
     });
-    (window as unknown as { igSigma: Sigma }).igSigma = s as unknown as Sigma; // for debugging from the console
+    if (import.meta.env.DEV) (window as unknown as { igSigma: Sigma }).igSigma = s as unknown as Sigma; // for the console
 
     const select = (id: string | null) => {
       st.selected = id;
@@ -251,16 +254,9 @@
       st.focus = null;
       select(null);
     });
-    s.on("enterNode", ({ node }) => {
-      st.hovered = node;
-      el.style.cursor = "pointer";
-      refresh();
-    });
-    s.on("leaveNode", () => {
-      st.hovered = null;
-      el.style.cursor = "";
-      refresh();
-    });
+    // sigma draws the hovered node's label itself (drawHover): no reducer pass on hover.
+    s.on("enterNode", () => (el.style.cursor = "pointer"));
+    s.on("leaveNode", () => (el.style.cursor = ""));
     // Planning gestures, turned into notes by <App>: right-click, drop, shift-drag a link.
     const context = (id: string, edge: boolean, o: MouseEvent | TouchEvent) => {
       const m = o as MouseEvent;
@@ -384,7 +380,8 @@
     // A fixed frame: dragging a node or a rebuild must not rescale the view.
     sg.setCustomBBox(x0 === Infinity ? null : { x: [x0, x1], y: [y0, y1] });
     if (st.selected && !g.hasNode(st.selected)) st.selected = null;
-    st.focus = null;
+    if (o.fresh) st.focus = null; // a rebuild of the same view keeps its fading
+    deco = Object.fromEntries(Object.entries(deco).filter(([id]) => known.has(id)));
     sg.refresh();
     if (!o.keepCamera) {
       const t = o.zoomTo && known.has(o.zoomTo) ? o.zoomTo : null;

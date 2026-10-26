@@ -1,6 +1,7 @@
 // The graph's edge program: sigma's clamped edge (it stops short of the target for the arrow head)
-// with a dash pattern in screen pixels, from the edge's `dash` attribute (0 draws a solid line).
-// Planned, removed, HTTP and guessed edges use it; the arrow head is sigma's.
+// with a dash pattern in screen pixels, from the edge's `dash` attribute (0 draws a solid line), and
+// sigma's arrow head. Both shift `offset` pixels to the edge's left, so the two edges of an opposite
+// pair (A→B, B→A) run side by side instead of on one line.
 
 import { createEdgeCompoundProgram, EdgeArrowHeadProgram, EdgeProgram } from "sigma/rendering";
 import type { RenderParams } from "sigma/types";
@@ -18,6 +19,7 @@ attribute float a_positionCoef;
 attribute float a_radius;
 attribute float a_radiusCoef;
 attribute float a_dash;
+attribute float a_offset;
 uniform mat3 u_matrix;
 uniform float u_zoomRatio;
 uniform float u_sizeRatio;
@@ -46,7 +48,8 @@ void main() {
   float webGLNodeRadius = direction * radius * 2.0 * u_correctionRatio / u_sizeRatio;
   float webGLArrowHeadLength = webGLThickness * arrowHead * 2.0;
   vec2 compensationVector = vec2(-direction * unitNormal.y, direction * unitNormal.x) * (webGLNodeRadius + webGLArrowHeadLength);
-  gl_Position = vec4((u_matrix * vec3(position + unitNormal * webGLThickness + compensationVector, 1)).xy, 0, 1);
+  vec2 shift = normalize(a_normal) * a_offset * u_correctionRatio;
+  gl_Position = vec4((u_matrix * vec3(position + shift + unitNormal * webGLThickness + compensationVector, 1)).xy, 0, 1);
   vec2 s = (u_matrix * vec3(a_positionStart, 1)).xy;
   vec2 e = (u_matrix * vec3(a_positionEnd, 1)).xy;
   v_along = a_positionCoef * length((e - s) * u_dimensions * 0.5);
@@ -91,7 +94,7 @@ class EdgeDashProgram extends EdgeProgram<(typeof UNIFORMS)[number]> {
         { name: "a_positionStart", size: 2, type: FLOAT }, { name: "a_positionEnd", size: 2, type: FLOAT },
         { name: "a_normal", size: 2, type: FLOAT }, { name: "a_color", size: 4, type: UNSIGNED_BYTE, normalized: true },
         { name: "a_id", size: 4, type: UNSIGNED_BYTE, normalized: true }, { name: "a_radius", size: 1, type: FLOAT },
-        { name: "a_dash", size: 1, type: FLOAT },
+        { name: "a_dash", size: 1, type: FLOAT }, { name: "a_offset", size: 1, type: FLOAT },
       ],
       CONSTANT_ATTRIBUTES: [{ name: "a_positionCoef", size: 1, type: FLOAT }, { name: "a_normalCoef", size: 1, type: FLOAT },
         { name: "a_radiusCoef", size: 1, type: FLOAT }],
@@ -114,6 +117,7 @@ class EdgeDashProgram extends EdgeProgram<(typeof UNIFORMS)[number]> {
     a[i++] = edgeIndex;
     a[i++] = dst.size || 1;
     a[i++] = (data as EdgeDisplayData & { dash?: number }).dash || 0;
+    a[i++] = (data as EdgeDisplayData & { offset?: number }).offset || 0;
   }
 
   setUniforms(p: RenderParams, { gl, uniformLocations: u }: { gl: WebGLRenderingContext; uniformLocations: Record<string, WebGLUniformLocation> }) {
@@ -128,5 +132,26 @@ class EdgeDashProgram extends EdgeProgram<(typeof UNIFORMS)[number]> {
   }
 }
 
-/** Dashed or solid line, then sigma's arrow head. */
-export const EdgeProgramWithDash = createEdgeCompoundProgram([EdgeDashProgram, EdgeArrowHeadProgram]);
+/** sigma's arrow head, shifted like its line (its `a_normal` points the other way). */
+// Typed opaque by sigma: seen as a concrete edge program of the same shape.
+const ArrowHeadBase = EdgeArrowHeadProgram as unknown as new (...a: ConstructorParameters<typeof EdgeDashProgram>) => EdgeDashProgram;
+
+class ArrowHeadProgram extends ArrowHeadBase {
+  getDefinition() {
+    const d = super.getDefinition();
+    return {
+      ...d,
+      VERTEX_SHADER_SOURCE: d.VERTEX_SHADER_SOURCE.replace("attribute float a_radius;", "attribute float a_radius;\nattribute float a_offset;")
+        .replace("vec3(a_position + delta, 1)", "vec3(a_position + delta - normalize(a_normal) * a_offset * u_correctionRatio, 1)"),
+      ATTRIBUTES: [...d.ATTRIBUTES, { name: "a_offset", size: 1, type: FLOAT }],
+    };
+  }
+
+  processVisibleItem(edgeIndex: number, i: number, src: NodeDisplayData, dst: NodeDisplayData, data: EdgeDisplayData) {
+    super.processVisibleItem(edgeIndex, i, src, dst, data);
+    this.array[i + 7] = (data as EdgeDisplayData & { offset?: number }).offset || 0; // after its 7 floats
+  }
+}
+
+/** Dashed or solid line, then the arrow head. */
+export const EdgeProgramWithDash = createEdgeCompoundProgram([EdgeDashProgram, ArrowHeadProgram]);
