@@ -9,8 +9,19 @@ use std::path::{Path, PathBuf};
 
 const SETTINGS: [&str; 2] = [".claude/settings.json", ".claude/settings.local.json"];
 const MCP: &str = ".mcp.json";
-const INSTRUCTIONS: [&str; 3] = ["AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"];
+const INSTRUCTIONS: [&str; 4] = [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    ".claude/CLAUDE.md",
+];
 const PLUGIN: &str = ".claude/skills/ig";
+/// Everything under here is hashed: skills, commands, agents, output styles, ...
+const CLAUDE_DIR: &str = ".claude";
+/// A bigger file is not read: its path and size are hashed and it is listed as too large to inspect.
+const MAX_FILE: u64 = 1 << 20;
+/// The walk of `.claude/` stops here (ponytail: the rest goes unhashed; a note says so).
+const MAX_FILES: usize = 5_000;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct HookSummary {
@@ -23,7 +34,7 @@ pub struct HookSummary {
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Inventory {
     pub hooks: Vec<HookSummary>,
-    /// AGENTS.md / CLAUDE.md files that exist, relative.
+    /// AGENTS.md / CLAUDE.md files that exist, relative, then "skill: x" / "command: y" / "agent: z".
     pub instructions: Vec<String>,
     /// MCP servers with their command and args, plus "unreadable <file>" for a file that does not parse.
     pub mcp: Vec<String>,
@@ -45,6 +56,8 @@ enum Content {
     Link(Vec<u8>),
     /// A fixed top-level file that is a symlink to a regular file: its target path and the target's bytes.
     Followed(Vec<u8>, Vec<u8>),
+    /// A regular file over `MAX_FILE`: its size only.
+    TooBig(u64),
     /// A directory entry that is neither (FIFO, socket, ...): not read.
     Other,
 }
@@ -67,6 +80,7 @@ fn read_one(p: &Path) -> Content {
         Ok(m) if m.is_symlink() => {
             Content::Link(std::fs::read_link(p).map(|t| raw(&t)).unwrap_or_default())
         }
+        Ok(m) if m.is_file() && m.len() > MAX_FILE => Content::TooBig(m.len()),
         Ok(m) if m.is_file() => std::fs::read(p).map_or(Content::Absent, Content::File),
         Ok(_) => Content::Other,
     }
@@ -85,18 +99,73 @@ fn read_fixed(p: &Path) -> Content {
     }
 }
 
-/// Every file under `dir`; symlinked directories are listed as links, not entered.
-fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
+/// Every file under `dir`, sorted, at most `MAX_FILES`; symlinked directories are listed as links,
+/// not entered. Returns false when it stopped at the cap.
+fn files_under(dir: &Path, out: &mut Vec<PathBuf>) -> bool {
     let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
+        return true;
     };
-    for e in rd.flatten() {
+    let mut kids: Vec<_> = rd.flatten().collect();
+    kids.sort_by_key(|e| e.file_name());
+    for e in kids {
+        if out.len() >= MAX_FILES {
+            return false;
+        }
         let p = e.path();
         match e.file_type() {
-            Ok(t) if t.is_dir() => files_under(&p, out),
+            Ok(t) if t.is_dir() => {
+                if !files_under(&p, out) {
+                    return false;
+                }
+            }
             _ => out.push(p),
         }
     }
+    true
+}
+
+/// "skill: x", "command: y", "agent: z" for a path relative to the root, if it is one.
+fn extension_name(rel: &Path) -> Option<String> {
+    let parts: Vec<&str> = rel.iter().filter_map(|c| c.to_str()).collect();
+    let stem = |p: &[&str]| {
+        let j = p.join("/");
+        j.strip_suffix(".md").map(str::to_string)
+    };
+    match parts.as_slice() {
+        [".claude", "skills", name, "SKILL.md"] if *name != "ig" => Some(format!("skill: {name}")),
+        [".claude", "commands", rest @ ..] => stem(rest).map(|n| format!("command: {n}")),
+        [".claude", "agents", rest @ ..] => stem(rest).map(|n| format!("agent: {n}")),
+        _ => None,
+    }
+}
+
+/// Plain-words effects named in a markdown file's frontmatter: pre-approved tools, hooks.
+fn frontmatter_notes(label: &str, text: &str) -> Vec<String> {
+    let mut lines = text.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return vec![];
+    }
+    let (mut out, mut tools, mut in_tools) = (vec![], vec![], false);
+    for l in lines.by_ref().take_while(|l| l.trim() != "---") {
+        let item = l.trim_start().strip_prefix("- ");
+        if in_tools && let Some(i) = item.filter(|_| l.starts_with([' ', '-'])) {
+            tools.push(i.trim().to_string());
+            continue;
+        }
+        in_tools = false;
+        if let Some(v) = l.strip_prefix("allowed-tools:") {
+            in_tools = v.trim().is_empty();
+            if !in_tools {
+                tools.push(v.trim().trim_matches(['[', ']']).to_string());
+            }
+        } else if l.starts_with("hooks:") {
+            out.push(format!("{label} runs hooks"));
+        }
+    }
+    if !tools.is_empty() {
+        out.insert(0, format!("{label} pre-approves: {}", tools.join(", ")));
+    }
+    out
 }
 
 fn hook_when(event: &str) -> String {
@@ -191,8 +260,13 @@ fn settings_notes(rel: &str, v: &Value, hooks: &mut Vec<HookSummary>, notes: &mu
 
 pub fn inventory(root: &Path) -> Inventory {
     let (mut hooks, mut mcp, mut notes, mut unreadable) = (vec![], vec![], vec![], vec![]);
-    let mut skill = vec![];
-    files_under(&root.join(PLUGIN), &mut skill);
+    let mut walked = vec![];
+    let complete = files_under(&root.join(CLAUDE_DIR), &mut walked);
+    if !complete {
+        notes.push(format!(
+            "more than {MAX_FILES} files under {CLAUDE_DIR}: the rest are not inspected"
+        ));
+    }
     // Each file is read once, path-sorted; an absent file hashes as absent, so adding one changes the hash.
     let mut files: BTreeMap<PathBuf, Content> = SETTINGS
         .iter()
@@ -200,16 +274,37 @@ pub fn inventory(root: &Path) -> Inventory {
         .chain(&INSTRUCTIONS)
         .map(|r| (PathBuf::from(r), read_fixed(&root.join(r))))
         .collect();
-    for p in skill {
+    for p in walked {
         if let Ok(rel) = p.strip_prefix(root) {
-            files.insert(rel.to_path_buf(), read_one(&p));
+            files
+                .entry(rel.to_path_buf())
+                .or_insert_with(|| read_one(&p));
+        }
+    }
+    let mut named = vec![];
+    for (rel, c) in &files {
+        let Some(name) = extension_name(rel) else {
+            continue;
+        };
+        match c {
+            Content::File(b) => notes.extend(frontmatter_notes(&name, &String::from_utf8_lossy(b))),
+            Content::TooBig(_) => notes.push(format!("{name} is too large to inspect")),
+            _ => {}
+        }
+        named.push(name);
+    }
+    for (rel, c) in &files {
+        if let Content::TooBig(_) = c
+            && extension_name(rel).is_none()
+        {
+            notes.push(format!("{} is too large to inspect", rel.display()));
         }
     }
     let parsed = |rel: &str| match &files[Path::new(rel)] {
         Content::File(b) | Content::Followed(_, b) => {
             Some(serde_json::from_slice::<Value>(b).map_err(|_| ()))
         }
-        Content::Link(_) | Content::Other => Some(Err(())),
+        Content::Link(_) | Content::Other | Content::TooBig(_) => Some(Err(())),
         Content::Absent => None,
     };
     // Fixed files that are symlinks: say where they point, or that they lead nowhere.
@@ -263,7 +358,7 @@ pub fn inventory(root: &Path) -> Inventory {
         }
         None => {}
     }
-    let instructions = INSTRUCTIONS
+    let mut instructions: Vec<String> = INSTRUCTIONS
         .iter()
         .filter(|r| {
             matches!(
@@ -273,6 +368,7 @@ pub fn inventory(root: &Path) -> Inventory {
         })
         .map(|r| r.to_string())
         .collect();
+    instructions.extend(named);
     let any_files = files.values().any(|c| !matches!(c, Content::Absent));
     let mut h = Sha256::new();
     for (rel, c) in &files {
@@ -282,6 +378,10 @@ pub fn inventory(root: &Path) -> Inventory {
         match c {
             Content::Absent => h.update([0]),
             Content::Other => h.update([3]),
+            Content::TooBig(n) => {
+                h.update([5]);
+                h.update(n.to_le_bytes());
+            }
             Content::Followed(t, b) => {
                 h.update([4]);
                 h.update((t.len() as u64).to_le_bytes());
@@ -370,146 +470,5 @@ pub fn trust_if(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn scratch(tag: &str) -> (PathBuf, PathBuf) {
-        let base = std::env::temp_dir().join(format!("ig-trust-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        let (root, data) = (base.join("p"), base.join("data"));
-        std::fs::create_dir_all(root.join(".claude")).unwrap();
-        (root, data)
-    }
-
-    fn done(root: &Path) {
-        let _ = std::fs::remove_dir_all(root.parent().unwrap());
-    }
-
-    #[test]
-    fn a_change_to_settings_revokes_trust() {
-        let (root, data) = scratch("settings");
-        let s = root.join(".claude/settings.json");
-        std::fs::write(
-            &s,
-            r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"ig hook claude"}]}]}}"#,
-        )
-        .unwrap();
-        let inv = inventory(&root);
-        assert_eq!(inv.hooks[0].command, "ig hook claude");
-        assert_eq!(inv.hooks[0].when, "after each Claude turn");
-        assert!(!is_trusted(&data, &root, &inv));
-        trust(&data, &root, &inv).unwrap();
-        assert!(is_trusted(&data, &root, &inventory(&root)));
-        std::fs::write(
-            &s,
-            r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"evil"}]}]}}"#,
-        )
-        .unwrap();
-        assert!(!is_trusted(&data, &root, &inventory(&root)));
-        done(&root);
-    }
-
-    #[test]
-    fn adding_a_file_or_breaking_json_changes_the_hash_without_crashing() {
-        let (root, _) = scratch("add");
-        let h0 = inventory(&root);
-        assert!(!h0.any_files);
-        std::fs::write(root.join("AGENTS.md"), "x").unwrap();
-        let h1 = inventory(&root);
-        assert_ne!(h0.hash, h1.hash);
-        assert_eq!(h1.instructions, ["AGENTS.md"]);
-        std::fs::write(root.join(".mcp.json"), "{oops").unwrap();
-        let h2 = inventory(&root);
-        assert_ne!(h1.hash, h2.hash);
-        assert_eq!(h2.mcp, ["unreadable .mcp.json"]);
-        done(&root);
-    }
-
-    #[test]
-    fn settings_without_hooks_are_still_described() {
-        let (root, _) = scratch("notes");
-        std::fs::write(root.join(".claude/settings.json"), r#"{"permissions":{"defaultMode":"bypassPermissions","allow":["Bash(rm:*)"]},"apiKeyHelper":"./k.sh","env":{"A":"1"}}"#).unwrap();
-        std::fs::write(
-            root.join(".mcp.json"),
-            r#"{"mcpServers":{"s":{"command":"npx","args":["-y","x"]}}}"#,
-        )
-        .unwrap();
-        let inv = inventory(&root);
-        let all = inv.notes.join("\n");
-        for want in [
-            "bypassPermissions",
-            "Bash(rm:*)",
-            "runs: ./k.sh",
-            "environment variables: A",
-        ] {
-            assert!(all.contains(want), "{want} in {all}");
-        }
-        assert_eq!(inv.mcp, ["s: npx -y x"]);
-        assert!(inv.any_files);
-        done(&root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn symlinked_agent_files_are_followed() {
-        let (root, data) = scratch("follow");
-        let real = root.join("real");
-        std::fs::create_dir_all(&real).unwrap();
-        std::fs::write(real.join("c.md"), "a").unwrap();
-        std::fs::write(
-            real.join("s.json"),
-            r#"{"hooks":{"Stop":[{"hooks":[{"command":"ig hook claude"}]}]}}"#,
-        )
-        .unwrap();
-        std::os::unix::fs::symlink(real.join("c.md"), root.join("CLAUDE.md")).unwrap();
-        std::os::unix::fs::symlink(real.join("s.json"), root.join(".claude/settings.json"))
-            .unwrap();
-        std::os::unix::fs::symlink(real.join("nope"), root.join("AGENTS.md")).unwrap();
-        let inv = inventory(&root);
-        assert_eq!(inv.instructions, ["CLAUDE.md"]);
-        assert_eq!(inv.hooks[0].command, "ig hook claude");
-        assert!(
-            inv.notes
-                .iter()
-                .any(|n| n.starts_with("CLAUDE.md (symlink to"))
-        );
-        assert_eq!(inv.unreadable, ["AGENTS.md"]);
-        trust(&data, &root, &inv).unwrap();
-        assert!(is_trusted(&data, &root, &inventory(&root)));
-        std::fs::write(real.join("c.md"), "b").unwrap();
-        assert!(!is_trusted(&data, &root, &inventory(&root)));
-        done(&root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_symlink_loop_in_the_plugin_dir_terminates() {
-        let (root, _) = scratch("loop");
-        let ig = root.join(".claude/skills/ig");
-        std::fs::create_dir_all(&ig).unwrap();
-        std::os::unix::fs::symlink(&ig, ig.join("self")).unwrap();
-        std::fs::write(ig.join("SKILL.md"), "x").unwrap();
-        let a = inventory(&root);
-        assert!(a.ig_plugin);
-        std::fs::write(ig.join("SKILL.md"), "y").unwrap();
-        assert_ne!(a.hash, inventory(&root).hash);
-        done(&root);
-    }
-
-    #[test]
-    fn trust_needs_the_hash_and_the_confirm_and_keeps_a_bad_store() {
-        let (root, data) = scratch("if");
-        let h = inventory(&root).hash;
-        assert!(trust_if(&data, &root, "stale", |_| true).is_err());
-        assert!(trust_if(&data, &root, &h, |_| false).is_err());
-        std::fs::create_dir_all(&data).unwrap();
-        std::fs::write(data.join("trust.json"), "{garbage").unwrap();
-        trust_if(&data, &root, &h, |_| true).unwrap();
-        assert!(is_trusted(&data, &root, &inventory(&root)));
-        assert_eq!(
-            std::fs::read(data.join("trust.json.bad")).unwrap(),
-            b"{garbage"
-        );
-        done(&root);
-    }
-}
+#[path = "trust_tests.rs"]
+mod tests;

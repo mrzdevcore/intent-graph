@@ -50,6 +50,7 @@
   }
 </script>
 
+<div class="pane-h">Graph</div>
 <input id="tree-filter" type="search" placeholder="Filter files and functions…" aria-label="Filter files and functions"
   autocomplete="off" bind:value={filter}>
 <label class="loc"><input id="tree-inview" type="checkbox" checked={inView} onchange={(e) => (inView = e.currentTarget.checked)}> only what is on screen</label>

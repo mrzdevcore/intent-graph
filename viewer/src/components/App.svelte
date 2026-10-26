@@ -413,7 +413,7 @@
   <span id="counts" class="counts">{D.counts.added} added · {D.counts.changed} changed · {D.counts.removed} removed</span>
   <!-- svelte-ignore a11y_invalid_attribute -->
   <span id="crumbs" class="crumbs">{#each crumbs as t, i}{i ? " › " : ""}{#if t === scope}<strong>{i ? t.label : "All"}</strong>{:else}<a href="#" onclick={(e) => { e.preventDefault(); setScope(t); side = { kind: "group", id: t.id }; }}>{i ? t.label : "All"}</a>{/if}{/each}</span>
-  <span id="hint" class="counts">{hint}</span>
+  <span id="hint" class="counts" title={hint}>{hint}</span>
   {#if chatApi}<button id="chat-toggle" class="toggle" aria-pressed={chatOpen ? "true" : "false"} onclick={() => (chatOpen = !chatOpen)}>Chat</button>{/if}
 </header>
 <main class:with-chat={chatApi && chatOpen}>

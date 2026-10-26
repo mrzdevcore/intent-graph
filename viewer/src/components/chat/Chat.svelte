@@ -94,7 +94,6 @@
   }
 
   async function install() {
-    if (!window.confirm("Install the agent adapter into ig's data folder with npm?")) return;
     busy = true;
     error = "";
     try {
@@ -102,7 +101,7 @@
       busy = false;
       start();
     } catch (e) {
-      error = msg(e);
+      error = msg(e).startsWith("not installed") ? "" : msg(e); // declined in the native dialog
       busy = false;
     }
   }
@@ -119,6 +118,10 @@
     try {
       dispatch({ type: "TurnEnded", stopReason: await agent.prompt(full, files) });
     } catch (e) {
+      if (msg(e).startsWith("not trusted")) {
+        await trusted();
+        return;
+      }
       if (!s.stopped) dispatch({ type: "Failed", error: msg(e) });
       else dispatch({ type: "TurnEnded", stopReason: "stopped" });
     }
