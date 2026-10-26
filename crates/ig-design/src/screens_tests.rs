@@ -181,6 +181,51 @@ fn remove_screen_drops_its_bridges() {
 }
 
 #[test]
+fn unnav_and_count_caps() {
+    let o = ops(json!([{"op":"unnav","screen":"login","from":"btn-go","to":"home"}]));
+    let (b, t) = apply(&board(), &o).unwrap();
+    assert!(b.screens["login"].navs.is_empty() && t.screens == ["login"]);
+    assert!(apply(&b, &o).is_err());
+    // pieces: the 2001st is refused; an old over-full screen still takes other edits
+    let mut b = board();
+    let s = b.screens.get_mut("login").unwrap();
+    s.elements = (0..MAX_PIECES)
+        .map(|i| piece(&format!("text-{i}"), PieceKind::Text))
+        .collect();
+    s.navs.clear();
+    let add = ops(json!([{"op":"screen_add","screen":"login","kind":"text","label":"x"}]));
+    assert!(apply(&b, &add).is_err());
+    b.screens
+        .get_mut("login")
+        .unwrap()
+        .elements
+        .push(piece("text-x", PieceKind::Text));
+    let mv = ops(json!([{"op":"screen_move","screen":"login","id":"text-x","x":1,"y":1}]));
+    assert!(apply(&b, &mv).is_ok());
+    // navs
+    let mut b = board();
+    b.screens.get_mut("login").unwrap().navs = (0..MAX_NAVS)
+        .map(|i| Nav {
+            from: "btn-go".into(),
+            to: format!("s-{i}"),
+            label: String::new(),
+        })
+        .collect();
+    b.screens.get_mut("login").unwrap().navs[0].to = "home".into();
+    let nav = ops(json!([{"op":"nav","screen":"login","from":"btn-go","to":"home2","label":""}]));
+    assert!(apply(&b, &nav).is_err());
+    // screens
+    let mut b = board();
+    for i in 0..MAX_SCREENS {
+        let mut s = b.screens["home"].clone();
+        s.id = format!("s-{i}");
+        b.screens.insert(s.id.clone(), s);
+    }
+    let add = ops(json!([{"op":"add_screen","title":"One more"}]));
+    assert!(apply(&b, &add).is_err());
+}
+
+#[test]
 fn caps_hit_only_what_the_edit_changed() {
     let long = "x".repeat(crate::MAX_NAME + 1);
     let o = ops(json!([{"op":"screen_add","screen":"login","kind":"text","label":long}]));

@@ -70,6 +70,13 @@ pub fn put_asset_for(root: &Path, slug: &str, data: &str) -> Result<String, Stri
 }
 
 pub fn read_asset_for(root: &Path, slug: &str, name: &str) -> Result<Vec<u8>, String> {
+    // only a regular file of a sane size: never through a symlink, never a huge file in memory
+    let p = root.join(format!("plans/{slug}/assets/{name}"));
+    if let Ok(m) = std::fs::symlink_metadata(&p)
+        && (!m.file_type().is_file() || m.len() > ig_app::screens::MAX_ASSET as u64)
+    {
+        return Err(format!("{name}: not a regular image file"));
+    }
     app::read_asset(Wired::new(root).files(), slug, name).map_err(|e| e.to_string())
 }
 
@@ -214,6 +221,17 @@ mod tests {
             );
         }
         assert!(read_asset_for(&root, "f", "../../ig.yaml").is_err());
+        // a symlink named like an asset is refused, whatever it points at
+        #[cfg(unix)]
+        {
+            std::fs::write(root.join("secret.png"), png).unwrap();
+            let link = root.join("plans/f/assets/ffffffffffff.png");
+            std::os::unix::fs::symlink(root.join("secret.png"), &link).unwrap();
+            assert!(read_asset_for(&root, "f", "ffffffffffff.png").is_err());
+        }
+        // a file that is not an image any more is refused
+        std::fs::write(root.join("plans/f/assets/eeeeeeeeeeee.png"), "<svg/>").unwrap();
+        assert!(read_asset_for(&root, "f", "eeeeeeeeeeee.png").is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

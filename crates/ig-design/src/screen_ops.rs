@@ -1,6 +1,6 @@
 //! The screen ops of `apply`: same all-or-nothing path as the architecture ops.
 
-use crate::screens::PROP_NAMES;
+use crate::screens::{MAX_SCREENS, PROP_NAMES};
 use crate::{
     Bridge, Design, DesignError, Nav, Op, Piece, PieceKind, Props, Screen, Touched, VERSION,
     new_piece_id,
@@ -134,6 +134,9 @@ pub(crate) fn step(
                 return bad(format!("screen {id} exists"));
             }
             let x = sc.values().map(|s| s.x + s.w + 80).max().unwrap_or(0);
+            if sc.len() >= MAX_SCREENS {
+                return bad(format!("at most {MAX_SCREENS} screens per feature"));
+            }
             let s = Screen {
                 version: VERSION,
                 id: id.clone(),
@@ -267,6 +270,19 @@ pub(crate) fn step(
             match s.navs.iter_mut().find(|v| v.from == *from && v.to == *to) {
                 Some(v) => *v = n,
                 None => s.navs.push(n),
+            }
+            push(&mut t.screens, sid);
+        }
+        Op::Unnav {
+            screen: sid,
+            from,
+            to,
+        } => {
+            let s = screen(sc, sid)?;
+            let n = s.navs.len();
+            s.navs.retain(|v| !(v.from == *from && v.to == *to));
+            if s.navs.len() == n {
+                return bad(format!("{sid}: no nav {from} to {to}"));
             }
             push(&mut t.screens, sid);
         }

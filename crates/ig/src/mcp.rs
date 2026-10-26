@@ -83,9 +83,9 @@ fn tools() -> Value {
                 "properties": {
                     "slug": {"type": "string", "description": "The feature: plans/<slug>/design.json"},
                     "ops": {"type": "array", "maxItems": 200, "items": {"type": "object", "properties": {"op": {"type": "string", "enum":
-                        ["add", "update", "move", "resize", "remove", "paste", "link", "unlink", "mark", "scope", "bridge", "unbridge", "add_screen", "remove_screen", "screen_add", "screen_update", "screen_move", "screen_remove", "nav"]}},
+                        ["add", "update", "move", "resize", "remove", "paste", "link", "unlink", "mark", "scope", "bridge", "unbridge", "add_screen", "remove_screen", "screen_add", "screen_update", "screen_move", "screen_remove", "nav", "unnav"]}},
                         "required": ["op"]},
-                        "description": "At most 200 ops, applied all or nothing, e.g. {op: add, kind: function, name, file, layer}, {op: link, from, to, kind: calls}, {op: update, id, set: {name}}, {op: remove, id}. Screens (plans/<slug>/screens/): {op: add_screen, title}, {op: screen_add, screen, kind: button|input|table|..., label, props: {text}, x, y}, {op: screen_update, screen, id, set: {label, props}}, {op: screen_move, screen, id, x, y}, {op: screen_remove, screen, id}, {op: nav, screen, from, to, label}, {op: remove_screen, id}"}
+                        "description": "At most 200 ops, applied all or nothing, e.g. {op: add, kind: function, name, file, layer}, {op: link, from, to, kind: calls}, {op: update, id, set: {name}}, {op: remove, id}. Screens (plans/<slug>/screens/): {op: add_screen, title}, {op: screen_add, screen, kind: button|input|table|..., label, props: {text}, x, y}, {op: screen_update, screen, id, set: {label, props}}, {op: screen_move, screen, id, x, y}, {op: screen_remove, screen, id}, {op: nav, screen, from, to, label}, {op: unnav, screen, from, to}, {op: remove_screen, id}"}
                 },
                 "required": ["slug", "ops"]
             }

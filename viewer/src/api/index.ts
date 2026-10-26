@@ -274,7 +274,7 @@ export interface ScreensApi {
   readAsset(slug: string, name: string): Promise<Uint8Array>;
   /** A screen file changed outside the app. Returns the unsubscribe. */
   onScreenChanged(cb: (slug: string, id: string) => void): () => void;
-  /** An image file appeared or changed. Returns the unsubscribe. */
+  /** An image file appeared or changed (also after the app's own putAsset): the callback must be idempotent. Returns the unsubscribe. */
   onAssetChanged(cb: (slug: string, name: string) => void): () => void;
 }
 
