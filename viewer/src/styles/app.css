@@ -109,9 +109,7 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat .chat-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: nowrap; }
 #ig-chat .chat-head .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ig-chat .chat-head select { max-width: 55%; }
-#ig-chat .chat-bar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--muted); }
-#ig-chat .chat-bar label { display: flex; gap: 4px; align-items: center; }
-#ig-chat .usage { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+#ig-chat .usage { display: flex; gap: 8px; align-items: center; color: var(--muted); }
 #ig-chat .usage meter { width: 60px; accent-color: var(--accent); }
 #ig-chat .transcript { flex: 1; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
 #ig-chat .empty { margin: auto 0; text-align: center; }
@@ -147,8 +145,16 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat .muted { color: var(--muted); }
 #ig-chat .composer { border-top: 1px solid var(--line); padding: 8px 12px; position: relative; }
 #ig-chat .composer textarea { width: 100%; resize: vertical; padding: 6px 8px; }
-#ig-chat .composer .row { justify-content: flex-end; }
-#ig-chat .composer .row .primary { margin-left: auto; }
+#ig-chat .composer .row { flex-wrap: nowrap; margin: 0 0 4px; }
+#ig-chat .composer .row.context { gap: 2px; font-size: 12px; }
+#ig-chat .composer .row.footer { margin: 6px 0 0; }
+#ig-chat .composer .row .primary { margin-left: auto; flex: none; }
+#ig-chat .controls { display: flex; gap: 4px; align-items: center; min-width: 0; }
+#ig-chat .chip-select, #ig-chat .chip-toggle { font-size: 12px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); min-width: 0; max-width: 130px; text-overflow: ellipsis; }
+#ig-chat .chip-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#ig-chat .more { position: relative; }
+#ig-chat .more .menu { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 5; display: flex; flex-direction: column; gap: 6px; padding: 8px; min-width: 200px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.3); }
+#ig-chat .more .menu label { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: var(--muted); }
 #ig-chat .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; align-items: center; }
 #ig-chat .chip-ctx { background: var(--code); border-radius: 6px; padding: 0 6px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 #ig-chat button.link { border: 0; background: none; color: var(--accent-text); padding: 0 4px; }

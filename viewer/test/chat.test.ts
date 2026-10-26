@@ -1,7 +1,7 @@
 // The chat reducer over the fake agent's recorded `tour` (crates/ig-desktop record_chat_fixture).
 import { expect, test } from "vitest";
 import type { AgentEvent, ToolCallInfo } from "../src/api";
-import { chatReducer, completions, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
+import { chatReducer, completions, controls, fastNext, fastOn, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
 import chat from "../src/components/chat/Chat.svelte?raw";
 import events from "./fixtures/agent-events.json";
 
@@ -117,4 +117,18 @@ test("commands drop a leading cd to the project root and show the root as .", ()
   expect(shortCommand("ls /Users/me/p/front", root)).toBe("ls .");
   expect(shortCommand("ls /Users/me/p/frontend", root)).toBe("ls /Users/me/p/frontend");
   expect(shortCommand("cd /Users/me/p/front/core && ls", root)).toBe("cd ./core && ls");
+});
+
+test("agent controls: mode and model as chips, fast mode as a toggle, the rest in the menu", () => {
+  const opt = (id: string, category: string | undefined, values: string[], current = values[0]) => ({
+    id, name: id, category, type: "select", currentValue: current, options: values.map((v) => ({ value: v, name: v })),
+  });
+  const c = controls([
+    opt("model", "model", ["default", "opus"]), opt("mode", "mode", ["default", "bypassPermissions"]),
+    opt("effort", "thought_level", ["low", "high"]), opt("fast_mode", undefined, ["off", "on"]),
+    opt("agent", undefined, ["default", "planner"]),
+  ]);
+  expect([c.mode?.id, c.model?.id, c.fast?.id, c.more.map((o) => o.id)]).toEqual(["mode", "model", "fast_mode", ["effort", "agent"]]);
+  expect([fastOn(c.fast!), fastNext(c.fast!)]).toEqual([false, "on"]);
+  expect(fastOn({ ...c.fast!, currentValue: "on" })).toBe(true);
 });

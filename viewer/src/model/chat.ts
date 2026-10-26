@@ -229,3 +229,21 @@ export function shortCommand(title: string, root: string): string {
     .replace(new RegExp(`^cd (["']?)${esc}\\1 && `), "")
     .replace(new RegExp(`${esc}(?=[/\\s"';|&)]|$)`, "g"), ".");
 }
+
+/** Where the agent's config options go: mode and model as chips, fast mode as a toggle (when it
+ *  has two values), the rest (effort, agent, ...) in the "⋯" menu. */
+export function controls(config: ConfigOption[]) {
+  const is = (o: ConfigOption, k: string) => o.category === k || o.id === k;
+  const mode = config.find((o) => is(o, "mode"));
+  const model = config.find((o) => is(o, "model"));
+  const fast = config.find((o) => /fast/i.test(o.id + " " + o.name) && o.options.length === 2);
+  return { mode, model, fast, more: config.filter((o) => o !== mode && o !== model && o !== fast) };
+}
+
+const OFF = /^(off|false|disabled?|no)$/i;
+/** A two-value option is on unless its current value (or its name) reads as off. */
+export function fastOn(o: ConfigOption): boolean {
+  const cur = o.options.find((x) => x.value === o.currentValue);
+  return !OFF.test(o.currentValue) && !OFF.test(cur?.name ?? "");
+}
+export const fastNext = (o: ConfigOption) => o.options.find((x) => x.value !== o.currentValue)!.value;
