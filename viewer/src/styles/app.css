@@ -1,4 +1,4 @@
-/* Layout and components. Light DOM: the components render into the page, so these apply. */
+/* Layout and components: global, unscoped styles the Svelte components render against. */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -76,9 +76,7 @@ a { color: var(--accent); }
   #side { border-left: 0; border-top: 1px solid var(--line); }
   header { padding: 10px 16px; }
 }
-ig-app { display: contents; }
-ig-graph, ig-side-panel { display: block; }
-ig-plan-panel { display: block; }
+#app { display: contents; }
 .ctx-menu { position: fixed; z-index: 20; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
   border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.3); padding: 4px; }
 .ctx-menu button { font: inherit; text-align: left; padding: 4px 14px; border: 0; background: none; color: var(--fg); cursor: pointer; border-radius: 4px; }
