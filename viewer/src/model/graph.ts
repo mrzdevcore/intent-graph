@@ -100,7 +100,7 @@ export function index(D: ViewData): Index {
     if (!modules[file]) {
       const n: ViewNode = byId[file] || {
         id: file, name: base(file), file, kind: "module", status: "unchanged", module: true, intents: [], layer: null,
-        line: 1, endLine: 1, complexity: 1, loc: 0, parent: null, lane: null, test: false,
+        line: 1, endLine: 1, complexity: 1, loc: 0, parent: null, lane: null,
       };
       byId[file] = byId[file] || n;
       modules[file] = { node: n, members: [], dirty: false, findings: 0 };
