@@ -201,6 +201,10 @@ impl Engine {
 
     fn screen_up(&mut self, x: f32, y: f32, mods: u8) -> Out {
         let mut o = match std::mem::replace(&mut self.gesture, Gesture::Idle) {
+            Gesture::Drag { ids, .. } if ids.len() == 1 && self.off_view(x, y) => Out {
+                dropped: split_key(&ids[0]).map(|_| (ids[0].clone(), x, y)),
+                ..self.out()
+            },
             Gesture::Drag { ids, dx, dy, .. } => {
                 let ops = self.move_ops(&ids, dx, dy);
                 self.ops(&ops, Step::User)
@@ -214,6 +218,11 @@ impl Engine {
         };
         o.redraw = true;
         o
+    }
+
+    fn off_view(&self, x: f32, y: f32) -> bool {
+        let [vx, vy, w, h] = self.view;
+        x < vx || y < vy || x > vx + w || y > vy + h
     }
 
     /// Pieces snap to the grid and stay inside their screen; screens snap; a piece moves with

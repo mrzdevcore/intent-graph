@@ -12,7 +12,8 @@
   import EditOverlay from "./EditOverlay.svelte";
   import A11yList from "./A11yList.svelte";
 
-  let { source, importer, onout, onready, onbeforefree, message = "", reasons = {}, hand = false, reload = () => location.reload() }: {
+  let { source, importer, onout, onready, onbeforefree, onhover, message = "", reasons = {}, hand = false, pick = false,
+    label = "Board canvas; the element list follows", reload = () => location.reload() }: {
     /** The board text and context JSON to load: on start and Retry. */
     source: () => { board: string; context: string };
     importer?: Importer;
@@ -28,6 +29,13 @@
     reasons?: Record<string, string>;
     /** The screens: handwritten labels. */
     hand?: boolean;
+    /** Read-only pick mode (`setReadOnly(true)`): a second board beside the main one, which
+     *  other panels never select on. */
+    pick?: boolean;
+    /** What the pointer is over (element, piece or link key), when it changes. */
+    onhover?: (id: string | null) => void;
+    /** The canvas's accessible name. */
+    label?: string;
   } = $props();
 
   let host: HTMLDivElement;
@@ -88,6 +96,7 @@
     canvas.addEventListener("webglcontextrestored", () => (act((e) => e.restore()), schedule()));
     const s = source();
     act((e) => {
+      if (pick) e.setReadOnly(true);
       e.load(s.board, s.context);
       e.palette(palette(host));
     });
@@ -169,7 +178,9 @@
     if (edit) return;
     const p = point(e);
     send({ t: "move", ...p });
-    hover = act((en) => en.hit(p.x, p.y)) ?? null;
+    const h = act((en) => en.hit(p.x, p.y)) ?? null;
+    if (h !== hover) onhover?.(h);
+    hover = h;
   }
 
   function point(e: PointerEvent) {
@@ -229,7 +240,7 @@
 
   onMount(() => {
     void start();
-    const unregister = registerBoard((ids) => {
+    const unregister = pick ? () => {} : registerBoard((ids) => {
       if (!act((e) => e.a11y())?.some((i) => i.id === ids[0])) return false;
       ids.forEach((i) => select(i));
       return true;
@@ -274,7 +285,7 @@
       {#if failure.retry}<button onclick={() => (panicked ? reload() : start())}>Retry</button>{/if}
     </div>
   {:else}
-    <canvas bind:this={canvas} tabindex="0" aria-label="Board canvas; the element list follows" style="cursor:{cursor}"
+    <canvas bind:this={canvas} tabindex="0" aria-label={label} style="cursor:{cursor}"
       {onpointerdown}
       title={hover ? reasons[hover] : undefined}
       onpointermove={onmove}

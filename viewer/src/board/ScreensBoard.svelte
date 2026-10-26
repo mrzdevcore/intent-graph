@@ -7,11 +7,16 @@
   import { untrack } from "svelte";
   import { AppWindow, ArrowUpRight, ChevronDown, CreditCard, Heading, Image, ImagePlus, Link, List, Monitor, MousePointer2,
     PanelTop, PenLine, RectangleHorizontal, Shapes, Smile, SquareCheck, Table, TextCursorInput, Type } from "lucide-static";
-  import type { PieceKind, Screen, ScreenPiece, ScreensApi } from "../api";
+  import type { Design, PieceKind, Screen, ScreenPiece, ScreensApi } from "../api";
+  import type { Index } from "../model/graph";
+  import Board from "./Board.svelte";
+  import { bridgeChain, pickerItems, requirement } from "./bridge";
+  import BridgeChain from "./BridgeChain.svelte";
   import type { BoardEngine, EngineOut, Tool } from "./engine";
+  import Picker from "./Picker.svelte";
   import type { BoardStore } from "./store";
 
-  let { active, slug, store, api, engine, act, tool, selection, version, onpick }: {
+  let { active, slug, store, api, engine, act, tool, selection, version, onpick, ix, context, hover = null, openCode }: {
     /** The screens surface is the one shown. */
     active: boolean;
     slug: string | null;
@@ -25,6 +30,12 @@
     /** Bumped when the board or the store's state changed. */
     version: number;
     onpick: (t: Tool) => void;
+    ix: Index;
+    /** The architecture's context JSON: the mini-board draws it. */
+    context: string;
+    /** What the pointer is over on the screens. */
+    hover?: string | null;
+    openCode?: (file: string, line: number) => void;
   } = $props();
 
   const TOOLS: [Tool, string, string, string][] = [
@@ -84,6 +95,89 @@
   });
 
   const ops = (list: object[]) => act((e) => e.ops(JSON.stringify(list), "user"));
+
+  // The bridge: a piece linked to the architecture, by a drag onto the mini-board, a click in
+  // it, or K and the picker; each is one undo step.
+  const EMPTY_CONTEXT = '{"lanes":[],"boxes":[],"edges":[]}';
+  const BLANK = '{"version":1,"title":"","scope":{"kind":"dir","id":"."}}';
+  let mini = $state<ReturnType<typeof Board>>();
+  let miniHost = $state<HTMLDivElement>();
+  /** The piece the picker links, while open. */
+  let picking = $state<string | null>(null);
+  let hint = $state<string | null>(null);
+  const design = $derived.by((): Design | null => {
+    void version;
+    try {
+      const e = engine();
+      return e ? (JSON.parse(e.board()) as Design) : null;
+    } catch {
+      return null;
+    }
+  });
+  const board = $derived(design ? { design, screens } : null);
+  const linked = (k: string | null) => (k && design?.bridges.find((b) => b.from === k)) || null;
+  /** The linked piece hovered, else the one selected. */
+  const bridge = $derived(linked(hover) ?? linked(piece ? sel : null));
+  const describe = (k: string) => {
+    const [sid, pid] = k.split("/");
+    const p = screens[sid]?.elements.find((x) => x.id === pid);
+    return p ? `${p.label} (${screens[sid].title})` : k;
+  };
+
+  function link(from: string, to: string) {
+    hint = null;
+    picking = null;
+    const o = ops([{ op: "bridge", from, to }]);
+    if (o?.error) hint = o.error;
+  }
+
+  /** A piece let go outside the screens at a client point: linked to what the mini-board has there. */
+  export function dropAt(id: string, cx: number, cy: number) {
+    const r = miniHost?.getBoundingClientRect();
+    if (!r || cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return;
+    const t = mini?.run((m) => m.hit(cx - r.left, cy - r.top));
+    if (t) link(id, t);
+  }
+
+  function miniOut(o: EngineOut) {
+    if (!o.picked) return;
+    if (piece && sel) link(sel, o.picked);
+    else hint = "Select a piece first: a click here links it.";
+  }
+
+  // a hint is about the selection it was given for
+  $effect(() => {
+    void sel;
+    hint = null;
+  });
+
+  // the mini-board follows the board and its context
+  let miniContext = "";
+  $effect(() => {
+    void version;
+    const c = context;
+    untrack(() => {
+      const fresh = mini?.run((m) => {
+        const ctx = !!c && c !== miniContext;
+        if (ctx) m.setContext((miniContext = c));
+        const e = engine();
+        const o = e ? m.external(e.board(), null) : null;
+        m.dismiss(null);
+        return ctx || !!o?.changed;
+      });
+      // an overview: fitted again whenever what it shows changed
+      if (fresh) mini?.fit();
+    });
+  });
+
+  // K: the picker for the selected piece
+  $effect(() => {
+    if (active && tool === "bridge") untrack(() => {
+      onpick("select");
+      if (piece && sel) picking = sel;
+      else hint = "Select a piece, then K links it to the architecture.";
+    });
+  });
   const setPiece = (screen: string, id: string, set: object) => ops([{ op: "screen_update", screen, id, set }]);
   const setScreen = (id: string, set: object) => ops([{ op: "screen_set", id, set }]);
 
@@ -151,6 +245,13 @@
   onchange={(e) => { const f = e.currentTarget.files?.[0]; if (f) void take(f); e.currentTarget.value = ""; }}>
 
 {#if active}
+  {#if picking && board}
+    <Picker piece={describe(picking)} items={(q) => pickerItems(ix.D, board, q)} onpick={(id) => link(picking!, id)} onclose={() => (picking = null)} />
+  {/if}
+  {#if bridge && board}
+    <BridgeChain chain={bridgeChain(ix.D, board, bridge.from)} to={bridge.to} requirement={requirement(board, bridge.from)} open={openCode}
+      onunlink={() => ops([{ op: "unbridge", key: `${bridge.from}>${bridge.to}` }])} />
+  {/if}
   <div class="rail" role="toolbar" aria-label="Screen tools" aria-orientation="vertical">
     {#each TOOLS as [t, key, name, icon] (t)}
       <button class="icon" title="{name} ({key})" aria-label="{name} ({key})" aria-pressed={tool === t || (t === "pieces" && palette) ? "true" : "false"}
@@ -167,6 +268,11 @@
   </div>
 
   <aside class="inspector" aria-label="Screen inspector">
+    <div class="mini" bind:this={miniHost} title="The architecture: drag a piece here, or select one and click a box, to link it (K: by name)">
+      <Board bind:this={mini} pick label="The architecture, to link pieces to; the element list follows"
+        source={() => ({ board: engine()?.board() ?? BLANK, context: context || EMPTY_CONTEXT })} onout={miniOut} />
+    </div>
+    {#if hint}<p class="muted" role="status">{hint}</p>{/if}
     {#if readOnly}<p class="problem" role="alert">Screens read-only: {readOnly}. No screen file is written until it is fixed.</p>{/if}
     {#if imageError}<p class="problem" role="alert">{imageError}</p>{/if}
     {#if screen}
@@ -255,5 +361,6 @@
   .row input { width: 100%; box-sizing: border-box; }
   .states { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
   .muted { color: var(--muted); }
+  .mini { position: relative; height: 180px; margin: -4px -4px 8px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
   .problem { color: var(--error); }
 </style>

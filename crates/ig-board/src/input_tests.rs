@@ -326,3 +326,36 @@ fn shift_esc_dismisses_every_highlight_and_shift_2_fits_the_selection() {
     assert_eq!(e.camera().zoom, 1.0);
     assert_eq!(e.camera().x, 248.0 - e.view[2] / 2.0);
 }
+
+#[test]
+fn pick_mode_returns_the_hit_and_never_edits() {
+    let mut e = engine();
+    e.set_read_only(true);
+    let before = e.board().clone();
+    let o = mv(&mut e, 20.0, 20.0);
+    assert!(
+        o.redraw && o.selection == ["fn-a"],
+        "hover highlights: {o:?}"
+    );
+    let o = down(&mut e, 450.0, 30.0);
+    assert_eq!(o.picked.as_deref(), Some("server/x.ts#GET /x"));
+    up(&mut e, 450.0, 30.0);
+    // a drag, a link, a placed element, a delete: nothing changes
+    drag_from(&mut e, (20.0, 20.0), (120.0, 220.0));
+    key(&mut e, "l", 0);
+    drag_from(&mut e, (20.0, 20.0), (230.0, 20.0));
+    key(&mut e, "m", 0);
+    click(&mut e, 300.0, 300.0);
+    e.select(vec!["fn-a".into()]);
+    key(&mut e, "Delete", 0);
+    key(&mut e, "d", CTRL);
+    assert_eq!(e.board(), &before);
+    assert!(!e.undo().changed, "no history");
+}
+
+fn drag_from(e: &mut Engine, a: (f32, f32), b: (f32, f32)) {
+    down(e, a.0, a.1);
+    mv(e, (a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+    mv(e, b.0, b.1);
+    up(e, b.0, b.1);
+}

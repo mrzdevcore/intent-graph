@@ -57,16 +57,19 @@ When `plans/<slug>/design.json` exists, the plan follows the design. Write `plan
 2. **Mapping.** An element becomes the plan id its `graph_id` gives: a module or function
    with a `file` is `file` or `file#Name`, a route `file#METHOD /path`, a system `system:<Name>`.
    Every element, link and bridge must be in the plan, with the user's names and files.
-3. **Leaving something out.** Only after the user agrees in the chat or in a note, as
+3. **Screens.** Each of the design's `bridges` (a screen piece to an element or graph id) is a
+   requirement: "The Export CSV button on Patient list triggers GET /api/patients/export", plus
+   the screen states it opens. Its target must be in the plan. Mockups are context, never layout.
+4. **Leaving something out.** Only after the user agrees in the chat or in a note, as
    `omitted: [{id, reason}]` in the `ig-plan` block. Never to silence a gap.
-4. **Gaps.** `ig plan check plans/<slug>/plan.md --json` reports each missing element, link or
+5. **Gaps.** `ig plan check plans/<slug>/plan.md --json` reports each missing element, link or
    bridge as `plan/design-gap` (the design id is on the finding). Fill in what the design leaves
    open, ask in the chat about anything ambiguous, and re-run until `ok` is true. A
    `plan/design-unreadable` warning means the design was not checked: tell the user.
-5. **Changing the design.** Only through the `design_edit` tool (`{slug, ops}`, id-based ops,
+6. **Changing the design.** Only through the `design_edit` tool (`{slug, ops}`, id-based ops,
    all or nothing), never by writing the files: they belong to the user, who sees your change
    highlighted and can undo it. Say in one line what you changed and why.
-6. **App messages.** A message starting `[ig board update` lists the user's board changes. Take
+7. **App messages.** A message starting `[ig board update` lists the user's board changes. Take
    them into the discussion, or into `plan.md` once it exists.
 
 ## Live: co-design in the viewer
