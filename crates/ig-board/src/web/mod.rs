@@ -86,6 +86,7 @@ fn tool(s: &str) -> Option<Tool> {
 #[serde(rename_all = "lowercase")]
 enum StepIn {
     User,
+    Amend,
     Agent(String),
 }
 
@@ -225,7 +226,7 @@ impl BoardEngine {
         self.after(|e| e.input(i))
     }
 
-    /// One history step; `step` is `"user"` or `{"agent": turn}`.
+    /// One history step; `step` is `"user"`, `"amend"` (joins the top step) or `{"agent": turn}`.
     pub fn ops(&mut self, ops: &str, step: &str) -> String {
         let ops: Vec<Op> = match serde_json::from_str(ops) {
             Ok(o) => o,
@@ -233,6 +234,7 @@ impl BoardEngine {
         };
         let step = match serde_json::from_str(step) {
             Ok(StepIn::User) => Step::User,
+            Ok(StepIn::Amend) => Step::Amend,
             Ok(StepIn::Agent(t)) => Step::Agent(t),
             Err(e) => return error_json(e),
         };

@@ -89,7 +89,8 @@ export class BoardStore {
   private loaded = false;
   private dirty = false;
   private writing: Promise<void> | null = null;
-  private again = false;
+  /** Disposed: the engine may be freed or showing another feature; it is never touched again. */
+  private closed = false;
   private cancelSave: (() => void) | null = null;
   private seq = 0;
   private checking = false;
@@ -113,10 +114,12 @@ export class BoardStore {
     try {
       d = await this.api.read(this.slug);
     } catch (e) {
+      if (this.closed) return;
       this.engine.load(JSON.stringify(blank()), this.hooks.context());
       this.fail(e);
       return;
     }
+    if (this.closed) return;
     this.ok();
     this.engine.load(JSON.stringify(d), this.hooks.context());
     this.loaded = true;
@@ -135,25 +138,36 @@ export class BoardStore {
     this.notify();
   }
 
-  /** Writes now (feature switch, unmount). */
-  flush(): Promise<void> {
+  /** Writes now (feature switch, app quit): after any write in flight has fully finished, so its
+   *  merge base and conflict merge land before the caller moves on. */
+  async flush(): Promise<void> {
     this.cancelSave?.();
     this.cancelSave = null;
-    if (this.readOnly.has(this.path) || !this.loaded || !this.dirty) return this.writing ?? Promise.resolve();
-    if (this.writing) {
-      this.again = true;
-      return this.writing;
-    }
+    while (this.writing) await this.writing;
+    if (this.closed || this.readOnly.has(this.path) || !this.loaded || !this.dirty) return;
     this.writing = this.write().finally(() => {
       this.writing = null;
       this.saving = false;
       this.notify();
-      if (this.again) {
-        this.again = false;
-        void this.flush();
-      }
     });
-    return this.writing;
+    await this.writing;
+  }
+
+  /** The engine is about to be freed: the board text is taken now, synchronously, and written
+   *  once any write in flight is done, if it still needs writing. The store is disposed. */
+  close(): Promise<void> {
+    const text = this.loaded && !this.readOnly.has(this.path) ? this.engine.board() : null;
+    this.dispose();
+    return (async () => {
+      while (this.writing) await this.writing;
+      if (!text || !this.dirty) return;
+      this.dirty = false;
+      // ponytail: no merge on a conflict here (the engine is gone): the other writer's file stays
+      await this.api.write(this.slug, JSON.parse(text) as Design).catch((e) => {
+        this.dirty = true;
+        this.saveError = msg(e);
+      });
+    })();
   }
 
   /** The file changed outside: merged in (one undo step, Claude's turn when it is one), or, when
@@ -163,9 +177,10 @@ export class BoardStore {
     try {
       d = await this.api.read(this.slug);
     } catch (e) {
-      this.fail(e);
+      if (!this.closed) this.fail(e);
       return false;
     }
+    if (this.closed) return false;
     this.ok();
     const text = JSON.stringify(d);
     if (!this.loaded) {
@@ -181,6 +196,7 @@ export class BoardStore {
 
   /** Stops the timers (the owner flushes first). */
   dispose(): void {
+    this.closed = true;
     this.cancelSave?.();
     this.cancelSave = null;
     this.seq++;
@@ -216,14 +232,17 @@ export class BoardStore {
     for (let attempt = 0; ; attempt++) {
       this.dirty = false;
       try {
-        await save(this.engine, (t) => this.api.write(this.slug, JSON.parse(t) as Design));
+        // a write that ends after dispose never sets the merge base of what the engine shows now
+        const engine = { board: () => this.engine.board(), saved: (t: string) => this.closed || this.engine.saved(t) };
+        await save(engine, (t) => this.api.write(this.slug, JSON.parse(t) as Design));
         this.saveError = null;
         return;
       } catch (e) {
         this.dirty = true;
         // someone else wrote: merge theirs in, then write the result once more
+        if (this.closed) return;
         if (msg(e) === "conflict" && attempt === 0 && (await this.external())) continue;
-        if (this.readOnly.has(this.path)) return;
+        if (this.closed || this.readOnly.has(this.path)) return;
         this.saveError = msg(e);
         this.cancelSave?.();
         this.cancelSave = this.clock.after(RETRY_MS, () => void this.flush());
@@ -232,7 +251,9 @@ export class BoardStore {
     }
   }
 
-  private recheck() {
+  /** Checks the board again (a change of meaning, or the code graph was rebuilt). */
+  recheck() {
+    if (this.closed) return;
     if (this.checking) {
       this.rerun = true;
       return;
@@ -268,7 +289,8 @@ export class BoardStore {
   }
 
   private setFile(id: string, file: string) {
-    this.onOut(this.engine.ops(JSON.stringify([{ op: "update", id, set: { file } }]), "user"));
+    // joined to the step that placed or renamed it: one undo takes both back
+    this.onOut(this.engine.ops(JSON.stringify([{ op: "update", id, set: { file } }]), "amend"));
   }
 
   /** A placed element gets the file its layer's files suggest. */

@@ -75,7 +75,7 @@ function fakeEngine(d = design()) {
     saved: (w) => void calls.push(["saved", [w]]),
   };
   const of = (m: string) => calls.filter((c) => c[0] === m).map((c) => c[1]);
-  return { engine, calls, of, set: (x: Design) => (board = x) };
+  return { engine, calls, of, setBoard: (x: Design) => (board = x) };
 }
 
 type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void };
@@ -262,9 +262,63 @@ test("placed fills the proposed file in one op", async () => {
   const s = setup({ board: design([{ id: "fn-function", kind: "function", name: "Function", layer: "api", x: 0, y: 0 }]) });
   await s.store.load();
   s.store.onOut(OUT({ changed: true, meaning: true, placed: { id: "fn-function", layer: "api" } }));
-  expect(s.of("ops")).toEqual([[[{ op: "update", id: "fn-function", set: { file: "server/api/function.ts" } }], "user"]]);
+  expect(s.of("ops")).toEqual([[[{ op: "update", id: "fn-function", set: { file: "server/api/function.ts" } }], "amend"]]);
   // the first rename follows the proposal while the file is still the proposed one
-  s.set(design([{ id: "fn-function", kind: "function", name: "Export patients", layer: "api", file: "server/api/function.ts", x: 0, y: 0 }]));
+  s.setBoard(design([{ id: "fn-function", kind: "function", name: "Export patients", layer: "api", file: "server/api/function.ts", x: 0, y: 0 }]));
   s.store.onOut(OUT({ changed: true, meaning: true }));
   expect(s.of("ops")[1][0]).toEqual([{ op: "update", id: "fn-function", set: { file: "server/api/export-patients.ts" } }]);
+});
+
+test("closing the view with a pending edit writes that edit, without touching the freed engine", async () => {
+  const s = setup();
+  await s.store.load();
+  s.setBoard(design([{ id: "fn-a", kind: "function", name: "A" }]));
+  s.store.onOut(OUT({ changed: true }));
+  const closing = s.store.close();
+  s.engine.board = () => { throw new Error("freed"); };
+  s.engine.saved = () => { throw new Error("freed"); };
+  await closing;
+  expect(s.writes).toEqual([design([{ id: "fn-a", kind: "function", name: "A" }])]);
+  await s.advance(5000);
+  expect(s.writes).toHaveLength(1);
+});
+
+test("dispose during a write: no saved() and no conflict merge on the freed engine", async () => {
+  const s = setup();
+  await s.store.load();
+  const w = deferred<void>();
+  s.failWrites(() => w.promise);
+  s.store.onOut(OUT({ changed: true }));
+  const flushing = s.store.flush();
+  await settle();
+  const closing = s.store.close();
+  w.reject("conflict");
+  await flushing;
+  await closing;
+  expect(s.of("saved")).toHaveLength(0);
+  expect(s.of("external")).toHaveLength(0);
+});
+
+test("a feature switch waits for the write in flight before the next board loads", async () => {
+  const s = setup();
+  await s.store.load();
+  const first = deferred<void>();
+  let n = 0;
+  s.failWrites(() => (n++ === 0 ? first.promise : Promise.resolve()));
+  s.store.onOut(OUT({ changed: true }));
+  void s.store.flush();
+  await settle();
+  // an edit lands while the first write runs; the switch flushes
+  s.setBoard(design([{ id: "fn-b", kind: "function", name: "B" }]));
+  s.store.onOut(OUT({ changed: true }));
+  let done = false;
+  const switching = s.store.flush().then(() => (done = true));
+  await settle();
+  expect(done).toBe(false);
+  expect(s.writes).toHaveLength(1);
+  first.resolve();
+  await switching;
+  expect(s.writes).toHaveLength(2);
+  expect(s.writes[1]).toEqual(design([{ id: "fn-b", kind: "function", name: "B" }]));
+  expect(s.of("saved")).toHaveLength(2); // both before the switch goes on
 });

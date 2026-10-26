@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ViewData } from "../data";
 import type { AgentEvent, Design, Feature, FileEntry, FileText, IgApi, TrustState } from "./index";
 
@@ -26,6 +27,18 @@ export function tauri(): IgApi {
     trustProject: (hash) => invoke<void>("trust_project", { hash }),
     openUrl: (url) => invoke<void>("open_url", { url }),
     onRebuild: (cb) => subscribe("rebuild", () => cb()),
+    // Tauri awaits the handler, then closes the window (core:window:allow-destroy).
+    beforeClose: (cb) => {
+      let off: (() => void) | undefined;
+      let stopped = false;
+      getCurrentWindow().onCloseRequested(async () => {
+        await cb().catch((e: unknown) => console.error(e));
+      }).then((u) => (stopped ? u() : (off = u)));
+      return () => {
+        stopped = true;
+        off?.();
+      };
+    },
     // Only `show` is emitted (crates/ig-desktop/src/main.rs).
     on: (event, cb) => subscribe(event, cb),
     design: {

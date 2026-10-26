@@ -34,7 +34,8 @@ export interface Label { id: string; text: string; r: [number, number, number, n
 
 export interface A11yItem { id: string; kind: string; text: string; selected: boolean; highlighted: boolean; problem: string | null }
 
-export type Step = "user" | { agent: string };
+/** `amend` joins the top undo step (a host follow-up, such as a placed element's file). */
+export type Step = "user" | "amend" | { agent: string };
 
 export interface BoardEngine {
   load(boardJson: string, contextJson: string): void;

@@ -64,6 +64,12 @@ test.skipIf(!built)("the board over a real context: place in a row, file propose
   const el = () => JSON.parse(e.board()).elements.find((x: { id: string }) => x.id === id);
   expect(el().file).toMatch(new RegExp(`/function\\.[a-z]+$`));
   expect(e.hit(1300, y)).toBe(id);
+  // placing and the proposed file are one undo step
+  const placed = e.board();
+  e.undo();
+  expect(JSON.parse(e.board()).elements).toEqual([]);
+  e.redo();
+  expect(e.board()).toBe(placed);
   // a link to a system and its check reason
   const sys = { op: "add", id: "sys-pg", kind: "system", name: "PostgreSQL", file: null, method: null, path: null, layer: null, on: null, x: 1600, y: 8, w: null, h: null };
   store.onOut(e.ops(JSON.stringify([sys, { op: "link", from: id, to: "sys-pg", kind: "uses" }]), "user"));

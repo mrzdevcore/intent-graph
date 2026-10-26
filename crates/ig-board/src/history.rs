@@ -8,6 +8,9 @@ pub enum Step {
     /// An agent turn's id.
     Agent(String),
     External,
+    /// Joins the top step (a host follow-up, such as the file proposed for a placed element);
+    /// never stored.
+    Amend,
 }
 
 /// Undo history: `limit` undo steps above the initial board.
@@ -50,6 +53,16 @@ impl History {
             self.entries[self.at].0 = b;
         } else {
             self.push(b, Step::Agent(turn.into()));
+        }
+    }
+
+    /// Replaces the top step's board, keeping its step, while it is still current; else a new
+    /// user step (never over the initial board).
+    pub fn amend(&mut self, b: Board) {
+        if self.at > 0 && self.at + 1 == self.entries.len() {
+            self.entries[self.at].0 = b;
+        } else {
+            self.push(b, Step::User);
         }
     }
 
@@ -160,6 +173,22 @@ mod tests {
         h.agent(b(2), "t2");
         assert_eq!(h.top_step(), &Step::Agent("t2".into()));
         assert_eq!(title(h.undo()), Some("1".into()));
+    }
+
+    #[test]
+    fn amend_joins_the_top_step_only_while_it_is_current() {
+        let mut h = History::new(b(0), 200);
+        h.push(b(1), Step::User);
+        h.amend(b(2));
+        assert_eq!(title(h.undo()), Some("0".into()));
+        assert_eq!(title(h.redo()), Some("2".into()));
+        h.undo();
+        h.amend(b(3)); // after an undo: a step of its own, redo gone
+        assert_eq!(title(h.redo()), None);
+        assert_eq!(steps(&mut h), 1);
+        let mut fresh = History::new(b(0), 200);
+        fresh.amend(b(1)); // never over the initial board
+        assert_eq!(steps(&mut fresh), 1);
     }
 
     #[test]

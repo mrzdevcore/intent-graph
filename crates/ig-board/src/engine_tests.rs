@@ -366,3 +366,54 @@ fn set_context_keeps_the_board_and_history_and_drops_gone_boxes() {
     assert!(e.undo().changed);
     assert_eq!(e.board(), &before);
 }
+
+#[test]
+fn an_amend_joins_the_placement_into_one_undo_step() {
+    let mut e = engine();
+    let before = e.board().clone();
+    let add = Op::Add {
+        id: Some("fn-c".into()),
+        kind: ElementKind::Function,
+        name: "C".into(),
+        file: None,
+        method: None,
+        path: None,
+        layer: None,
+        on: None,
+        x: Some(8),
+        y: Some(200),
+        w: None,
+        h: None,
+    };
+    e.ops(&[add], Step::User);
+    let set = ElementPatch {
+        file: Some("server/c.ts".into()),
+        ..Default::default()
+    };
+    let o = e.ops(
+        &[Op::Update {
+            id: "fn-c".into(),
+            set,
+        }],
+        Step::Amend,
+    );
+    assert!(o.changed);
+    assert!(e.undo().changed);
+    assert_eq!(e.board(), &before);
+}
+
+#[test]
+fn new_elements_are_dashed_context_and_overlays_are_not() {
+    let mut e = engine();
+    let s = e.scene([0.0, 0.0, 1200.0, 800.0]);
+    let dashed: Vec<bool> = (s.rects.iter())
+        .map(|r| crate::scene::dashed(r.paint))
+        .collect();
+    assert!(dashed.iter().any(|d| *d));
+    for r in &s.rects {
+        let el = matches!(r.paint, Paint::Element(k) if k != ElementKind::Note && k != ElementKind::Frame);
+        assert_eq!(crate::scene::dashed(r.paint), el, "{:?}", r.paint);
+    }
+    assert!(!crate::scene::dashed(Paint::Element(ElementKind::Note)));
+    assert!(!crate::scene::dashed(Paint::Context));
+}
