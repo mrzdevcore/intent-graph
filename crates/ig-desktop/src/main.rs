@@ -69,6 +69,7 @@ fn open(app: &AppHandle, root: &Path) {
         // A design file changed on disk, unless the app wrote exactly that itself.
         if !c.designs.is_empty() {
             design::emit_changed(&emitter, &watched, &c.designs);
+            emitter.state::<bounded::FileList>().clear();
         }
         // Notes alone change nothing the app shows yet.
         if c.full {
