@@ -20,6 +20,7 @@ agent-client-protocol = "=3.5.0"
 async-process = "2.5.0"
 futures = "0.3.34"
 url = "2.5.8"
+tokio = { version = "=1.54.1", features = ["sync", "time"] }
 
 # The scripted ACP agent the session tests drive: a test target, so `cargo test` links it and no
 # app build ships it. Run without `--serve` (as `cargo test` does) it exits at once.

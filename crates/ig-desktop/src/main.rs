@@ -2,6 +2,7 @@
 //! native folder picker or a recent project), rebuilt live as its files change.
 
 mod agent;
+mod bounded;
 mod commands;
 mod design;
 mod events;
@@ -72,6 +73,7 @@ fn open(app: &AppHandle, root: &Path) {
         // Notes alone change nothing the app shows yet.
         if c.full {
             emitter.state::<design::HeadCache>().clear();
+            emitter.state::<bounded::FileList>().clear();
             let _ = emitter.emit("rebuild", ());
         }
         // The agent's `ig_show`, already checked against the graph; a removed file shows nothing,
@@ -105,6 +107,7 @@ fn open(app: &AppHandle, root: &Path) {
     };
     app.state::<design::Known>().0.lock().unwrap().clear();
     app.state::<design::HeadCache>().clear();
+    app.state::<bounded::FileList>().clear();
     // Another project: its agent, if any, stops (open permission requests are rejected).
     let _ = agent::shutdown(app);
     *app.state::<Project>().0.lock().unwrap() = Some((root.clone(), watcher));
@@ -156,6 +159,8 @@ fn main() {
         .manage(agent::Agent::default())
         .manage(design::Known::default())
         .manage(design::HeadCache::default())
+        .manage(bounded::FileList::default())
+        .manage(bounded::Gate::default())
         .invoke_handler(tauri::generate_handler![
             commands::view_data,
             commands::file_tree,
