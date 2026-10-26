@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import type { ViewData } from "../src/data";
 import { architecture, assignRows, placeRows } from "../src/model/architecture";
 import { index, lane, type El } from "../src/model/graph";
-import { boxSize, curveOf, edgeReducer, edgeTip, frame, LAYERS, MIN_SCALE, nodeReducer, palette, toGraphology, type ViewState } from "../src/model/sigma";
+import { apex, boxSize, curveOf, edgeReducer, edgeTip, frame, guide, hoverer, LAYERS, MIN_SCALE, nodeReducer, palette, toGraphology, type ViewState } from "../src/model/sigma";
 import fixture from "./fixture-data.json";
 
 const ix = index(fixture as ViewData);
@@ -130,4 +130,57 @@ test("rule 5: weight → capped width, quiet unselected edges, gold selection on
   expect(sel.zIndex).toBe(2);
   const shown = edgeReducer(state({ show: { nodes: new Set(), edges: new Set(["A|B"]) } }))("e", a);
   expect(shown).toMatchObject({ color: palette.brand, zIndex: 3 });
+});
+
+test("hover re-reduces only what it touches, on the next frame, without re-indexing", () => {
+  const g = toGraphology(withSystems());
+  const st = state();
+  const calls: { partialGraph: { nodes: string[]; edges: string[] }; skipIndexation: true }[] = [];
+  const frames: (() => void)[] = [];
+  const hover = hoverer(st, () => g, (o) => calls.push(o), (f) => frames.push(f));
+  hover("A");
+  hover("B"); // coalesced into the same frame
+  expect(st.hovered).toBe("B");
+  expect(calls).toEqual([]);
+  frames.splice(0).forEach((f) => f());
+  expect(calls.length).toBe(1);
+  expect(calls[0].skipIndexation).toBe(true);
+  expect(calls[0].partialGraph.nodes).toEqual(["B"]);
+  // B's own edges and row b's band (s3 → B), nothing else.
+  expect(new Set(calls[0].partialGraph.edges)).toEqual(new Set([...g.edges("B"), "band:ext>band:b"]));
+  // Leaving re-reduces the node it left.
+  hover(null);
+  frames.splice(0).forEach((f) => f());
+  expect(calls[1].partialGraph.nodes).toEqual(["B"]);
+  // A band anchor highlights nothing: no hovered node, no extra frame.
+  hover("band:a");
+  expect(st.hovered).toBe(null);
+  expect(frames.length).toBe(0);
+  // Hover never changes what sigma indexes (zIndex, type, hidden): only opacity and the label.
+  const e = g.getEdgeAttributes(g.edges("A", "B")[0]);
+  const [still, hot] = [edgeReducer(state())("e", e), edgeReducer(state({ hovered: "A" }))("e", e)];
+  expect([hot.zIndex, hot.type, hot.hidden]).toEqual([still.zIndex, still.type, still.hidden]);
+  expect(hot.label).toBe("3");
+});
+
+test("a curve's label sits on the curve the shader draws, on the same side after the y flip", () => {
+  const [s, t] = [{ x: 0, y: 0 }, { x: 0, y: -300 }]; // graph coordinates (y up), downward edge
+  const c = guide(s, t, 0.2);
+  const mid = apex(s, t, 0.2);
+  expect(mid).toEqual({ x: (s.x + 2 * c.x + t.x) / 4, y: (s.y + 2 * c.y + t.y) / 4 }); // B(0.5)
+  expect(Math.abs(mid.x)).toBeCloseTo(0.2 * 300 / 2); // half the control offset
+  // The same edge in viewport pixels (y down) with -curve lands at the flipped point.
+  const flip = (p: { x: number; y: number }) => ({ x: p.x, y: -p.y });
+  const v = apex(flip(s), flip(t), -0.2);
+  expect(v.x).toBeCloseTo(mid.x);
+  expect(v.y).toBeCloseTo(-mid.y);
+});
+
+test("context edges and Blueprint edges stay readable; plain module links too", () => {
+  const e = { from: "a", to: "b", size: 1, color: palette.muted, kind: "calls", status: "unchanged" as const, planned: false, violation: false };
+  const op = (a: typeof e & { ctx?: boolean; bp?: boolean; boxed?: boolean }) => Number(/,([\d.]+)\)$/.exec(edgeReducer(state())("e", a).color)?.[1] ?? 1);
+  expect(op({ ...e, boxed: true, ctx: true })).toBeGreaterThanOrEqual(0.25);
+  expect(op({ ...e, bp: true, ctx: true })).toBeGreaterThanOrEqual(0.7);
+  expect(op(e)).toBeGreaterThanOrEqual(0.5); // Changed / Focus module links
+  expect(op({ ...e, boxed: true })).toBeLessThanOrEqual(0.35); // Architecture stays quiet
 });

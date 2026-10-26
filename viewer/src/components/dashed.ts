@@ -6,6 +6,7 @@
 import { createEdgeCompoundProgram, EdgeArrowHeadProgram, EdgeProgram } from "sigma/rendering";
 import type { RenderParams } from "sigma/types";
 import { floatColor } from "sigma/utils";
+import { guide } from "../model/sigma";
 import type { EdgeDisplayData, NodeDisplayData } from "sigma/types";
 
 // Each edge is `segments` quads along a quadratic Bézier from the source to the arrow head's base,
@@ -38,23 +39,34 @@ varying float v_along;
 varying float v_dash;
 const float bias = 255.0 / 254.0;
 const float arrowHead = 2.5;
+// A unit vector, or zero for a zero vector (a node linked to itself, a degenerate tangent): no NaN.
+vec2 unit(vec2 v) {
+  float l = length(v);
+  return l > 1e-9 ? v / l : vec2(0.0);
+}
 void main() {
   vec2 p0 = a_positionStart;
   vec2 p2 = a_positionEnd;
   vec2 chord = p2 - p0;
-  float len = max(length(chord), 1e-9);
-  vec2 left = vec2(-chord.y, chord.x) / len;
+  vec2 left = unit(vec2(-chord.y, chord.x));
   float pixelsThickness = max(length(a_normal), u_minEdgeThickness * u_sizeRatio);
   float webGLThickness = pixelsThickness * u_correctionRatio / u_sizeRatio;
-  // The control point as the arrow head sees it (towards the target), then the line's end at its base.
-  vec2 guide = (p0 + p2) * 0.5 + left * a_curve * len;
-  vec2 into = normalize(p2 - guide);
+  // The control point (the arrow head aims from it, see guide()), then the line's end at the head's
+  // base: the curve's end tangent, end - control, is then parallel to the head (no kink).
+  vec2 c = (p0 + p2) * 0.5 + left * a_curve * length(chord);
+  vec2 into = unit(p2 - c);
   vec2 end = p2 - into * (a_radius * 2.0 * u_correctionRatio / u_sizeRatio + webGLThickness * arrowHead * 2.0);
-  vec2 c = (p0 + end) * 0.5 + left * a_curve * len;
+  // A straight line keeps its control in the middle, so its dashes run at an even pace.
+  if (a_curve == 0.0) c = (p0 + end) * 0.5;
   float t = a_t;
   vec2 position = (1.0 - t) * (1.0 - t) * p0 + 2.0 * (1.0 - t) * t * c + t * t * end;
   vec2 tangent = (1.0 - t) * (c - p0) + t * (end - c);
-  vec2 normal = normalize(vec2(-tangent.y, tangent.x));
+  vec2 normal = unit(vec2(-tangent.y, tangent.x));
+  if (normal == vec2(0.0)) normal = left;
+  #ifdef PICKING_MODE
+  // Thin edges are picked over at least 4 px each side, so they can be hovered.
+  webGLThickness = max(webGLThickness, 4.0 * u_correctionRatio);
+  #endif
   // An opposite pair's shift, square to the arrow's direction so line and head stay together.
   vec2 shift = vec2(-into.y, into.x) * a_offset * u_correctionRatio;
   gl_Position = vec4((u_matrix * vec3(position + shift + normal * a_side * webGLThickness, 1)).xy, 0, 1);
@@ -87,18 +99,13 @@ void main(void) {
   #else
   if (v_dash > 0.0 && mod(v_along, 2.0 * v_dash) > v_dash) discard;
   float t = smoothstep(v_thickness - v_feather, v_thickness, length(v_normal) * v_thickness);
-  gl_FragColor = mix(v_color, vec4(0.0), t);
-  gl_FragColor.rgb *= gl_FragColor.a;
+  // Premultiplied first (sigma blends ONE, ONE_MINUS_SRC_ALPHA), then faded at the rim: no dark fringe.
+  gl_FragColor = mix(vec4(v_color.rgb * v_color.a, v_color.a), vec4(0.0), t);
   #endif
 }`;
 
 const UNIFORMS = ["u_matrix", "u_zoomRatio", "u_sizeRatio", "u_correctionRatio", "u_pixelRatio", "u_feather", "u_minEdgeThickness", "u_dimensions"] as const;
 const { FLOAT, UNSIGNED_BYTE, TRIANGLES } = WebGLRenderingContext;
-
-/** The control point the arrow head aims from: `curve` × the length left of the middle. */
-export function guide(src: { x: number; y: number }, dst: { x: number; y: number }, curve: number) {
-  return { x: (src.x + dst.x) / 2 - (dst.y - src.y) * curve, y: (src.y + dst.y) / 2 + (dst.x - src.x) * curve };
-}
 
 type Extra = EdgeDisplayData & { dash?: number; offset?: number; curve?: number };
 
