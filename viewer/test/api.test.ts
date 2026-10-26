@@ -83,8 +83,8 @@ test("http: a failed /api/view throws; onRebuild shares one EventSource and clos
 test("tauri: viewData invokes view_data; onRebuild listens to rebuild and unlistens (even if called early)", async () => {
   const invoke = vi.fn(async () => SAMPLE);
   const un = vi.fn();
-  let handler: () => void = () => {};
-  const listen = vi.fn(async (_n: string, cb: () => void) => ((handler = cb), un));
+  let handler: (e: { payload: unknown }) => void = () => {};
+  const listen = vi.fn(async (_n: string, cb: (e: { payload: unknown }) => void) => ((handler = cb), un));
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
   vi.doMock("@tauri-apps/api/event", () => ({ listen }));
   const { tauri } = await import("../src/api/tauri");
@@ -98,11 +98,34 @@ test("tauri: viewData invokes view_data; onRebuild listens to rebuild and unlist
   const cb = vi.fn();
   const off = api.onRebuild(cb);
   await vi.waitFor(() => expect(listen).toHaveBeenCalledWith("rebuild", expect.any(Function)));
-  handler();
+  handler({ payload: null });
   expect(cb).toHaveBeenCalled();
   off();
   await vi.waitFor(() => expect(un).toHaveBeenCalled());
   const early = tauri().onRebuild(cb);
   early();
   await vi.waitFor(() => expect(un).toHaveBeenCalledTimes(2));
+});
+
+test("tauri agent: commands carry their arguments; onEvent hands over agent-event payloads", async () => {
+  const invoke = vi.fn(async () => "id");
+  let handler: (e: { payload: unknown }) => void = () => {};
+  const listen = vi.fn(async (_n: string, cb: (e: { payload: unknown }) => void) => ((handler = cb), () => {}));
+  vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
+  vi.doMock("@tauri-apps/api/event", () => ({ listen }));
+  vi.resetModules();
+  const { tauri } = await import("../src/api/tauri");
+  const agent = tauri().agent!;
+  expect(await agent.start("login")).toBe("id");
+  expect(invoke).toHaveBeenCalledWith("agent_start", { feature: "login" });
+  await agent.prompt("hi");
+  expect(invoke).toHaveBeenCalledWith("agent_prompt", { text: "hi", attachments: [] });
+  await agent.answer(3, "reject");
+  expect(invoke).toHaveBeenCalledWith("agent_answer", { requestId: 3, optionId: "reject" });
+  const cb = vi.fn();
+  agent.onEvent(cb);
+  await vi.waitFor(() => expect(listen).toHaveBeenCalledWith("agent-event", expect.any(Function)));
+  const e = { type: "Stopped", reason: "exit 1", stderr: null };
+  handler({ payload: e });
+  expect(cb).toHaveBeenCalledWith(e);
 });
