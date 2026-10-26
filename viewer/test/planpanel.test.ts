@@ -16,14 +16,17 @@ test("plan versus design: three lists with counts, each id selects", () => {
   const c = mount(PlanPanel, { target: el, props: { data, known: {}, notes: [], focus: (id: string) => picked.push(id) } });
   flushSync();
   const t = el.textContent!;
-  for (const h of ["Not in the plan (1)", "Left out (1)", "Added by the agent (2)", "fn-b later"]) expect(t).toContain(h);
+  for (const h of ["Not in the plan (1)", "Left out (1)", "Added by the agent (2)", "fn-b later", "m"]) expect(t).toContain(h);
   el.querySelector<HTMLButtonElement>(".design-list button")!.click();
   expect(picked).toEqual(["fn-a"]);
   // with a board open the id selects there instead
   const onBoard: string[][] = [];
-  const off = registerBoard((ids) => onBoard.push(ids));
+  const off = registerBoard((ids) => (onBoard.push(ids), ids[0] !== "fn-b"));
   el.querySelector<HTMLButtonElement>(".design-list button")!.click();
   expect([onBoard, picked]).toEqual([[["fn-a"]], ["fn-a"]]);
+  el.querySelectorAll<HTMLButtonElement>(".design-list button")[1].click(); // fn-b: not on the board
+  expect(picked).toEqual(["fn-a", "fn-b"]);
+  picked.pop();
   off();
   el.querySelector<HTMLButtonElement>(".design-list button")!.click();
   expect(picked).toEqual(["fn-a", "fn-a"]);

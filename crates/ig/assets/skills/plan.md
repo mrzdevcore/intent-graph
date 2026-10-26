@@ -57,7 +57,7 @@ When `plans/<slug>/design.json` exists, the plan follows the design. Write `plan
 2. **Mapping.** An element becomes the plan id its `graph_id` gives: a module or function
    with a `file` is `file` or `file#Name`, a route `file#METHOD /path`, a system `system:<Name>`.
    Every element, link and bridge must be in the plan, with the user's names and files.
-3. **Leaving something out.** Only after the user says yes in the chat, as
+3. **Leaving something out.** Only after the user agrees in the chat or in a note, as
    `omitted: [{id, reason}]` in the `ig-plan` block. Never to silence a gap.
 4. **Gaps.** `ig plan check plans/<slug>/plan.md --json` reports each missing element, link or
    bridge as `plan/design-gap` (the design id is on the finding). Fill in what the design leaves
