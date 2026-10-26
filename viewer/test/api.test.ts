@@ -93,6 +93,8 @@ test("tauri: viewData invokes view_data; onRebuild listens to rebuild and unlist
   expect(invoke).toHaveBeenCalledWith("view_data", { plan: undefined, noPlan: false });
   await api.fileTree!("apps");
   expect(invoke).toHaveBeenCalledWith("file_tree", { dir: "apps" });
+  await api.readFile!("a.ts");
+  expect(invoke).toHaveBeenCalledWith("read_file", { path: "a.ts" });
   const cb = vi.fn();
   const off = api.onRebuild(cb);
   await vi.waitFor(() => expect(listen).toHaveBeenCalledWith("rebuild", expect.any(Function)));

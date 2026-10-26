@@ -86,3 +86,9 @@ ul.notes li.done { color: var(--muted); }
 #files-filter { font: inherit; font-size: 13px; margin: 8px 10px 4px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
 #files-body { overflow: auto; flex: 1; padding-bottom: 12px; font-size: 13px; outline: none; }
 #files-body:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+#center { position: relative; display: grid; min-width: 0; min-height: 0; }
+#ig-code { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg); }
+#ig-code > header { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+#ig-code > header button { margin-left: auto; }
+#ig-code .host { flex: 1; min-height: 0; overflow: auto; }
+#ig-code .cm-mergeView { height: 100%; overflow: auto; }
