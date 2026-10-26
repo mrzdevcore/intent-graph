@@ -156,12 +156,13 @@ test("openQuestions counts only unanswered question items", () => {
   expect(openQuestions(play([{ type: "TurnEnded", stopReason: "end_turn" }], s))).toBe(0);
 });
 
-test("a board edit card is announced and its Undo marks it undone", () => {
+test("a board edit card is announced; its Undo marks it undone, or stale when nothing changed", () => {
   let s = chatReducer(initialChat, { type: "BoardEdit", feature: "export", step: "turn-1", ids: ["fn-a", "fn-a|calls|fn-b"], elements: 1, links: 1 });
   expect(s.live).toBe("Claude edited the board: 1 element, 1 link");
-  expect(s.items[0]).toMatchObject({ kind: "board-edit", undone: false });
-  s = chatReducer(s, { type: "BoardUndone", step: "turn-1" });
-  expect(s.items[0]).toMatchObject({ undone: true });
+  expect(s.items[0]).toMatchObject({ kind: "board-edit", undo: null });
+  expect(chatReducer(s, { type: "BoardUndo", step: "turn-1", ok: false }).items[0]).toMatchObject({ undo: "stale" });
+  s = chatReducer(s, { type: "BoardUndo", step: "turn-1", ok: true });
+  expect(s.items[0]).toMatchObject({ undo: "done" });
   expect(editCounts({ elements: 2, links: 0 })).toBe("2 elements");
   expect(editCounts({ elements: 2, links: 0 }, true)).toBe("2 elements, 0 links");
 });

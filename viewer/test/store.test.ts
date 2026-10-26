@@ -3,7 +3,7 @@ import type { Design, DesignApi, DesignCheck } from "../src/api";
 import type { ViewNode } from "../src/data";
 import type { EngineOut } from "../src/board/engine";
 import { Outbox } from "../src/board/outbox";
-import { agentStep, BoardStore, save, type BoardEdit, type Clock, type StoreEngine, type StoreHooks } from "../src/board/store";
+import { agentStep, BoardStore, save, type Clock, type StoreEngine, type StoreHooks } from "../src/board/store";
 
 test("agentStep groups arrivals up to 1 s after the turn ends", () => {
   const turns = [{ id: "t1", start: 100, end: 500 }, { id: "t2", start: 5000, end: null }];
@@ -410,22 +410,6 @@ test("one agent turn is one undo step", async () => {
   s.at(1900); // late, within the grace: still the turn's step
   await s.store.external();
   expect(s.of("external").map((c) => c[1])).toEqual(["t1", "t1", "t1"]);
-});
-
-test("a turn emits one BoardEdit with the counts", async () => {
-  const turns = [{ id: "t1", start: 0, end: null as number | null }];
-  const edits: BoardEdit[] = [];
-  const s = setup({ turns: () => turns, hooks: { edited: (e) => void edits.push(e) } });
-  agentMerges(s, [["fn-a"], ["fn-a", "fn-a|calls|fn-b", "fn-c"]]);
-  await s.store.load();
-  await s.store.external();
-  await s.advance(500);
-  await s.store.external();
-  await s.advance(3000);
-  expect(edits).toEqual([]); // nothing while the turn runs
-  turns[0].end = 3500;
-  await s.advance(5000);
-  expect(edits).toEqual([{ step: "t1", ids: ["fn-a", "fn-a|calls|fn-b", "fn-c"], elements: 2, links: 1 }]);
 });
 
 test("agent merges re-check and do not echo to the outbox", async () => {

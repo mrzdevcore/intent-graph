@@ -143,9 +143,10 @@
           <div class="row">
             <button disabled={!here} title={here ? "Select and zoom to them" : `Open ${item.feature}'s board to show them`}
               onclick={() => c.board?.show(item.ids)}>Show</button>
-            <button disabled={!here || item.undone} title="Undo Claude's edit, keeping your later ones"
-              onclick={() => c.board?.undo(item.step)}>{item.undone ? "Undone" : "Undo"}</button>
+            <button disabled={!here || !!item.undo} title="Undo Claude's edit, keeping your later ones"
+              onclick={() => c.undoEdit(item.step)}>{item.undo === "done" ? "Undone" : "Undo"}</button>
           </div>
+          {#if item.undo === "stale"}<p class="muted">Already undone or no longer in this board's history</p>{/if}
         </div>
       {:else if item.kind === "error"}
         <div class="msg error" role="alert">{item.text}</div>

@@ -7,14 +7,14 @@
 import type { AgentApi, TrustState } from "../../api";
 import type { Outbox } from "../../board/outbox";
 import type { AgentTurn } from "../../board/store";
-import { chatReducer, initialChat, type ChatAction } from "../../model/chat";
+import { boardEdits, chatReducer, initialChat, type ChatAction } from "../../model/chat";
 
 const msg = (e: unknown) => String((e as Error)?.message ?? e);
 
 export interface Held { feature: string; text: string }
 
 /** The open board's side of the "Edited the board" card. */
-export interface BoardLink { feature: string; show(ids: string[]): void; undo(step: string): void }
+export interface BoardLink { feature: string; show(ids: string[]): void; /** True when it changed the board. */ undo(step: string): boolean }
 
 export class ChatSession {
   s = $state.raw(initialChat);
@@ -61,11 +61,20 @@ export class ChatSession {
     this.s = chatReducer(this.s, a);
     if (!was && this.s.running) this.turns = [...this.turns.slice(-20), { id: `turn-${++this.turnN}`, start: Date.now(), end: null, feature: this.feature }];
     const last = this.turns.at(-1);
-    if (was && !this.s.running && last && last.end === null) last.end = Date.now();
+    if (was && !this.s.running && last && last.end === null) {
+      last.end = Date.now();
+      // the turn's board edits, from its design_edit results: a card even when no board is open
+      for (const e of boardEdits(this.s.items.slice(this.s.turnFrom), last.id)) this.s = chatReducer(this.s, e);
+    }
     // a turn's end, a failure, a reset or a stop: the waiting prompts go (or see the session gone)
     if (!this.s.running) this.idle.splice(0).forEach((f) => f());
     this.sync();
   };
+
+  /** The card's Undo: the open board reverts Claude's turn; nothing left to revert says so. */
+  undoEdit(step: string) {
+    this.dispatch({ type: "BoardUndo", step, ok: this.board?.undo(step) ?? false });
+  }
 
   /** Each feature's outbox: sends only in its feature's session, never during a turn. */
   sync() {
