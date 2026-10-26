@@ -1,10 +1,10 @@
 //! `ig init`: scaffolding. Never overwrites anything.
 
-use crate::Wired;
 use anyhow::Result;
 use ig_app::check;
 use ig_core::config::Config;
 use ig_core::workspace::{self, WorkspaceInfo};
+use ig_wire::Wired;
 use regex::Regex;
 use std::collections::BTreeSet;
 use std::path::Path;

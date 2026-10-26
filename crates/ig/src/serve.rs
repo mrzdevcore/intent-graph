@@ -1,19 +1,20 @@
 //! `ig serve`: the live viewer on 127.0.0.1:<port>, a JSON API for the viewer and `ig mcp`, and a
 //! server-sent event stream (`rebuild`, `note`, `focus`). Every POST needs the run's token.
 
+use crate::CWD;
 use crate::model::Graph;
-use crate::render::{self, ignored, open_str};
-use crate::{CWD, Wired, shown_plan};
+use crate::render::{self, open_str};
 use anyhow::{Result, bail};
 use ig_app::check::Opts;
 use ig_app::notes::{self, Note, NoteInput};
 use ig_app::view_data;
 use ig_core::workspace;
+use ig_wire::{Wired, shown_plan};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const PORT: u16 = 7420;
@@ -364,7 +365,6 @@ pub fn run(
     no_plan: bool,
     open_browser: bool,
 ) -> Result<()> {
-    use notify::Watcher;
     let Some(http) = bind(root, port.unwrap_or(PORT), port.is_some())? else {
         if let Some(info) = discover(root) {
             println!("ig serve is already running: {}", info.url("/"));
@@ -415,54 +415,24 @@ pub fn run(
         open_str(&url);
     }
 
-    let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
-    let mut watcher = notify::recommended_watcher(move |e| {
-        let _ = tx.send(e);
-    })?;
-    watcher.watch(root, notify::RecursiveMode::Recursive)?;
-    {
+    // A change to notes only re-reads them; anything else rebuilds.
+    let watcher = {
         let s = s.clone();
-        std::thread::spawn(move || {
-            while let Ok(e) = rx.recv() {
-                // A change to notes only re-reads them; anything else rebuilds.
-                let (mut any, mut full) = (false, false);
-                let mut see = |e: notify::Result<notify::Event>| {
-                    for p in e
-                        .iter()
-                        .flat_map(|e| &e.paths)
-                        .filter(|p| !ignored(&s.root, p))
-                    {
-                        any = true;
-                        full |= !p
-                            .file_name()
-                            .is_some_and(|f| f.to_string_lossy().contains(".notes."));
-                    }
-                };
-                see(e);
-                // Debounce: wait for 300 ms of quiet.
-                while let Ok(e) = rx.recv_timeout(Duration::from_millis(300)) {
-                    see(e);
-                }
-                if !full {
-                    if any {
-                        s.sync_notes();
-                    }
-                    continue;
-                }
-                match rebuild(&s.root, &s.token) {
-                    Ok(b) => {
-                        *s.built.lock().unwrap() = b;
-                        s.sync_notes();
-                        s.broadcast("rebuild", &json!({}));
-                        eprintln!("ig: rebuilt");
-                    }
-                    Err(err) => {
-                        eprintln!("ig: rebuild failed, keeping the last good page: {err:#}")
-                    }
-                }
+        ig_wire::watch(root, move |full| {
+            if !full {
+                return s.sync_notes();
             }
-        });
-    }
+            match rebuild(&s.root, &s.token) {
+                Ok(b) => {
+                    *s.built.lock().unwrap() = b;
+                    s.sync_notes();
+                    s.broadcast("rebuild", &json!({}));
+                    eprintln!("ig: rebuilt");
+                }
+                Err(err) => eprintln!("ig: rebuild failed, keeping the last good page: {err:#}"),
+            }
+        })?
+    };
     for req in http.incoming_requests() {
         s.handle(req);
     }

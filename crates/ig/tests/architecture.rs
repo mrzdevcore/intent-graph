@@ -32,10 +32,11 @@ fn dependency_rule() {
     let mut seen = 0;
     for pkg in meta["packages"].as_array().unwrap() {
         let name = pkg["name"].as_str().unwrap();
-        // the binary package is named `intent-graph`: it may depend on every crate
-        let Some(_) = name.strip_prefix("ig-") else {
+        // the driving adapters may depend on every crate: the `ig` binary (package
+        // `intent-graph`), the desktop app, and the wiring they share
+        if !name.starts_with("ig-") || ["ig-wire", "ig-desktop"].contains(&name) {
             continue;
-        };
+        }
         seen += 1;
         let deps: Vec<&str> = pkg["dependencies"]
             .as_array()

@@ -1,10 +1,11 @@
 //! `ig mcp`: hand-rolled MCP server (JSON-RPC 2.0 over stdio, one message per line).
 
 use crate::model::{Graph, TOOL_VERSION};
-use crate::{Wired, serve};
+use crate::serve;
 use ig_app::check;
 use ig_app::notes::{self, Note};
 use ig_core::{intents, workspace};
+use ig_wire::Wired;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::io::{BufRead, Write};

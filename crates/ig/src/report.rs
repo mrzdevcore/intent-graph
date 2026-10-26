@@ -1,12 +1,12 @@
 //! `ig report --gitlab`: Mermaid diagram and one MR note, created or updated in place.
 
-use crate::Wired;
 use crate::render;
 use anyhow::{Context, Result, bail};
 use ig_app::check::{self, Run};
 use ig_app::view_data as view;
 use ig_core::config::Severity;
 use ig_core::diff::Status;
+use ig_wire::Wired;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -238,11 +238,7 @@ pub fn gitlab(root: &Path) -> Result<u8> {
     let e = w.env();
     let run = check::run(&e, &check::Opts::default())?;
     render::write_run(&e, &run, &check::Opts::default())?;
-    let prefix = w
-        .vcs
-        .as_ref()
-        .map(|r| r.prefix().to_string())
-        .unwrap_or_default();
+    let prefix = w.vcs().map(|r| r.prefix().to_string()).unwrap_or_default();
     let artifact_path = if prefix.is_empty() {
         ".ig/view.html".to_string()
     } else {

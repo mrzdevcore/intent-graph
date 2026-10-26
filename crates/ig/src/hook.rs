@@ -1,7 +1,7 @@
 //! `ig hook claude`: the Claude Code Stop hook. Never fails; errors become a systemMessage.
 
-use crate::Wired;
 use ig_app::{apply, check};
+use ig_wire::Wired;
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::Path;

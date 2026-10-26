@@ -8,10 +8,10 @@ mod plan;
 mod setup;
 mod view;
 
-use crate::Wired;
 use ig_app::build::Built;
 use ig_app::check::{self, Opts, Run};
 use ig_core::config::Config;
+use ig_wire::Wired;
 use std::path::{Path, PathBuf};
 
 pub(crate) const PLAN: &str = "# Export\n\n## Steps\n1. core: add export\n\n```ig-plan\nnodes:\n  - id: packages/core/src/export.ts#exportRows\n    status: new\n    exported: true\n  - id: packages/core/src/repo.ts#Repo.find\n    status: changed\nedges:\n  - from: packages/core/src/export.ts#exportRows\n    to: packages/core/src/repo.ts#Repo.find\n```\n";
@@ -38,7 +38,7 @@ pub(crate) fn check_run(root: &Path, opts: &Opts) -> anyhow::Result<Run> {
 
 /// `ig plan check` on the plan at `path`.
 pub(crate) fn plan_check(root: &Path, path: &Path) -> anyhow::Result<serde_json::Value> {
-    let (rel, text) = crate::read_plan(root, path)?;
+    let (rel, text) = ig_wire::read_plan(root, path)?;
     Ok(ig_app::plan::check(&Wired::new(root).env(), &rel, &text)?)
 }
 

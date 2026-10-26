@@ -11,91 +11,22 @@ mod tests;
 
 use anyhow::{Result, bail};
 use cli::{Args, USAGE, opts, parse_args};
-use ig_app::view_data::{self, Picked, ShownPlan};
+use ig_app::view_data;
 use ig_app::{Env, apply, brief, check, notes, plan, review, setup};
-use ig_checkers::ProcessRunner;
 // `crate::model` for the modules (and their tests) that name model types.
 use ig_core::model;
-use ig_core::ports::{Files, LanguageFrontend, Vcs};
+use ig_core::ports::Files;
 use ig_fs::FsFiles;
-use ig_git::GitVcs;
-use ig_lang_ts::TsFrontend;
+use ig_wire::{Wired, read_plan, shown_plan};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-static FRONTENDS: &[&dyn LanguageFrontend] = &[&TsFrontend];
-
 /// Plan and notes paths are relative to the working directory: files rooted there.
 static CWD: FsFiles = FsFiles {
     root: PathBuf::new(),
 };
-
-/// A progress line on stderr, only when it is a terminal (hooks and JSON consumers stay clean).
-fn progress(msg: &str) {
-    use std::io::IsTerminal;
-    if std::io::stderr().is_terminal() {
-        eprintln!("ig: {msg}");
-    }
-}
-
-/// A check's notices: always on stderr.
-fn notice(msg: &str) {
-    eprintln!("ig: {msg}");
-}
-
-/// The adapters for an ig root: its files and its git repository (if any).
-pub struct Wired {
-    files: FsFiles,
-    vcs: Option<GitVcs>,
-}
-
-impl Wired {
-    pub fn new(root: &Path) -> Wired {
-        Wired {
-            files: FsFiles::new(root),
-            vcs: GitVcs::open(root),
-        }
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.files.root
-    }
-
-    pub fn env(&self) -> Env<'_> {
-        Env {
-            root: &self.files.root,
-            files: &self.files,
-            vcs: self.vcs.as_ref().map(|v| v as &dyn Vcs),
-            runner: &ProcessRunner,
-            frontends: FRONTENDS,
-            progress: &progress,
-            notice: &notice,
-        }
-    }
-}
-
-/// The plan at `path` (relative to the working directory): its root-relative path and text.
-pub fn read_plan(root: &Path, path: &Path) -> Result<(String, String)> {
-    use anyhow::Context;
-    let text = std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
-    let rel = path
-        .canonicalize()
-        .ok()
-        .and_then(|p| ig_core::workspace::rel(root, &p))
-        .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"));
-    Ok((rel, text))
-}
-
-/// The picked plan, read.
-pub fn shown_plan(root: &Path, (plan, applying): &Picked) -> Option<ShownPlan> {
-    plan.as_ref().map(|p| ShownPlan {
-        path: p.clone(),
-        applying: *applying,
-        read: read_plan(root, p),
-    })
-}
 
 fn real_main() -> Result<u8> {
     let a = parse_args()?;
@@ -227,7 +158,7 @@ fn real_main() -> Result<u8> {
             if ids.is_empty() {
                 bail!("focus: expected at least one node id");
             }
-            w.files
+            w.files()
                 .write_atomic(view_data::FOCUS, &serde_json::to_vec_pretty(&ids)?)?;
             Ok(0)
         }

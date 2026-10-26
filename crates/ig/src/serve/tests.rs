@@ -1,5 +1,6 @@
 use super::*;
 use std::io::BufRead;
+use std::sync::mpsc;
 use std::time::Instant;
 
 /// A scratch copy of the monorepo fixture with a checked plan, served on a free port.
