@@ -101,39 +101,87 @@ pub fn ignored(root: &Path, p: &Path) -> bool {
     })
 }
 
-/// The `rel` paths (at most `MAX_CHECKED`; the rest count as not ignored) git ignores, by
-/// .gitignore, .git/info/exclude and the global excludes. Outside a repository: none.
+/// The `rel` paths git ignores, by .gitignore, .git/info/exclude and the global excludes, checked
+/// in chunks. Outside a repository, on a git timeout, or above `MAX_CHECKED` paths: none (rebuild).
 fn git_ignored(root: &Path, rel: &BTreeSet<PathBuf>) -> BTreeSet<PathBuf> {
-    use std::io::Write;
+    git_ignored_with("git", Duration::from_secs(5), root, rel)
+}
+
+fn git_ignored_with(
+    git: &str,
+    deadline: Duration,
+    root: &Path,
+    rel: &BTreeSet<PathBuf>,
+) -> BTreeSet<PathBuf> {
+    const MAX_CHECKED: usize = 20_000;
+    const CHUNK: usize = 500;
+    if rel.len() > MAX_CHECKED {
+        return BTreeSet::new();
+    }
+    let all: Vec<_> = rel.iter().collect();
+    let mut out = BTreeSet::new();
+    for chunk in all.chunks(CHUNK) {
+        match check_chunk(git, deadline, root, chunk) {
+            Some(found) => out.extend(found),
+            None => return BTreeSet::new(),
+        }
+    }
+    out
+}
+
+/// One `git check-ignore` run; None when git is missing, fails to run, or outlives `deadline`.
+fn check_chunk(
+    git: &str,
+    deadline: Duration,
+    root: &Path,
+    chunk: &[&PathBuf],
+) -> Option<Vec<PathBuf>> {
+    use std::io::{Read, Write};
     use std::process::{Command, Stdio};
-    const MAX_CHECKED: usize = 500;
     let mut input = Vec::new();
-    for p in rel.iter().take(MAX_CHECKED) {
+    for p in chunk {
         input.extend_from_slice(p.to_string_lossy().as_bytes());
         input.push(0);
     }
-    let Ok(mut child) = Command::new("git")
+    let mut child = Command::new(git)
         .current_dir(root)
         .args(["check-ignore", "--stdin", "-z"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-    else {
-        return BTreeSet::new();
-    };
-    let mut stdin = child.stdin.take().unwrap();
+        .ok()?;
+    let mut stdin = child.stdin.take()?;
+    let mut stdout = child.stdout.take()?;
     let writer = std::thread::spawn(move || stdin.write_all(&input));
-    let out = child.wait_with_output();
-    let _ = writer.join();
-    let Ok(out) = out else {
-        return BTreeSet::new();
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        buf
+    });
+    let start = std::time::Instant::now();
+    let done = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break true,
+            Ok(None) if start.elapsed() < deadline => std::thread::sleep(Duration::from_millis(5)),
+            _ => break false,
+        }
     };
-    out.stdout
-        .split(|b| *b == 0)
-        .filter(|s| !s.is_empty())
-        .map(|s| PathBuf::from(String::from_utf8_lossy(s).into_owned()))
-        .collect()
+    if !done {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    if !done {
+        return None; // the threads end with the pipes; a grandchild holding them is not waited for
+    }
+    let _ = writer.join();
+    let buf = reader.join().ok()?;
+    Some({
+        buf.split(|b| *b == 0)
+            .filter(|s| !s.is_empty())
+            .map(|s| PathBuf::from(String::from_utf8_lossy(s).into_owned()))
+            .collect()
+    })
 }
 
 /// What changed in one quiet period: `full` when anything but plan notes (`*.notes.*`) and the
@@ -283,6 +331,41 @@ mod tests {
         assert!(rx.recv_timeout(Duration::from_secs(2)).is_err(), "ignored");
         std::fs::write(dir.join("a.ts"), "export const a = 1;").unwrap();
         assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().full);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn git_ignored_chunks_and_gives_up_on_a_slow_git() {
+        let dir = std::env::temp_dir().join(format!("ig-wire-chunk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .current_dir(&dir)
+                .args(["init", "-q"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::write(dir.join(".gitignore"), "dist/\n").unwrap();
+        let rel: BTreeSet<PathBuf> = (0..3_000).map(|i| format!("dist/f{i}").into()).collect();
+        let secs = Duration::from_secs(5);
+        assert_eq!(git_ignored_with("git", secs, &dir, &rel).len(), 3_000);
+        let slow = dir.join("slow-git");
+        std::fs::write(&slow, "#!/bin/sh\nsleep 5\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&slow, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let t = std::time::Instant::now();
+        let none = git_ignored_with(
+            slow.to_str().unwrap(),
+            Duration::from_millis(200),
+            &dir,
+            &rel,
+        );
+        assert!(none.is_empty() && t.elapsed() < Duration::from_secs(3));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
