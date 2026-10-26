@@ -110,6 +110,7 @@ mod tests {
     fn b(n: i32) -> Board {
         Board {
             design: empty(&n.to_string(), Scope::Layer { name: "x".into() }),
+            screens: Default::default(),
         }
     }
     fn title(b: Option<&Board>) -> Option<String> {

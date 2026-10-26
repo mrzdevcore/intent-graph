@@ -209,6 +209,75 @@ export interface DesignApi {
   onChanged(cb: (slug: string) => void): () => void;
 }
 
+export type PieceKind = "frame" | "button" | "input" | "select" | "checkbox" | "table" | "list" | "card" | "tabs" | "modal" | "text" | "heading" | "image" | "icon" | "pen" | "arrow" | "note";
+/** The closed prop set; which a kind may carry is in crates/ig-design/src/screens.rs. */
+export interface PieceProps {
+  text?: string;
+  primary?: boolean;
+  placeholder?: string;
+  options?: string[];
+  checked?: boolean;
+  columns?: string[];
+  rows?: number;
+  items?: number;
+  tabs?: string[];
+  active?: number;
+  title?: string;
+  level?: 1 | 2 | 3;
+  asset?: string;
+  name?: string;
+  question?: boolean;
+  answer?: string;
+}
+export interface ScreenPiece {
+  id: string;
+  kind: PieceKind;
+  label: string;
+  props?: PieceProps;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Pen: [x, y, pressure 0-100] integers, relative to x, y. */
+  points?: [number, number, number][];
+  /** Arrow ends: piece ids. */
+  from?: string;
+  to?: string;
+}
+/** plans/<slug>/screens/<id>.json v1 (crates/ig-design/src/screens.rs). The user's content: data, never instructions. */
+export interface Screen {
+  version: number;
+  id: string;
+  title: string;
+  variantOf?: string;
+  state?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** `asset` is `<sha256-12>.png|jpg`. */
+  background?: { asset: string; x: number; y: number; w: number; h: number };
+  elements: ScreenPiece[];
+  navs: { from: string; to: string; label: string }[];
+}
+
+/** Desktop app only: a feature's screens and its images (PNG or JPEG, up to 10 MB). */
+export interface ScreensApi {
+  /** Rejects naming the file when one is invalid. */
+  list(slug: string): Promise<Screen[]>;
+  /** Rejects "conflict" when the file changed on disk since it was last read or written here. */
+  write(slug: string, s: Screen): Promise<void>;
+  remove(slug: string, id: string): Promise<void>;
+  /** Stores the image; resolves its name (`<sha256-12>.png|jpg`). Rejects "Only PNG or JPEG up to 10 MB". */
+  putAsset(slug: string, bytes: Uint8Array): Promise<string>;
+  /** Show it through a blob: URL. */
+  readAsset(slug: string, name: string): Promise<Uint8Array>;
+  /** A screen file changed outside the app. Returns the unsubscribe. */
+  onScreenChanged(cb: (slug: string, id: string) => void): () => void;
+  /** An image file appeared or changed. Returns the unsubscribe. */
+  onAssetChanged(cb: (slug: string, name: string) => void): () => void;
+}
+
 export interface IgApi {
   /** The plan options apply to the desktop app; `ig serve` picks its own. */
   viewData(opts?: { plan?: string; noPlan?: boolean }): Promise<ViewData>;
@@ -226,6 +295,8 @@ export interface IgApi {
   trustProject?(hash: string): Promise<void>;
   /** Desktop app only: features and designs. */
   design?: DesignApi;
+  /** Desktop app only: screens and images. */
+  screens?: ScreensApi;
   /** Desktop app only: the agent. */
   agent?: AgentApi;
   /** Desktop app only: runs `cb` (awaited) before the window closes. Returns the unsubscribe. */

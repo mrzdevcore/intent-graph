@@ -192,6 +192,24 @@ pub struct Changed {
     pub full: bool,
     pub show: bool,
     pub designs: BTreeSet<String>,
+    /// (slug, screen id) of the screen files touched; a screen file is `<id>.json`.
+    pub screens: BTreeSet<(String, String)>,
+    /// (slug, name) of the image files touched.
+    pub assets: BTreeSet<(String, String)>,
+}
+
+/// `plans/<slug>/screens/<id>.json` -> (slug, id); `plans/<slug>/assets/<name>` -> (slug, name).
+fn design_file(rel: &Path) -> Option<(bool, String, String)> {
+    let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_str()).collect();
+    match parts[..] {
+        [Some("plans"), Some(s), Some("screens"), Some(f)] => {
+            Some((true, s.into(), f.strip_suffix(".json")?.into()))
+        }
+        [Some("plans"), Some(s), Some("assets"), Some(f)] if !f.contains(".tmp-") => {
+            Some((false, s.into(), f.into()))
+        }
+        _ => None,
+    }
 }
 
 /// The feature whose design file (design.json, notes, screens, assets, or a temp file of an
@@ -242,6 +260,11 @@ pub fn watch(
                         if let Some(slug) = design_slug(rel) {
                             any = true;
                             c.designs.insert(slug);
+                            match design_file(rel) {
+                                Some((true, s, id)) => c.screens.insert((s, id)),
+                                Some((false, s, name)) => c.assets.insert((s, name)),
+                                None => false,
+                            };
                         } else if !rel
                             .file_name()
                             .is_some_and(|f| f.to_string_lossy().contains(".notes."))
@@ -410,6 +433,22 @@ mod tests {
     }
 
     #[test]
+    fn screen_and_asset_files_are_named() {
+        let f = |p: &str| design_file(Path::new(p));
+        assert_eq!(
+            f("plans/a/screens/x.json"),
+            Some((true, "a".into(), "x".into()))
+        );
+        assert_eq!(
+            f("plans/a/assets/0123456789ab.png"),
+            Some((false, "a".into(), "0123456789ab.png".into()))
+        );
+        assert_eq!(f("plans/a/screens/x.tmp-1"), None);
+        assert_eq!(f("plans/a/assets/0123456789ab.tmp-1"), None);
+        assert_eq!(f("plans/a/design.json"), None);
+    }
+
+    #[test]
     fn watch_classifies_design_screen_and_asset_changes() {
         let dir = std::env::temp_dir().join(format!("ig-wire-design-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -425,6 +464,7 @@ mod tests {
         std::fs::write(dir.join("plans/a/screens/s.json"), "{}").unwrap();
         let want = Changed {
             designs: BTreeSet::from(["a".to_string()]),
+            screens: BTreeSet::from([("a".to_string(), "s".to_string())]),
             ..Changed::default()
         };
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(want));

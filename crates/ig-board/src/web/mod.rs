@@ -113,7 +113,10 @@ fn error_json(e: impl ToString) -> String {
 
 fn board_of(text: &str) -> Result<Board, String> {
     parse(text)
-        .map(|design| Board { design })
+        .map(|design| Board {
+            design,
+            screens: Default::default(),
+        })
         .map_err(|e| e.to_string())
 }
 
@@ -142,7 +145,13 @@ impl BoardEngine {
     pub fn new() -> BoardEngine {
         let blank = empty("", Scope::Dir { id: String::new() });
         BoardEngine {
-            engine: Engine::new(Context::default(), Board { design: blank }),
+            engine: Engine::new(
+                Context::default(),
+                Board {
+                    design: blank,
+                    screens: Default::default(),
+                },
+            ),
             gl: None,
             renderer: None,
             bitmaps: HashMap::new(),

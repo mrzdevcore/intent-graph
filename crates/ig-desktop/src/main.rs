@@ -11,6 +11,7 @@ mod file_tree;
 mod permissions;
 mod plugin;
 mod read_file;
+mod screens;
 mod session;
 mod shell_path;
 mod trust;
@@ -70,6 +71,7 @@ fn open(app: &AppHandle, root: &Path) {
         // A design file changed on disk, unless the app wrote exactly that itself.
         if !c.designs.is_empty() {
             design::emit_changed(&emitter, &watched, &c.designs);
+            screens::emit_changed(&emitter, &watched, &c.screens, &c.assets);
             emitter.state::<bounded::FileList>().clear();
         }
         // Notes alone change nothing the app shows yet.
@@ -206,6 +208,11 @@ fn main() {
             design::keep_unsaved,
             design::read_unsaved,
             design::discard_unsaved,
+            screens::list_screens,
+            screens::write_screen,
+            screens::remove_screen,
+            screens::put_asset,
+            screens::read_asset,
             agent::agent_start,
             agent::agent_prompt,
             agent::agent_load,

@@ -146,7 +146,10 @@ pub(crate) mod tests {
     pub fn board(elements: Vec<Element>) -> Board {
         let mut d = empty("t", Scope::Layer { name: "x".into() });
         d.elements = elements;
-        Board { design: d }
+        Board {
+            design: d,
+            screens: Default::default(),
+        }
     }
 
     fn moved(b: &Board, ids: &[&str], dx: f32, dy: f32) -> Board {

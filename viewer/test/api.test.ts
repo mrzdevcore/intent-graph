@@ -173,3 +173,25 @@ test("a flush that never ends holds the quit only until the bound", async () => 
   await flushThenAck([() => new Promise(() => {})], async () => void (acked = true), 20);
   expect(acked).toBe(true);
 });
+
+test("tauri screens: commands, base64 of a big image, events", async () => {
+  (window as any).__TAURI_INTERNALS__ = {};
+  const invoke = vi.fn(async (c: string) => (c === "read_asset" ? new Uint8Array([1, 2]).buffer : "0123456789ab.png"));
+  const listeners: Record<string, (e: { payload: unknown }) => void> = {};
+  const listen = vi.fn(async (n: string, cb: (e: { payload: unknown }) => void) => ((listeners[n] = cb), () => {}));
+  vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
+  vi.doMock("@tauri-apps/api/event", () => ({ listen }));
+  vi.doMock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => {} }) }));
+  const { tauri, toBase64 } = await import("../src/api/tauri");
+  const big = new Uint8Array(200_000).fill(65);
+  expect(atob(toBase64(big))).toBe("A".repeat(200_000));
+  const s = tauri().screens!;
+  expect(await s.putAsset("f", new Uint8Array([104, 105]))).toBe("0123456789ab.png");
+  expect(invoke).toHaveBeenCalledWith("put_asset", { slug: "f", base64: "aGk=" });
+  expect(Array.from(await s.readAsset("f", "0123456789ab.png"))).toEqual([1, 2]);
+  const seen = vi.fn();
+  s.onScreenChanged(seen);
+  await Promise.resolve();
+  listeners["screen-changed"]({ payload: { slug: "f", id: "home" } });
+  expect(seen).toHaveBeenCalledWith("f", "home");
+});

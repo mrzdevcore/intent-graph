@@ -53,7 +53,13 @@ fn engine(elements: usize, boxes: usize) -> Engine {
             })
             .collect(),
     };
-    let mut e = Engine::new(ctx, Board { design: d });
+    let mut e = Engine::new(
+        ctx,
+        Board {
+            design: d,
+            screens: Default::default(),
+        },
+    );
     e.scene([0.0, 0.0, 1600.0, 1000.0]);
     e.input(Input::Key {
         key: "!".into(),
