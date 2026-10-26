@@ -21,3 +21,16 @@ test("a burst runs the job once now and once after, never two at a time", async 
   expect(runs).toBe(2);
   expect(maxInFlight).toBe(1);
 });
+
+test("a job that throws synchronously doesn't stop later runs", async () => {
+  let runs = 0;
+  const trigger = coalesce(() => {
+    runs++;
+    throw new Error("boom");
+  });
+  trigger();
+  await new Promise((r) => setTimeout(r, 0));
+  trigger();
+  await new Promise((r) => setTimeout(r, 0));
+  expect(runs).toBe(2);
+});

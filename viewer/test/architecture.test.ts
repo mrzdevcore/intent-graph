@@ -65,3 +65,12 @@ test("rowAt names the layer row under a y, nothing for Other, External services 
   expect(rowAt(lanes, lanes[0].bottom + 1)).toBeUndefined();
   expect(rowAt(lanes, -1000)).toBeUndefined();
 });
+
+test("a row of thousands of boxes wraps to a square, not a thin strip", () => {
+  const nodes = Array.from({ length: 3000 }, (_, i) => ({ group: "nodes" as const, data: { id: "m" + i, label: "m" + i + ".ts", kind: "module" } }));
+  const of = Object.fromEntries(nodes.map((e) => [e.data.id, { row: 0, name: "Other", kind: "other" as const }]));
+  const { lanes, width } = placeRows(nodes, of, 700);
+  const height = lanes[0].bottom - lanes[0].top;
+  expect(width / height).toBeGreaterThan(0.5);
+  expect(width / height).toBeLessThan(2);
+});

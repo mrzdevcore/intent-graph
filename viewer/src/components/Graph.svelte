@@ -1,100 +1,105 @@
-<!-- The graph canvas: owns the Cytoscape instance, created when the element mounts and destroyed with it.
-     <App> hands it elements; taps and planning gestures go back up as callbacks. -->
+<!-- The graph canvas: owns the sigma.js (WebGL) renderer, created when the element mounts and destroyed with it.
+     <App> hands it elements; taps and planning gestures go back up as callbacks. Rows and group boxes, which
+     sigma has no notion of, are drawn on a canvas under the edges and re-projected after every frame. -->
 <script module lang="ts">
-  import cytoscape from "cytoscape";
-  import fcose from "cytoscape-fcose";
-  import { iconFor, iconUri } from "../icons";
+  import Sigma from "sigma";
+  import { NodeCircleProgram } from "sigma/rendering";
+  import type { NodeDisplayData, PartialButFor } from "sigma/types";
+  import { createNodeImageProgram } from "@sigma/node-image";
+  import { EdgeProgramWithDash } from "./dashed";
+  import { palette, setPalette } from "../model/sigma";
 
-  cytoscape.use(fcose);
+  type Drawn = PartialButFor<NodeDisplayData, "x" | "y" | "size" | "label" | "color"> & {
+    ring?: string; ringDash?: number; labelColor?: string; labelSize?: number; kind?: string; anchor?: boolean };
+
+  const FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+
+  /** Screen cells (16 px) already under a label in this frame. */
+  const taken = new Set<number>();
+
+  /** Claims the cells under a label's box; false when one is already taken. Forced labels (selection,
+   *  `ig_show`) always draw; the rest only where they fit, so labels never overlap at any zoom. */
+  function claim(d: Drawn, size: number): boolean {
+    const w = d.label!.length * size * 0.6;
+    const [x0, x1] = [Math.floor((d.x - w / 2) / 16), Math.floor((d.x + w / 2) / 16)];
+    const [y0, y1] = [Math.floor((d.y + d.size + 2) / 16), Math.floor((d.y + d.size + size + 4) / 16)];
+    const cells: number[] = [];
+    for (let i = x0; i <= x1; i++) for (let j = y0; j <= y1; j++) cells.push(i * 100003 + j);
+    if (!d.forceLabel && cells.some((c) => taken.has(c))) return false;
+    cells.forEach((c) => taken.add(c));
+    return true;
+  }
+
+  /** sigma's label pass: the label, where it fits. */
+  function drawLabel(ctx: CanvasRenderingContext2D, d: Drawn) {
+    if (d.label && (d.kind === "laneadd" || claim(d, d.labelSize ?? 11))) paintLabel(ctx, d);
+  }
+
+  /** A label centred under its node. */
+  function paintLabel(ctx: CanvasRenderingContext2D, d: Drawn) {
+    if (!d.label) return;
+    const size = d.labelSize ?? 11;
+    ctx.font = `${d.kind === "laneadd" ? 700 : 400} ${size}px ${FONT}`;
+    ctx.fillStyle = d.kind === "laneadd" ? "#161615" : d.labelColor ?? palette.fg;
+    ctx.textAlign = "center";
+    ctx.textBaseline = d.kind === "laneadd" ? "middle" : "top";
+    ctx.fillText(d.label, d.x, d.kind === "laneadd" ? d.y : d.y + d.size + 3);
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  /** Hovered and highlighted nodes: their ring (selection, `ig_show`, findings, notes), then the label on a plate. */
+  function drawHover(ctx: CanvasRenderingContext2D, d: Drawn) {
+    if (d.anchor || d.kind === "layer" || d.kind === "dir") return;
+    if (d.ring) {
+      ctx.beginPath();
+      ctx.setLineDash(d.ringDash ? [d.ringDash * 2, d.ringDash * 2] : []);
+      ctx.strokeStyle = d.ring;
+      ctx.lineWidth = 3;
+      ctx.arc(d.x, d.y, d.size + 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (!d.label || d.kind === "laneadd") return paintLabel(ctx, d);
+    const size = d.labelSize ?? 11;
+    ctx.font = `400 ${size}px ${FONT}`;
+    const w = ctx.measureText(d.label).width + 8;
+    ctx.fillStyle = palette.panel;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(d.x - w / 2, d.y + d.size + 2, w, size + 4);
+    ctx.globalAlpha = 1;
+    paintLabel(ctx, d);
+  }
+
+  /** An edge's count or step badge, upright on a plate a third of the way from its source (two edges
+   *  between the same boxes, one each way, keep apart; one passing through a box's row skips its middle). */
+  function drawEdgeLabel(ctx: CanvasRenderingContext2D, d: { label?: string | null; color: string }, s: { x: number; y: number }, t: { x: number; y: number }) {
+    if (!d.label) return;
+    const [x, y] = [s.x + (t.x - s.x) * 0.35, s.y + (t.y - s.y) * 0.35];
+    ctx.font = `700 11px ${FONT}`;
+    const w = ctx.measureText(d.label).width + 6;
+    ctx.fillStyle = palette.panel;
+    ctx.fillRect(x - w / 2, y - 8, w, 16);
+    ctx.fillStyle = d.color.startsWith("rgba") ? palette.muted : d.color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(d.label, x, y);
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
 
   function css(name: string) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
-
-  function stylesheet(): cytoscape.Stylesheet[] {
-    const color: Record<string, string> = { added: css("--added"), changed: css("--changed"), removed: css("--removed"), unchanged: css("--unchanged") };
-    const [muted, line, err, accent, panel] = ["--muted", "--line", "--error", "--accent", "--panel"].map(css);
-    const fg = css("--fg");
-    const accentText = css("--accent-text");
-    const brand = css("--brand");
-    const statusColor = (n: cytoscape.NodeSingular) => color[n.data("status")] || color.unchanged;
-    const s = [
-      { selector: "node", style: {
-        "label": "data(label)", "font-size": 10, "color": fg, "text-valign": "bottom", "text-margin-y": 3,
-        "min-zoomed-font-size": 7, "background-color": statusColor, "width": 14, "height": 14,
-        "text-wrap": "ellipsis", "text-max-width": 160 } },
-      { selector: "node[kind = 'module']", style: { "width": 20, "height": 20, "shape": "round-rectangle" } },
-      { selector: "node[kind = 'layer'], node[kind = 'dir']", style: {
-        "shape": "round-rectangle", "height": "mapData(count, 1, 300, 34, 80)",
-        "width": (n: cytoscape.NodeSingular) => Math.max(70, n.data("label").length * 8.5 + 24),
-        "text-valign": "center", "text-margin-y": 0, "font-size": 13, "font-weight": 600, "min-zoomed-font-size": 4,
-        "background-color": panel, "border-width": 2, "border-color": statusColor, "text-max-width": 400 } },
-      { selector: "node[kind = 'layer']", style: { "border-width": 3, "font-size": 15 } },
-      { selector: "node[kind = 'open'], node[kind = 'openmodule']", style: {
-        "shape": "round-rectangle", "background-color": panel, "background-opacity": 0.5, "border-width": 1.5, "border-style": "dashed",
-        "border-color": statusColor, "text-valign": "top", "text-halign": "center", "text-margin-y": -4, "font-size": 12,
-        "font-weight": 600, "padding": 14, "min-zoomed-font-size": 5 } },
-      { selector: "node[?bp]", style: { "font-size": 14, "min-zoomed-font-size": 4, "text-max-width": 230, "text-wrap": "ellipsis" } },
-      { selector: "edge[kind = 'dispatch']", style: { "line-style": "dashed" } },
-      { selector: "node[kind = 'lane']", style: {
-        "shape": "rectangle", "width": "data(w)", "height": "data(h)", "background-color": line, "background-opacity": 0.18,
-        "border-width": 0, "label": "", "events": "no", "z-index": 0 } },
-      { selector: "node[kind = 'lanelabel']", style: {
-        "shape": "rectangle", "width": 1, "height": 1, "background-opacity": 0, "border-width": 0, "text-valign": "center",
-        "text-halign": "center", "font-size": 18, "font-weight": 700, "color": muted, "events": "no", "min-zoomed-font-size": 3 } },
-      { selector: "node[kind = 'journey']", style: { "shape": "round-rectangle", "width": 34, "height": 34, "background-color": accent, "font-size": 12, "font-weight": 700 } },
-      { selector: "node[kind = 'route']", style: { "shape": "tag", "width": 22, "height": 22, "background-color": css("--note") } },
-      { selector: "node[kind = 'system']", style: {
-        "shape": "round-rectangle", "width": 44, "height": 44, "background-color": panel, "border-width": 1, "border-color": line,
-        "background-image": (n: cytoscape.NodeSingular) => iconUri(iconFor(n.data("label"), n.data("packages") || [], n.data("category")), fg),
-        "background-width": "80%", "background-height": "80%", "font-size": 12, "font-weight": 700 } },
-      { selector: "edge[kind = 'http']", style: { "line-color": css("--note"), "target-arrow-color": css("--note"), "line-style": "dashed", "opacity": 0.95, "width": 2 } },
-      { selector: "edge[kind = 'uses']", style: { "line-color": css("--warning"), "target-arrow-color": css("--warning"), "opacity": 0.9 } },
-      { selector: "node[?outer]", style: { "opacity": 0.55, "border-style": "dashed" } },
-      { selector: "node[status = 'removed']", style: { "border-style": "dashed", "background-opacity": 0.35 } },
-      { selector: "node[?planned]", style: { "border-style": "dashed", "border-width": 2, "border-color": statusColor, "background-opacity": 0.35 } },
-      { selector: "node[findings > 0]", style: { "border-width": 3, "border-color": err, "border-style": "solid" } },
-      { selector: "node:selected", style: { "border-width": 4, "border-color": accent, "border-style": "solid" } },
-      { selector: "edge", style: {
-        "width": "mapData(count, 1, 40, 1, 7)", "curve-style": "bezier", "target-arrow-shape": "triangle", "arrow-scale": 0.8,
-        "line-color": muted, "target-arrow-color": muted, "opacity": 0.55,
-        "label": "data(count)", "font-size": 9, "color": muted, "min-zoomed-font-size": 9, "text-background-color": panel,
-        "text-background-opacity": 1, "text-background-padding": 1 } },
-      { selector: "edge[count = 1]", style: { "label": "" } },
-      { selector: "edge[status = 'added']", style: { "line-color": color.added, "target-arrow-color": color.added, "opacity": 0.9 } },
-      { selector: "edge[status = 'removed']", style: { "line-style": "dashed", "line-color": color.removed, "target-arrow-color": color.removed } },
-      { selector: "edge[?guessed]", style: { "line-style": "dotted" } },
-      { selector: "edge[?planned]", style: { "line-style": "dashed" } },
-      { selector: "edge[?ctx]", style: { "opacity": 0.22 } },
-      { selector: "edge[?violation]", style: { "line-color": err, "target-arrow-color": err, "opacity": 1, "width": "mapData(count, 1, 40, 2.5, 8)" } },
-      { selector: ".faded", style: { "opacity": 0.12 } },
-      { selector: "node[?pinned]", style: { "border-width": 3, "border-color": accent, "border-style": "solid", "color": accentText } },
-      { selector: "node[?ghost]", style: { "opacity": 0.4, "border-style": "dotted", "border-width": 2, "border-color": accent } },
-      { selector: "node[kind = 'laneadd']", style: {
-        "shape": "ellipse", "width": 22, "height": 22, "background-color": accent, "color": "#161615", "label": "+", "text-valign": "center",
-        "text-margin-y": 0, "font-size": 16, "font-weight": 700, "min-zoomed-font-size": 3 } },
-      { selector: "edge.nolink", style: { "display": "none" } },
-      // An answer shown by Claude (`ig_show`): gold on top, the rest dimmed; step numbers on edges.
-      { selector: ".dimmed", style: { "opacity": 0.15 } },
-      { selector: "node.shown", style: { "border-width": 4, "border-color": brand, "border-style": "solid", "color": accentText, "z-index": 9 } },
-      { selector: "edge.shown", style: { "line-color": brand, "target-arrow-color": brand, "opacity": 1, "width": 3, "z-index": 9 } },
-      { selector: "edge[step]", style: { "label": "data(step)", "color": accentText, "font-size": 12, "font-weight": 700, "min-zoomed-font-size": 4 } },
-    ];
-    return s as unknown as cytoscape.Stylesheet[];
-  }
-
-  const FCOSE = {
-    name: "fcose", quality: "proof", randomize: true, animate: false, fit: false,
-    nodeDimensionsIncludeLabels: true, packComponents: true, nodeRepulsion: () => 60000,
-    idealEdgeLength: () => 160, edgeElasticity: () => 0.2, nestingFactor: 0.4,
-    gravity: 0.15, gravityRange: 5, numIter: 4000, tile: true, tilingPaddingVertical: 20, tilingPaddingHorizontal: 20,
-    nodeSeparation: 120, padding: 20,
-  } as unknown as cytoscape.LayoutOptions;
 </script>
 
 <script lang="ts">
+  import type Graph from "graphology";
   import type { Lane } from "../model/architecture";
-  import { applyLinks, type El } from "../model/graph";
+  import type { El } from "../model/graph";
+  import { positions } from "../model/layout";
+  import { alpha, background, badge, edgeReducer, groupAt, nodeReducer, toGraphology, type Background, type EdgeAttrs,
+    type NodeAttrs, type ViewState } from "../model/sigma";
 
   type Context = { id: string; edge: boolean; source: string; target: string; x: number; y: number };
   let { links, ontap, oncontext, ondrop, onlink }: {
@@ -107,195 +112,366 @@
   } = $props();
 
   let el: HTMLElement;
-  let cy: cytoscape.Core;
+  let sg: Sigma<NodeAttrs, EdgeAttrs>;
+  let g: Graph<NodeAttrs, EdgeAttrs>;
+  let els: El[] = [];
+  let bg: Background = { lanes: [], groups: [] };
+  let kindOf: Record<string, string> = {};
+  let parentOf: Record<string, string | undefined> = {};
+  /** Every drawn node id, compounds included (`pick()`, fading). */
+  let known = new Set<string>();
+  /** Decorations by id, for the boxes on the background too (most compounds are not graph nodes). */
+  let deco: Record<string, { pins?: string; ghost?: boolean; steps?: string }> = {};
+  const st: ViewState = { selected: null, hovered: null, show: null, tests: true, links: true, focus: null };
+  let painted = false;
+
+  // The model's y points down, sigma's up: flip at the boundary.
+  const toView = (x: number, y: number) => sg.graphToViewport({ x, y: -y });
+  const fromView = (x: number, y: number) => {
+    const p = sg.viewportToGraph({ x, y });
+    return { x: p.x, y: -p.y };
+  };
+
+  function refresh() {
+    if (!sg) return;
+    sg.setSetting("nodeReducer", nodeReducer(st) as never);
+    sg.setSetting("edgeReducer", edgeReducer(st) as never);
+  }
+
+  /** Rows and compound boxes under the edges; Architecture's opaque boxes over them (edges then end
+   *  at their border), in viewport pixels. */
+  function drawBackground() {
+    const [under, over] = [sg.getCanvases().bg.getContext("2d")!, sg.getCanvases().boxes.getContext("2d")!];
+    const { width, height } = sg.getDimensions();
+    under.clearRect(0, 0, width, height);
+    over.clearRect(0, 0, width, height);
+    const scale = sg.getGraphToViewportRatio(); // pixels per graph unit at this zoom
+    bg.lanes.forEach((l) => {
+      const [a, b] = [toView(0, l.y0), toView(0, l.y1)];
+      under.fillStyle = alpha(palette.line, 0.45);
+      under.fillRect(0, a.y, width, b.y - a.y);
+      under.font = `700 ${Math.max(11, Math.min(18, 18 * scale))}px ${FONT}`;
+      under.fillStyle = palette.muted;
+      under.textBaseline = "middle";
+      under.fillText(l.label, Math.max(10, l.x === undefined ? 10 : toView(l.x, 0).x - 40), (a.y + b.y) / 2);
+    });
+    bg.groups.forEach((b) => {
+      const [p, q] = [toView(b.x0, b.y0), toView(b.x1, b.y1)];
+      const [w, h] = [q.x - p.x, q.y - p.y];
+      if (q.x < 0 || p.x > width || q.y < 0 || p.y > height) return;
+      const box = b.kind === "layer" || b.kind === "dir";
+      const ctx = box ? over : under;
+      const n = deco[b.id];
+      const dim = st.show ? (st.show.nodes.has(b.id) ? 1 : 0.15) : st.focus && !st.focus.has(b.id) ? 0.12 : 1;
+      const status = palette[b.status] ?? palette.unchanged;
+      const border = st.show?.nodes.has(b.id) ? palette.brand : st.selected === b.id ? palette.accent
+        : n?.ghost || n?.pins ? palette.accent : b.findings && box ? palette.error : status;
+      ctx.globalAlpha = Math.min(dim, b.outer ? 0.55 : n?.ghost ? 0.4 : 1);
+      ctx.beginPath();
+      ctx.roundRect(p.x, p.y, w, h, Math.min(8, w / 4, h / 4));
+      ctx.fillStyle = box ? palette.panel : alpha(palette.panel, 0.5);
+      ctx.fill();
+      ctx.setLineDash(box && !b.outer && !n?.ghost ? [] : [5, 4]);
+      ctx.lineWidth = Math.max(1, Math.min(4, (border === status ? (b.kind === "layer" ? 3 : 2) : 4) * scale * (box ? 1 : 0.75)));
+      ctx.strokeStyle = border;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Box names scale with the zoom, from 6 px (smaller is noise) up to 26 px.
+      const fs = (box ? (b.kind === "layer" ? 15 : 13) : 12) * scale;
+      if (fs >= 6) {
+        ctx.font = `600 ${Math.min(fs, 26)}px ${FONT}`;
+        ctx.fillStyle = n?.pins ? palette.accentText : palette.fg;
+        ctx.textAlign = "center";
+        ctx.textBaseline = box ? "middle" : "bottom";
+        const label = (n?.steps ? n.steps + "  " : "") + b.label + (n?.pins ? "  ◉ " + n.pins : "");
+        ctx.fillText(label, p.x + w / 2, box ? p.y + h / 2 : p.y - 3, box ? Math.max(w - 8, 10) : undefined);
+        ctx.textAlign = "start";
+      }
+      ctx.globalAlpha = 1;
+    });
+    under.textBaseline = over.textBaseline = "alphabetic";
+  }
 
   $effect(() => {
-    const c = (cy = cytoscape({ container: el, minZoom: 0.05, maxZoom: 3, style: stylesheet() }));
-    (window as unknown as { igCy: cytoscape.Core }).igCy = c; // for debugging from the console
-    c.on("tap", (e) => {
-      const t = e.target;
-      if (t === c) {
-        c.elements().removeClass("faded");
-        return;
+    setPalette(css);
+    const s = (sg = new Sigma<NodeAttrs, EdgeAttrs>(toGraphology([]), el, {
+      itemSizesReference: "positions",
+      zoomToSizeRatioFunction: (r) => r,
+      minCameraRatio: 0.02,
+      maxCameraRatio: 20,
+      renderEdgeLabels: true,
+      enableEdgeEvents: true,
+      zIndex: true,
+      labelRenderedSizeThreshold: 2.5,
+      labelDensity: 100, // every candidate: drawLabel keeps the ones that fit
+      labelGridCellSize: 90,
+      minEdgeThickness: 0.8,
+      labelFont: FONT,
+      stagePadding: 30,
+      defaultEdgeType: "dash",
+      nodeProgramClasses: { circle: NodeCircleProgram as never, image: createNodeImageProgram({ size: { mode: "force", value: 96 }, padding: 0.15 }) as never },
+      edgeProgramClasses: { dash: EdgeProgramWithDash as never },
+      defaultDrawNodeLabel: drawLabel as never,
+      defaultDrawNodeHover: drawHover as never,
+      defaultDrawEdgeLabel: drawEdgeLabel as never,
+      nodeReducer: nodeReducer(st) as never,
+      edgeReducer: edgeReducer(st) as never,
+    }));
+    // Typed without the layer options, which it passes on.
+    s.createCanvasContext("bg", { beforeLayer: "edges" } as object);
+    s.createCanvasContext("boxes", { afterLayer: "edges" } as object);
+    s.resize(true);
+    s.on("beforeRender", () => taken.clear());
+    s.on("afterRender", () => {
+      drawBackground();
+      if (!painted && g?.order) {
+        painted = true;
+        performance.mark("ig:graph-painted");
       }
-      if (t.isNode()) ontap({ id: t.id(), kind: t.data("kind") });
     });
-    c.on("select unselect", "node", () => applyLinks(c, links));
-    // Planning gestures, turned into notes by <App>: right-click, drop, shift-drag a link.
-    c.on("cxttap", "node, edge", (e) => {
-      const t = e.target;
-      const o = e.originalEvent as MouseEvent;
-      oncontext({ id: t.id(), edge: t.isEdge(), source: t.data("source"), target: t.data("target"), x: o.clientX, y: o.clientY });
-    });
-    c.on("dragfree", "node", (e) => ondrop({ id: e.target.id(), y: e.target.position().y }));
-    // Shift holds the boxes still for drawing a link; keyup restores what was set before.
-    let grabBefore: boolean | null = null;
-    const shift = (e: KeyboardEvent) => {
-      if (e.key !== "Shift") return;
-      if (e.type === "keydown" && grabBefore === null) {
-        grabBefore = c.autoungrabify();
-        c.autoungrabify(true);
-      } else if (e.type === "keyup" && grabBefore !== null) {
-        c.autoungrabify(grabBefore);
-        grabBefore = null;
-      }
+    (window as unknown as { igSigma: Sigma }).igSigma = s as unknown as Sigma; // for debugging from the console
+
+    const select = (id: string | null) => {
+      st.selected = id;
+      refresh();
     };
-    window.addEventListener("keydown", shift);
-    window.addEventListener("keyup", shift);
-    let linkFrom: string | null = null;
-    c.on("tapstart", "node", (e) => void (linkFrom = (e.originalEvent as MouseEvent)?.shiftKey ? e.target.id() : null));
-    c.on("tapend", (e) => {
-      const from = linkFrom;
-      linkFrom = null;
-      if (!from) return;
-      const p = e.position;
-      const hit = c.nodes().filter((n) => {
-        const b = n.boundingBox({});
-        return !String(n.data("kind")).startsWith("lane") && n.id() !== from && p.x >= b.x1 && p.x <= b.x2 && p.y >= b.y1 && p.y <= b.y2;
-      });
-      if (hit.length) onlink({ from, to: hit.last().id() });
+    /** The click that ends a drag or a link is not a tap. */
+    let swallow = false;
+    s.on("clickNode", ({ node }) => {
+      if (swallow) return void (swallow = false);
+      const a = g.getNodeAttributes(node);
+      if (!a.anchor) select(node);
+      ontap({ id: node, kind: a.kind });
     });
+    s.on("clickStage", ({ event }) => {
+      if (swallow) return void (swallow = false);
+      const p = fromView(event.x, event.y);
+      const hit = groupAt(bg, p.x, p.y);
+      if (hit) return ontap({ id: hit, kind: kindOf[hit] });
+      st.focus = null;
+      select(null);
+    });
+    s.on("enterNode", ({ node }) => {
+      st.hovered = node;
+      el.style.cursor = "pointer";
+      refresh();
+    });
+    s.on("leaveNode", () => {
+      st.hovered = null;
+      el.style.cursor = "";
+      refresh();
+    });
+    // Planning gestures, turned into notes by <App>: right-click, drop, shift-drag a link.
+    const context = (id: string, edge: boolean, o: MouseEvent | TouchEvent) => {
+      const m = o as MouseEvent;
+      m.preventDefault?.();
+      const [source, target] = edge ? [g.source(id), g.target(id)] : ["", ""];
+      oncontext({ id, edge, source, target, x: m.clientX, y: m.clientY });
+    };
+    s.on("rightClickNode", ({ node, event }) => !g.getNodeAttribute(node, "anchor") && context(node, false, event.original));
+    s.on("rightClickEdge", ({ edge, event }) => context(edge, true, event.original));
+    const noMenu = (e: Event) => e.preventDefault();
+    el.addEventListener("contextmenu", noMenu);
+    let dragged: string | null = null;
+    let moved = false;
+    let linkFrom: string | null = null;
+    s.on("downNode", ({ node, event }) => {
+      const a = g.getNodeAttributes(node);
+      swallow = false;
+      if ((event.original as MouseEvent).button) return; // only the main button drags or links
+      if ((event.original as MouseEvent).shiftKey) linkFrom = node;
+      else if (!a.anchor && !["laneadd", "lane", "lanelabel"].includes(a.kind)) [dragged, moved] = [node, false];
+    });
+    s.on("moveBody", ({ event }) => {
+      if (linkFrom) return event.preventSigmaDefault();
+      if (!dragged || !g.hasNode(dragged)) return;
+      const p = fromView(event.x, event.y);
+      g.mergeNodeAttributes(dragged, { x: p.x, y: -p.y });
+      const e = els.find((x) => x.data.id === dragged);
+      if (e) e.position = p;
+      if (parentOf[dragged] || kindOf[dragged] === "layer" || kindOf[dragged] === "dir") bg = background(els);
+      moved = true;
+      event.preventSigmaDefault();
+      event.original.preventDefault();
+    });
+    const up = (to: string | null) => {
+      swallow = moved || (!!linkFrom && to !== linkFrom);
+      if (linkFrom && to && to !== linkFrom) onlink({ from: linkFrom, to });
+      if (dragged && moved && g.hasNode(dragged)) ondrop({ id: dragged, y: -g.getNodeAttribute(dragged, "y") });
+      [linkFrom, dragged, moved] = [null, null, false];
+    };
+    s.on("upNode", ({ node }) => up(node));
+    s.on("upStage", ({ event }) => {
+      const p = fromView(event.x, event.y);
+      up(groupAt(bg, p.x, p.y));
+    });
+    // Theme changes (system or data-theme) recolour everything.
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const retheme = () => {
+      setPalette(css);
+      if (els.length) show(els, { fresh: false, preset: true, keepCamera: true });
+    };
+    media.addEventListener("change", retheme);
+    const themeObs = new MutationObserver(retheme);
+    themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => {
-      window.removeEventListener("keydown", shift);
-      window.removeEventListener("keyup", shift);
-      c.destroy();
-      if ((window as unknown as { igCy?: cytoscape.Core }).igCy === c) delete (window as unknown as { igCy?: cytoscape.Core }).igCy;
+      media.removeEventListener("change", retheme);
+      themeObs.disconnect();
+      el.removeEventListener("contextmenu", noMenu);
+      s.kill();
+      if ((window as unknown as { igSigma?: Sigma }).igSigma === (s as unknown)) delete (window as unknown as { igSigma?: Sigma }).igSigma;
     };
   });
 
-  $effect(() => applyLinks(cy, links));
+  $effect(() => {
+    st.links = links;
+    refresh();
+  });
 
   export function width() {
     return el.clientWidth;
   }
 
-  /** Replaces the elements. Unless `fresh`, nodes keep their positions and new ones start next to the
-   *  box they came out of, so opening a box doesn't reshuffle the picture. `zoomTo` fits that box. */
-  export function show(els: El[], o: { fresh: boolean; preset: boolean; zoomTo?: string }) {
-    const prev: Record<string, cytoscape.Position> = {};
-    if (!o.fresh) cy.nodes().forEach((n) => void (prev[n.id()] = Object.assign({}, n.position())));
-    cy.startBatch();
-    cy.elements().remove();
-    cy.add(els as cytoscape.ElementDefinition[]);
-    const byParent: Record<string, string | undefined> = {};
-    const placed: Record<string, boolean> = {};
-    els.forEach((x) => {
-      if (x.group === "nodes") byParent[x.data.id] = x.data.parent;
-      if (x.position) placed[x.data.id] = true;
-    });
-    cy.nodes().forEach((n) => {
-      if (placed[n.id()]) return; // a preset position wins over the previous one
-      let p: cytoscape.Position | undefined = prev[n.id()];
-      let up: string | undefined = n.id();
-      while (!p && up) {
-        up = byParent[up];
-        p = up ? prev[up] : undefined;
-      }
-      if (p) n.position({ x: p.x + (prev[n.id()] ? 0 : Math.random() * 40 - 20), y: p.y + (prev[n.id()] ? 0 : Math.random() * 40 - 20) });
-    });
-    cy.endBatch();
-    applyLinks(cy, links);
-    const layout = cy.layout(o.preset ? { name: "preset", fit: false } : FCOSE);
-    layout.one("layoutstop", () => {
-      const target = o.zoomTo ? cy.getElementById(o.zoomTo) : null;
-      if (target && target.length) cy.fit(target.union(target.descendants()).union(target.neighborhood()), 40);
-      else cy.fit(undefined, 30);
-      if (cy.zoom() > 1.4) cy.zoom({ level: 1.4, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
-    });
-    layout.run();
+  /** Fits the camera on `ids` (all nodes, boxes and rows when empty), never closer than 1.4x. */
+  function fit(ids: string[]) {
+    const home = { x: 0.5, y: 0.5, ratio: 1, angle: 0 };
+    // The matrix only follows the camera on the next frame: convert against the home state.
+    const at = (x: number, y: number) => sg.graphToViewport({ x, y: -y }, { cameraState: home });
+    let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+    const add = (x: number, y: number) => ([x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)]);
+    const want = new Set(ids);
+    g.forEachNode((id, a) => (!want.size || want.has(id)) && (add(a.x - a.size, -a.y - a.size), add(a.x + a.size, -a.y + a.size)));
+    bg.groups.forEach((b) => (!want.size || want.has(b.id)) && (add(b.x0, b.y0), add(b.x1, b.y1)));
+    if (!want.size) bg.lanes.forEach((l) => (add(l.x ?? x0, l.y0), add(l.x ?? x0, l.y1)));
+    if (x0 === Infinity) return;
+    const [p, q] = [at(x0, y0), at(x1, y1)];
+    const o = at(0, 0);
+    const unit = Math.hypot(at(1, 0).x - o.x, at(1, 0).y - o.y); // pixels per graph unit at ratio 1
+    const { width: W, height: H } = sg.getDimensions();
+    const ratio = Math.max((q.x - p.x) / Math.max(W - 60, 50), (q.y - p.y) / Math.max(H - 60, 50), unit / 1.4);
+    const c = sg.viewportToFramedGraph({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }, { cameraState: home });
+    sg.getCamera().setState({ x: c.x, y: c.y, ratio, angle: 0 });
   }
 
-  /** A node's label: step badges, its name, then note pins. */
-  function relabel(n: cytoscape.NodeSingular) {
-    if (n.data("base") === undefined) n.data("base", n.data("label") ?? "");
-    const [st, p] = [n.data("steps"), n.data("pins")];
-    n.data({ label: (st ? st + "  " : "") + n.data("base") + (p ? "  ◉ " + p : "") });
+  /** Replaces the elements. Unless `fresh`, laid-out nodes keep their positions, so a new depth or a
+   *  rebuild doesn't reshuffle the picture. `zoomTo` fits that box and its neighbours. */
+  export function show(next: El[], o: { fresh: boolean; preset: boolean; zoomTo?: string; keepCamera?: boolean }) {
+    els = next;
+    if (!o.preset) {
+      const prev: Record<string, { x: number; y: number }> = {};
+      if (!o.fresh && g) g.forEachNode((id, a) => !a.anchor && (prev[id] = { x: a.x, y: -a.y }));
+      const p = positions(els, 1, prev);
+      els.forEach((e) => e.group === "nodes" && p[e.data.id] && (e.position = p[e.data.id]));
+    }
+    kindOf = {};
+    parentOf = {};
+    known = new Set();
+    els.forEach((e) => {
+      if (e.group !== "nodes") return;
+      kindOf[e.data.id] = e.data.kind ?? "";
+      parentOf[e.data.id] = e.data.parent;
+      known.add(e.data.id);
+    });
+    g = toGraphology(els);
+    g.updateEachNodeAttributes((_, a) => ({ ...a, y: -a.y }));
+    g.forEachNode((id) => deco[id] && g.mergeNodeAttributes(id, deco[id]));
+    bg = background(els);
+    let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+    g.forEachNode((_, a) => void ([x0, y0, x1, y1] = [Math.min(x0, a.x), Math.min(y0, a.y), Math.max(x1, a.x), Math.max(y1, a.y)]));
+    bg.groups.forEach((b) => void ([x0, y0, x1, y1] = [Math.min(x0, b.x0), Math.min(y0, -b.y1), Math.max(x1, b.x1), Math.max(y1, -b.y0)]));
+    bg.lanes.forEach((l) => void ([x0, y0, y1] = [Math.min(x0, (l.x ?? x0) - 60), Math.min(y0, -l.y1), Math.max(y1, -l.y0)]));
+    sg.setGraph(g);
+    // A fixed frame: dragging a node or a rebuild must not rescale the view.
+    sg.setCustomBBox(x0 === Infinity ? null : { x: [x0, x1], y: [y0, y1] });
+    if (st.selected && !g.hasNode(st.selected)) st.selected = null;
+    st.focus = null;
+    sg.refresh();
+    if (!o.keepCamera) {
+      const t = o.zoomTo && known.has(o.zoomTo) ? o.zoomTo : null;
+      fit(t ? [t, ...(g.hasNode(t) ? g.neighbors(t) : [])] : []);
+    }
+    refresh();
   }
-
-  /** ①, ②, … for step numbers (plain "(n)" past 20). */
-  const badge = (ns: number[]) => ns.map((k) => (k <= 20 ? String.fromCodePoint(0x245f + k) : "(" + k + ")")).join("");
 
   /** Shows note pins (ids after the label) and ghosts (open moves) on the drawn nodes. */
   export function decorate(pins: Record<string, string[]>, ghosts: Set<string>) {
-    cy.nodes().forEach((n) => {
-      const p = pins[n.id()];
-      n.data({ pins: p ? p.join(" ") : undefined, pinned: !!p, ghost: ghosts.has(n.id()) });
-      relabel(n);
-    });
+    known.forEach((id) => (deco[id] = { ...deco[id], pins: pins[id] ? pins[id].join(" ") : undefined, ghost: ghosts.has(id) }));
+    g.forEachNode((id) => g.mergeNodeAttributes(id, { pins: deco[id]?.pins, ghost: deco[id]?.ghost }));
+    refresh();
   }
 
   /** Gold on the drawn `nodes` and `edges` ("source|target"), the rest dimmed, step badges on
    *  their targets (node ids or edge keys); null clears it. */
   export function highlight(h: { nodes: Set<string>; edges: Set<string>; steps: Record<string, number[]> } | null) {
-    cy.batch(() => {
-      cy.elements().removeClass("shown dimmed");
-      cy.nodes().forEach((n) => {
-        n.data({ steps: h && h.steps[n.id()] ? badge(h.steps[n.id()]) : undefined });
-        relabel(n);
-      });
-      cy.edges().forEach((e) => {
-        const k = e.data("source") + "|" + e.data("target");
-        e.data({ step: h && h.steps[k] ? badge(h.steps[k]) : undefined });
-        e.toggleClass("shown", !!h && h.edges.has(k));
-      });
-      if (!h) return;
-      const shown = cy.nodes().filter((n) => h.nodes.has(n.id()));
-      shown.addClass("shown");
-      cy.elements().not(shown).not(shown.ancestors()).not(cy.edges(".shown")).addClass("dimmed");
+    st.show = h ? { nodes: h.nodes, edges: h.edges } : null;
+    known.forEach((id) => (deco[id] = { ...deco[id], steps: h && h.steps[id] ? badge(h.steps[id]) : undefined }));
+    g.forEachNode((id) => g.setNodeAttribute(id, "steps", deco[id]?.steps));
+    g.forEachEdge((id, a) => {
+      const k = a.from + "|" + a.to;
+      g.setEdgeAttribute(id, "step", h && h.steps[k] ? badge(h.steps[k]) : undefined);
     });
+    refresh();
   }
 
   /** The drawn layer rows (Architecture), for drops. */
   export function lanes(layers: string[]): Lane[] {
-    return cy.nodes("[kind = 'lane']").map((n) => {
-      const y = n.position().y;
-      const h = n.data("h") as number;
-      const name = n.data("label") as string;
-      return { row: 0, name, kind: layers.includes(name) ? "layer" : "other", top: y - h / 2, bottom: y + h / 2 };
-    });
+    return bg.lanes.map((l) => ({ row: 0, name: l.label, kind: layers.includes(l.label) ? "layer" : "other", top: l.y0, bottom: l.y1 }));
   }
 
   export function ids(): string[] {
-    return cy.nodes().map((n) => n.id());
+    return els.filter((e) => e.group === "nodes").map((e) => e.data.id);
   }
 
   /** The first of `candidates` that is on the graph. */
   export function pick(candidates: (string | null)[]): string | null {
-    return candidates.find((c) => c && cy.getElementById(c).length) ?? null;
+    return candidates.find((c) => c && known.has(c)) ?? null;
   }
 
   export function select(id: string) {
-    cy.getElementById(id).select();
+    st.selected = id;
+    refresh();
   }
 
   /** Unselects everything and clears the fading. */
   export function clear() {
-    cy.$(":selected").unselect();
-    cy.elements().removeClass("faded");
+    st.selected = null;
+    st.focus = null;
+    refresh();
   }
 
-  /** Fades everything but `id`, its neighbours and their parents. */
+  /** The node, its compound and its ancestors, for fading. */
+  function withAncestors(ids: Iterable<string>): Set<string> {
+    const out = new Set<string>();
+    for (let id of ids) {
+      out.add(id);
+      while (parentOf[id]) out.add((id = parentOf[id]!));
+    }
+    return out;
+  }
+
+  /** Fades everything but `id` (with what it boxes), its neighbours and their parents. */
   export function fadeAround(id: string) {
-    const x = cy.getElementById(id);
-    const nb = x.closedNeighborhood().union(x.ancestors());
-    cy.elements().addClass("faded");
-    nb.removeClass("faded");
-    nb.ancestors().removeClass("faded");
+    const inside = [...known].filter((x) => withAncestors([x]).has(id));
+    st.focus = withAncestors([...inside, ...(g.hasNode(id) ? g.neighbors(id) : [])]);
+    refresh();
   }
 
   /** Fades everything but the nodes `keep` accepts (and their parents); nothing if none does. */
   export function fadeExcept(keep: (id: string) => boolean) {
-    const xs = cy.nodes().filter((n) => keep(n.id()));
-    cy.elements().removeClass("faded");
-    if (xs.length) {
-      cy.elements().addClass("faded");
-      xs.removeClass("faded");
-      xs.ancestors().removeClass("faded");
-    }
+    const xs = [...known].filter(keep);
+    st.focus = xs.length ? withAncestors(xs) : null;
+    refresh();
   }
 
   export function center(id: string) {
-    cy.animate({ center: { eles: cy.getElementById(id) }, duration: 200 });
+    let p: { x: number; y: number } | null = null;
+    if (g.hasNode(id)) p = { x: g.getNodeAttribute(id, "x"), y: -g.getNodeAttribute(id, "y") };
+    const b = bg.groups.find((x) => x.id === id);
+    if (!p && b) p = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
+    if (!p) return;
+    const v = toView(p.x, p.y);
+    const f = sg.viewportToFramedGraph(v);
+    sg.getCamera().animate({ x: f.x, y: f.y }, { duration: 200 });
   }
 </script>
 

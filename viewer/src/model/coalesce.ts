@@ -6,7 +6,13 @@ export function coalesce(job: () => Promise<unknown>): () => void {
   let pending = false;
   const run = () => {
     running = true;
-    job().catch(() => {}).finally(() => {
+    let p: Promise<unknown>;
+    try {
+      p = Promise.resolve(job());
+    } catch {
+      p = Promise.resolve(); // a synchronous throw must not leave `running` set
+    }
+    p.catch(() => {}).finally(() => {
       running = false;
       if (pending) {
         pending = false;
