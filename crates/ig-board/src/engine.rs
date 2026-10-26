@@ -93,6 +93,14 @@ impl Engine {
         self.base = written;
     }
 
+    /// A new context (another scope, or the code changed): the board and its history stay.
+    pub fn set_context(&mut self, ctx: Context) {
+        self.ctx = ctx;
+        let sel = std::mem::take(&mut self.selection);
+        self.select(sel);
+        self.refresh();
+    }
+
     /// Hides the elements and context boxes of these layers (not drawn, not hit).
     pub fn set_hidden(&mut self, layers: Vec<String>) {
         self.hidden = layers.into_iter().collect();

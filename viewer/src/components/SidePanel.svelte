@@ -14,6 +14,8 @@
     compare: (id: string) => void;
     /** Desktop app: the node's file in the code view. */
     openFile?: (id: string) => void;
+    /** Desktop app: the Design view, its context around this node. */
+    design?: (id: string) => void;
   };
 </script>
 
@@ -178,6 +180,7 @@
       <button onclick={() => on.focus(id)}>Focus</button>
       {#if mode === "focus" && focusId === id}<button onclick={() => on.depth(id)}>{focusDepth === 1 ? "Depth 2" : "Depth 1"}</button>{/if}
       {#if mode !== "architecture"}<button onclick={() => on.arch(id)}>Show in architecture</button>{/if}
+      {#if __BOARDS__ && on.design}<button title="Open the Design view with the modules around this one as context" onclick={() => on.design!(id)}>Design around this</button>{/if}
     </div>
     {#if n.intents.length}<p>{#each n.intents as t}<span class="tag">{t}</span>{/each}</p>{/if}
     {#if n.planned}<p class="loc">planned, not written yet</p>{:else}{@render code(n)}{/if}

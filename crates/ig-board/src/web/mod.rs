@@ -180,6 +180,35 @@ impl BoardEngine {
         Ok(())
     }
 
+    /// Another scope's context; the board, its history and the camera stay.
+    #[wasm_bindgen(js_name = setContext)]
+    pub fn set_context(&mut self, context: &str) -> Result<(), String> {
+        let ctx: Context = serde_json::from_str(context).map_err(|e| e.to_string())?;
+        self.engine.set_context(ctx);
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// The element, link key or context box under a canvas point (the hover reason).
+    pub fn hit(&self, x: f32, y: f32) -> Option<String> {
+        self.engine.hit(x, y)
+    }
+
+    /// The current tool, as `EngineInput`'s `tool` names it.
+    pub fn tool(&self) -> String {
+        match self.engine.tool() {
+            Tool::Select => "select",
+            Tool::Module => "module",
+            Tool::Function => "function",
+            Tool::Route => "route",
+            Tool::System => "system",
+            Tool::Note => "note",
+            Tool::Frame => "frame",
+            Tool::Link => "link",
+        }
+        .into()
+    }
+
     pub fn input(&mut self, ev: &str) -> String {
         let i = match serde_json::from_str::<Ev>(ev) {
             Ok(Ev::Down { x, y, button, mods }) => Input::Down { x, y, button, mods },

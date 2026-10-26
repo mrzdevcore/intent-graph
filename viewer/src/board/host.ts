@@ -1,7 +1,7 @@
 // Loads the board engine (crates/ig-board as wasm, lazily) onto a canvas and adapts its JSON
 // strings to `BoardEngine`. Desktop app only: `ig view` builds never import this file.
 
-import type { A11yItem, BoardEngine, Camera, EngineOut, Label } from "./engine";
+import type { A11yItem, BoardEngine, Camera, EngineOut, Label, Tool } from "./engine";
 
 import { loadFailed, noWebgl2 } from "./messages";
 
@@ -11,7 +11,10 @@ export { loadFailed, noWebgl2 };
 export interface RawEngine {
   attach(canvas: HTMLCanvasElement): void;
   load(board: string, context: string): void;
+  setContext(context: string): void;
   input(ev: string): string;
+  hit(x: number, y: number): string | undefined;
+  tool(): string;
   ops(ops: string, step: string): string;
   external(disk: string, turn?: string | null): string;
   setCheck(targets: string): void;
@@ -73,7 +76,10 @@ export function wrap(raw: RawEngine, pkg: Pkg, onFail: (reason: string) => void)
   const out = (s: string) => JSON.parse(s) as EngineOut;
   return {
     load: (b, c) => g(() => raw.load(b, c)),
+    setContext: (c) => g(() => raw.setContext(c)),
     input: (ev) => g(() => out(raw.input(JSON.stringify(ev)))),
+    hit: (x, y) => g(() => raw.hit(x, y) ?? null),
+    tool: () => g(() => raw.tool() as Tool),
     ops: (o, step) => g(() => out(raw.ops(o, JSON.stringify(step)))),
     external: (d, turn) => g(() => out(raw.external(d, turn))),
     setCheck: (t) => g(() => raw.setCheck(t)),
@@ -146,11 +152,12 @@ export function release(canvas: HTMLCanvasElement, engine: BoardEngine): void {
 /** Paint names the renderer knows, from the theme tokens. */
 const TOKENS: Record<string, [string, number]> = {
   lane: ["--code", 0.7], context: ["--panel", 0.6], contextBorder: ["--line", 1], contextEdge: ["--unchanged", 0.5],
-  surface: ["--panel", 1], link: ["--muted", 1], selected: ["--note", 1], highlight: ["--accent", 1],
+  surface: ["--panel", 1], link: ["--muted", 1], selected: ["--accent", 1], highlight: ["--note", 1],
   error: ["--error", 1], warning: ["--warning", 1], note: ["--note", 1],
   "mark.changed": ["--changed", 1], "mark.remove": ["--removed", 1],
-  "element.module": ["--fg", 0.7], "element.function": ["--note", 1], "element.route": ["--added", 1],
-  "element.system": ["--muted", 1], "element.note": ["--changed", 1], "element.frame": ["--muted", 1],
+  // new elements are green (the design), marks amber or red, problems red
+  "element.module": ["--added", 1], "element.function": ["--added", 1], "element.route": ["--added", 1],
+  "element.system": ["--added", 1], "element.note": ["--changed", 1], "element.frame": ["--muted", 1],
 };
 
 /** `#rgb` / `#rrggbb` to 0..1 RGBA; anything else grey. */

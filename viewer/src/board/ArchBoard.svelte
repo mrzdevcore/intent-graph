@@ -1,0 +1,354 @@
+<!-- The Design view's architecture board: the feature switcher and scope picker, the tool rail,
+     the engine's board over the faded real system, the inspector, and the checks bar. The store
+     autosaves to plans/<slug>/design.json and re-checks on every change of meaning. -->
+<script lang="ts">
+  import { onDestroy, untrack } from "svelte";
+  import { Box, Cloud, Frame, Maximize, MousePointer2, Redo2, Route, SquareFunction, Spline, StickyNote, Undo2 } from "lucide-static";
+  import type { Design, DesignApi, DesignScope, LinkKind, MarkKind } from "../api";
+  import type { Group, Index } from "../model/graph";
+  import Board from "./Board.svelte";
+  import Checks from "./Checks.svelte";
+  import Features from "./Features.svelte";
+  import { buildContext, scopeGroup } from "./context";
+  import type { BoardEngine, EngineOut, Tool } from "./engine";
+  import { BoardStore, realClock, targets, type StoreEngine } from "./store";
+
+  let { ix, api, graphScope, around = null }: {
+    ix: Index;
+    api: DesignApi;
+    /** The Graph's Architecture scope: offered as a "folder" scope. */
+    graphScope: Group;
+    /** "Design around this" from the Graph: a node id, with a counter so the same id asks again. */
+    around?: { id: string; n: number } | null;
+  } = $props();
+
+  const FEATURE_KEY = "ig.design.feature";
+  const WIDTH = 1200;
+  const TOOLS: [Tool, string, string, string][] = [
+    ["select", "V", "Select", MousePointer2], ["module", "M", "Module", Box], ["function", "F", "Function", SquareFunction],
+    ["route", "R", "Route", Route], ["system", "E", "External system", Cloud], ["link", "L", "Link", Spline],
+    ["note", "N", "Sticky note", StickyNote], ["frame", "G", "Frame", Frame],
+  ];
+  const LINK_KINDS: LinkKind[] = ["calls", "imports", "renders", "http", "uses"];
+  const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+  const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
+  const CMD = isMac ? "Cmd" : "Ctrl";
+  const CMD_BIT = isMac ? 8 : 4;
+  const BLANK = JSON.stringify({ version: 1, title: "", scope: { kind: "dir", id: "." } });
+
+  let board = $state<ReturnType<typeof Board>>();
+  let features = $state<ReturnType<typeof Features>>();
+  let engine: BoardEngine | null = null;
+  let store = $state.raw<BoardStore | null>(null);
+  let slug = $state<string | null>(null);
+  let doc = $state.raw<Design | null>(null);
+  let selection = $state.raw<string[]>([]);
+  let tool = $state<Tool>("select");
+  /** Bumped when the store's status, errors or check change. */
+  let version = $state(0);
+  let boxes = $state.raw<Map<string, { id: string; label: string; kind: string }>>(new Map());
+
+  const scope = $derived<DesignScope>(doc?.scope ?? { kind: "dir", id: "." });
+
+  function remember(s: string) {
+    try {
+      localStorage.setItem(FEATURE_KEY, s);
+    } catch {
+      // storage blocked: the choice lasts for this page only
+    }
+  }
+  function remembered(): string | null {
+    try {
+      return localStorage.getItem(FEATURE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  /** The context for a scope, also kept for the inspector's box lookups. */
+  function context(s: DesignScope): string {
+    const json = buildContext(ix, s, WIDTH);
+    boxes = new Map((JSON.parse(json).boxes as { id: string; label: string; kind: string }[]).map((b) => [b.id, b]));
+    return json;
+  }
+
+  function readDoc() {
+    try {
+      doc = engine ? (JSON.parse(engine.board()) as Design) : null;
+    } catch {
+      doc = null;
+    }
+  }
+
+  const NOOP: EngineOut = { redraw: false, changed: false, meaning: false, selection: [], edit: null, placed: null, cursor: "default", error: null };
+  /** The store's engine: calls that change what is drawn go through the board, so they show. */
+  const adapter: StoreEngine = {
+    load: (b, c) => {
+      board?.run((e) => e.load(b, c));
+      board?.fit();
+    },
+    ops: (o, s) => board?.run((e) => e.ops(o, s)) ?? NOOP,
+    external: (d, t) => board?.run((e) => e.external(d, t)) ?? NOOP,
+    setCheck: (t) => void board?.run((e) => e.setCheck(t)),
+    board: () => engine!.board(),
+    saved: (w) => engine!.saved(w),
+  };
+
+  async function open(next: string) {
+    if (!engine || next === store?.slug) return;
+    const old = store;
+    if (old) {
+      await old.flush();
+      old.dispose();
+    }
+    slug = next;
+    remember(next);
+    selection = [];
+    const s = new BoardStore(api, adapter, next, realClock, {
+      context: () => context(scope),
+      nodes: () => ix.D.nodes,
+      changed: () => {
+        readDoc();
+        version++;
+      },
+    });
+    store = s;
+    // the context follows the file's scope, which is only known once it is read
+    await s.load();
+    if (store !== s) return;
+    board?.run((e) => e.setContext(context(scope)));
+    if (around && around.n !== usedAround) {
+      usedAround = around.n;
+      setScope({ kind: "around", id: around.id, depth: 1 });
+    }
+  }
+
+  async function start() {
+    const list = (await features?.refresh()) ?? [];
+    const want = remembered();
+    const first = list.find((f) => f.slug === want && f.design) ?? list.find((f) => f.design && !f.done) ?? list.find((f) => f.design);
+    if (first) await open(first.slug);
+  }
+
+  function ready(e: BoardEngine) {
+    engine = e;
+    void start();
+  }
+
+  function onout(o: EngineOut, e: BoardEngine) {
+    selection = o.selection;
+    tool = e.tool();
+    store?.onOut(o);
+    if (!o.changed) readDoc();
+  }
+
+  /** One user step through the engine; the store saves and checks it. */
+  function ops(list: object[]) {
+    const o = board?.run((e) => e.ops(JSON.stringify(list), "user"));
+    if (o) store?.onOut(o);
+  }
+
+  function pickTool(t: Tool) {
+    board?.run((e) => e.input({ t: "tool", tool: t }));
+    tool = t;
+  }
+
+  function setScope(s: DesignScope) {
+    if (!store || JSON.stringify(s) === JSON.stringify(scope)) return;
+    ops([{ op: "scope", scope: s }]);
+    board?.run((e) => e.setContext(context(s)));
+    board?.fit();
+  }
+
+  // a rebuilt graph redraws the context, the board stays
+  $effect(() => {
+    void ix;
+    untrack(() => store && board?.run((e) => e.setContext(context(scope))));
+  });
+
+  /** The last "Design around this" applied (a store that loads later applies a newer one). */
+  let usedAround = 0;
+  $effect(() => {
+    const a = around;
+    if (!a) return;
+    untrack(() => {
+      if (!store || a.n === usedAround) return;
+      usedAround = a.n;
+      setScope({ kind: "around", id: a.id, depth: 1 });
+    });
+  });
+
+  $effect(() => {
+    const s = slug;
+    if (!s) return;
+    return api.onChanged((changed) => changed === s && store?.slug === s && void store.external());
+  });
+
+  onDestroy(() => {
+    void store?.flush().then(() => store?.dispose());
+  });
+
+  // the scope picker: whole system, each layer, the Graph's folder, and the current one
+  const layers = $derived(Object.values(ix.root.children).filter((g) => g.layer).map((g) => g.label));
+  const scopeKey = (s: DesignScope) => JSON.stringify(s);
+  const scopeOptions = $derived.by(() => {
+    const opts: [DesignScope, string][] = [[{ kind: "dir", id: "." }, "Whole system"]];
+    layers.forEach((l) => opts.push([{ kind: "layer", name: l }, "Layer " + l]));
+    if (graphScope !== ix.root) opts.push([{ kind: "dir", id: graphScope.id }, "Folder " + graphScope.label]);
+    if (!opts.some(([s]) => scopeKey(s) === scopeKey(scope))) {
+      const label = scope.kind === "around" ? "Around " + (ix.byId[scope.id]?.name ?? scope.id)
+        : scope.kind === "layer" ? "Layer " + scope.name : "Folder " + scopeGroup(ix, scope).label;
+      opts.push([scope, label]);
+    }
+    return opts;
+  });
+
+  const reasons = $derived.by(() => {
+    void version;
+    const c = store?.check;
+    return c ? Object.fromEntries(targets(c).map(([id, , why]) => [id, why])) : {};
+  });
+
+  const status = $derived.by(() => {
+    void version;
+    const s = store;
+    if (!s) return { text: "", failed: false };
+    const err = s.errors[s.path];
+    if (err) return { text: `Read-only: ${err}. It is never overwritten; fix it and the board reloads.`, failed: true };
+    if (s.saveError) return { text: `Not saved: ${s.saveError}. Retrying…`, failed: true };
+    if (s.pending) return { text: "saving…", failed: false };
+    return { text: `Saved to ${s.path}`, failed: false };
+  });
+  const readOnly = $derived.by(() => {
+    void version;
+    return !!store && store.readOnly.has(store.path);
+  });
+  const checkError = $derived.by(() => {
+    void version;
+    return store?.checkError ?? null;
+  });
+
+  const sel = $derived(selection.length === 1 ? selection[0] : null);
+  const element = $derived(sel ? doc?.elements.find((e) => e.id === sel) : undefined);
+  const link = $derived(sel ? doc?.links.find((l) => `${l.from}|${l.kind}|${l.to}` === sel) : undefined);
+  const box = $derived(sel ? boxes.get(sel) : undefined);
+  const mark = $derived(sel ? doc?.marks.find((m) => m.node === sel)?.mark : undefined);
+
+  const update = (id: string, set: Record<string, unknown>) => ops([{ op: "update", id, set }]);
+  const setMark = (node: string, m: MarkKind | null) => ops([{ op: "mark", node, mark: m }]);
+</script>
+
+<div class="arch">
+  <div class="bar">
+    <Features bind:this={features} {api} {slug} onpick={(s) => void open(s)} />
+    <label class="scope">Context
+      <select value={scopeKey(scope)} disabled={!store || readOnly} onchange={(e) => setScope(JSON.parse(e.currentTarget.value))}>
+        {#each scopeOptions as [s, label] (scopeKey(s))}<option value={scopeKey(s)}>{label}</option>{/each}
+      </select>
+    </label>
+    <span class="spacer"></span>
+    <button class="icon" title="Undo ({CMD}+Z)" aria-label="Undo" disabled={!store || readOnly} onclick={() => board?.key("z", CMD_BIT)}>{@html Undo2}</button>
+    <button class="icon" title="Redo ({CMD}+Shift+Z)" aria-label="Redo" disabled={!store || readOnly} onclick={() => board?.key("z", CMD_BIT | 1)}>{@html Redo2}</button>
+    <button class="icon" title="Fit (Shift+1)" aria-label="Fit" disabled={!store} onclick={() => board?.fit()}>{@html Maximize}</button>
+  </div>
+
+  <div class="rail" role="toolbar" aria-label="Tools" aria-orientation="vertical">
+    {#each TOOLS as [t, key, name, icon] (t)}
+      <button class="icon" title="{name} ({key})" aria-label="{name} ({key})" aria-pressed={tool === t ? "true" : "false"}
+        disabled={!store || readOnly} onclick={() => pickTool(t)}>{@html icon}<kbd>{key}</kbd></button>
+    {/each}
+  </div>
+
+  <div class="canvas" inert={readOnly}>
+    <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} onready={ready} {onout} {reasons} />
+    {#if !slug}
+      <div class="empty">
+        <p>No feature yet. <strong>New feature</strong> above starts one: <code>plans/&lt;slug&gt;/design.json</code>, drawn over the real system.</p>
+      </div>
+    {/if}
+  </div>
+
+  <aside class="inspector" aria-label="Inspector">
+    {#if element}
+      {#key element.id}
+        <h3>{element.kind === "system" ? "External system" : element.kind[0].toUpperCase() + element.kind.slice(1)} <span class="new">new</span></h3>
+        <label>Id <input readonly value={element.id}></label>
+        <label>Name <input value={element.name} onchange={(e) => update(element.id, { name: e.currentTarget.value })}></label>
+        {#if element.kind === "route"}
+          <label>Method <select value={element.method ?? ""} onchange={(e) => update(element.id, { method: e.currentTarget.value })}>
+            <option value="">—</option>{#each METHODS as m (m)}<option value={m}>{m}</option>{/each}</select></label>
+          <label>Path <input value={element.path ?? ""} placeholder="/api/…" onchange={(e) => update(element.id, { path: e.currentTarget.value })}></label>
+        {/if}
+        {#if element.kind !== "note" && element.kind !== "frame" && element.kind !== "system"}
+          <label>File <input value={element.file ?? ""} placeholder="proposed from the layer" title="Proposed from the layer's files and the name; edit it freely"
+            onchange={(e) => update(element.id, { file: e.currentTarget.value })}></label>
+        {/if}
+        <p class="muted">Layer: {element.layer ?? "none (drop it in a row)"}</p>
+        {#if element.kind === "note"}
+          <label class="row"><input type="checkbox" checked={!!element.question} onchange={(e) => update(element.id, { question: e.currentTarget.checked })}> A question</label>
+          {#if element.question}<label>Answer <textarea value={element.answer ?? ""} onchange={(e) => update(element.id, { answer: e.currentTarget.value })}></textarea></label>{/if}
+        {/if}
+        {#if reasons[element.id]}<p class="problem">{reasons[element.id]}</p>{/if}
+      {/key}
+    {:else if link}
+      <h3>Link</h3>
+      <p><code>{link.from}</code> → <code>{link.to}</code></p>
+      <label>Kind <select value={link.kind} onchange={(e) => ops([{ op: "unlink", key: sel }, { op: "link", from: link.from, to: link.to, kind: e.currentTarget.value }])}>
+        {#each LINK_KINDS as k (k)}<option value={k}>{k}</option>{/each}</select></label>
+      {#if reasons[sel!]}<p class="problem">{reasons[sel!]}</p>{/if}
+    {:else if box}
+      <h3>{box.label} <span class="muted">existing</span></h3>
+      <p class="muted"><code>{box.id}</code></p>
+      {#if ix.byId[box.id]}
+        <div class="marks" role="group" aria-label="Mark">
+          <button aria-pressed={mark === "changed" ? "true" : "false"} onclick={() => setMark(box.id, mark === "changed" ? null : "changed")}>Changed</button>
+          <button aria-pressed={mark === "remove" ? "true" : "false"} onclick={() => setMark(box.id, mark === "remove" ? null : "remove")}>To remove</button>
+        </div>
+        <p class="muted">Link to it with L; it stays where it is.</p>
+      {:else}
+        <p class="muted">A group: pick its layer or folder as the context to mark what is inside.</p>
+      {/if}
+      {#if reasons[box.id]}<p class="problem">{reasons[box.id]}</p>{/if}
+    {:else if selection.length > 1}
+      <h3>{selection.length} selected</h3>
+      <p class="muted">Arrows nudge (Shift: 40 px), Delete removes, {CMD}+D duplicates.</p>
+    {:else}
+      <h3>Inspector</h3>
+      <p class="muted">Pick a tool, then click in a row: the box joins that layer. L, then drag from one box to another, links them. Double-click or Enter renames.</p>
+    {/if}
+  </aside>
+
+  <div class="foot">
+    <Checks check={store?.check ?? null} error={checkError} status={status.text} failed={status.failed} />
+  </div>
+</div>
+
+<style>
+  .arch { position: absolute; inset: 0; z-index: 2; display: grid; grid-template-columns: 48px 1fr 260px;
+    grid-template-rows: auto 1fr auto; background: var(--bg); color: var(--fg); }
+  .bar { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line);
+    background: var(--panel); font-size: 13px; }
+  .spacer { flex: 1; }
+  .scope { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  .rail { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-right: 1px solid var(--line); background: var(--panel); }
+  .icon { position: relative; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 6px; }
+  .icon :global(svg) { width: 18px; height: 18px; }
+  .icon[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  kbd { position: absolute; right: 2px; bottom: 0; font-size: 9px; color: inherit; opacity: 0.7; font-family: inherit; }
+  .canvas { position: relative; min-width: 0; min-height: 0; }
+  .empty { position: absolute; inset: 0; background: var(--bg); padding: 15vh 16px 0; color: var(--muted); }
+  .empty p { max-width: 34em; margin: 0 auto; }
+  .inspector { border-left: 1px solid var(--line); background: var(--panel); padding: 10px; overflow: auto; font-size: 13px; }
+  .inspector h3 { margin: 0 0 8px; font-size: 14px; }
+  .inspector label { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; color: var(--muted); }
+  .inspector label.row { flex-direction: row; align-items: center; gap: 6px; color: var(--fg); }
+  .inspector input:not([type]), .inspector select, .inspector textarea { color: var(--fg); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 3px 6px; font: inherit; }
+  .inspector input[readonly] { color: var(--muted); font-family: ui-monospace, monospace; }
+  .new { color: var(--added); font-size: 11px; font-weight: normal; border: 1px dashed var(--added); border-radius: 4px; padding: 0 4px; }
+  .marks { display: flex; gap: 6px; margin-bottom: 8px; }
+  .marks button[aria-pressed="true"] { background: var(--changed); color: var(--on-accent); }
+  .muted { color: var(--muted); }
+  .problem { color: var(--error); }
+  .foot { grid-column: 1 / -1; }
+</style>

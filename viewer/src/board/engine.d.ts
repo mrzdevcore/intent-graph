@@ -8,7 +8,9 @@ export type EngineInput =
   | { t: "up"; x: number; y: number; mods: number }
   | { t: "wheel"; x: number; y: number; dx: number; dy: number; mods: number }
   | { t: "key"; key: string; mods: number }
-  | { t: "tool"; tool: "select" | "module" | "function" | "route" | "system" | "note" | "frame" | "link" };
+  | { t: "tool"; tool: Tool };
+
+export type Tool = "select" | "module" | "function" | "route" | "system" | "note" | "frame" | "link";
 
 export interface EngineOut {
   redraw: boolean;
@@ -36,7 +38,12 @@ export type Step = "user" | { agent: string };
 
 export interface BoardEngine {
   load(boardJson: string, contextJson: string): void;
+  /** Another scope's context: the board, its history and the camera stay. */
+  setContext(contextJson: string): void;
   input(ev: EngineInput): EngineOut;
+  /** The element, link key or context box under a canvas point. */
+  hit(x: number, y: number): string | null;
+  tool(): Tool;
   /** One history step; `error` set (and nothing changed) when invalid. */
   ops(opsJson: string, step: Step): EngineOut;
   external(diskJson: string, turn: string | null): EngineOut;

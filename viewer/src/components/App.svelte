@@ -56,16 +56,14 @@
   import Tree from "./Tree.svelte";
   import { loadFailed } from "../board/messages";
 
-  /** The desktop app's board, an unsaved empty one until Task 9 makes it the Design view. A
-   *  lazy chunk; `ig view` builds (`__BOARDS__` false) drop it with the engine. */
-  const BoardView = __BOARDS__ ? () => import("../board/Board.svelte") : null;
-  let boardOpen = $state(false);
+  /** The desktop app's Design view: the architecture board, a lazy chunk; `ig view` builds
+   *  (`__BOARDS__` false) drop it with the engine. */
+  const DesignView = __BOARDS__ ? () => import("../board/ArchBoard.svelte") : null;
+  let designOpen = $state(false);
   /** Bumped by Retry: the chunk import runs again. */
-  let boardTry = $state(0);
-  const scratchBoard = () => ({
-    board: JSON.stringify({ version: 1, title: "Scratch", scope: { kind: "dir", id: "" }, elements: [], marks: [], links: [], bridges: [] }),
-    context: JSON.stringify({ lanes: [], boxes: [], edges: [] }),
-  });
+  let designTry = $state(0);
+  /** "Design around this": the node, numbered so the same one asks again. */
+  let around = $state.raw<{ id: string; n: number } | null>(null);
 
   /** The first data (the host reads it before mounting) and the host's API. */
   let { data: first, api }: { data: ViewData; api: IgApi } = $props();
@@ -474,6 +472,10 @@
       const n = ix.byId[id];
       if (n?.diff) code = { path: n.file, merge: beforeAfter(n.diff) };
     },
+    design: __BOARDS__ && untrack(() => api.design) ? (id: string) => {
+      around = { id, n: (around?.n ?? 0) + 1 };
+      designOpen = true;
+    } : undefined,
     openFile: untrack(() => api.readFile) ? (id: string) => openFile(ix.byId[id].file, ix.byId[id].line) : undefined,
   };
 </script>
@@ -499,7 +501,8 @@
   <!-- svelte-ignore a11y_invalid_attribute -->
   <span id="crumbs" class="crumbs">{#each crumbs as t, i}{i ? " › " : ""}{#if t === scope}<strong>{i ? t.label : "All"}</strong>{:else}<a href="#" onclick={(e) => { e.preventDefault(); setScope(t); side = { kind: "group", id: t.id }; }}>{i ? t.label : "All"}</a>{/if}{/each}</span>
   <span id="hint" class="counts" title={hint}>{hint}</span>
-  {#if __BOARDS__}<button id="board-toggle" class="toggle" aria-pressed={boardOpen ? "true" : "false"} onclick={() => (boardOpen = !boardOpen)}>Board</button>{/if}
+  {#if __BOARDS__ && api.design}<button id="design-toggle" class="toggle" aria-pressed={designOpen ? "true" : "false"} title="Draw a feature over the real system"
+    onclick={() => (designOpen = !designOpen)}>Design</button>{/if}
   {#if chatApi}<button id="chat-toggle" class="toggle" aria-pressed={chatOpen ? "true" : "false"} onclick={() => (chatOpen = !chatOpen)}>Chat</button>{/if}
 </header>
 <main class:with-chat={chatApi && chatOpen}>
@@ -511,7 +514,7 @@
     <Graph bind:this={graph} {links} ontap={onTap} oncontext={onContext} ondrop={onDrop} onlink={onLink} />
     {#if showSt.current && shown}<ShowBanner title={showSt.current.title} missing={shown.missing.length} steps={shown.steps}
       onclear={clearShow} onback={backShow} onstep={onStep} />{/if}
-    {#if __BOARDS__ && boardOpen}{#key boardTry}{#await BoardView!() then B}<div style="position:absolute;inset:0;z-index:2"><B.default source={scratchBoard} /></div>{:catch e}<div role="alert" style="position:absolute;inset:0;z-index:2;padding:15vh 16px 0;background:var(--bg)"><p>{loadFailed(e instanceof Error ? e.message : String(e))}</p><button onclick={() => boardTry++}>Retry</button></div>{/await}{/key}{/if}
+    {#if __BOARDS__ && api.design && designOpen}{#key designTry}{#await DesignView!() then V}<V.default {ix} api={api.design} graphScope={scope} {around} />{:catch e}<div role="alert" style="position:absolute;inset:0;z-index:2;padding:15vh 16px 0;background:var(--bg)"><p>{loadFailed(e instanceof Error ? e.message : String(e))}</p><button onclick={() => designTry++}>Retry</button></div>{/await}{/key}{/if}
     {#if code}<CodeView path={code.path} text={code.text} merge={code.merge} line={code.line} onword={onWord} onclose={() => (code = null)} />{/if}
   </div>
   <div id="side" role="complementary">

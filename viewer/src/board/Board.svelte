@@ -11,7 +11,7 @@
   import EditOverlay from "./EditOverlay.svelte";
   import A11yList from "./A11yList.svelte";
 
-  let { source, importer, onout, onready, message = "", reload = () => location.reload() }: {
+  let { source, importer, onout, onready, message = "", reasons = {}, reload = () => location.reload() }: {
     /** The board text and context JSON to load: on start and Retry. */
     source: () => { board: string; context: string };
     importer?: Importer;
@@ -21,6 +21,8 @@
     message?: string;
     /** Retry after a panic (tests replace it). */
     reload?: () => void;
+    /** Check reasons by element, link key or context box: the canvas title on hover. */
+    reasons?: Record<string, string>;
   } = $props();
 
   let host: HTMLDivElement;
@@ -36,6 +38,9 @@
   let width = $state(0);
   let height = $state(0);
   let pending = 0;
+  /** Fit the view once the next frame has measured it (start, and a newly loaded board). */
+  let fitNext = true;
+  let hover = $state<string | null>(null);
 
   const MODS = (e: KeyboardEvent | MouseEvent) =>
     (e.shiftKey ? 1 : 0) | (e.altKey ? 2 : 0) | (e.ctrlKey ? 4 : 0) | (e.metaKey ? 8 : 0);
@@ -91,6 +96,11 @@
     pending = requestAnimationFrame(() => {
       pending = 0;
       if (act((e) => e.frame())) {
+        if (fitNext) {
+          fitNext = false;
+          act((e) => e.input({ t: "key", key: "!", mods: 1 }));
+          return schedule();
+        }
         camera = act((e) => e.camera()) ?? camera;
         labels = act((e) => e.labels()) ?? labels;
       }
@@ -124,6 +134,38 @@
   }
 
   const send = (ev: EngineInput) => handle(act((e) => e.input(ev)));
+
+  /** For the owner (tool rail, inspector, store): an engine call whose effects show on the board.
+   *  The answer goes back to the caller, not to `onout`. */
+  export function run<T>(f: (e: BoardEngine) => T): T | undefined {
+    const r = act(f);
+    const o = r as EngineOut | undefined;
+    if (o && typeof o === "object" && "redraw" in o) {
+      cursor = o.cursor;
+      status = o.error ?? "";
+    }
+    items = act((e) => e.a11y()) ?? items;
+    schedule();
+    return r;
+  }
+
+  /** The next frame fits the view to the board (a newly loaded one). */
+  export function fit() {
+    fitNext = true;
+    schedule();
+  }
+
+  /** Board shortcuts from the owner's buttons (undo, redo, fit). */
+  export function key(key: string, mods = 0) {
+    send({ t: "key", key, mods });
+  }
+
+  function onmove(e: PointerEvent) {
+    if (edit) return;
+    const p = point(e);
+    send({ t: "move", ...p });
+    hover = act((en) => en.hit(p.x, p.y)) ?? null;
+  }
 
   function point(e: PointerEvent) {
     const r = canvas!.getBoundingClientRect();
@@ -216,7 +258,8 @@
   {:else}
     <canvas bind:this={canvas} tabindex="0" aria-label="Board canvas; the element list follows" style="cursor:{cursor}"
       {onpointerdown}
-      onpointermove={(e) => edit || send({ t: "move", ...point(e) })}
+      title={hover ? reasons[hover] : undefined}
+      onpointermove={onmove}
       onpointerup={(e) => edit || send({ t: "up", ...point(e) })}
       oncontextmenu={(e) => e.preventDefault()}
       onmousedown={(e) => e.preventDefault() /* focus is set in pointerdown; the default would take it from the rename overlay */}></canvas>
