@@ -324,6 +324,63 @@ fn blank(id: &str, kind: ElementKind, name: &str) -> Element {
     }
 }
 
+/// Byte caps on what an edit writes (the board and `design_edit` alike).
+pub const MAX_NAME: usize = 200;
+pub const MAX_FILE: usize = 512;
+pub const MAX_TEXT: usize = 4096;
+pub const MAX_ID: usize = 512;
+
+fn cap(what: &str, s: &str, max: usize) -> Result<(), DesignError> {
+    if s.len() > max {
+        return Err(DesignError::Invalid(format!(
+            "{what} is longer than {max} bytes"
+        )));
+    }
+    Ok(())
+}
+
+/// The caps, on what the edit touched only: an old file never blocks an unrelated edit.
+fn caps(d: &Design, t: &Touched) -> Result<(), DesignError> {
+    for e in d.elements.iter().filter(|e| t.elements.contains(&e.id)) {
+        cap("an id", &e.id, MAX_ID)?;
+        let id = &e.id;
+        let name = if e.kind == ElementKind::Note {
+            MAX_TEXT
+        } else {
+            MAX_NAME
+        };
+        cap(&format!("{id}: the name"), &e.name, name)?;
+        cap(
+            &format!("{id}: the answer"),
+            e.answer.as_deref().unwrap_or(""),
+            MAX_TEXT,
+        )?;
+        for (f, v, max) in [
+            ("file", &e.file, MAX_FILE),
+            ("path", &e.path, MAX_FILE),
+            ("method", &e.method, MAX_ID),
+            ("icon", &e.icon, MAX_ID),
+            ("layer", &e.layer, MAX_ID),
+            ("on", &e.on, MAX_ID),
+            ("frame", &e.frame, MAX_ID),
+        ] {
+            cap(&format!("{id}: {f}"), v.as_deref().unwrap_or(""), max)?;
+        }
+    }
+    for l in d.links.iter().filter(|l| t.links.contains(&l.key())) {
+        cap("a link end", &l.from, MAX_ID)?;
+        cap("a link end", &l.to, MAX_ID)?;
+    }
+    for b in d.bridges.iter().filter(|b| t.bridges.contains(&b.key())) {
+        cap("a bridge end", &b.from, MAX_ID)?;
+        cap("a bridge end", &b.to, MAX_ID)?;
+    }
+    for m in d.marks.iter().filter(|m| t.elements.contains(&m.node)) {
+        cap("a marked node", &m.node, MAX_ID)?;
+    }
+    Ok(())
+}
+
 /// All or nothing: on any error the input board is untouched, and the result passes `validate`.
 pub fn apply(b: &Board, ops: &[Op]) -> Result<(Board, Touched), DesignError> {
     let mut d = b.design.clone();
@@ -331,6 +388,7 @@ pub fn apply(b: &Board, ops: &[Op]) -> Result<(Board, Touched), DesignError> {
     for op in ops {
         step(&mut d, op, &mut t)?;
     }
+    caps(&d, &t)?;
     validate(&d)?;
     Ok((Board { design: d }, t))
 }
@@ -364,6 +422,53 @@ mod tests {
 
     fn ops(j: &str) -> Vec<Op> {
         serde_json::from_str(j).unwrap()
+    }
+
+    #[test]
+    fn long_strings_are_refused_on_what_the_edit_touches() {
+        let long = |n| "x".repeat(n);
+        let upd = |set: serde_json::Value| {
+            let o = vec![Op::Update {
+                id: "fn-a".into(),
+                set: serde_json::from_value(set).unwrap(),
+            }];
+            apply(&board(), &o).map(|_| ()).map_err(|e| e.to_string())
+        };
+        assert!(upd(serde_json::json!({"name": long(MAX_NAME)})).is_ok());
+        let e = upd(serde_json::json!({"name": long(MAX_NAME + 1)})).unwrap_err();
+        assert_eq!(e, "design.json: fn-a: the name is longer than 200 bytes");
+        assert!(upd(serde_json::json!({"file": long(MAX_FILE + 1)})).is_err());
+        let note = |n| {
+            vec![Op::Update {
+                id: "note-1".into(),
+                set: ElementPatch {
+                    name: Some(long(n)),
+                    ..Default::default()
+                },
+            }]
+        };
+        assert!(apply(&board(), &note(MAX_TEXT)).is_ok());
+        assert!(apply(&board(), &note(MAX_TEXT + 1)).is_err());
+        let link = vec![Op::Link {
+            from: "fn-a".into(),
+            to: long(MAX_ID + 1),
+            kind: LinkKind::Calls,
+        }];
+        assert!(apply(&board(), &link).is_err());
+        // an old over-long name elsewhere does not block an edit of another element
+        let mut b = board();
+        b.design.elements[1].name = long(MAX_NAME + 1);
+        assert!(
+            apply(
+                &b,
+                &[Op::Move {
+                    id: "fn-a".into(),
+                    x: 1,
+                    y: 2
+                }]
+            )
+            .is_ok()
+        );
     }
 
     #[test]
