@@ -12,6 +12,7 @@ export interface RawEngine {
   attach(canvas: HTMLCanvasElement): void;
   load(board: string, context: string): void;
   surface(name?: string | null): string;
+  setReadOnly(pick: boolean): void;
   screens(): string;
   variant(screen: string, state: string): string;
   importImage(asset: string): string;
@@ -85,6 +86,7 @@ export function wrap(raw: RawEngine, pkg: Pkg, onFail: (reason: string) => void)
   return {
     load: (b, c) => g(() => raw.load(b, c)),
     surface: (s) => g(() => raw.surface(s ?? null) as Surface),
+    setReadOnly: (p) => g(() => raw.setReadOnly(p)),
     screens: () => g(() => JSON.parse(raw.screens()) as Record<string, string>),
     variant: (s, st) => g(() => out(raw.variant(s, st))),
     importImage: (a) => g(() => out(raw.importImage(a))),

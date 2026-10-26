@@ -380,6 +380,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn skills_read_screens_and_bridges_and_build_from_the_design_system() {
+        let body = |n: &str| SKILLS.iter().find(|s| s.name == n).unwrap().body;
+        let plan = body("plan").split("## From a design").nth(1).unwrap();
+        for w in ["bridges", "requirement", "never layout"] {
+            assert!(plan.contains(w), "plan: {w}");
+        }
+        let apply = body("apply");
+        for w in [
+            "bridges",
+            "screens/",
+            "existing UI components",
+            "question for the user",
+        ] {
+            assert!(apply.contains(w), "apply: {w}");
+        }
+    }
+
     fn files_under(d: &Path) -> Vec<String> {
         let mut v = vec![];
         let mut stack = vec![d.to_path_buf()];

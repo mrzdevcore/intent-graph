@@ -32,6 +32,11 @@ pub struct Out {
     pub error: Option<String>,
     /// What an outside change brought in or took out: element ids, link keys, mark nodes, bridge keys.
     pub touched: Vec<String>,
+    /// Pick mode: the element or context box clicked.
+    pub picked: Option<String>,
+    /// A piece dragged out of the view and let go there (its key and the screen point): it
+    /// stays where it was; the host may link it to what is under the point.
+    pub dropped: Option<(String, f32, f32)>,
 }
 
 /// Which board the engine shows and edits; both share the one board, history and highlights.
@@ -65,6 +70,8 @@ pub struct Engine {
     pub(crate) clipboard: (Vec<Element>, Vec<Link>, i32),
     pub(crate) view: [f32; 4],
     meaning: u64,
+    /// `Some(pick)`: a read-only view; in pick mode hover highlights and a click picks.
+    pub(crate) read_only: Option<bool>,
     scene: Scene,
     drawn: Option<([f32; 4], Camera)>,
 }
@@ -73,6 +80,7 @@ impl Engine {
     pub fn new(ctx: Context, board: Board) -> Self {
         let mut e = Engine {
             meaning: meaning(&board),
+            read_only: None,
             history: History::new(board.clone(), 200),
             base: board,
             ctx,
@@ -199,7 +207,21 @@ impl Engine {
             cursor: self.cursor(),
             error: None,
             touched: vec![],
+            picked: None,
+            dropped: None,
         }
+    }
+
+    /// From now on the board is only looked at (pan, zoom, fit): its inputs never edit it. In
+    /// pick mode hovering highlights an element or context box and a click returns it as
+    /// `Out.picked`.
+    pub fn set_read_only(&mut self, pick: bool) {
+        (self.read_only, self.tool, self.gesture) = (Some(pick), Tool::Select, Gesture::Idle);
+    }
+
+    /// `Some(pick)` when read-only.
+    pub fn read_only(&self) -> Option<bool> {
+        self.read_only
     }
 
     /// An element, link key or context box of the current board; on the screens, a screen,

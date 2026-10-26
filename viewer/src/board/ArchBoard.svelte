@@ -22,8 +22,10 @@
   import { Outbox, applyPrompt, planPrompt } from "./outbox";
   import { applyState, noteChips, openNotes, readiness } from "./ready";
 
-  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer, chat = null, screensApi = null, initialSurface = null }: {
+  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer, chat = null, screensApi = null, initialSurface = null, openCode }: {
     ix: Index;
+    /** Opens a file in the Code view (the bridge's call chain). */
+    openCode?: (file: string, line: number) => void;
     api: DesignApi;
     /** The Graph's Architecture scope: offered as a "folder" scope. */
     graphScope: Group;
@@ -81,6 +83,7 @@
   function context(s: DesignScope): string {
     const json = buildContext(ix, s, WIDTH);
     boxes = new Map((JSON.parse(json).boxes as { id: string; label: string; kind: string }[]).map((b) => [b.id, b]));
+    contextJson = json;
     return json;
   }
 
@@ -168,7 +171,18 @@
     void start();
   }
 
+  /** The architecture context drawn now (the screens' mini-board shows it too). */
+  let contextJson = $state("");
+  /** What the pointer is over on the board, and the screens panel (a piece dragged out of it). */
+  let hover = $state<string | null>(null);
+  let screens = $state<ReturnType<typeof ScreensBoard>>();
+  let canvasEl = $state<HTMLDivElement>();
+
   function onout(o: EngineOut, e: BoardEngine) {
+    if (o.dropped && canvasEl) {
+      const r = canvasEl.getBoundingClientRect();
+      screens?.dropAt(o.dropped.id, r.left + o.dropped.x, r.top + o.dropped.y);
+    }
     selection = o.selection;
     tool = e.tool();
     store?.onOut(o);
@@ -460,9 +474,9 @@
     {/each}
   </div>{/if}
 
-  <div class="canvas" inert={readOnly}>
+  <div class="canvas" inert={readOnly} bind:this={canvasEl}>
     <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} {importer} onready={ready} {onout} {reasons}
-      onbeforefree={beforeFree} hand={surface === "screens"} />
+      onbeforefree={beforeFree} hand={surface === "screens"} onhover={(h) => (hover = h)} />
     {#if kept}
       <div class="kept" role="alert">
         Unsaved changes from {new Date(kept.at).toLocaleString()} were kept (design.unsaved.json).
@@ -477,7 +491,8 @@
     {/if}
   </div>
 
-  <ScreensBoard active={surface === "screens"} {slug} {store} api={screensApi} engine={() => engine} {act} {tool} {selection} {version} onpick={pickTool} />
+  <ScreensBoard bind:this={screens} active={surface === "screens"} {slug} {store} api={screensApi} engine={() => engine} {act} {tool} {selection} {version}
+    onpick={pickTool} {ix} context={contextJson} {hover} {openCode} />
   {#if surface === "architecture"}<Inspector {ix} {doc} {selection} {boxes} {reasons} {ops} cmd={CMD} />{/if}
 
   <div class="foot">

@@ -397,3 +397,38 @@ fn screen_edits_read_as_lines_and_moves_as_none() {
         ]
     );
 }
+
+#[test]
+fn linking_by_k_is_one_undo_step() {
+    let mut e = engine();
+    e.select(vec!["login/btn-a".into()]);
+    key(&mut e, "k");
+    assert_eq!(e.tool(), Tool::Bridge);
+    let link = Op::Bridge {
+        from: "login/btn-a".into(),
+        to: "api/x.ts#GET /x".into(),
+    };
+    let o = e.ops(&[link], Step::User);
+    assert!(o.changed && o.meaning, "{o:?}");
+    assert_eq!(e.board().design.bridges.len(), 1);
+    e.undo();
+    assert!(e.board().design.bridges.is_empty());
+    assert!(!e.undo().changed, "one step");
+}
+
+#[test]
+fn a_piece_dragged_out_of_the_view_stays_and_is_handed_to_the_host() {
+    let mut e = engine();
+    // btn-a at (8, 8): dropped beyond the view's right edge (1200 px)
+    let o = drag(&mut e, (20.0, 20.0), (1300.0, 40.0));
+    assert_eq!(
+        o.dropped,
+        Some(("login/btn-a".to_string(), 1300.0, 40.0)),
+        "{o:?}"
+    );
+    assert!(!o.changed);
+    assert_eq!(e.board().screens["login"].elements[0].x, 8);
+    // inside the view it moves as before
+    let o = drag(&mut e, (20.0, 20.0), (60.0, 20.0));
+    assert!(o.changed && o.dropped.is_none());
+}

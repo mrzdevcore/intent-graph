@@ -187,13 +187,16 @@ fn out_json(o: &Out) -> String {
         "cursor": o.cursor,
         "error": o.error,
         "touched": o.touched,
+        "picked": o.picked,
+        "dropped": o.dropped.as_ref().map(|(id, x, y)| json!({"id": id, "x": x, "y": y})),
     })
     .to_string()
 }
 
 fn error_json(e: impl ToString) -> String {
     json!({"redraw": false, "changed": false, "meaning": false, "selection": [], "edit": null,
-           "placed": null, "cursor": "default", "error": e.to_string(), "touched": []})
+           "placed": null, "cursor": "default", "error": e.to_string(), "touched": [],
+           "picked": null, "dropped": null})
     .to_string()
 }
 
@@ -261,12 +264,15 @@ impl BoardEngine {
         Ok(())
     }
 
-    /// A design.json text or `{design, screens: Screen[]}`; the surface stays.
+    /// A design.json text or `{design, screens: Screen[]}`; the surface and read-only mode stay.
     pub fn load(&mut self, board: &str, context: &str) -> Result<(), String> {
         let ctx: Context = serde_json::from_str(context).map_err(|e| e.to_string())?;
-        let surface = self.engine.current_surface();
+        let (surface, read_only) = (self.engine.current_surface(), self.engine.read_only());
         self.engine = Engine::new(ctx, over(&blank(), part(board)?));
         self.engine.surface(surface);
+        if let Some(pick) = read_only {
+            self.engine.set_read_only(pick);
+        }
         for (asset, b) in &self.bitmaps {
             self.engine.set_image(asset, b.width(), b.height());
         }
@@ -287,6 +293,13 @@ impl BoardEngine {
             Surface::Screens => "screens",
         }
         .into()
+    }
+
+    /// Looked at only (pan, zoom, fit); in pick mode hover highlights and a click is `picked`.
+    #[wasm_bindgen(js_name = setReadOnly)]
+    pub fn set_read_only(&mut self, pick: bool) {
+        self.engine.set_read_only(pick);
+        self.dirty = true;
     }
 
     /// Every screen's canonical file text (`ig_design::screen_to_text`), by id.

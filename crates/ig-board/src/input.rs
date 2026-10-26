@@ -146,7 +146,74 @@ impl Engine {
     }
 
     pub fn input(&mut self, i: Input) -> Out {
-        let mut o = match i {
+        let mut o = match (i, self.read_only) {
+            (i, Some(pick)) => self.view_input(i, pick),
+            (i, None) => self.edit_input(i),
+        };
+        o.redraw |= o.changed;
+        if o.redraw {
+            self.dirty();
+        }
+        o.cursor = self.cursor();
+        o.selection = self.selection.clone();
+        o
+    }
+
+    fn wheel(&mut self, x: f32, y: f32, dx: f32, dy: f32, mods: u8) -> Out {
+        if mods & (CTRL | META) != 0 {
+            self.camera.zoom_at(x, y, (-dy * 0.01).exp());
+        } else {
+            self.camera.x += dx / self.camera.zoom;
+            self.camera.y += dy / self.camera.zoom;
+        }
+        self.redraw()
+    }
+
+    /// A read-only board: pan, zoom and fit; in pick mode the hovered element or context box
+    /// is the selection and a click picks it.
+    fn view_input(&mut self, i: Input, pick: bool) -> Out {
+        let at = |e: &Self, x, y| {
+            (e.target(x, y))
+                .filter(|t| matches!(t, Target::El(_) | Target::Ctx(_)))
+                .map(|t| t.id().to_string())
+        };
+        match i {
+            Input::Down {
+                x, y, button: 1, ..
+            } => {
+                self.gesture = Gesture::Pan { last: (x, y) };
+                self.out()
+            }
+            Input::Down { x, y, .. } if pick => Out {
+                picked: at(self, x, y),
+                ..self.out()
+            },
+            Input::Move { x, y, .. } if matches!(self.gesture, Gesture::Pan { .. }) => {
+                self.drag_to(x, y)
+            }
+            Input::Move { x, y, .. } if pick => {
+                let hover: Vec<String> = at(self, x, y).into_iter().collect();
+                let o = Out {
+                    redraw: hover != self.selection,
+                    ..self.out()
+                };
+                self.selection = hover;
+                o
+            }
+            Input::Up { .. } => {
+                self.gesture = Gesture::Idle;
+                self.out()
+            }
+            Input::Wheel { x, y, dx, dy, mods } => self.wheel(x, y, dx, dy, mods),
+            Input::Key { key, mods } if mods & SHIFT != 0 && "!@12".contains(key.as_str()) => {
+                self.key(&key, mods)
+            }
+            _ => self.out(),
+        }
+    }
+
+    fn edit_input(&mut self, i: Input) -> Out {
+        match i {
             Input::Tool(t) => {
                 (self.tool, self.gesture) = (t, Gesture::Idle);
                 self.out()
@@ -160,24 +227,9 @@ impl Engine {
             Input::Down { x, y, button, mods } => self.down(x, y, button, mods),
             Input::Move { x, y, .. } => self.drag_to(x, y),
             Input::Up { x, y, mods } => self.up(x, y, mods),
-            Input::Wheel { x, y, dx, dy, mods } => {
-                if mods & (CTRL | META) != 0 {
-                    self.camera.zoom_at(x, y, (-dy * 0.01).exp());
-                } else {
-                    self.camera.x += dx / self.camera.zoom;
-                    self.camera.y += dy / self.camera.zoom;
-                }
-                self.redraw()
-            }
+            Input::Wheel { x, y, dx, dy, mods } => self.wheel(x, y, dx, dy, mods),
             Input::Key { key, mods } => self.key(&key, mods),
-        };
-        o.redraw |= o.changed;
-        if o.redraw {
-            self.dirty();
         }
-        o.cursor = self.cursor();
-        o.selection = self.selection.clone();
-        o
     }
 
     pub(crate) fn redraw(&self) -> Out {

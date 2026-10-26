@@ -20,6 +20,10 @@ export interface Step {
   kind: "calls" | "dispatch" | "http" | "uses" | "renders";
   file: string;
   line: number;
+  /** Not in the code yet: a planned call or target (drawn dashed). */
+  planned?: boolean;
+  /** Its target is marked changed. */
+  changed?: boolean;
 }
 export interface CallChain {
   lifelines: Lifeline[];
@@ -114,6 +118,7 @@ export function callChain(ix: Index, start: string, opts: { depth?: number; max?
       steps.push({
         n: steps.length + 1, from: lifeline(caller), to: lifeline(t.id), label: kind === "uses" ? "uses" : kind === "renders" ? component(t.file) : t.name,
         target: t.id, kind, file, line: e.line || 0,
+        ...(e.planned || t.planned ? { planned: true } : {}), ...(t.status === "changed" ? { changed: true } : {}),
       });
       if (t.kind !== "system" && hops < depth && !seen[t.id]) {
         seen[t.id] = true;

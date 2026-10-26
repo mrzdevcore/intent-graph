@@ -34,6 +34,10 @@ export interface EngineOut {
   error: string | null;
   /** What an outside change brought in or took out (element ids, link keys, …). */
   touched?: string[];
+  /** Pick mode: the element or context box clicked. */
+  picked?: string | null;
+  /** A piece dragged out of the view and let go at this canvas point: it stayed put. */
+  dropped?: { id: string; x: number; y: number } | null;
 }
 
 export interface Camera { x: number; y: number; zoom: number }
@@ -55,6 +59,8 @@ export type Step = "user" | "amend" | { agent: string };
  *  is every screen (an array) or some by id (an object; null removes one). */
 export interface BoardEngine {
   load(boardJson: string, contextJson: string): void;
+  /** From now on only looked at (pan, zoom, fit); `pick`: hover highlights, a click is `picked`. */
+  setReadOnly(pick: boolean): void;
   /** Switches the surface when given (selection and tool reset); the current one. */
   surface(s?: Surface): Surface;
   /** Every screen's canonical file text, by id. */
