@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 /// The open project: its root and the watcher that emits `rebuild` (dropped on a switch).
 #[derive(Default)]
-pub struct Project(pub Mutex<Option<(PathBuf, notify::RecommendedWatcher)>>);
+pub struct Project(pub Mutex<Option<(PathBuf, ig_wire::RecommendedWatcher)>>);
 
 /// A project is a git repository or a directory with an `ig.yaml`.
 pub fn is_project(root: &Path) -> bool {
@@ -60,12 +60,14 @@ pub async fn view_data(
 
 const RECENT_MAX: usize = 10;
 
-/// The recent projects, newest first, from `file` (a JSON list of paths).
+/// The recent projects, newest first, from `file` (a JSON list of paths); ones that are gone or
+/// no longer a project are dropped.
 pub fn recent(file: &Path) -> Vec<PathBuf> {
-    std::fs::read(file)
+    let list: Vec<PathBuf> = std::fs::read(file)
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    list.into_iter().filter(|p| is_project(p)).collect()
 }
 
 /// Puts `root` first in the recent list in `file`.
@@ -119,12 +121,15 @@ mod tests {
     }
 
     #[test]
-    fn remember_puts_the_project_first_once() {
-        let file = scratch("recent").join("data/recent.json");
-        remember(&file, Path::new("/a")).unwrap();
-        remember(&file, Path::new("/b")).unwrap();
-        let list = remember(&file, Path::new("/a")).unwrap();
-        assert_eq!(list, [PathBuf::from("/a"), PathBuf::from("/b")]);
+    fn remember_puts_the_project_first_once_and_recent_drops_stale_ones() {
+        let (a, b) = (scratch("recent-a"), scratch("recent-b"));
+        let file = a.join(".ig/data/recent.json");
+        remember(&file, &a).unwrap();
+        remember(&file, &b).unwrap();
+        let list = remember(&file, &a).unwrap();
+        assert_eq!(list, [a.clone(), b.clone()]);
         assert_eq!(recent(&file), list);
+        std::fs::remove_dir_all(&b).unwrap();
+        assert_eq!(recent(&file), [a]);
     }
 }

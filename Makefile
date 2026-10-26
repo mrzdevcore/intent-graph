@@ -15,7 +15,8 @@ test: viewer
 	cargo test --workspace
 
 # The desktop app (crates/ig-desktop), with the Tauri CLI from the viewer's devDependencies.
-TAURI = cd crates/ig-desktop && ../../viewer/node_modules/.bin/tauri
+# The CLI checks frontendDist (crates/ig-desktop/dist) before cargo's build.rs fills it.
+TAURI = mkdir -p crates/ig-desktop/dist && cp viewer/dist/index.html crates/ig-desktop/dist/ && cd crates/ig-desktop && ../../viewer/node_modules/.bin/tauri
 
 app-dev: viewer
 	$(TAURI) dev

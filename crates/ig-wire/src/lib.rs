@@ -13,6 +13,8 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
+pub use notify::RecommendedWatcher;
+
 static FRONTENDS: &[&dyn LanguageFrontend] = &[&TsFrontend];
 
 /// A progress line on stderr, only when it is a terminal (hooks and JSON consumers stay clean).
@@ -103,7 +105,7 @@ pub fn ignored(root: &Path, p: &Path) -> bool {
 pub fn watch(
     root: &Path,
     mut on_change: impl FnMut(bool) + Send + 'static,
-) -> notify::Result<notify::RecommendedWatcher> {
+) -> notify::Result<RecommendedWatcher> {
     use notify::Watcher;
     let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
     let mut watcher = notify::recommended_watcher(move |e| {

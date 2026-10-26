@@ -22,9 +22,13 @@ make install   # builds the viewer page (viewer/dist/index.html), then `cargo in
 ## Build
 
 `make build` (needs bun and cargo): the viewer first (`viewer/`, TypeScript, Svelte and Vite,
-built into one offline HTML file), then `cargo build --release`, which embeds it. `make test` builds the
+built into one offline HTML file), then `cargo build --release -p intent-graph`, which embeds it. `make test` builds the
 viewer, runs its tests, then `cargo test --workspace`. Without bun, outside make: `cd viewer && npm install && npm run build`.
 Without a built viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
+
+The desktop app (`crates/ig-desktop`, Tauri 2): `make app-dev` runs it in development, `make app`
+builds `target/release/bundle/macos/ig.app` locally (unsigned). The workspace includes it, so
+`cargo build` and `cargo test --workspace` compile Tauri too (on Linux that needs webkit2gtk).
 
 ## Quick start
 
