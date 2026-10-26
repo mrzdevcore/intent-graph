@@ -3,6 +3,7 @@
 
 pub mod cache;
 pub mod config;
+pub mod design;
 pub mod diff;
 pub mod http;
 pub mod intents;
