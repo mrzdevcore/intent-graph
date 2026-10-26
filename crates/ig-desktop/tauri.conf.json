@@ -17,11 +17,11 @@
     "security": {
       "csp": {
         "default-src": "'none'",
-        "script-src": "'self'",
+        "script-src": "'self' 'wasm-unsafe-eval'",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob:",
         "font-src": "'self' data:",
-        "connect-src": "ipc: http://ipc.localhost",
+        "connect-src": "'self' ipc: http://ipc.localhost",
         "base-uri": "'none'",
         "form-action": "'none'",
         "object-src": "'none'",

@@ -270,3 +270,84 @@ fn lanes_span_from_the_leftmost_box() {
     let lane = s.rects.iter().find(|r| r.paint == Paint::Lane).unwrap();
     assert_eq!((lane.r[0], lane.r[2]), (-240.0, 780.0));
 }
+
+#[test]
+fn select_keeps_only_live_ids() {
+    let mut e = engine();
+    e.select(vec!["fn-b".into(), "fn-gone".into(), "system:pg".into()]);
+    assert_eq!(e.out().selection, ["fn-b", "system:pg"]);
+}
+
+#[test]
+fn saved_takes_the_written_board_not_a_later_edit() {
+    let mut e = engine();
+    e.ops(
+        &[Op::Update {
+            id: "fn-a".into(),
+            set: ElementPatch {
+                name: Some("A".into()),
+                ..Default::default()
+            },
+        }],
+        Step::User,
+    );
+    let written = e.board().clone();
+    // an edit lands while the write is in flight
+    e.ops(
+        &[Op::Update {
+            id: "fn-b".into(),
+            set: ElementPatch {
+                name: Some("B".into()),
+                ..Default::default()
+            },
+        }],
+        Step::User,
+    );
+    e.saved(written.clone());
+    e.external(written, None); // the watcher reports our own write
+    let names: Vec<&str> = e
+        .board()
+        .design
+        .elements
+        .iter()
+        .map(|x| x.name.as_str())
+        .collect();
+    assert_eq!(names, ["A", "B"]);
+}
+
+/// The wasm smoke test (viewer/test/wasm.smoke.test.ts) expects this exact text from `board()`.
+#[test]
+fn smoke_fixture_is_the_canonical_text() {
+    let d = ig_design::parse(r#"{"version":1,"title":"Smoke","scope":{"kind":"dir","id":"src"}}"#);
+    let mut e = Engine::new(Context::default(), Board { design: d.unwrap() });
+    let add = |id: &str, kind, x| Op::Add {
+        id: Some(id.into()),
+        kind,
+        name: id.into(),
+        file: None,
+        method: None,
+        path: None,
+        layer: None,
+        on: None,
+        x: Some(x),
+        y: Some(8),
+        w: None,
+        h: None,
+    };
+    let link = Op::Link {
+        from: "function-a".into(),
+        to: "system-pg".into(),
+        kind: ig_design::LinkKind::Uses,
+    };
+    let ops = [
+        add("system-pg", ElementKind::System, 200),
+        add("function-a", ElementKind::Function, 8),
+        link,
+    ];
+    assert_eq!(e.ops(&ops, Step::User).error, None);
+    let text = ig_design::to_text(&e.board().design);
+    assert_eq!(
+        text,
+        include_str!("../../../viewer/test/fixtures/smoke-design.json")
+    );
+}

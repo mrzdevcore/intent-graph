@@ -55,6 +55,15 @@
   import SidePanel, { type SideView } from "./SidePanel.svelte";
   import Tree from "./Tree.svelte";
 
+  /** The desktop app's board, an unsaved empty one until Task 9 makes it the Design view. A
+   *  lazy chunk; `ig view` builds (`__BOARDS__` false) drop it with the engine. */
+  const BoardView = __BOARDS__ ? () => import("../board/Board.svelte") : null;
+  let boardOpen = $state(false);
+  const scratchBoard = () => ({
+    board: JSON.stringify({ version: 1, title: "Scratch", scope: { kind: "dir", id: "" }, elements: [], marks: [], links: [], bridges: [] }),
+    context: JSON.stringify({ lanes: [], boxes: [], edges: [] }),
+  });
+
   /** The first data (the host reads it before mounting) and the host's API. */
   let { data: first, api }: { data: ViewData; api: IgApi } = $props();
 
@@ -487,6 +496,7 @@
   <!-- svelte-ignore a11y_invalid_attribute -->
   <span id="crumbs" class="crumbs">{#each crumbs as t, i}{i ? " › " : ""}{#if t === scope}<strong>{i ? t.label : "All"}</strong>{:else}<a href="#" onclick={(e) => { e.preventDefault(); setScope(t); side = { kind: "group", id: t.id }; }}>{i ? t.label : "All"}</a>{/if}{/each}</span>
   <span id="hint" class="counts" title={hint}>{hint}</span>
+  {#if __BOARDS__}<button id="board-toggle" class="toggle" aria-pressed={boardOpen ? "true" : "false"} onclick={() => (boardOpen = !boardOpen)}>Board</button>{/if}
   {#if chatApi}<button id="chat-toggle" class="toggle" aria-pressed={chatOpen ? "true" : "false"} onclick={() => (chatOpen = !chatOpen)}>Chat</button>{/if}
 </header>
 <main class:with-chat={chatApi && chatOpen}>
@@ -498,6 +508,7 @@
     <Graph bind:this={graph} {links} ontap={onTap} oncontext={onContext} ondrop={onDrop} onlink={onLink} />
     {#if showSt.current && shown}<ShowBanner title={showSt.current.title} missing={shown.missing.length} steps={shown.steps}
       onclear={clearShow} onback={backShow} onstep={onStep} />{/if}
+    {#if __BOARDS__ && boardOpen}{#await BoardView!() then B}<div style="position:absolute;inset:0;z-index:2"><B.default source={scratchBoard} /></div>{/await}{/if}
     {#if code}<CodeView path={code.path} text={code.text} merge={code.merge} line={code.line} onword={onWord} onclose={() => (code = null)} />{/if}
   </div>
   <div id="side" role="complementary">

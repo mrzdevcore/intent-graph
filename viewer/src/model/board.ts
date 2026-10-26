@@ -225,13 +225,3 @@ export class History<T> {
   redo(): T | null { return this.i < this.s.length - 1 ? this.s[++this.i] : null; }
   reset(x: T): void { this.s = [x]; this.i = 0; }
 }
-
-/** Agent changes arriving up to this long after a turn ends still belong to that turn. */
-export const AGENT_GRACE_MS = 1000;
-export interface AgentTurn { id: string; start: number; end: number | null }
-
-/** The turn an agent change at time `at` belongs to, or null. Same id as the last agent step -> `amend`, else `push`. */
-export function agentStep(at: number, turns: AgentTurn[]): string | null {
-  const t = [...turns].reverse().find((t) => at >= t.start && (t.end === null || at <= t.end + AGENT_GRACE_MS));
-  return t ? t.id : null;
-}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Design } from "../src/api";
-import { agentStep, apply, boardDelta, geometryOnly, History, meaning, type Board } from "../src/model/board";
+import { apply, boardDelta, geometryOnly, History, meaning, type Board } from "../src/model/board";
 import type { Lane } from "../src/model/architecture";
 
 const board = (p: Partial<Design> = {}): Board => ({
@@ -97,16 +97,5 @@ describe("History", () => {
     h.push(1); h.amend(2); h.amend(3);
     expect(h.undo()).toBe(0);
     expect(h.redo()).toBe(3);
-  });
-});
-
-describe("agentStep", () => {
-  const turns = [{ id: "t1", start: 100, end: 500 }, { id: "t2", start: 5000, end: null }];
-  it("groups arrivals up to 1 s after the turn ends", () => {
-    expect(agentStep(300, turns)).toBe("t1");
-    expect(agentStep(1500, turns)).toBe("t1");
-    expect(agentStep(1501, turns)).toBeNull();
-    expect(agentStep(9000, turns)).toBe("t2");
-    expect(agentStep(50, turns)).toBeNull();
   });
 });

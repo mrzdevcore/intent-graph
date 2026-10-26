@@ -5,3 +5,5 @@
 /viewer/dist
 /viewer/dev-data.json
 /crates/ig-desktop/bin
+/viewer/dist-app
+/viewer/src/board/pkg
