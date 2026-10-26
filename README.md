@@ -21,7 +21,7 @@ make install   # builds the viewer page (viewer/dist/index.html), then `cargo in
 
 ## Build
 
-`make build` (needs bun and cargo): the viewer first (`viewer/`, TypeScript, Lit and Vite,
+`make build` (needs bun and cargo): the viewer first (`viewer/`, TypeScript, Svelte and Vite,
 built into one offline HTML file), then `cargo build --release`, which embeds it. `make test` builds the
 viewer, runs its tests, then `cargo test --workspace`. Without bun, outside make: `cd viewer && npm install && npm run build`.
 Without a built viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
