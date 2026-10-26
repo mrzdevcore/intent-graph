@@ -7,6 +7,7 @@ pub mod brief;
 pub mod build;
 pub mod check;
 pub mod config;
+pub mod design;
 mod error;
 pub mod lanes;
 pub mod notes;

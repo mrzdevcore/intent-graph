@@ -9,8 +9,11 @@ use ig_core::model::{Graph, suggest};
 use ig_core::ports::Files;
 use std::path::{Path, PathBuf};
 
-/// `plans/<slug>.md` -> `plans/<slug>.notes.md`.
+/// `plans/<slug>.md` -> `plans/<slug>.notes.md`; `plans/<slug>/plan.md` -> `plans/<slug>/notes.md`.
 pub fn path_for(plan: &Path) -> PathBuf {
+    if plan.file_name().is_some_and(|f| f == "plan.md") {
+        return plan.with_file_name("notes.md");
+    }
     plan.with_extension("notes.md")
 }
 
@@ -162,6 +165,20 @@ pub fn set_done(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn notes_path_for_folder_plans() {
+        use super::path_for;
+        use std::path::Path;
+        assert_eq!(
+            path_for(Path::new("plans/a/plan.md")),
+            Path::new("plans/a/notes.md")
+        );
+        assert_eq!(
+            path_for(Path::new("plans/a.md")),
+            Path::new("plans/a.notes.md")
+        );
+    }
+
     use super::*;
     use ig_core::testing::MemFiles;
 

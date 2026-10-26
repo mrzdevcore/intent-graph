@@ -3,6 +3,7 @@
 
 mod agent;
 mod commands;
+mod design;
 mod events;
 mod file_tree;
 mod permissions;
@@ -62,7 +63,12 @@ fn open(app: &AppHandle, root: &Path) {
     let emitter = app.clone();
     let show = root.join(ig_app::show::SHOW);
     let mut bad: Option<String> = None;
+    let watched = root.clone();
     let watcher = ig_wire::watch(&root, move |c| {
+        // A design file changed on disk, unless the app wrote exactly that itself.
+        if !c.designs.is_empty() {
+            design::emit_changed(&emitter, &watched, &c.designs);
+        }
         // Notes alone change nothing the app shows yet.
         if c.full {
             let _ = emitter.emit("rebuild", ());
@@ -96,6 +102,7 @@ fn open(app: &AppHandle, root: &Path) {
             return;
         }
     };
+    app.state::<design::Known>().0.lock().unwrap().clear();
     // Another project: its agent, if any, stops (open permission requests are rejected).
     let _ = agent::shutdown(app);
     *app.state::<Project>().0.lock().unwrap() = Some((root.clone(), watcher));
@@ -145,12 +152,17 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Project::default())
         .manage(agent::Agent::default())
+        .manage(design::Known::default())
         .invoke_handler(tauri::generate_handler![
             commands::view_data,
             commands::file_tree,
             commands::read_file,
             commands::trust_inventory,
             commands::trust_project,
+            design::features,
+            design::create_feature,
+            design::read_design,
+            design::write_design,
             agent::agent_start,
             agent::agent_prompt,
             agent::agent_load,

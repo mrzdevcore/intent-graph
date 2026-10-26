@@ -1,6 +1,6 @@
 //! Copies the viewer (`viewer/dist/index.html`, built by `make viewer`) into `dist/`, the app's
 //! frontend; without it, a page that says so, so Rust-only work still builds. Then Tauri's build,
-//! with `view_data`, `file_tree`, `read_file`, the trust commands, the agent commands and `open_url` as the only commands the webview may call (granted in `capabilities/`).
+//! with `view_data`, `file_tree`, `read_file`, the trust commands, the design commands, the agent commands and `open_url` as the only commands the webview may call (granted in `capabilities/`).
 
 const PLACEHOLDER: &str = "<!doctype html><meta charset=\"utf-8\"><title>ig</title>\
 <p>viewer not built: run <code>make viewer</code></p>";
@@ -25,6 +25,10 @@ fn main() {
         "read_file",
         "trust_inventory",
         "trust_project",
+        "features",
+        "create_feature",
+        "read_design",
+        "write_design",
         "agent_start",
         "agent_prompt",
         "agent_load",
