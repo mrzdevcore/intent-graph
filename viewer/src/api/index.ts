@@ -30,6 +30,7 @@ export interface TrustState {
   notes: string[];
   any_files: boolean;
   ig_plugin: boolean;
+  app_plugin: string;
   hash: string;
   /** Why `.claude/` could not be fully checked: trust is not possible. */
   incomplete: string | null;
@@ -84,6 +85,8 @@ export type AgentEvent =
   | { type: "Auth"; needed: boolean; label: string | null }
   /** The adapter exited: keep the transcript, offer `agentRestart`. */
   | { type: "Stopped"; reason: string; stderr: string | null }
+  /** A short notice for the transcript. */
+  | { type: "Notice"; text: string }
   /** No node or no adapter: show `instructions`; `installable`: offer `agentInstall` (after the user confirms). */
   | { type: "Setup"; instructions: string; installable: boolean };
 

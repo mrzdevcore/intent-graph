@@ -48,6 +48,7 @@ const FLUSH_MS: u64 = 300;
 pub struct Session {
     conn: ConnectionTo<Agent>,
     root: PathBuf,
+    plugin: Option<PathBuf>,
     id: Mutex<Option<String>>,
     pending: Arc<Pending>,
     /// Sent or dropped (`stop`, or the session dropped): the process is killed, no `Stopped` is sent.
@@ -75,11 +76,10 @@ fn err(e: impl std::fmt::Display) -> String {
     format!("agent: {e}")
 }
 
-/// Every session gets the ig plugin and project + local settings only (see Global Constraints).
-fn meta(root: &Path) -> Meta {
+/// Every session gets the ig plugin (the app's own, see `plugin.rs`) and project + local settings only (see Global Constraints).
+fn meta(plugin: Option<&Path>) -> Meta {
     let mut opts = json!({"settingSources": ["project", "local"]});
-    let plugin = root.join(".claude/skills/ig");
-    if plugin.is_dir() {
+    if let Some(plugin) = plugin {
         opts["plugins"] = json!([{"type": "local", "path": plugin}]);
     }
     let v = json!({"claudeCode": {"options": opts}});
@@ -108,6 +108,7 @@ impl Session {
         args: &[&str],
         root: &Path,
         ig: Option<&Path>,
+        plugin: Option<PathBuf>,
         sink: Sink,
     ) -> Result<Session, String> {
         let mut c = std::process::Command::new(cmd);
@@ -239,6 +240,7 @@ impl Session {
         Ok(Session {
             conn,
             root: root.to_path_buf(),
+            plugin,
             id: Mutex::new(None),
             pending,
             quit: Mutex::new(Some(quit)),
@@ -260,7 +262,7 @@ impl Session {
 
     /// A new session (`session/new`); with a feature, its id is kept in `.ig/sessions.json`.
     pub async fn start(&self, feature: Option<&str>) -> Result<String, String> {
-        let req = NewSessionRequest::new(&self.root).meta(meta(&self.root));
+        let req = NewSessionRequest::new(&self.root).meta(meta(self.plugin.as_deref()));
         let r = self
             .conn
             .send_request(req)
@@ -278,7 +280,8 @@ impl Session {
 
     /// Resumes an earlier session (`session/load`): the adapter replays it as updates.
     pub async fn load(&self, id: &str) -> Result<(), String> {
-        let req = LoadSessionRequest::new(SessionId::new(id), &self.root).meta(meta(&self.root));
+        let req = LoadSessionRequest::new(SessionId::new(id), &self.root)
+            .meta(meta(self.plugin.as_deref()));
         let r = self
             .conn
             .send_request(req)

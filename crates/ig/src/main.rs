@@ -244,6 +244,13 @@ fn real_main() -> Result<u8> {
             }
             _ => bail!("hook: expected `hook claude`"),
         },
+        "plugin" => match (a.sub.as_deref(), a.more.as_slice()) {
+            (Some("export"), [dir]) => {
+                skills::export(Path::new(dir))?;
+                Ok(0)
+            }
+            _ => bail!("plugin: expected `plugin export <dir>`"),
+        },
         "init" => {
             let agents: Vec<&skills::Agent> = match a.sub.as_deref() {
                 None | Some("all") => skills::AGENTS.iter().collect(),

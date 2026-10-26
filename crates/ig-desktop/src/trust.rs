@@ -47,6 +47,8 @@ pub struct Inventory {
     /// Any hashed file exists: if not, nothing runs on its own.
     pub any_files: bool,
     pub ig_plugin: bool,
+    /// The app's own ig plugin is loaded (ours, not repo content, so not part of `hash`).
+    pub app_plugin: String,
     pub hash: String,
     /// Why `.claude/` could not be fully checked: then the project cannot be trusted.
     pub incomplete: Option<String>,
@@ -409,6 +411,7 @@ pub fn inventory(root: &Path) -> Inventory {
         notes,
         unreadable,
         ig_plugin: root.join(PLUGIN).is_dir(),
+        app_plugin: format!("ig {}", env!("CARGO_PKG_VERSION")),
         any_files,
         hash: h.finalize().iter().map(|b| format!("{b:02x}")).collect(),
         incomplete,
