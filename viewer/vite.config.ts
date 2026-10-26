@@ -27,5 +27,7 @@ function inlineSafe(): Plugin {
 export default defineConfig({
   plugins: [svelte(), viteSingleFile(), inlineSafe()],
   build: { target: "es2022", chunkSizeWarningLimit: 8000, reportCompressedSize: false },
+  // Vitest resolves svelte to its browser build, so a component test can `mount`.
+  resolve: process.env.VITEST ? { conditions: ["browser"] } : undefined,
   test: { include: ["test/**/*.test.ts"] },
 });

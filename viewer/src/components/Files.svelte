@@ -1,6 +1,7 @@
 <!-- Every file of the project (not only graph modules), loaded one directory at a time, with a filter and
      arrow-key navigation. `path` is highlighted (graph → files); a click calls `onselect` (files → graph). -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { FileEntry } from "../api";
 
   let { list, path, version, onselect }: {
@@ -35,9 +36,11 @@
   // New data: start over from the root, keeping what was open.
   $effect(() => {
     void version;
-    kids = {};
-    load(ROOT);
-    Object.keys(open).filter((d) => open[d]).forEach(load);
+    untrack(() => {
+      kids = {};
+      load(ROOT);
+      Object.keys(open).filter((d) => open[d]).forEach(load);
+    });
   });
 
   // Graph → files: open the ancestors of `path` and select it.
@@ -45,8 +48,10 @@
     if (!path) return;
     const parts = path.split("/").slice(0, -1);
     const dirs = parts.map((_, i) => parts.slice(0, i + 1).join("/"));
-    open = { ...open, ...Object.fromEntries(dirs.map((d) => [d, true])) };
-    dirs.filter((d) => !kids[d]).forEach(load);
+    untrack(() => {
+      open = { ...open, ...Object.fromEntries(dirs.map((d) => [d, true])) };
+      dirs.filter((d) => !kids[d]).forEach(load);
+    });
     sel = path;
   });
 
