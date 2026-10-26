@@ -29,6 +29,7 @@ fn main() {
         "create_feature",
         "read_design",
         "write_design",
+        "check_design",
         "agent_start",
         "agent_prompt",
         "agent_load",

@@ -2,11 +2,16 @@
 //! flat plan `plans/<slug>.md`. Design files are user content: written only on the user's
 //! action, atomically and never over a file this ig cannot read.
 
+use crate::plan::{self, Head};
 use crate::{Result, bail, read_text};
+use ig_core::config::Severity;
 use ig_core::design::{self, Design, Scope};
+use ig_core::model::Finding;
 use ig_core::ports::Files;
+use ig_core::rules::Layers;
 use serde::Serialize;
-use std::collections::BTreeMap;
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Feature {
@@ -198,6 +203,127 @@ pub fn write(files: &dyn Files, slug: &str, d: &Design, expect: Option<&[u8]>) -
     Ok(true)
 }
 
+/// Live check of an unsaved design against `head`: the plan check on `to_plan(d)` plus the
+/// design's own findings. Every finding gets a `target` (element id, link key, bridge key, null).
+pub fn check(head: &Head, d: &Design, screens: &[String], path: &str) -> Result<Value> {
+    let planned = design::to_plan(d, path);
+    let mut v = plan::check_plan(head, &planned.plan)?;
+    let by_graph: HashMap<&str, &str> = planned
+        .by_node
+        .iter()
+        .map(|(e, g)| (g.as_str(), e.as_str()))
+        .collect();
+    let mut fs: Vec<Finding> = planned.findings.clone();
+    let have: HashSet<&str> = head.graph.nodes.iter().map(|n| n.id.as_str()).collect();
+    let layers = Layers::new(&head.cfg, &head.packages);
+    let mut extra = |rule: &str, sev: Severity, id: &str, msg: String| {
+        fs.push(
+            Finding::new(rule, sev, "ig", path, 0, msg)
+                .node(id)
+                .fingerprinted(),
+        )
+    };
+    for e in &d.elements {
+        let Some(g) = planned.by_node.get(&e.id) else {
+            continue;
+        };
+        if have.contains(g.as_str()) {
+            extra(
+                "design/exists",
+                Severity::Warning,
+                &e.id,
+                format!("{g} is already in the graph"),
+            );
+        }
+        if let (Some(row), Some(file)) = (&e.layer, &e.file)
+            && let Some(l) = layers.of(file)
+            && l != row
+        {
+            extra(
+                "design/layer-mismatch",
+                Severity::Warning,
+                &e.id,
+                format!("placed in {row} but {file} is in {l}"),
+            );
+        }
+    }
+    let ids: HashSet<&str> = d.elements.iter().map(|e| e.id.as_str()).collect();
+    let mut targets: HashMap<String, String> = HashMap::new();
+    for b in &d.bridges {
+        let key = b.key();
+        if !ids.contains(b.to.as_str()) && !have.contains(b.to.as_str()) {
+            targets.insert(key.clone(), key.clone());
+            extra(
+                "design/bridge-target-missing",
+                Severity::Error,
+                &key,
+                format!(
+                    "bridge {key}: {} is neither an element nor in the graph",
+                    b.to
+                ),
+            );
+        }
+        if let Some((s, _)) = b.from.split_once('/')
+            && !screens.iter().any(|x| x == s)
+        {
+            extra(
+                "design/bridge-screen-missing",
+                Severity::Warning,
+                &key,
+                format!("bridge {key}: screen {s} does not exist"),
+            );
+        }
+    }
+    // An unknown edge end names the link it came from in its message.
+    let link_of_message = |m: &str| {
+        d.links.iter().find(|l| {
+            let (Some(f), Some(t)) = (end(&planned, &ids, &l.from), end(&planned, &ids, &l.to))
+            else {
+                return false;
+            };
+            m.starts_with(&format!("edge {f} {} {t}:", l.kind.as_str()))
+        })
+    };
+    let bridge_keys: HashSet<String> = d.bridges.iter().map(|b| b.key()).collect();
+    let target = |f: &Finding| -> Value {
+        if f.rule_id == "plan/unknown-edge-end" {
+            return link_of_message(&f.message).map_or(Value::Null, |l| json!(l.key()));
+        }
+        if let Some(e) = &f.edge
+            && let Some(k) = planned.by_edge.get(&(e.from.clone(), e.to.clone()))
+        {
+            return json!(k);
+        }
+        match f.node_id.as_deref() {
+            Some(n) if bridge_keys.contains(n) || ids.contains(n) => json!(n),
+            Some(n) => by_graph.get(n).map_or(Value::Null, |e| json!(e)),
+            None => Value::Null,
+        }
+    };
+    let mut all: Vec<Finding> = serde_json::from_value(v["findings"].take())?;
+    all.extend(fs);
+    let out: Vec<Value> = all
+        .iter()
+        .map(|f| {
+            let mut j = serde_json::to_value(f).expect("finding");
+            j["target"] = target(f);
+            j
+        })
+        .collect();
+    v["ok"] = json!(!all.iter().any(|f| f.severity == Severity::Error));
+    v["findings"] = Value::Array(out);
+    Ok(v)
+}
+
+/// The graph id an end of a link stands for: an element's, or the end itself when it is one.
+fn end(p: &design::Planned, ids: &HashSet<&str>, s: &str) -> Option<String> {
+    if ids.contains(s) {
+        p.by_node.get(s).cloned()
+    } else {
+        Some(s.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,5 +403,142 @@ mod tests {
             );
         }
         assert!(f.files.lock().unwrap().is_empty());
+    }
+
+    use crate::testing::{Fake, env};
+    use ig_core::testing::FakeRunner;
+
+    const CFG: &str =
+        "layers:\n  core: ['core/**']\n  ui: ['ui/**']\nrules:\n  - forbid: \"core -> ui\"\n";
+
+    fn head(files: &[(&str, &str)]) -> Head {
+        let files = MemFiles::with(files);
+        let (runner, fe) = (FakeRunner::default(), Fake::default());
+        Head::load(&env(&files, None, &runner, &fe)).unwrap()
+    }
+
+    fn dsn(body: &str) -> Design {
+        design::parse(&format!(
+            r#"{{"version":1,"title":"D","scope":{{"kind":"layer","name":"x"}},{body}}}"#
+        ))
+        .unwrap()
+    }
+
+    fn finding<'a>(v: &'a Value, rule: &str) -> &'a Value {
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["ruleId"] == rule)
+            .unwrap_or_else(|| panic!("no {rule} in {v}"))
+    }
+
+    const FN_N: &str = r#"{"id":"fn-n","kind":"function","name":"n","file":"core/n.ts"}"#;
+
+    #[test]
+    fn design_check_marks_the_forbidden_link() {
+        let h = head(&[
+            ("ig.yaml", CFG),
+            ("core/a.ts", "fn a\n"),
+            ("ui/b.ts", "fn b\n"),
+        ]);
+        let d = dsn(&format!(
+            r#""elements":[{FN_N}],"links":[{{"from":"fn-n","to":"ui/b.ts#b","kind":"calls"}}]"#
+        ));
+        let v = check(&h, &d, &[], "plans/f/design.json").unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(finding(&v, "ig/arch")["target"], "fn-n|calls|ui/b.ts#b");
+        assert_eq!(v["volume"]["newCrossLayer"][0], json!(["core", "ui"]));
+    }
+
+    #[test]
+    fn design_check_reports_exists_and_layer_mismatch() {
+        let h = head(&[("ig.yaml", CFG), ("core/a.ts", "fn a\n")]);
+        let d = dsn(
+            r#""elements":[{"id":"mod-a","kind":"module","name":"a","file":"core/a.ts","layer":"ui"}]"#,
+        );
+        let v = check(&h, &d, &[], "d.json").unwrap();
+        assert_eq!(finding(&v, "design/exists")["target"], "mod-a");
+        assert_eq!(finding(&v, "design/exists")["severity"], "warning");
+        let m = finding(&v, "design/layer-mismatch");
+        assert_eq!(m["message"], "placed in ui but core/a.ts is in core");
+        assert_eq!(m["target"], "mod-a");
+        assert_eq!(v["ok"], true);
+    }
+
+    #[test]
+    fn design_check_flags_vanished_link_and_bridge_targets() {
+        let h = head(&[("ig.yaml", CFG), ("core/a.ts", "fn a\n")]);
+        let d = dsn(&format!(
+            r#""elements":[{FN_N}],"links":[{{"from":"fn-n","to":"ui/gone.ts#g","kind":"calls"}}],
+               "bridges":[{{"from":"list/btn","to":"ui/gone.ts#g"}},{{"from":"list/ok","to":"fn-n"}}]"#
+        ));
+        let v = check(&h, &d, &["list".into()], "d.json").unwrap();
+        assert_eq!(
+            finding(&v, "plan/unknown-edge-end")["target"],
+            "fn-n|calls|ui/gone.ts#g"
+        );
+        let b = finding(&v, "design/bridge-target-missing");
+        assert_eq!(
+            (b["target"].as_str(), b["severity"].as_str()),
+            (Some("list/btn>ui/gone.ts#g"), Some("error"))
+        );
+        assert_eq!(v["ok"], false);
+        let v = check(&h, &d, &[], "d.json").unwrap();
+        assert_eq!(
+            finding(&v, "design/bridge-screen-missing")["severity"],
+            "warning"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn design_check_is_fast_on_a_large_graph() {
+        let mut src: Vec<(String, String)> = vec![];
+        for m in 0..1000 {
+            let mut t = String::new();
+            for f in 0..4 {
+                t += &format!("fn f{f}\n");
+                for k in 0..=(m % 2 + 1) {
+                    t += &format!("call core/m{}.ts#f{}\n", (m + k + 1) % 1000, k % 4);
+                }
+            }
+            src.push((format!("core/m{m}.ts"), t));
+        }
+        let mut files: Vec<(&str, &str)> =
+            src.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        files.push(("ig.yaml", CFG));
+        let h = head(&files);
+        assert!(h.graph.edges.len() >= 6000, "{}", h.graph.edges.len());
+        let els: Vec<String> = (0..200)
+            .map(|i| {
+                format!(
+                    r#"{{"id":"fn-x{i}","kind":"function","name":"x{i}","file":"core/new{i}.ts"}}"#
+                )
+            })
+            .collect();
+        let links: Vec<String> = (0..250)
+            .map(|i| {
+                format!(
+                    r#"{{"from":"fn-x{}","to":"core/m{}.ts#f1","kind":"calls"}}"#,
+                    i % 200,
+                    i
+                )
+            })
+            .collect();
+        let d = dsn(&format!(
+            r#""elements":[{}],"links":[{}]"#,
+            els.join(","),
+            links.join(",")
+        ));
+        let mut ms: Vec<u128> = (0..20)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                check(&h, &d, &[], "d.json").unwrap();
+                t.elapsed().as_millis()
+            })
+            .collect();
+        ms.sort();
+        assert!(ms[10] < 120, "median {} ms", ms[10]);
     }
 }

@@ -1,7 +1,7 @@
 // How the viewer reaches its data. One interface, three hosts: the inline JSON of `ig view`/`ig serve`,
 // the `ig serve` HTTP routes, and the desktop app's Tauri commands.
 
-import type { ViewData } from "../data";
+import type { PlanVolume, ViewData, ViewFinding } from "../data";
 import type { Client } from "../model/notes";
 import { embedded } from "./embedded";
 import { http } from "./http";
@@ -154,8 +154,13 @@ export interface Design {
   bridges: { from: string; to: string; [key: string]: unknown }[];
 }
 
-/** Task 3 fills this in: the Rust check's findings for a design. */
-export type DesignCheck = unknown;
+/** The Rust check of a design. `ms` is how long it took ("checked in 84 ms"). */
+export type DesignCheck = {
+  ok: boolean;
+  ms: number;
+  volume: PlanVolume;
+  findings: (Omit<ViewFinding, "pinned"> & { target: string | null })[];
+};
 
 /** Desktop app only: features and their design files. */
 export interface DesignApi {
