@@ -192,6 +192,11 @@ export interface DesignApi {
   /** Rejects "conflict" when the file changed on disk since it was last read or written here. */
   write(slug: string, d: Design): Promise<void>;
   check(slug: string, d: Design, seq?: number): Promise<DesignCheck>;
+  /** Keeps board text that could not be written as plans/<slug>/design.unsaved.json. */
+  keepUnsaved(slug: string, text: string): Promise<void>;
+  /** The kept text and when it was written (ms), if any. */
+  unsaved(slug: string): Promise<{ text: string; at: number } | null>;
+  discardUnsaved(slug: string): Promise<void>;
   /** A design file changed outside the app. Returns the unsubscribe. */
   onChanged(cb: (slug: string) => void): () => void;
 }

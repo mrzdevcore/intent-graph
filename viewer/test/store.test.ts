@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { Design, DesignApi, DesignCheck } from "../src/api";
 import type { ViewNode } from "../src/data";
 import type { EngineOut } from "../src/board/engine";
@@ -90,6 +90,8 @@ const result = (seq: number, findings: DesignCheck["findings"] = []): DesignChec
 
 function fakeApi(disk: () => Design | Error = () => design()) {
   const writes: Design[] = [];
+  const kept: string[] = [];
+  let discarded = 0;
   const checks: { seq: number; d: Deferred<DesignCheck> }[] = [];
   let writeResult: (() => Promise<void>) | null = null;
   const api: DesignApi = {
@@ -109,9 +111,12 @@ function fakeApi(disk: () => Design | Error = () => design()) {
       checks.push({ seq: seq!, d });
       return d.promise;
     },
+    keepUnsaved: async (_slug, text) => void kept.push(text),
+    unsaved: async () => null,
+    discardUnsaved: async () => void discarded++,
     onChanged: () => () => {},
   };
-  return { api, writes, checks, failWrites: (f: (() => Promise<void>) | null) => (writeResult = f) };
+  return { api, writes, kept, discarded: () => discarded, checks, failWrites: (f: (() => Promise<void>) | null) => (writeResult = f) };
 }
 
 const NODES: ViewNode[] = [{ id: "server/api/a.ts", file: "server/api/a.ts", module: true, layer: "api" } as ViewNode];
@@ -321,4 +326,59 @@ test("a feature switch waits for the write in flight before the next board loads
   expect(s.writes).toHaveLength(2);
   expect(s.writes[1]).toEqual(design([{ id: "fn-b", kind: "function", name: "B" }]));
   expect(s.of("saved")).toHaveLength(2); // both before the switch goes on
+});
+
+const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {});
+
+test("a conflict on close keeps the edits in the recovery file", async () => {
+  const err = quiet();
+  const s = setup();
+  await s.store.load();
+  s.failWrites(() => Promise.reject("conflict"));
+  s.setBoard(design([{ id: "fn-a", kind: "function", name: "A" }]));
+  s.store.onOut(OUT({ changed: true }));
+  await s.store.close();
+  expect(s.kept.map((t) => JSON.parse(t))).toEqual([design([{ id: "fn-a", kind: "function", name: "A" }])]);
+  expect(err).toHaveBeenCalled();
+  err.mockRestore();
+});
+
+test("a quit or switch whose write keeps failing keeps the edits in the recovery file", async () => {
+  const err = quiet();
+  const s = setup();
+  await s.store.load();
+  s.failWrites(() => Promise.reject(new Error("disk full")));
+  s.store.onOut(OUT({ changed: true }));
+  await s.store.finish();
+  expect(s.kept).toHaveLength(1);
+  err.mockRestore();
+});
+
+test("a switch with an edit during the flush loses nothing", async () => {
+  const s = setup();
+  await s.store.load();
+  const first = deferred<void>();
+  let n = 0;
+  s.failWrites(() => (n++ === 0 ? first.promise : Promise.resolve()));
+  s.store.onOut(OUT({ changed: true }));
+  const switching = s.store.finish();
+  await settle();
+  s.setBoard(design([{ id: "fn-late", kind: "function", name: "Late" }]));
+  s.store.onOut(OUT({ changed: true }));
+  first.resolve();
+  await switching;
+  expect(s.writes.at(-1)).toEqual(design([{ id: "fn-late", kind: "function", name: "Late" }]));
+  expect(s.kept).toHaveLength(0);
+});
+
+test("restore merges the recovery copy as one outside step and deletes it; discard deletes it", async () => {
+  const s = setup();
+  await s.store.load();
+  const text = JSON.stringify(design([{ id: "fn-a", kind: "function", name: "A" }]));
+  await s.store.restore(text);
+  expect(s.of("external")).toEqual([[JSON.parse(text), null]]);
+  expect(s.discarded()).toBe(1);
+  await s.store.discard();
+  expect(s.discarded()).toBe(2);
+  expect(s.of("external")).toHaveLength(1);
 });

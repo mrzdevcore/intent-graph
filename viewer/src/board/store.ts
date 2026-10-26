@@ -153,21 +153,53 @@ export class BoardStore {
     await this.writing;
   }
 
+  /** Writes until nothing is unsaved (feature switch, quit): edits made during a write are
+   *  written too. What can't be written (a failing write, an unreadable file) is kept as the
+   *  recovery copy, never dropped. */
+  async finish(): Promise<void> {
+    for (let i = 0; i < 5 && !this.closed && (this.dirty || this.writing); i++) {
+      await this.flush();
+      if (this.saveError || this.readOnly.has(this.path)) break;
+    }
+    if (this.loaded && !this.closed && this.dirty) await this.keep(this.engine.board(), this.saveError);
+  }
+
   /** The engine is about to be freed: the board text is taken now, synchronously, and written
-   *  once any write in flight is done, if it still needs writing. The store is disposed. */
+   *  once any write in flight is done, if it still needs writing; if that fails it is kept as
+   *  the recovery copy. The store is disposed. */
   close(): Promise<void> {
-    const text = this.loaded && !this.readOnly.has(this.path) ? this.engine.board() : null;
+    const text = this.loaded ? this.engine.board() : null;
+    const invalid = this.readOnly.has(this.path);
     this.dispose();
     return (async () => {
       while (this.writing) await this.writing;
       if (!text || !this.dirty) return;
+      if (invalid) return this.keep(text, this.errors[this.path]);
       this.dirty = false;
-      // ponytail: no merge on a conflict here (the engine is gone): the other writer's file stays
+      // no merge on a conflict here (the engine is gone): the text is kept instead
       await this.api.write(this.slug, JSON.parse(text) as Design).catch((e) => {
         this.dirty = true;
         this.saveError = msg(e);
+        return this.keep(text, e);
       });
     })();
+  }
+
+  /** Board text that could not be written: plans/<slug>/design.unsaved.json. */
+  private async keep(text: string, why: unknown) {
+    console.error(`${this.path}: not written (${msg(why)}); keeping the edits in design.unsaved.json`);
+    await this.api.keepUnsaved(this.slug, text).catch((e: unknown) => console.error(e));
+  }
+
+  /** The recovery copy, merged into the board as one outside step, then deleted. */
+  async restore(text: string): Promise<void> {
+    if (this.closed) return;
+    this.onOut(this.engine.external(text, null));
+    await this.api.discardUnsaved(this.slug);
+  }
+
+  discard(): Promise<void> {
+    return this.api.discardUnsaved(this.slug);
   }
 
   /** The file changed outside: merged in (one undo step, Claude's turn when it is one), or, when
@@ -186,6 +218,7 @@ export class BoardStore {
     if (!this.loaded) {
       this.engine.load(text, this.hooks.context());
       this.loaded = true;
+      this.dirty = false; // the blank board's state is gone
       this.recheck();
     } else {
       this.onOut(this.engine.external(text, agentStep(this.clock.now(), this.hooks.turns?.() ?? [])));
@@ -220,8 +253,8 @@ export class BoardStore {
   }
 
   private queueSave() {
+    this.dirty = true; // also while read-only: never written there, but kept on finish or close
     if (this.readOnly.has(this.path)) return;
-    this.dirty = true;
     this.cancelSave?.();
     this.cancelSave = this.clock.after(QUIET_MS, () => void this.flush());
   }

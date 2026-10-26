@@ -106,9 +106,10 @@
     if (!engine || next === store?.slug) return;
     const old = store;
     if (old) {
-      await old.flush();
+      await old.finish();
       old.dispose();
     }
+    kept = null;
     slug = next;
     remember(next);
     selection = [];
@@ -124,6 +125,8 @@
     // the context follows the file's scope, which is only known once it is read
     await s.load();
     if (store !== s) return;
+    const u = await api.unsaved(next).catch((e: unknown) => (console.error(e), null));
+    if (store === s) kept = u;
     if (around && around.n !== usedAround) {
       usedAround = around.n;
       setScope({ kind: "around", id: around.id, depth: 1 });
@@ -206,12 +209,29 @@
 
   // App quit: the window waits for the last edit to be written
   $effect(() => beforeClose?.(async () => {
-    await store?.flush();
+    await store?.finish();
   }));
 
   /** The board is about to free the engine (the view closes): the store takes the text now. */
   function beforeFree() {
-    void store?.close();
+    if (!store) return;
+    const p = store.close();
+    // a window close or quit right after this waits for that write too
+    const off = beforeClose?.(() => p);
+    void p.finally(() => off?.());
+  }
+
+  /** Edits a failed write kept in design.unsaved.json, offered back on open. */
+  let kept = $state.raw<{ text: string; at: number } | null>(null);
+  async function restoreKept(restore: boolean) {
+    const k = kept, s = store;
+    if (!k || !s) return;
+    kept = null;
+    try {
+      await (restore ? s.restore(k.text) : s.discard());
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   // the scope picker: whole system, each layer, the Graph's folder, and the current one
@@ -286,6 +306,13 @@
 
   <div class="canvas" inert={readOnly}>
     <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} {importer} onready={ready} {onout} {reasons} onbeforefree={beforeFree} />
+    {#if kept}
+      <div class="kept" role="alert">
+        Unsaved changes from {new Date(kept.at).toLocaleString()} were kept (design.unsaved.json).
+        <button onclick={() => restoreKept(true)}>Restore</button>
+        <button onclick={() => restoreKept(false)}>Discard</button>
+      </div>
+    {/if}
     {#if !slug}
       <div class="empty">
         <p>No feature yet. <strong>New feature</strong> above starts one: <code>plans/&lt;slug&gt;/design.json</code>, drawn over the real system.</p>
@@ -361,6 +388,9 @@
   .icon[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   kbd { position: absolute; right: 2px; bottom: 0; font-size: 9px; color: inherit; opacity: 0.7; font-family: inherit; }
   .canvas { position: relative; min-width: 0; min-height: 0; }
+  .kept { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; gap: 8px;
+    align-items: center; padding: 6px 10px; font-size: 13px; background: var(--panel); border: 1px solid var(--warning);
+    border-radius: 6px; color: var(--fg); }
   .empty { position: absolute; inset: 0; background: var(--bg); padding: 15vh 16px 0; color: var(--muted); }
   .empty p { max-width: 34em; margin: 0 auto; }
   .inspector { border-left: 1px solid var(--line); background: var(--panel); padding: 10px; overflow: auto; font-size: 13px; }

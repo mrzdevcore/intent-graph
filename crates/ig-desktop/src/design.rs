@@ -151,6 +151,45 @@ pub fn emit_changed(app: &tauri::AppHandle, root: &Path, slugs: &BTreeSet<String
     }
 }
 
+/// The recovery copy of edits that could not be written to design.json.
+fn unsaved_path(slug: &str) -> Result<String, String> {
+    if !app::valid_slug(slug) {
+        return Err(format!("bad feature name {slug:?}"));
+    }
+    Ok(format!("plans/{slug}/design.unsaved.json"))
+}
+
+/// Keeps `text` (the board) as the feature's recovery copy, atomically.
+pub fn keep_unsaved_for(root: &Path, slug: &str, text: &str) -> Result<(), String> {
+    let path = unsaved_path(slug)?;
+    let w = Wired::new(root);
+    w.files()
+        .write_atomic(&path, text.as_bytes())
+        .map_err(|e| e.to_string())
+}
+
+/// The recovery copy and when it was written (ms since the epoch), if there is one.
+pub fn unsaved_for(root: &Path, slug: &str) -> Result<Option<(String, u64)>, String> {
+    let path = unsaved_path(slug)?;
+    let Some(bytes) = Wired::new(root).files().read_bytes(&path) else {
+        return Ok(None);
+    };
+    let at = std::fs::metadata(root.join(&path))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_millis() as u64);
+    Ok(Some((String::from_utf8_lossy(&bytes).into_owned(), at)))
+}
+
+pub fn discard_unsaved_for(root: &Path, slug: &str) -> Result<(), String> {
+    let path = unsaved_path(slug)?;
+    Wired::new(root)
+        .files()
+        .remove(&path)
+        .map_err(|e| e.to_string())
+}
+
 fn root_of(project: &crate::commands::Project) -> Result<PathBuf, String> {
     let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
     let root = root.ok_or_else(|| "no project open: Project > Open… (⌘O)".to_string())?;
@@ -226,9 +265,58 @@ pub async fn check_design(
     blocking(move || check_for(&root, &app.state::<HeadCache>(), &slug, &design, seq)).await
 }
 
+#[tauri::command]
+pub async fn keep_unsaved(
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+    text: String,
+) -> Result<(), String> {
+    let root = root_of(&project)?;
+    blocking(move || keep_unsaved_for(&root, &slug, &text)).await
+}
+
+#[tauri::command]
+pub async fn read_unsaved(
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+) -> Result<Option<serde_json::Value>, String> {
+    let root = root_of(&project)?;
+    blocking(move || {
+        let u = unsaved_for(&root, &slug)?;
+        Ok(u.map(|(text, at)| serde_json::json!({ "text": text, "at": at })))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn discard_unsaved(
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+) -> Result<(), String> {
+    let root = root_of(&project)?;
+    blocking(move || discard_unsaved_for(&root, &slug)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_recovery_copy_is_kept_read_and_discarded() {
+        let root = std::env::temp_dir().join(format!("ig-desktop-unsaved-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(unsaved_for(&root, "export"), Ok(None));
+        keep_unsaved_for(&root, "export", "{\"title\":\"x\"}").unwrap();
+        let (text, at) = unsaved_for(&root, "export").unwrap().unwrap();
+        assert_eq!(text, "{\"title\":\"x\"}");
+        assert!(at > 0);
+        assert!(!root.join("plans/export/design.json").exists());
+        discard_unsaved_for(&root, "export").unwrap();
+        assert_eq!(unsaved_for(&root, "export"), Ok(None));
+        assert!(keep_unsaved_for(&root, "../x", "{}").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn autosave_is_not_news_and_a_stale_write_conflicts() {
