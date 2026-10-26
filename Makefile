@@ -18,9 +18,12 @@ test: viewer
 # The CLI checks frontendDist (crates/ig-desktop/dist) before cargo's build.rs fills it.
 TAURI = mkdir -p crates/ig-desktop/dist && cp viewer/dist/index.html crates/ig-desktop/dist/ && cd crates/ig-desktop && ../../viewer/node_modules/.bin/tauri
 
+# The app's agent runs the `ig` next to the app's binary (target/<profile>/ig, Contents/MacOS/ig).
 app-dev: viewer
+	cargo build -p intent-graph
 	$(TAURI) dev
 
 # A local build, unsigned: target/release/bundle/macos/ig.app on macOS.
 app: viewer
+	cargo build --release -p intent-graph
 	$(TAURI) build

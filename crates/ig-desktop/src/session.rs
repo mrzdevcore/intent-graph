@@ -102,15 +102,19 @@ fn remember(root: &Path, feature: &str, id: &str) -> std::io::Result<()> {
 }
 
 impl Session {
-    /// Runs `cmd args` in `root` and initializes ACP (protocol version 1).
+    /// Runs `cmd args` in `root`, with `ig` first on its PATH, and initializes ACP (protocol 1).
     pub async fn spawn(
         cmd: &Path,
         args: &[&str],
         root: &Path,
+        ig: Option<&Path>,
         sink: Sink,
     ) -> Result<Session, String> {
         let mut c = std::process::Command::new(cmd);
-        c.args(args).current_dir(root);
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        c.args(args)
+            .current_dir(root)
+            .env("PATH", crate::shell_path::child_path(ig, &path));
         let mut c = async_process::Command::from(c);
         c.stdin(Stdio::piped())
             .stdout(Stdio::piped())

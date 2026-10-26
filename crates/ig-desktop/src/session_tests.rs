@@ -45,6 +45,7 @@ impl Rig {
             &fake_agent(),
             &["--serve", rec.to_str().unwrap()],
             &root,
+            None,
             sink,
         )
         .await
@@ -284,7 +285,8 @@ fn a_closed_window_rejects_what_is_pending() {
         // As on a closed window: the reject reaches the adapter before it is killed.
         wait(r.s.stop().unwrap(), 5000).await;
         let rec = std::fs::read_to_string(r.root.join("rec.log")).unwrap();
-        assert_eq!(rec, "spawn\nanswer reject\n");
+        let rec: Vec<&str> = rec.lines().filter(|l| !l.starts_with("ig ")).collect();
+        assert_eq!(rec, ["spawn", "answer reject"]);
         assert!(r.s.answer(id, "allow-once").is_err());
         assert!(r.s.stop().is_none(), "stopped once");
     });
@@ -378,7 +380,7 @@ fn real_adapter() {
         let sink: Sink = Arc::new(move |e| {
             let _ = tx.lock().unwrap().send(e);
         });
-        let s = Arc::new(Session::spawn(&cmd, &[], &root, sink).await.unwrap());
+        let s = Arc::new(Session::spawn(&cmd, &[], &root, None, sink).await.unwrap());
         let r = Rig {
             root: PathBuf::new(),
             s,
@@ -509,14 +511,14 @@ fn real_adapter_load() {
     };
     block_on(async {
         let (k, rx) = sink();
-        let r = rig(Session::spawn(&cmd, &[], &root, k).await.unwrap(), rx);
+        let r = rig(Session::spawn(&cmd, &[], &root, None, k).await.unwrap(), rx);
         let id = r.s.start(None).await.unwrap();
         let stop = r.s.prompt("Reply with the single word: pong", &[]).await;
         eprintln!("session {id}: first turn {stop:?}");
         wait(r.s.stop().unwrap(), 2000).await;
 
         let (k, rx) = sink();
-        let r2 = rig(Session::spawn(&cmd, &[], &root, k).await.unwrap(), rx);
+        let r2 = rig(Session::spawn(&cmd, &[], &root, None, k).await.unwrap(), rx);
         r2.s.load(&id).await.unwrap();
         nap(1500).await.unwrap();
         for e in r2.rx.try_iter() {
