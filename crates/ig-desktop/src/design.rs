@@ -8,12 +8,17 @@ use ig_core::ports::Files;
 use ig_wire::Wired;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 /// Path (relative to the project) -> the bytes last read or written.
 #[derive(Default)]
 pub struct Known(pub Mutex<HashMap<String, Vec<u8>>>);
+
+/// The code graph the live checks compare designs with: built on the first check, dropped when
+/// the code changes.
+#[derive(Default)]
+pub struct HeadCache(pub Mutex<Option<Arc<ig_app::plan::Head>>>);
 
 fn conflict() -> String {
     "conflict".into()
@@ -63,6 +68,46 @@ pub fn write_for(root: &Path, known: &Known, slug: &str, d: &Design) -> Result<(
     }
     k.insert(path, ig_core::design::to_text(d).into_bytes());
     Ok(())
+}
+
+/// Checks an unsaved `design` of feature `slug`. Reads no design file; `ms` is the time the check
+/// took here, graph build included when the cache was cold.
+pub fn check_for(
+    root: &Path,
+    cache: &HeadCache,
+    slug: &str,
+    d: &Design,
+) -> Result<serde_json::Value, String> {
+    if !app::valid_slug(slug) {
+        return Err(format!("bad feature name {slug:?}"));
+    }
+    let t = std::time::Instant::now();
+    let w = Wired::new(root);
+    let cached = cache.0.lock().unwrap().clone();
+    let head = match cached {
+        Some(h) => h,
+        None => {
+            let h = Arc::new(ig_app::plan::Head::load(&w.env()).map_err(|e| e.to_string())?);
+            *cache.0.lock().unwrap() = Some(h.clone());
+            h
+        }
+    };
+    let screens: Vec<String> = w
+        .files()
+        .glob(&[format!("plans/{slug}/screens/*.json")])
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| {
+            p.rsplit('/')
+                .next()?
+                .strip_suffix(".json")
+                .map(String::from)
+        })
+        .collect();
+    let mut v =
+        app::check(&head, d, &screens, &app::design_path(slug)).map_err(|e| e.to_string())?;
+    v["ms"] = (t.elapsed().as_millis() as u64).into();
+    Ok(v)
 }
 
 /// The slugs among `slugs` whose design.json differs from what the app last read or wrote.
@@ -148,6 +193,17 @@ pub async fn write_design(
     blocking(move || write_for(&root, &app.state::<Known>(), &slug, &design)).await
 }
 
+#[tauri::command]
+pub async fn check_design(
+    app: tauri::AppHandle,
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+    design: Design,
+) -> Result<serde_json::Value, String> {
+    let root = root_of(&project)?;
+    blocking(move || check_for(&root, &app.state::<HeadCache>(), &slug, &design)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +230,32 @@ mod tests {
         std::fs::write(root.join(app::design_path(&f.slug)), theirs).unwrap();
         assert_eq!(changed_outside(&root, &k, &slugs), vec![f.slug.clone()]);
         assert_eq!(write_for(&root, &k, &f.slug, &d), Err("conflict".into()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn check_lists_screens_and_reuses_the_head() {
+        let root = std::env::temp_dir().join(format!("ig-desktop-check-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("plans/f/screens")).unwrap();
+        std::fs::write(root.join("ig.yaml"), "layers: {}\n").unwrap();
+        std::fs::write(root.join("plans/f/screens/list.json"), "{}").unwrap();
+        let d: Design = serde_json::from_str(
+            r#"{"version":1,"title":"D","scope":{"kind":"layer","name":"x"},"bridges":[
+            {"from":"list/b","to":"a.ts#a"},{"from":"nope/b","to":"a.ts#a"}]}"#,
+        )
+        .unwrap();
+        let c = HeadCache::default();
+        let v = check_for(&root, &c, "f", &d).unwrap();
+        let rules: Vec<_> = v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["ruleId"].as_str().unwrap())
+            .collect();
+        assert!(rules.contains(&"design/bridge-screen-missing"), "{rules:?}");
+        assert!(v["ms"].is_u64() && c.0.lock().unwrap().is_some());
+        assert!(check_for(&root, &c, "../x", &d).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 

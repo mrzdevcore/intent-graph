@@ -361,6 +361,9 @@ pub fn run_with_plan(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> crate::
             shown["volume"] = v["volume"].clone();
             shown["findings"] = v["findings"].clone();
             shown["applying"] = json!(applying);
+            if !v["design"].is_null() {
+                shown["design"] = v["design"].clone();
+            }
         }
         Err(e) => run
             .result

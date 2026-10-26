@@ -5,12 +5,12 @@ pub use ig_core::plan::*;
 use crate::Env;
 use crate::check::{self, Run};
 use crate::lanes::LaneMap;
-use ig_core::config::Severity;
+use ig_core::config::{Config, Severity};
 use ig_core::diff::Status;
-use ig_core::model::{Edge, Finding};
+use ig_core::model::{Edge, Finding, Graph};
 use ig_core::review;
 use ig_core::rules::{self, Layers};
-use ig_core::workspace;
+use ig_core::workspace::{self, Package};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -55,13 +55,63 @@ pub fn overlay(run: &mut Run, plan: &Plan) {
     }));
 }
 
-/// `ig plan check` on plan text, without recording it.
+/// What a check compares a plan with: the config, the code graph and the workspace packages.
+/// Built once, reused by every check until the code changes.
+pub struct Head {
+    pub cfg: Config,
+    pub graph: Graph,
+    pub packages: Vec<Package>,
+}
+
+impl Head {
+    pub fn load(env: &Env) -> crate::Result<Head> {
+        let cfg = crate::config::load(env.files)?;
+        let built = crate::graph(env, env.files, &cfg, None)?;
+        Ok(Head {
+            cfg,
+            graph: built.graph,
+            packages: built.workspace.packages,
+        })
+    }
+}
+
+/// `ig plan check` on plan text, without recording it. A `plans/<slug>/plan.md` with a sibling
+/// design.json also reports what the design has and the plan lacks.
 pub fn check_text(env: &Env, path: &str, text: &str) -> crate::Result<Value> {
     let plan = parse(path, text)?;
-    let cfg = crate::config::load(env.files)?;
-    let built = crate::graph(env, env.files, &cfg, None)?;
-    let (head, packages) = (&built.graph, &built.workspace.packages);
-    let (merged, added, merge_findings) = merge(head, &plan);
+    let mut v = check_plan(&Head::load(env)?, &plan)?;
+    let design = path
+        .strip_suffix("/plan.md")
+        .map(|d| format!("{d}/design.json"))
+        .and_then(|p| env.files.read_bytes(&p))
+        .and_then(|b| ig_core::design::parse(std::str::from_utf8(&b).ok()?).ok());
+    if let Some(d) = design {
+        let gaps = ig_core::design::gaps(&d, &plan);
+        v["design"] = json!({
+            "gaps": gaps.iter().filter(|f| f.rule_id == "plan/design-gap").count(),
+            "omitted": plan.omitted.iter().map(|o| json!({"id": o.id, "reason": o.reason})).collect::<Vec<_>>(),
+            "added": ig_core::design::extras(&d, &plan),
+        });
+        let f = v["findings"].as_array_mut().expect("findings");
+        f.extend(
+            gaps.iter()
+                .map(|g| serde_json::to_value(g).expect("finding")),
+        );
+        v["ok"] = json!(
+            !v["findings"]
+                .as_array()
+                .expect("findings")
+                .iter()
+                .any(|f| f["severity"] == "error")
+        );
+    }
+    Ok(v)
+}
+
+/// The check proper: `plan` laid over `head`.
+pub fn check_plan(h: &Head, plan: &Plan) -> crate::Result<Value> {
+    let (cfg, head, packages) = (&h.cfg, &h.graph, &h.packages[..]);
+    let (merged, added, merge_findings) = merge(head, plan);
 
     let planned: Vec<&Edge> = merged
         .edges
@@ -72,7 +122,7 @@ pub fn check_text(env: &Env, path: &str, text: &str) -> crate::Result<Value> {
         .iter()
         .map(|e| (e.from.as_str(), e.to.as_str()))
         .collect();
-    let mut findings: Vec<Finding> = rules::arch(&merged, &cfg, packages)
+    let mut findings: Vec<Finding> = rules::arch(&merged, cfg, packages)
         .into_iter()
         .filter(|f| {
             f.edge
@@ -84,7 +134,7 @@ pub fn check_text(env: &Env, path: &str, text: &str) -> crate::Result<Value> {
     let tests = workspace::globset(&cfg.tests)?;
     let eps = workspace::globset(&cfg.entry_points)?;
     let ctx = review::Ctx {
-        config: &cfg,
+        config: cfg,
         tests: &tests,
         packages,
         entry_points: &eps,
@@ -92,9 +142,9 @@ pub fn check_text(env: &Env, path: &str, text: &str) -> crate::Result<Value> {
     findings.extend(review::regressions(head, &merged, &ctx));
     findings.extend(merge_findings);
 
-    let layers = Layers::new(&cfg, packages);
-    let lanes = LaneMap::new(&cfg, &layers);
-    let volume = volume(head, &merged, &added, &plan, &layers, |n| {
+    let layers = Layers::new(cfg, packages);
+    let lanes = LaneMap::new(cfg, &layers);
+    let volume = volume(head, &merged, &added, plan, &layers, |n| {
         lanes.of(n).map(|i| lanes.name(Some(i)))
     });
 
@@ -193,6 +243,7 @@ mod tests {
     use crate::testing::{Fake, env};
     use ig_core::ports::Files;
     use ig_core::testing::{FakeRunner, MemFiles};
+    const PINNED: &str = r#"{"findings":[{"edge":{"from":"core/n.ts#n","to":"ui/b.ts#b"},"file":"core/n.ts","fingerprint":"11dac55aadfae88f0ad55da356b2c311832513db","fix":"Remove this dependency, or move the code so core no longer calls ui.","line":0,"message":"layer core must not depend on ui: core/n.ts#n calls ui/b.ts#b","nodeId":"core/n.ts#n","ruleId":"ig/arch","severity":"error","tool":"ig"}],"ok":false,"plan":"plans/l.md","steps":["link"],"title":"Link","volume":{"blastRadius":{"byLayer":{},"sample":[],"total":0},"changedNodes":0,"newCrossLane":[],"newCrossLayer":[["core","ui"]],"newFiles":1,"newNodes":{"function":1},"newSystems":[],"removedNodes":0}}"#;
 
     #[test]
     fn check_reports_volume_and_a_forbidden_planned_edge_and_records_the_plan() {
@@ -226,5 +277,54 @@ mod tests {
         assert_eq!(current(&e), None);
         files.write_atomic("plans/l.md", plan.as_bytes()).unwrap();
         assert_eq!(current(&e), Some(PathBuf::from("./plans/l.md")));
+    }
+
+    const CFG: &str =
+        "layers:\n  core: ['core/**']\n  ui: ['ui/**']\nrules:\n  - forbid: \"core -> ui\"\n";
+
+    /// `check_text` as it was before `Head` and `check_plan` were split out.
+    #[test]
+    fn check_text_json_is_pinned_for_a_flat_plan() {
+        let files = MemFiles::with(&[
+            ("ig.yaml", CFG),
+            ("core/a.ts", "fn a\n"),
+            ("ui/b.ts", "fn b\n"),
+        ]);
+        let (runner, fe) = (FakeRunner::default(), Fake::default());
+        let e = env(&files, None, &runner, &fe);
+        let plan = "# Link\n\n## Steps\n1. link\n\n```ig-plan\nnodes:\n  - id: core/n.ts#n\n    status: new\n    exported: true\nedges:\n  - from: core/n.ts#n\n    to: ui/b.ts#b\n```\n";
+        let v = check_text(&e, "plans/l.md", plan).unwrap();
+        // Compared as values: key order depends on serde_json features other crates switch on.
+        assert_eq!(v, serde_json::from_str::<Value>(PINNED).unwrap());
+    }
+
+    #[test]
+    fn plan_check_reports_design_gaps_for_folder_plans() {
+        let design = r#"{"version":1,"title":"D","scope":{"kind":"layer","name":"x"},"elements":[{"id":"mod-a","kind":"module","name":"a","file":"core/z.ts"}]}"#;
+        let files = MemFiles::with(&[
+            ("ig.yaml", CFG),
+            ("core/a.ts", "fn a\n"),
+            ("plans/f/design.json", design),
+        ]);
+        let (runner, fe) = (FakeRunner::default(), Fake::default());
+        let e = env(&files, None, &runner, &fe);
+        let plan = |omit: &str| format!("# F\n\n```ig-plan\nnodes: []\n{omit}```\n");
+        let v = check_text(&e, "plans/f/plan.md", &plan("")).unwrap();
+        assert_eq!(
+            (v["ok"].as_bool(), v["design"]["gaps"].as_u64()),
+            (Some(false), Some(1))
+        );
+        assert_eq!(v["findings"][0]["ruleId"], "plan/design-gap");
+        let v = check_text(
+            &e,
+            "plans/f/plan.md",
+            &plan("omitted:\n  - id: mod-a\n    reason: later\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            (v["ok"].as_bool(), v["design"]["gaps"].as_u64()),
+            (Some(true), Some(0))
+        );
+        assert_eq!(v["design"]["omitted"][0]["id"], "mod-a");
     }
 }
