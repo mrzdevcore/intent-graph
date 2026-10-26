@@ -75,7 +75,7 @@ fn open(app: &AppHandle, root: &Path) {
         }
     };
     // Another project: its agent, if any, stops (open permission requests are rejected).
-    agent::shutdown(app);
+    let _ = agent::shutdown(app);
     *app.state::<Project>().0.lock().unwrap() = Some((root.clone(), watcher));
     if let Some(file) = recent_file(app) {
         match commands::remember(&file, &root) {
@@ -110,7 +110,15 @@ fn pick(app: &AppHandle) {
         });
 }
 
+/// Stops the agent and waits (at most 1 s) until the rejects are out and the adapter is gone.
+fn stop_agent(app: &AppHandle) {
+    if let Some(task) = agent::shutdown(app) {
+        tauri::async_runtime::block_on(session::wait(task, 1000));
+    }
+}
+
 fn main() {
+    agent::login_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Project::default())
@@ -133,7 +141,7 @@ fn main() {
         .on_window_event(|w, e| {
             // The window is gone: its agent stops, rejecting what still waits for an answer.
             if matches!(e, tauri::WindowEvent::Destroyed) {
-                agent::shutdown(w.app_handle());
+                stop_agent(w.app_handle());
             }
         })
         .menu(|app| {
@@ -158,6 +166,11 @@ fn main() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("ig desktop failed to start");
+        .build(tauri::generate_context!())
+        .expect("ig desktop failed to start")
+        .run(|app, e| {
+            if let tauri::RunEvent::Exit = e {
+                stop_agent(app);
+            }
+        });
 }
