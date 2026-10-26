@@ -98,7 +98,7 @@ pub struct TrustState {
     trusted: bool,
 }
 
-fn open_root_and_data(
+pub(crate) fn open_root_and_data(
     project: &Project,
     app: &tauri::AppHandle,
 ) -> Result<(PathBuf, PathBuf), String> {

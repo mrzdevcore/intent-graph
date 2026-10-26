@@ -3,7 +3,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ViewData } from "../data";
-import type { FileEntry, FileText, IgApi, TrustState } from "./index";
+import type { AgentEvent, FileEntry, FileText, IgApi, TrustState } from "./index";
+
+/** listen() is async: an unsubscribe that comes before it resolves must still unlisten. */
+function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
+  let off: (() => void) | undefined;
+  let stopped = false;
+  listen<T>(name, (e) => cb(e.payload)).then((u) => (stopped ? u() : (off = u)));
+  return () => {
+    stopped = true;
+    off?.();
+    off = undefined;
+  };
+}
 
 export function tauri(): IgApi {
   return {
@@ -12,16 +24,17 @@ export function tauri(): IgApi {
     readFile: (path) => invoke<FileText>("read_file", { path }),
     trustInventory: () => invoke<TrustState>("trust_inventory"),
     trustProject: (hash) => invoke<void>("trust_project", { hash }),
-    onRebuild(cb) {
-      // listen() is async: an unsubscribe that comes before it resolves must still unlisten.
-      let off: (() => void) | undefined;
-      let stopped = false;
-      listen("rebuild", () => cb()).then((u) => (stopped ? u() : (off = u)));
-      return () => {
-        stopped = true;
-        off?.();
-        off = undefined;
-      };
+    onRebuild: (cb) => subscribe("rebuild", () => cb()),
+    agent: {
+      start: (feature) => invoke<string>("agent_start", { feature }),
+      prompt: (text, attachments) => invoke<string>("agent_prompt", { text, attachments: attachments ?? [] }),
+      cancel: () => invoke<void>("agent_cancel"),
+      answer: (requestId, optionId) => invoke<void>("agent_answer", { requestId, optionId }),
+      list: () => invoke("agent_list"),
+      load: (sessionId) => invoke<void>("agent_load", { sessionId }),
+      restart: () => invoke<string>("agent_restart"),
+      install: () => invoke<void>("agent_install"),
+      onEvent: (cb) => subscribe<AgentEvent>("agent-event", cb),
     },
   };
 }

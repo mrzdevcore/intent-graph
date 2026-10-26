@@ -3,8 +3,11 @@
 
 mod agent;
 mod commands;
+mod events;
 mod file_tree;
+mod permissions;
 mod read_file;
+mod session;
 mod trust;
 
 use commands::Project;
@@ -71,6 +74,8 @@ fn open(app: &AppHandle, root: &Path) {
             return;
         }
     };
+    // Another project: its agent, if any, stops (open permission requests are rejected).
+    agent::shutdown(app);
     *app.state::<Project>().0.lock().unwrap() = Some((root.clone(), watcher));
     if let Some(file) = recent_file(app) {
         match commands::remember(&file, &root) {
@@ -109,13 +114,28 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Project::default())
+        .manage(agent::Agent::default())
         .invoke_handler(tauri::generate_handler![
             commands::view_data,
             commands::file_tree,
             commands::read_file,
             commands::trust_inventory,
-            commands::trust_project
+            commands::trust_project,
+            agent::agent_start,
+            agent::agent_prompt,
+            agent::agent_load,
+            agent::agent_restart,
+            agent::agent_cancel,
+            agent::agent_answer,
+            agent::agent_list,
+            agent::agent_install
         ])
+        .on_window_event(|w, e| {
+            // The window is gone: its agent stops, rejecting what still waits for an answer.
+            if matches!(e, tauri::WindowEvent::Destroyed) {
+                agent::shutdown(w.app_handle());
+            }
+        })
         .menu(|app| {
             let recent = recent_file(app).map(|f| commands::recent(&f));
             menu(app, &recent.unwrap_or_default())

@@ -34,6 +34,63 @@ export interface TrustState {
   trusted: boolean;
 }
 
+/** A tool call or its update, as the adapter sends it; `content` may hold `{type: "diff", path, oldText, newText}`. */
+export interface ToolCallInfo {
+  toolCallId: string;
+  title?: string;
+  kind?: string;
+  status?: "pending" | "in_progress" | "completed" | "failed";
+  content?: unknown[];
+  locations?: { path: string }[];
+  rawInput?: unknown;
+  rawOutput?: unknown;
+  [key: string]: unknown;
+}
+
+/** One permission choice; answer with its `optionId` (the adapter's own, e.g. "allow-once", "reject"). */
+export interface PermissionOption {
+  optionId: string;
+  name: string;
+  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+}
+
+/** The desktop app's `agent-event`s (crates/ig-desktop/src/events.rs). */
+export type AgentEvent =
+  | { type: "MessageChunk"; sessionId: string; role: "agent" | "thought" | "user"; content: { type: string; text?: string } }
+  | { type: "ToolCall"; sessionId: string; call: ToolCallInfo }
+  | { type: "ToolCallUpdate"; sessionId: string; update: ToolCallInfo }
+  | { type: "Usage"; sessionId: string; used: number | null; size: number | null; cost: { amount: number; currency: string } | null; rateLimit: unknown }
+  | { type: "Info"; sessionId: string; title: string | null }
+  | { type: "Commands"; sessionId: string; commands: { name: string; description: string }[] }
+  | { type: "Plan"; sessionId: string; entries: unknown }
+  | { type: "Permission"; requestId: number; sessionId: string; toolCall: ToolCallInfo; options: PermissionOption[] }
+  /** Not logged in: show "Run `claude` and `/login` in a terminal, then retry". */
+  | { type: "Auth"; needed: boolean; label: string | null }
+  /** The adapter exited: keep the transcript, offer `agentRestart`. */
+  | { type: "Stopped"; reason: string; stderr: string | null }
+  /** No node or no adapter: show `instructions`; `installable`: offer `agentInstall` (after the user confirms). */
+  | { type: "Setup"; instructions: string; installable: boolean };
+
+/** Desktop app only: the agent (ACP adapter) of the open project. Every call that starts or drives a session needs the project trusted. */
+export interface AgentApi {
+  /** A new session (for a feature slug, remembered in `.ig/sessions.json`); its id. */
+  start(feature?: string): Promise<string>;
+  /** One turn; resolves with the stop reason ("end_turn", "cancelled", ...). Attachments: project-relative paths. */
+  prompt(text: string, attachments?: string[]): Promise<string>;
+  cancel(): Promise<void>;
+  /** Answers a `Permission` event, exactly once. */
+  answer(requestId: number, optionId: string): Promise<void>;
+  /** The adapter's sessions here and the feature → session id map. */
+  list(): Promise<{ sessions: { sessionId: string; title?: string; updatedAt?: string }[]; features: Record<string, string> }>;
+  load(sessionId: string): Promise<void>;
+  /** After `Stopped`: a new adapter and session for the same feature; the new id. */
+  restart(): Promise<string>;
+  /** Installs the pinned adapter into the app's data dir. Ask the user first. */
+  install(): Promise<void>;
+  /** Returns the unsubscribe. */
+  onEvent(cb: (e: AgentEvent) => void): () => void;
+}
+
 export interface IgApi {
   /** The plan options apply to the desktop app; `ig serve` picks its own. */
   viewData(opts?: { plan?: string; noPlan?: boolean }): Promise<ViewData>;
@@ -49,6 +106,8 @@ export interface IgApi {
   trustInventory?(): Promise<TrustState>;
   /** Desktop app only: trust the project as hashed (rejects if it changed since). */
   trustProject?(hash: string): Promise<void>;
+  /** Desktop app only: the agent. */
+  agent?: AgentApi;
   /** Present when the backend supports plan notes (serve, desktop). */
   notes?: NotesApi;
 }
