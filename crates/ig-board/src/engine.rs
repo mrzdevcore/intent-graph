@@ -87,9 +87,10 @@ impl Engine {
         self.tool
     }
 
-    /// The host wrote the board to disk: it becomes the merge base.
-    pub fn saved(&mut self) {
-        self.base = self.board().clone();
+    /// The host wrote `written` to disk: it becomes the merge base. Not the current board, which
+    /// may have moved on while the write was in flight.
+    pub fn saved(&mut self, written: Board) {
+        self.base = written;
     }
 
     /// Hides the elements and context boxes of these layers (not drawn, not hit).
@@ -131,15 +132,20 @@ impl Engine {
         }
     }
 
+    /// An element, link key or context box of the current board.
+    fn live(&self, id: &str) -> bool {
+        let d = &self.board().design;
+        d.elements.iter().any(|e| e.id == id)
+            || d.links.iter().any(|l| l.key() == id)
+            || self.ctx.boxes.iter().any(|c| c.id == id)
+    }
+
     /// A new current board (already in the history): selection, index and flags follow it.
     fn changed(&mut self) -> Out {
-        let d = &self.board().design;
-        let live = |id: &String| {
-            d.elements.iter().any(|e| &e.id == id)
-                || d.links.iter().any(|l| &l.key() == id)
-                || self.ctx.boxes.iter().any(|c| &c.id == id)
-        };
-        self.selection = self.selection.iter().filter(|s| live(s)).cloned().collect();
+        self.selection = (self.selection.iter())
+            .filter(|s| self.live(s))
+            .cloned()
+            .collect();
         self.refresh();
         let m = meaning(self.board());
         let mut o = self.out();
@@ -214,6 +220,12 @@ impl Engine {
             Some(id) => self.highlights.retain(|h| h != id),
             None => self.highlights.clear(),
         }
+        self.drawn = None;
+    }
+
+    /// Selects these ids (elements, link keys, context boxes); unknown ones are dropped.
+    pub fn select(&mut self, ids: Vec<String>) {
+        self.selection = ids.into_iter().filter(|s| self.live(s)).collect();
         self.drawn = None;
     }
 

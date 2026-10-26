@@ -1,3 +1,6 @@
+/** True in the desktop app's build (`build:app`), false in `ig view`'s: the boards are app-only. */
+declare const __BOARDS__: boolean;
+
 // d3-force ships no types: what layout.ts uses of it.
 declare module "d3-force" {
   interface Force<N> {

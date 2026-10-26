@@ -7,3 +7,22 @@ edition.workspace = true
 ig-design = { path = "../ig-design" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+# The renderer and the wasm bindings (src/web), wasm32 only: native builds and tests never see them.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.129"
+js-sys = "=0.3.106"
+web-sys = { version = "=0.3.106", features = [
+  "HtmlCanvasElement",
+  "WebGl2RenderingContext",
+  "WebGlProgram",
+  "WebGlShader",
+  "WebGlBuffer",
+  "WebGlVertexArrayObject",
+  "WebGlUniformLocation",
+  "WebGlTexture",
+  "ImageBitmap",
+] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]

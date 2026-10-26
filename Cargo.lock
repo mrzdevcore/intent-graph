@@ -2090,8 +2090,11 @@ name = "ig-board"
 version = "0.1.0"
 dependencies = [
  "ig-design",
+ "js-sys",
  "serde",
  "serde_json",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "title": "Smoke",
+  "scope": {
+    "kind": "dir",
+    "id": "src"
+  },
+  "elements": [
+    {
+      "id": "function-a",
+      "kind": "function",
+      "name": "function-a",
+      "x": 8,
+      "y": 8
+    },
+    {
+      "id": "system-pg",
+      "kind": "system",
+      "name": "system-pg",
+      "x": 200,
+      "y": 8
+    }
+  ],
+  "marks": [],
+  "links": [
+    {
+      "from": "function-a",
+      "to": "system-pg",
+      "kind": "uses"
+    }
+  ],
+  "bridges": []
+}

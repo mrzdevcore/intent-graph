@@ -10,6 +10,8 @@ mod input;
 mod merge;
 mod scene;
 mod snap;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 pub use camera::Camera;
 pub use delta::{delta, meaning};
