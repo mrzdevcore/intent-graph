@@ -6,6 +6,7 @@ mod bounded;
 mod commands;
 mod design;
 mod events;
+mod exit;
 mod file_tree;
 mod permissions;
 mod plugin;
@@ -189,6 +190,7 @@ fn main() {
         .manage(design::HeadCache::default())
         .manage(bounded::FileList::default())
         .manage(bounded::Gate::default())
+        .manage(exit::ExitGate::default())
         .invoke_handler(tauri::generate_handler![
             commands::view_data,
             commands::file_tree,
@@ -210,7 +212,8 @@ fn main() {
             agent::agent_install,
             agent::agent_reply,
             agent::agent_set_config,
-            commands::open_url
+            commands::open_url,
+            exit::exit_flushed
         ])
         .on_window_event(|w, e| {
             // The window is gone: its agent stops, rejecting what still waits for an answer.
@@ -242,9 +245,9 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("ig desktop failed to start")
-        .run(|app, e| {
-            if let tauri::RunEvent::Exit = e {
-                stop_agent(app);
-            }
+        .run(|app, e| match e {
+            tauri::RunEvent::ExitRequested { api, code, .. } => exit::requested(app, &api, code),
+            tauri::RunEvent::Exit => stop_agent(app),
+            _ => {}
         });
 }

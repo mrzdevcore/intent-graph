@@ -18,7 +18,19 @@ function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
   };
 }
 
+/** What must be written before the app goes away (the board's autosave). */
+const flushers = new Set<() => Promise<void>>();
+
+/** Quit (Cmd+Q): every flush runs (a failing one doesn't stop the others), then the ack lets the
+ *  held exit go on (crates/ig-desktop/src/exit.rs). */
+export async function flushThenAck(fs: Iterable<() => Promise<void>>, ack: () => Promise<unknown>): Promise<void> {
+  await Promise.all([...fs].map((f) => f().catch((e: unknown) => console.error(e))));
+  await ack();
+}
+
 export function tauri(): IgApi {
+  // always listening: with nothing to flush, the ack comes at once
+  subscribe("flush-before-exit", () => void flushThenAck(flushers, () => invoke("exit_flushed")));
   return {
     viewData: (opts) => invoke<ViewData>("view_data", { plan: opts?.plan, noPlan: !!opts?.noPlan }),
     fileTree: (dir) => invoke<FileEntry[]>("file_tree", { dir }),
@@ -29,12 +41,14 @@ export function tauri(): IgApi {
     onRebuild: (cb) => subscribe("rebuild", () => cb()),
     // Tauri awaits the handler, then closes the window (core:window:allow-destroy).
     beforeClose: (cb) => {
+      flushers.add(cb);
       let off: (() => void) | undefined;
       let stopped = false;
       getCurrentWindow().onCloseRequested(async () => {
         await cb().catch((e: unknown) => console.error(e));
       }).then((u) => (stopped ? u() : (off = u)));
       return () => {
+        flushers.delete(cb);
         stopped = true;
         off?.();
       };
