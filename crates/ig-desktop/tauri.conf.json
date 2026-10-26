@@ -34,7 +34,7 @@
     "active": true,
     "targets": ["app"],
     "macOS": {
-      "files": { "MacOS/ig": "../../target/release/ig" }
+      "files": { "MacOS/ig": "bin/ig" }
     },
     "icon": [
       "icons/32x32.png",

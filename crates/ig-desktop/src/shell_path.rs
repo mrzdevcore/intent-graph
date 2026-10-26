@@ -32,26 +32,43 @@ fn after_marker(out: &str) -> Option<String> {
 }
 
 fn shell_path() -> Option<String> {
+    probe(
+        &std::env::var_os("SHELL")?,
+        std::time::Duration::from_secs(3),
+    )
+}
+
+/// `shell -ilc` printing PATH after the marker, all within `limit`: a profile's background job
+/// may hold stdout open, so the read runs on a thread and the shell is killed and reaped at the end.
+fn probe(shell: &OsStr, limit: std::time::Duration) -> Option<String> {
     use std::process::{Command, Stdio};
-    let shell = std::env::var_os("SHELL")?;
     let mut c = Command::new(shell)
-        .args(["-ilc", &format!("printf '\\n{MARK}%s' \"$PATH\"")])
+        .args(["-ilc", &format!("printf '\\n{MARK}%s\\n' \"$PATH\"")])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let t0 = std::time::Instant::now();
-    while c.try_wait().ok()?.is_none() {
-        if t0.elapsed() > std::time::Duration::from_secs(3) {
-            let _ = c.kill();
-            return None;
+    let mut out = c.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // Line by line: the marker line is enough, even while a background job keeps the pipe open.
+        let mut all = String::new();
+        let mut r = std::io::BufReader::new(&mut out);
+        let mut line = String::new();
+        while std::io::BufRead::read_line(&mut r, &mut line).is_ok_and(|n| n > 0) {
+            all.push_str(&line);
+            if line.contains(MARK) {
+                break;
+            }
+            line.clear();
         }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    let mut out = String::new();
-    std::io::Read::read_to_string(&mut c.stdout?, &mut out).ok()?;
-    after_marker(&out)
+        let _ = tx.send(all);
+    });
+    let got = rx.recv_timeout(limit).ok();
+    let _ = c.kill();
+    let _ = c.wait();
+    after_marker(&got?)
 }
 
 /// The dir of the `ig` CLI next to the app's own binary, if there is one.
@@ -80,6 +97,39 @@ mod tests {
         assert_eq!(after_marker(&out).as_deref(), Some("/a:/b"));
         assert_eq!(after_marker("no marker"), None);
         assert_eq!(after_marker(MARK), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_background_job_holding_stdout_does_not_hang_the_probe() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("ig-shell-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sh = dir.join("fake-shell");
+        // Ignores its args like a noisy profile would, keeps stdout open with a background job.
+        std::fs::write(
+            &sh,
+            format!("#!/bin/sh\necho welcome\nsleep 30 &\nprintf '\\n{MARK}/x:/y\\n'\nsleep 30\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&sh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let t0 = std::time::Instant::now();
+        let p = probe(sh.as_os_str(), std::time::Duration::from_secs(3));
+        assert!(
+            t0.elapsed() < std::time::Duration::from_secs(4),
+            "{:?}",
+            t0.elapsed()
+        );
+        assert_eq!(p.as_deref(), Some("/x:/y"));
+        // Nothing printed: the deadline, then the fallback.
+        std::fs::write(&sh, "#!/bin/sh\nsleep 30 &\nsleep 30\n").unwrap();
+        let t0 = std::time::Instant::now();
+        assert_eq!(
+            probe(sh.as_os_str(), std::time::Duration::from_millis(500)),
+            None
+        );
+        assert!(t0.elapsed() < std::time::Duration::from_secs(2));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

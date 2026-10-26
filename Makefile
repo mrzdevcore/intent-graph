@@ -24,6 +24,8 @@ app-dev: viewer
 	$(TAURI) dev
 
 # A local build, unsigned: target/release/bundle/macos/ig.app on macOS.
+# The bundle takes ig from crates/ig-desktop/bin/ig (gitignored), wherever cargo's target dir is.
 app: viewer
 	cargo build --release -p intent-graph
+	mkdir -p crates/ig-desktop/bin && cp "$${CARGO_TARGET_DIR:-target}/release/ig" crates/ig-desktop/bin/ig
 	$(TAURI) build

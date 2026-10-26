@@ -113,8 +113,8 @@ fn resolve_extends(from_dir: &Path, spec: &str, ws: &WorkspaceInfo) -> Option<Pa
     while let Some(d) = dir {
         let p = d.join("node_modules").join(spec);
         let field = read_jsonc(&p.join("package.json"))
-            .and_then(|v| v.get("tsconfig")?.as_str().map(|t| p.join(t)))
-            .filter(|t| t.is_file());
+            .and_then(|v| v.get("tsconfig")?.as_str().map(|t| lexical(&p.join(t))))
+            .filter(|t| t.starts_with(lexical(&p)) && t.is_file());
         if let Some(f) = field.or_else(|| file_or_json(p)) {
             return Some(f);
         }
@@ -334,6 +334,18 @@ mod tests {
             assert!(warnings.is_empty(), "{ext}");
             assert!(out.is_some(), "{ext}");
         }
+
+        // A "tsconfig" field pointing outside its package is not followed.
+        w(
+            "node_modules/@acme/escape/package.json",
+            r#"{"tsconfig":"../../../apps/web/node1.json"}"#,
+        );
+        w("apps/web/escape.json", r#"{"extends":"@acme/escape"}"#);
+        let (_, warnings_escape) = f.flatten(1, &ws.root.join("apps/web/escape.json"), &ws);
+        assert!(
+            matches!(&warnings_escape[..], [Warning::MissingPackage(s, _)] if s == "@acme/escape"),
+            "{warnings_escape:?}"
+        );
 
         // A package that is not installed: one finding per specifier, however many tsconfigs.
         let mut all = vec![];

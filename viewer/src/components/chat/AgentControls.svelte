@@ -8,6 +8,7 @@
   let { config, usage, onset }: {
     config: ConfigOption[];
     usage: Usage | null;
+    /** Sets an option; on a refusal it shows the error in the chat and rejects. */
     onset: (id: string, value: string) => Promise<void>;
   } = $props();
 
@@ -34,18 +35,18 @@
 
 <svelte:window onpointerdown={away} />
 
-{#snippet chip(o: ConfigOption)}
-  <select class="chip-select" aria-label={o.name} title={o.name} value={o.currentValue} onchange={(e) => set(o, e.currentTarget)}>
+{#snippet chip(o: ConfigOption, grow = false)}
+  <select class="chip-select" class:grow aria-label={o.name} title={o.name + ": " + (o.options.find((x) => x.value === o.currentValue)?.name ?? o.currentValue)} value={o.currentValue} onchange={(e) => set(o, e.currentTarget)}>
     {#each o.options as x}<option value={x.value} title={x.description}>{x.name}</option>{/each}
   </select>
 {/snippet}
 
 <div class="controls">
   {#if c.mode}{@render chip(c.mode)}{/if}
-  {#if c.model}{@render chip(c.model)}{/if}
+  {#if c.model}{@render chip(c.model, true)}{/if}
   {#if c.fast}
     <button class="chip-toggle" aria-pressed={fastOn(c.fast) ? "true" : "false"} title={c.fast.name}
-      onclick={() => onset(c.fast!.id, fastNext(c.fast!)).catch(() => {})}>Fast</button>
+      onclick={() => onset(c.fast!.id, fastNext(c.fast!)).catch(() => {/* shown by the chat, like the selects' */})}>Fast</button>
   {/if}
   {#if c.more.length || usage}
     <div class="more" bind:this={menu}>

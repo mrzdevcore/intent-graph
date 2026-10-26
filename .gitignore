@@ -4,3 +4,4 @@
 /viewer/node_modules
 /viewer/dist
 /viewer/dev-data.json
+/crates/ig-desktop/bin
