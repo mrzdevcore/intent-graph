@@ -22,6 +22,38 @@ impl FsFiles {
     }
 }
 
+impl FsFiles {
+    /// `dir` (an existing folder) resolves inside the project's root.
+    fn inside(&self, dir: &Path, path: &str) -> Result<(), PortError> {
+        if self.root.as_os_str().is_empty() {
+            return Ok(());
+        }
+        let root = self.root.canonicalize().map_err(io)?;
+        if !dir.canonicalize().map_err(io)?.starts_with(&root) {
+            return Err(PortError::Io(format!(
+                "{path}: refused, a symlink leads outside the project"
+            )));
+        }
+        Ok(())
+    }
+
+    /// `p`'s folder resolves inside the root and `p` itself is not a symlink: a write or a
+    /// removal never reaches outside the project. An empty root (the CLI's working directory,
+    /// for paths the user names) confines nothing.
+    fn contained(&self, p: &Path, path: &str) -> Result<(), PortError> {
+        if self.root.as_os_str().is_empty() {
+            return Ok(());
+        }
+        if let Some(d) = p.parent() {
+            self.inside(d, path)?;
+        }
+        if std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(PortError::Io(format!("{path}: refused, it is a symlink")));
+        }
+        Ok(())
+    }
+}
+
 fn io(e: impl std::fmt::Display) -> PortError {
     PortError::Io(e.to_string())
 }
@@ -32,13 +64,27 @@ impl Files for FsFiles {
     }
     fn write_atomic(&self, path: &str, bytes: &[u8]) -> Result<(), PortError> {
         let p = self.root.join(path);
+        // the deepest existing folder first, so no folder is ever made outside the project (a
+        // root not made yet has none of its own)
+        let mut have = p.parent();
+        while let Some(d) = have.filter(|d| !d.exists()) {
+            have = d.parent();
+        }
+        if let Some(d) = have.filter(|d| d.starts_with(&self.root)) {
+            self.inside(d, path)?;
+        }
         if let Some(dir) = p.parent() {
             std::fs::create_dir_all(dir).map_err(io)?;
         }
+        self.contained(&p, path)?;
         write_atomic(&p, bytes).map_err(io)
     }
     fn remove(&self, path: &str) -> Result<(), PortError> {
-        match std::fs::remove_file(self.root.join(path)) {
+        let p = self.root.join(path);
+        if p.parent().is_some_and(|d| d.exists()) {
+            self.contained(&p, path)?;
+        }
+        match std::fs::remove_file(p) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io(e)),
             _ => Ok(()),
         }
@@ -131,5 +177,48 @@ mod tests {
         let found = f.glob(&["**/*.ts".into()]).unwrap();
         let _ = std::fs::remove_dir_all(&d);
         assert_eq!(found, ["real/a.ts"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writes_never_leave_the_project_through_a_symlink() {
+        let (d, out) = (tmp("escape"), tmp("escape-out"));
+        let f = FsFiles::new(&d);
+        std::fs::create_dir_all(d.join("plans/x")).unwrap();
+        std::os::unix::fs::symlink(&out, d.join("plans/x/screens")).unwrap();
+        std::fs::write(out.join("a.json"), "theirs").unwrap();
+        let e = f.write_atomic("plans/x/screens/a.json", b"{}").unwrap_err();
+        assert!(e.to_string().contains("outside the project"), "{e}");
+        assert!(
+            f.write_atomic("plans/x/screens/deep/b.json", b"{}")
+                .is_err()
+        );
+        assert!(f.remove("plans/x/screens/a.json").is_err());
+        assert!(f.write_atomic("../escape-out/c.json", b"{}").is_err());
+        // a symlinked file is refused too, wherever it points
+        std::os::unix::fs::symlink(out.join("a.json"), d.join("plans/x/l.json")).unwrap();
+        assert!(f.write_atomic("plans/x/l.json", b"{}").is_err());
+        let left: Vec<_> = std::fs::read_dir(&out)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(
+            std::fs::read_to_string(out.join("a.json")).unwrap(),
+            "theirs"
+        );
+        let _ = (std::fs::remove_dir_all(&d), std::fs::remove_dir_all(&out));
+        assert_eq!(left, ["a.json"]);
+        // a project reached through a symlinked root still writes
+        let (real, link) = (
+            tmp("real-root"),
+            std::env::temp_dir().join(format!("ig-fs-root-link-{}", std::process::id())),
+        );
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        FsFiles::new(&link)
+            .write_atomic("plans/y/design.json", b"{}")
+            .unwrap();
+        let _ = (std::fs::remove_file(&link), std::fs::remove_dir_all(&real));
     }
 }
