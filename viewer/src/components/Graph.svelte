@@ -15,6 +15,7 @@
     const color: Record<string, string> = { added: css("--added"), changed: css("--changed"), removed: css("--removed"), unchanged: css("--unchanged") };
     const [muted, line, err, accent, panel] = ["--muted", "--line", "--error", "--accent", "--panel"].map(css);
     const fg = css("--fg");
+    const accentText = css("--accent-text");
     const statusColor = (n: cytoscape.NodeSingular) => color[n.data("status")] || color.unchanged;
     const s = [
       { selector: "node", style: {
@@ -66,10 +67,10 @@
       { selector: "edge[?ctx]", style: { "opacity": 0.22 } },
       { selector: "edge[?violation]", style: { "line-color": err, "target-arrow-color": err, "opacity": 1, "width": "mapData(count, 1, 40, 2.5, 8)" } },
       { selector: ".faded", style: { "opacity": 0.12 } },
-      { selector: "node[?pinned]", style: { "border-width": 3, "border-color": accent, "border-style": "solid", "color": accent } },
+      { selector: "node[?pinned]", style: { "border-width": 3, "border-color": accent, "border-style": "solid", "color": accentText } },
       { selector: "node[?ghost]", style: { "opacity": 0.4, "border-style": "dotted", "border-width": 2, "border-color": accent } },
       { selector: "node[kind = 'laneadd']", style: {
-        "shape": "ellipse", "width": 22, "height": 22, "background-color": accent, "color": "#fff", "label": "+", "text-valign": "center",
+        "shape": "ellipse", "width": 22, "height": 22, "background-color": accent, "color": "#161615", "label": "+", "text-valign": "center",
         "text-margin-y": 0, "font-size": 16, "font-weight": 700, "min-zoomed-font-size": 3 } },
       { selector: "edge.nolink", style: { "display": "none" } },
     ];

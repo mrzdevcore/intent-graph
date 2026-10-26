@@ -45,8 +45,10 @@ export interface ChatState {
   running: boolean;
   /** Permission and question cards still waiting. */
   pending: number;
-  /** The agent's text of this turn, chunk by chunk: what the live region reads out. */
-  live: string[];
+  /** What the live region reads out: the agent's whole reply, once its turn ends (never a replay). */
+  live: string;
+  /** Where the running turn's items start. */
+  turnFrom: number;
   login: boolean;
   setup: { instructions: string; installable: boolean } | null;
   stopped: { reason: string; stderr: string | null } | null;
@@ -65,7 +67,7 @@ export type ChatAction =
 
 export const initialChat: ChatState = {
   sessionId: null, title: null, items: [], commands: [], config: [], usage: null,
-  running: false, pending: 0, live: [], login: false, setup: null, stopped: null,
+  running: false, pending: 0, live: "", turnFrom: 0, login: false, setup: null, stopped: null,
 };
 
 /** The questions of an `AskUserQuestion` form, in field order. */
@@ -114,6 +116,11 @@ function closeAll(s: ChatState, why: string): ChatState {
   return { ...s, items, pending: 0 };
 }
 
+/** The agent's text of the running turn. */
+function reply(s: ChatState): string {
+  return s.items.slice(s.turnFrom).flatMap((i) => (i.kind === "text" && i.role === "agent" ? [i.text] : [])).join("\n");
+}
+
 export function chatReducer(s: ChatState, a: ChatAction): ChatState {
   switch (a.type) {
     case "MessageChunk": {
@@ -123,7 +130,7 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
       const items = last?.kind === "text" && last.role === a.role
         ? [...s.items.slice(0, -1), { ...last, text: last.text + text }]
         : [...s.items, { kind: "text" as const, role: a.role, text }];
-      return { ...s, items, live: a.role === "agent" ? [...s.live, text] : s.live };
+      return { ...s, items };
     }
     case "ToolCall":
     case "ToolCallUpdate": {
@@ -167,9 +174,9 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
     case "Stopped":
       return { ...closeAll(s, "stopped"), running: false, stopped: { reason: a.reason, stderr: a.stderr } };
     case "Sent":
-      return { ...s, running: true, live: [], stopped: null, items: [...s.items, { kind: "text", role: "user", text: a.text }] };
+      return { ...s, running: true, live: "", stopped: null, turnFrom: s.items.length + 1, items: [...s.items, { kind: "text", role: "user", text: a.text }] };
     case "TurnEnded":
-      return { ...closeAll(s, "cancelled"), running: false };
+      return { ...closeAll(s, "cancelled"), running: false, live: s.running ? reply(s) : s.live };
     case "Failed":
       return { ...closeAll(s, "cancelled"), running: false, items: [...s.items, { kind: "error", text: a.error }] };
     case "Reset":

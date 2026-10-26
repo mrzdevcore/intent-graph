@@ -1,5 +1,5 @@
-<!-- The message box: Enter sends, Shift+Enter is a newline, Esc stops a running turn; `/`
-     completes the session's commands (ig's first). "Attach selection" and "Plan this" take the
+<!-- The message box: Enter sends, Shift+Enter is a newline, Esc closes the completions, else stops a
+     running turn; `/` completes the session's commands (ig's first; a full name sends as typed). "Attach selection" and "Plan this" take the
      graph's or the Files panel's selection. -->
 <script module lang="ts">
   export interface Selection {
@@ -23,7 +23,9 @@
 
   let text = $state("");
   let active = $state(0);
-  const list = $derived(completions(commands, text).slice(0, 8));
+  /** Esc closed the list: it stays closed until the text changes. */
+  let closedAt = $state<string | null>(null);
+  const list = $derived(closedAt === text ? [] : completions(commands, text).slice(0, 8));
 
   function complete(name: string) {
     text = "/" + name + " ";
@@ -31,16 +33,23 @@
   }
 
   function key(e: KeyboardEvent) {
+    if (e.key === "Escape" && list.length) {
+      e.preventDefault();
+      closedAt = text;
+      return;
+    }
     if (e.key === "Escape" && running) {
       e.preventDefault();
       return oncancel();
     }
+    // A full command name sends as typed.
+    const exact = e.key === "Enter" && list.some((c) => "/" + c.name === text);
     if (list.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       active = (active + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length;
       return;
     }
-    if (list.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
+    if (list.length && !exact && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
       e.preventDefault();
       return complete(list[Math.min(active, list.length - 1)].name);
     }

@@ -12,7 +12,7 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::{JsonRpcRequest, JsonRpcResponse, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 /// `elicitation/create`, untyped: only the form mode is shown, its schema passed on as is.
@@ -25,8 +25,34 @@ pub struct AskReply(pub Value);
 
 enum Answer {
     Permission(Vec<PermissionOption>, Responder<RequestPermissionResponse>),
-    /// The form's field names: an answer may only fill those.
-    Question(Vec<String>, Responder<AskReply>),
+    /// The form's fields: an answer may only fill those, with their own options when they have some.
+    Question(Fields, Responder<AskReply>),
+}
+
+/// Field name → its option values (`oneOf` / `items.anyOf` consts); None: free text.
+type Fields = BTreeMap<String, Option<Vec<String>>>;
+
+/// The fields of a form schema.
+fn fields_of(schema: &Value) -> Fields {
+    let consts = |xs: &Value| -> Option<Vec<String>> {
+        let xs = xs.as_array()?;
+        Some(
+            xs.iter()
+                .filter_map(|o| o["const"].as_str().map(Into::into))
+                .collect(),
+        )
+    };
+    schema["properties"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(k, p)| {
+            (
+                k.clone(),
+                consts(&p["oneOf"]).or_else(|| consts(&p["items"]["anyOf"])),
+            )
+        })
+        .collect()
 }
 
 struct Waiting {
@@ -55,12 +81,20 @@ fn ask_reply(r: Responder<AskReply>, v: Value) {
     let _ = r.respond(AskReply(v));
 }
 
-/// A question's answer: `{field: "label" | ["label", ...]}` over the form's own fields only.
-fn valid(fields: &[String], content: &Value) -> bool {
+/// A question's answer: `{field: "label" | ["label", ...]}` over the form's own fields only, each
+/// label one of that field's options (a free-text field, like `question_<n>_custom`, takes any).
+fn valid(fields: &Fields, content: &Value) -> bool {
+    let ok = |allowed: &Option<Vec<String>>, v: &Value| {
+        v.as_str()
+            .is_some_and(|s| allowed.as_ref().is_none_or(|a| a.iter().any(|x| x == s)))
+    };
     content.as_object().is_some_and(|m| {
         m.iter().all(|(k, v)| {
-            fields.contains(k)
-                && (v.is_string() || v.as_array().is_some_and(|a| a.iter().all(Value::is_string)))
+            fields.get(k).is_some_and(|allowed| {
+                ok(allowed, v)
+                    || v.as_array()
+                        .is_some_and(|a| a.iter().all(|x| ok(allowed, x)))
+            })
         })
     })
 }
@@ -96,10 +130,7 @@ impl Pending {
     /// Keeps a form question; the event to show it. Any other mode is declined at once.
     pub fn ask(&self, q: Value, responder: Responder<AskReply>) -> Option<AgentEvent> {
         let schema = q["requestedSchema"].clone();
-        let fields: Vec<String> = schema["properties"]
-            .as_object()
-            .map(|m| m.keys().cloned().collect())
-            .unwrap_or_default();
+        let fields = fields_of(&schema);
         let session_id = q["sessionId"].as_str().unwrap_or("").to_string();
         if q["mode"] != "form" || fields.is_empty() {
             ask_reply(responder, json!({"action": "decline"}));
@@ -212,5 +243,31 @@ impl Pending {
     /// The agent is gone: no answer can reach it.
     pub fn clear(&self) {
         self.inner.lock().unwrap().1.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_answer_must_pick_the_fields_own_options() {
+        let f = fields_of(&json!({"properties": {
+            "question_0": {"type": "string", "oneOf": [{"const": "Small"}, {"const": "Large"}]},
+            "question_1": {"type": "array", "items": {"anyOf": [{"const": "A"}, {"const": "B"}]}},
+            "question_0_custom": {"type": "string"}}}));
+        assert!(valid(
+            &f,
+            &json!({"question_0": "Small", "question_1": ["A", "B"]})
+        ));
+        assert!(valid(&f, &json!({"question_0_custom": "anything at all"})));
+        assert!(!valid(&f, &json!({"question_0": "Huge"})), "not an option");
+        assert!(
+            !valid(&f, &json!({"question_1": ["A", "C"]})),
+            "not an option"
+        );
+        assert!(!valid(&f, &json!({"question_9": "Small"})), "not a field");
+        assert!(!valid(&f, &json!({"question_0": 3})), "not a label");
+        assert!(!valid(&f, &json!("Small")), "not an object");
     }
 }

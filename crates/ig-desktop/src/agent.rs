@@ -346,7 +346,13 @@ pub async fn agent_reply(
     agent.running(&root)?.reply(request_id, content)
 }
 
-/// Sets a session `configOptions` entry (mode, model, ...); a `Config` event follows.
+/// A permission mode that skips the asking (`bypassPermissions`): set only after a native confirm.
+pub fn needs_confirm(value: &str) -> bool {
+    value.to_ascii_lowercase().contains("bypass")
+}
+
+/// Sets a session `configOptions` entry (mode, model, ...); a `Config` event follows. A bypass
+/// mode needs the user's yes in a native dialog, which webview script cannot click.
 #[tauri::command]
 pub async fn agent_set_config(
     app: AppHandle,
@@ -355,9 +361,26 @@ pub async fn agent_set_config(
     config_id: String,
     value: String,
 ) -> Result<(), String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
     let (root, data) = open_root_and_data(&project, &app)?;
     gate_for(&root, &data)?;
-    agent.running(&root)?.set_config(&config_id, &value).await
+    let session = agent.running(&root)?;
+    if needs_confirm(&value) {
+        let a = app.clone();
+        let yes = tauri::async_runtime::spawn_blocking(move || {
+            a.dialog()
+                .message("Bypass permissions?\n\nThe agent will run every tool and edit every file without asking.")
+                .title("ig")
+                .buttons(MessageDialogButtons::OkCancelCustom("Bypass".into(), "Cancel".into()))
+                .blocking_show()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        if !yes {
+            return Err("not confirmed: the mode is unchanged".into());
+        }
+    }
+    session.set_config(&config_id, &value).await
 }
 
 /// `{sessions, features}`: the adapter's sessions here and the feature → session map.
@@ -399,6 +422,15 @@ pub async fn agent_install(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_bypass_mode_needs_the_confirm() {
+        assert!(needs_confirm("bypassPermissions"));
+        assert!(needs_confirm("BYPASS"));
+        for v in ["default", "acceptEdits", "plan", "auto", "opus"] {
+            assert!(!needs_confirm(v), "{v}");
+        }
+    }
 
     #[test]
     fn an_untrusted_project_never_passes_the_gate() {
