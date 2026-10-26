@@ -9,9 +9,10 @@
 </script>
 
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { completions } from "../../model/chat";
 
-  let { commands, running, selection, attached = $bindable(), text = $bindable(""), onsend, oncancel, onplan }: {
+  let { commands, running, selection, attached = $bindable(), text = $bindable(""), onsend, oncancel, onplan, controls }: {
     commands: { name: string; description: string }[];
     running: boolean;
     selection: Selection | null;
@@ -21,6 +22,8 @@
     onsend: (text: string) => void;
     oncancel: () => void;
     onplan: () => void;
+    /** The agent's settings, in the footer row next to Send. */
+    controls?: Snippet;
   } = $props();
 
   let active = $state(0);
@@ -88,10 +91,13 @@
       {/each}
     </ul>
   {/if}
+  <div class="row context">
+    <button class="link" disabled={!selection} onclick={attach}>Attach selection</button>
+    <button class="link" disabled={!selection || running} onclick={onplan}>Plan this</button>
+  </div>
   <textarea rows="3" placeholder="Message the agent; / for commands" aria-label="Message" bind:value={text} onkeydown={key}></textarea>
-  <div class="row">
-    <button disabled={!selection} onclick={attach}>Attach selection</button>
-    <button disabled={!selection || running} onclick={onplan}>Plan this</button>
+  <div class="row footer">
+    {@render controls?.()}
     {#if running}
       <button class="primary" onclick={oncancel}>Stop</button>
     {:else}

@@ -6,6 +6,7 @@
   import type { AgentApi, TrustState } from "../../api";
   import { chatReducer, groupTools, initialChat, type ChatAction } from "../../model/chat";
   import Trust from "../Trust.svelte";
+  import AgentControls from "./AgentControls.svelte";
   import Composer, { type Selection } from "./Composer.svelte";
   import Markdown from "./Markdown.svelte";
   import PermissionCard from "./PermissionCard.svelte";
@@ -156,13 +157,12 @@
   const reply = (requestId: number, content: Record<string, string | string[]> | null, summary: string) =>
     settle(requestId, summary, () => agent.reply(requestId, content));
 
-  /** A refused change (a bypass mode not confirmed) puts the select back. */
-  function setConfig(id: string, el: HTMLSelectElement, was: string) {
-    agent.setConfig(id, el.value).catch((e) => {
+  /** A refused change (a bypass mode not confirmed) rejects: the control goes back. */
+  const setConfig = (id: string, value: string) =>
+    agent.setConfig(id, value).catch((e) => {
       error = msg(e);
-      el.value = was;
+      throw e;
     });
-  }
 
   onMount(() => {
     const off = agent.onEvent(dispatch);
@@ -177,13 +177,6 @@
       queueMicrotask(() => (transcript.scrollTop = transcript.scrollHeight));
   });
 
-  const money = (c: { amount: number; currency: string }) => {
-    try {
-      return new Intl.NumberFormat(undefined, { style: "currency", currency: c.currency }).format(c.amount);
-    } catch {
-      return c.amount.toFixed(2) + " " + c.currency;
-    }
-  };
   const featureOf = (id: string) => Object.keys(features).find((f) => features[f] === id);
 </script>
 
@@ -201,28 +194,6 @@
       <option value="new">New session…</option>
     </select>
   </header>
-  {#if s.config.length || s.usage}
-    <div class="chat-bar">
-      {#each s.config as c}
-        <label>{c.name}
-          <select value={c.currentValue} onchange={(e) => setConfig(c.id, e.currentTarget, c.currentValue)}>
-            {#each c.options as o}<option value={o.value} title={o.description}>{o.name}</option>{/each}
-          </select>
-        </label>
-      {/each}
-      {#if s.usage}
-        <span class="usage" aria-label="Usage">
-          {#if s.usage.cost}<span title="Cost of this session">{money(s.usage.cost)}</span>{/if}
-          {#if s.usage.used !== null && s.usage.size}
-            <meter min="0" max={s.usage.size} value={s.usage.used} title="Context: {s.usage.used} of {s.usage.size} tokens"></meter>
-          {/if}
-          {#if s.usage.rateLimit}
-            <span title="Rate limit">limit {s.usage.rateLimit.status ?? ""}{typeof s.usage.rateLimit.utilization === "number" ? " " + Math.round(s.usage.rateLimit.utilization * 100) + "%" : ""}</span>
-          {/if}
-        </span>
-      {/if}
-    </div>
-  {/if}
 
   {#if trust}
     {#if declined}
@@ -284,6 +255,8 @@
 
   {#if !trust}
     <Composer commands={s.commands} running={s.running} {selection} bind:attached bind:text={draft} onsend={send}
-      oncancel={() => agent.cancel().catch((e) => (error = msg(e)))} onplan={plan} />
+      oncancel={() => agent.cancel().catch((e) => (error = msg(e)))} onplan={plan}>
+      {#snippet controls()}<AgentControls config={s.config} usage={s.usage} onset={setConfig} />{/snippet}
+    </Composer>
   {/if}
 </section>
