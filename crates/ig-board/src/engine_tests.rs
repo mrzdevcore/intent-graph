@@ -524,3 +524,62 @@ fn the_users_in_flight_drag_wins() {
     let a = &e.board().design.elements[0];
     assert_eq!((a.x, a.y, a.name.as_str()), (Some(48), Some(8), "A"));
 }
+
+#[test]
+fn user_move_and_agent_rename_of_one_element_both_survive() {
+    let mut e = engine();
+    let disk = renamed(e.board(), "fn-a", "A"); // read before the user's move was saved
+    e.ops(&[mv("fn-a", 8, 104)], Step::User);
+    let o = e.external(disk, Some("t1"));
+    let a = &e.board().design.elements[0];
+    assert_eq!((a.y, a.name.as_str()), (Some(104), "A"));
+    assert_eq!(o.touched, ["fn-a"]);
+}
+
+#[test]
+fn user_rename_beats_agent_rename() {
+    let mut e = engine();
+    let disk = renamed(e.board(), "fn-a", "Claude's");
+    e.ops(
+        &[Op::Update {
+            id: "fn-a".into(),
+            set: ElementPatch {
+                name: Some("mine".into()),
+                ..Default::default()
+            },
+        }],
+        Step::User,
+    );
+    e.external(disk, Some("t1"));
+    assert_eq!(e.board().design.elements[0].name, "mine");
+}
+
+#[test]
+fn revert_of_a_claude_rename_keeps_the_users_later_move() {
+    let mut e = engine();
+    e.external(renamed(e.board(), "fn-b", "B"), Some("t1"));
+    e.ops(&[mv("fn-b", 208, 104)], Step::User);
+    assert!(e.revert("t1").changed);
+    let b = &e.board().design.elements[1];
+    assert_eq!((b.name.as_str(), b.y), ("b", Some(104)));
+}
+
+#[test]
+fn revert_keeps_an_agent_added_element_the_user_linked() {
+    let mut e = engine();
+    let mut d = e.board().clone();
+    let mut n = el("fn-n", ElementKind::Function);
+    n.y = Some(200);
+    d.design.elements.push(n);
+    e.external(d, Some("t1"));
+    let link = Op::Link {
+        from: "fn-a".into(),
+        to: "fn-n".into(),
+        kind: ig_design::LinkKind::Calls,
+    };
+    e.ops(&[link], Step::User);
+    e.revert("t1");
+    let b = &e.board().design;
+    assert!(b.elements.iter().any(|x| x.id == "fn-n"));
+    assert!(b.links.iter().any(|l| l.key() == "fn-a|calls|fn-n"));
+}

@@ -90,6 +90,25 @@ fn reid(base: &Design, ours: &Design, theirs: &Design) -> (Design, Vec<(String, 
     (t, renamed)
 }
 
+/// Three-way merge of one element's fields: theirs where ours kept the base, else ours.
+fn fields(b: &Element, o: &Element, t: &Element) -> Element {
+    let obj = |e: &Element| match serde_json::to_value(e) {
+        Ok(serde_json::Value::Object(m)) => m,
+        _ => unreachable!("an element is an object"),
+    };
+    let (b, mut o, t) = (obj(b), obj(o), obj(t));
+    let keys: HashSet<String> = b.keys().chain(o.keys()).chain(t.keys()).cloned().collect();
+    for k in keys {
+        if o.get(&k) == b.get(&k) && t.get(&k) != b.get(&k) {
+            match t.get(&k) {
+                Some(v) => o.insert(k, v.clone()),
+                None => o.remove(&k),
+            };
+        }
+    }
+    serde_json::from_value(serde_json::Value::Object(o)).expect("merged fields form an element")
+}
+
 pub fn merge(base: &Board, ours: &Board, theirs: &Board) -> Merged {
     let (b, o) = (&base.design, &ours.design);
     let (t, renamed) = reid(b, o, &theirs.design);
@@ -103,13 +122,30 @@ pub fn merge(base: &Board, ours: &Board, theirs: &Board) -> Merged {
         d.scope = t.scope.clone();
     }
     (d.elements, d.links, d.marks, d.bridges) = (vec![], vec![], vec![], vec![]);
+    // elements the user linked since the base: theirs never takes them out from under the link
+    let linked: HashSet<String> = (o.links.iter())
+        .filter(|l| !kb.contains_key(&format!("l:{}", l.key())))
+        .flat_map(|l| [format!("e:{}", l.from), format!("e:{}", l.to)])
+        .collect();
     let seen: HashSet<&String> = order.iter().collect();
     let keys = order
         .iter()
         .chain(tord.iter().filter(|k| !seen.contains(k)));
     for k in keys {
         let (bv, ov, tv) = (kb.get(k), ko.get(k), kt.get(k));
-        let theirs_wins = tv != bv && ov == bv;
+        // both changed one element: per field, the user's fields win
+        if let (Some(Item::E(be)), Some(Item::E(oe)), Some(Item::E(te))) = (bv, ov, tv)
+            && oe != be
+            && te != be
+        {
+            let e = fields(be, oe, te);
+            if &e != *oe {
+                changed.push(k.clone());
+            }
+            d.elements.push(e);
+            continue;
+        }
+        let theirs_wins = tv != bv && ov == bv && !(tv.is_none() && linked.contains(k));
         if theirs_wins && tv != ov {
             if tv.is_none() {
                 &mut removed
