@@ -351,3 +351,18 @@ fn smoke_fixture_is_the_canonical_text() {
         include_str!("../../../viewer/test/fixtures/smoke-design.json")
     );
 }
+
+#[test]
+fn set_context_keeps_the_board_and_history_and_drops_gone_boxes() {
+    let mut e = engine();
+    e.select(vec!["fn-a".into(), "system:pg".into()]);
+    let before = e.board().clone();
+    e.set_context(Context::default());
+    assert_eq!(e.board(), &before);
+    assert_eq!(e.selection, vec!["fn-a".to_string()]);
+    assert_eq!(e.hit(450.0, 260.0), None);
+    let o = e.ops(&[Op::Remove { id: "fn-b".into() }], Step::User);
+    assert!(o.changed);
+    assert!(e.undo().changed);
+    assert_eq!(e.board(), &before);
+}

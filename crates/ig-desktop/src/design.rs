@@ -58,10 +58,8 @@ pub fn features_for(root: &Path) -> Vec<app::Feature> {
 
 pub fn create_for(root: &Path, known: &Known, title: &str) -> Result<app::Feature, String> {
     let w = Wired::new(root);
-    // The whole system, faded: the user (or Task 5) narrows it later.
-    let scope = Scope::Layer {
-        name: String::new(),
-    };
+    // The whole system, faded: the board's scope picker narrows it later.
+    let scope = Scope::Dir { id: ".".into() };
     let slug = app::free_slug(w.files(), title).map_err(|e| e.to_string())?;
     let f = app::create_as(w.files(), &slug, title, scope).map_err(|e| e.to_string())?;
     remember(w.files(), known, &f.slug);
