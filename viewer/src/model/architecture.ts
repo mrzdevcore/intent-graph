@@ -64,15 +64,18 @@ export function assignRows(ix: Index, nodes: El[]): Record<string, RowOf> {
 export function placeRows(nodes: El[], of: Record<string, RowOf>, width: number): { lanes: Lane[]; width: number } {
   const byRow: Record<number, El[]> = {};
   nodes.forEach((e) => (byRow[of[e.data.id].row] = byRow[of[e.data.id].row] || []).push(e));
+  const lineH = 150;
   const slotOf = (d: ElData) => {
     const n = (d.label || "").length;
     return d.kind === "layer" || d.kind === "dir" ? Math.max(70, n * 8.5 + 24) + 60 : Math.max(80, Math.min(n, 24) * 7 + 30);
   };
-  const lineH = 150;
   const layout = Object.keys(byRow).map(Number).sort((a, b) => a - b).map((row) => {
     const r = byRow[row];
     const slot = Math.max(0, ...r.map((e) => slotOf(e.data)));
-    const perLine = Math.max(1, Math.floor(width / slot));
+    let perLine = Math.max(1, Math.floor(width / slot));
+    // A row of hundreds of boxes would wrap into a strip too thin to read once fitted: past 20
+    // lines it wraps to a square instead, and the view fits that.
+    if (r.length / perLine > 20) perLine = Math.max(perLine, Math.ceil(Math.sqrt((r.length * lineH) / slot)));
     return { r, slot, perLine, lines: Math.ceil(r.length / perLine) };
   });
   const full = Math.max(0, ...layout.map((o) => Math.min(o.r.length, o.perLine) * o.slot));

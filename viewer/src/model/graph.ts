@@ -1,7 +1,6 @@
 // Graph indexing: nodes by id, modules with their members, and the drill-down groups
 // (layer → directories → module) the Architecture mode walks.
 
-import type cytoscape from "cytoscape";
 import type { Status, ViewData, ViewEdge, ViewFinding, ViewNode } from "../data";
 
 export interface Module {
@@ -24,13 +23,14 @@ export interface Group {
   findings: number;
 }
 
-/** A Cytoscape element, as the model builds it. */
+/** A graph element, as the model builds it (nodes with `parent` are boxed in that compound). */
 export interface ElData {
   id: string;
   label?: string;
   kind?: string;
   status?: Status;
   planned?: boolean;
+  test?: boolean;
   findings?: number;
   parent?: string;
   outer?: boolean;
@@ -228,7 +228,7 @@ export function ancestors(ix: Index, t: Group | null | undefined): Group[] {
 
 export function nodeData(ix: Index, n: ViewNode, parent?: string): ElData {
   const d: ElData = {
-    id: n.id, label: n.name,
+    id: n.id, label: n.name, test: !!n.test,
     kind: n.module ? "module" : n.kind === "system" ? "system" : n.kind === "route" ? "route" : "member",
     status: n.status, planned: !!n.planned, findings: (ix.findingsByNode[n.id] || []).length, parent,
   };
@@ -286,10 +286,4 @@ export function findNode(ix: Index, q: string): string | null {
 export function moduleStatus(ix: Index, f: string): Status {
   const m = ix.modules[f];
   return m.node.status !== "unchanged" ? m.node.status : m.dirty ? "changed" : "unchanged";
-}
-
-/** The Links toggle: when `show` is off every edge gets `nolink` (hidden), except the selected node's. */
-export function applyLinks(cy: cytoscape.Core, show: boolean) {
-  cy.edges().toggleClass("nolink", !show);
-  if (!show) cy.$("node:selected").connectedEdges().removeClass("nolink");
 }
