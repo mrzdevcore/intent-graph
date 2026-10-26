@@ -1,6 +1,7 @@
 //! The board engine core: model, gestures, undo with agent steps, merge, hit-testing and the
 //! scene. Pure and clock-free (time is the host's), so it builds for wasm32-unknown-unknown.
 
+mod arch_keys;
 mod camera;
 mod delta;
 mod engine;
