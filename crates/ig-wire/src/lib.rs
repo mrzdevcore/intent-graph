@@ -116,8 +116,15 @@ pub struct Changed {
 fn design_slug(rel: &Path) -> Option<String> {
     let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_str()).collect();
     match parts[..] {
-        [Some("plans"), Some(s), Some(f)] if f != "plan.md" => Some(s.into()),
-        [Some("plans"), Some(s), Some(_), ..] if parts.len() > 3 => Some(s.into()),
+        [Some("plans"), Some(s), Some(f)]
+            if f == "design.json"
+                || f == "notes.md"
+                || f.starts_with("design.tmp-")
+                || f.starts_with("notes.tmp-") =>
+        {
+            Some(s.into())
+        }
+        [Some("plans"), Some(s), Some("screens" | "assets"), _, ..] => Some(s.into()),
         _ => None,
     }
 }
@@ -245,6 +252,8 @@ mod tests {
         };
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(want));
         std::fs::write(dir.join("plans/a/plan.md"), "# A").unwrap();
+        assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().full);
+        std::fs::write(dir.join("plans/a/y.md"), "# Y").unwrap();
         assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().full);
         let _ = std::fs::remove_dir_all(&dir);
     }
