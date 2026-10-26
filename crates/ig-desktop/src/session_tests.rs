@@ -180,6 +180,10 @@ fn a_question_is_answered_once_with_its_own_fields() {
             r.s.reply(id, Some(json!({"question_0": 3}))).is_err(),
             "not a label"
         );
+        assert!(
+            r.s.reply(id, Some(json!({"question_0": "Huge"}))).is_err(),
+            "not an option"
+        );
         r.s.reply(id, Some(json!({"question_0": "Small"}))).unwrap();
         assert!(r.s.reply(id, None).is_err(), "answered twice");
         assert_eq!(

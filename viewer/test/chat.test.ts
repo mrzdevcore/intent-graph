@@ -77,3 +77,13 @@ test("a session switch starts over; auth and setup are screens", () => {
   s = chatReducer(s, { type: "Setup", instructions: "npm install x", installable: true });
   expect(s.setup).toEqual({ instructions: "npm install x", installable: true });
 });
+
+test("the live region gets the turn's whole reply at its end, never replayed history", () => {
+  const chunk = (text: string): ChatAction => ({ type: "MessageChunk", sessionId: "s", role: "agent", content: { type: "text", text } });
+  let s = play([chunk("old "), chunk("history")]);
+  expect(s.live).toBe("");
+  s = play([{ type: "Sent", text: "hi" }, chunk("Hel"), chunk("lo")], s);
+  expect(s.live).toBe("");
+  s = chatReducer(s, { type: "TurnEnded", stopReason: "end_turn" });
+  expect(s.live).toBe("Hello");
+});

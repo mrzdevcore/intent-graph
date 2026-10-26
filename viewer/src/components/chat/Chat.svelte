@@ -130,26 +130,29 @@
     send("/ig:plan " + what);
   }
 
-  async function answer(requestId: number, optionId: string) {
+  /** Sends an answer; the card closes when it went through, or when the agent no longer waits for it. */
+  async function settle(requestId: number, answer: string, send: () => Promise<void>) {
     try {
-      await agent.answer(requestId, optionId);
+      await send();
     } catch (e) {
       error = msg(e);
+      if (!/already answered or unknown/.test(error)) return; // the card stays open: try again
     }
-    dispatch({ type: "Answered", requestId, answer: optionId });
+    dispatch({ type: "Answered", requestId, answer });
   }
 
-  async function reply(requestId: number, content: Record<string, string | string[]> | null, summary: string) {
-    try {
-      await agent.reply(requestId, content);
-    } catch (e) {
+  const answer = (requestId: number, optionId: string) =>
+    settle(requestId, optionId, () => agent.answer(requestId, optionId));
+
+  const reply = (requestId: number, content: Record<string, string | string[]> | null, summary: string) =>
+    settle(requestId, summary, () => agent.reply(requestId, content));
+
+  /** A refused change (a bypass mode not confirmed) puts the select back. */
+  function setConfig(id: string, el: HTMLSelectElement, was: string) {
+    agent.setConfig(id, el.value).catch((e) => {
       error = msg(e);
-    }
-    dispatch({ type: "Answered", requestId, answer: summary });
-  }
-
-  function setConfig(id: string, value: string) {
-    agent.setConfig(id, value).catch((e) => (error = msg(e)));
+      el.value = was;
+    });
   }
 
   onMount(() => {
@@ -191,7 +194,7 @@
     <div class="chat-bar">
       {#each s.config as c}
         <label>{c.name}
-          <select value={c.currentValue} onchange={(e) => setConfig(c.id, e.currentTarget.value)}>
+          <select value={c.currentValue} onchange={(e) => setConfig(c.id, e.currentTarget, c.currentValue)}>
             {#each c.options as o}<option value={o.value} title={o.description}>{o.name}</option>{/each}
           </select>
         </label>
@@ -261,7 +264,7 @@
       </div>
     {/if}
   </div>
-  <div class="sr-only" aria-live="polite">{#each s.live as c}<span>{c}</span>{/each}</div>
+  <div class="sr-only" aria-live="polite">{s.live}</div>
   {#if error}<div class="msg error" role="alert">{error}</div>{/if}
 
   {#if !trust}
