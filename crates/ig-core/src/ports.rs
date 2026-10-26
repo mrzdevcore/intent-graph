@@ -89,7 +89,8 @@ pub trait Vcs: Send + Sync {
     /// Untracked files plus, with a base, files changed against it; may include deleted ones
     /// (callers filter with `Files::exists`). Failures become notices.
     fn changed_files(&self, base: Option<&str>, notices: &mut Vec<String>) -> Vec<String>;
-    /// Tracked and untracked files that are not gitignored, relative to the ig root, sorted.
+    /// Tracked and untracked files that are not gitignored and exist on disk (tracked-but-deleted
+    /// ones are left out), relative to the ig root, sorted.
     /// Empty outside a repository.
     fn list_files(&self) -> Vec<String>;
     /// No uncommitted changes.

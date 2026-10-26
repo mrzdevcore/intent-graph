@@ -50,6 +50,7 @@ pub fn file_tree_for(root: &Path, dir: Option<&str>) -> Vec<Entry> {
         }
     };
     let prefix = dir
+        .filter(|d| !d.trim_matches('/').is_empty())
         .map(|d| format!("{}/", d.trim_matches('/')))
         .unwrap_or_default();
     let mut kids: BTreeMap<&str, &'static str> = BTreeMap::new();
@@ -57,6 +58,10 @@ pub fn file_tree_for(root: &Path, dir: Option<&str>) -> Vec<Entry> {
         let Some(rest) = f.strip_prefix(&prefix) else {
             continue;
         };
+        // A nested repository is listed as "dir/": no child to show.
+        if rest.is_empty() {
+            continue;
+        }
         match rest.split_once('/') {
             Some((d, _)) => kids.insert(d, "dir"),
             None => kids.insert(rest, "file"),
@@ -136,6 +141,38 @@ mod tests {
         );
         let apps = file_tree_for(&d, Some("apps"));
         assert!(!apps.is_empty() && apps.iter().all(|e| e.path.starts_with("apps/")));
+    }
+
+    #[test]
+    fn empty_dir_is_the_root_nested_repos_have_no_empty_child_and_deleted_files_are_gone() {
+        let d = tmp("edge");
+        git(&d, &["init", "-q"]);
+        std::fs::write(d.join("gone.txt"), "x").unwrap();
+        std::fs::write(d.join("kept.txt"), "x").unwrap();
+        git(&d, &["add", "."]);
+        git(
+            &d,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                "c",
+            ],
+        );
+        std::fs::remove_file(d.join("gone.txt")).unwrap();
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        git(&d.join("sub"), &["init", "-q"]);
+        std::fs::write(d.join("sub/f.txt"), "x").unwrap();
+        assert_eq!(file_tree_for(&d, Some("")), file_tree_for(&d, None));
+        let root: Vec<_> = file_tree_for(&d, None)
+            .into_iter()
+            .map(|e| e.path)
+            .collect();
+        assert_eq!(root, ["sub", "kept.txt"]);
+        assert!(file_tree_for(&d, Some("sub")).is_empty());
     }
 
     #[test]
