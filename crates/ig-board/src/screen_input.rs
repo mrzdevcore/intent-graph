@@ -432,7 +432,7 @@ impl Engine {
         let mut ops = vec![
             Op::AddScreen {
                 id: Some(id.clone()),
-                title: format!("{} · {state}", base.title),
+                title: base.title.clone(), // the state shows as a chip by the name
                 variant_of: Some(base_id.clone()),
                 state: Some(state.into()),
             },

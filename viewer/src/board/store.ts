@@ -46,7 +46,7 @@ export const realClock: Clock = {
 };
 
 export type StoreEngine = Pick<BoardEngine, "load" | "ops" | "external" | "setCheck" | "board" | "saved">
-  & Partial<Pick<BoardEngine, "screens" | "setImage" | "importImage">>;
+  & Partial<Pick<BoardEngine, "screens" | "setImage" | "importImage" | "dropImage">>;
 
 /** Decodes an image for its texture; null when it can't (a placeholder shows instead). */
 export type Decode = (bytes: Uint8Array) => Promise<ImageBitmap | null>;
@@ -71,7 +71,8 @@ export interface StoreHooks {
   turns?(): AgentTurn[];
   /** Something the chrome shows changed (status, errors, check). */
   changed?(): void;
-  /** Claude's edit was merged: `disk` is the file it wrote (the outbox's new baseline). */
+  /** Claude's edit was merged: `disk` is the board on disk now, as `text()` gives it (the
+   *  outbox's new baseline). */
   agentMerged?(disk: string): void;
 }
 
@@ -133,8 +134,18 @@ export class BoardStore {
     this.screensPath = `plans/${slug}/screens/`;
   }
 
-  /** The board as one text: the design, with every screen when there are screens. */
-  private boardText(): string {
+  /** design.json as last read or written. */
+  private diskDesign: Design | null = null;
+
+  /** The board on disk as one text, in `text()`'s form. */
+  private diskText(): string {
+    if (!this.screensApi) return JSON.stringify(this.diskDesign);
+    return JSON.stringify({ design: this.diskDesign, screens: Object.values(this.disk).map((t) => JSON.parse(t) as Screen) });
+  }
+
+  /** The board as one text: the design, with every screen when there are screens (the outbox's
+   *  and the recovery file's form). */
+  text(): string {
     if (!this.screensApi || !this.engine.screens) return this.engine.board();
     const screens = Object.values(this.engine.screens()).map((t) => JSON.parse(t) as Screen);
     return JSON.stringify({ design: JSON.parse(this.engine.board()), screens });
@@ -181,6 +192,7 @@ export class BoardStore {
     if (this.closed) return;
     this.engine.load(JSON.stringify(screens ? { design: d, screens } : d), this.hooks.context());
     if (screens) this.setDisk(screens);
+    this.diskDesign = d;
     this.loaded = true;
     this.recheck();
     this.notify();
@@ -189,10 +201,16 @@ export class BoardStore {
 
   /** Textures for the images the screens show, each read and decoded once (`asset-changed`
    *  calls this again: idempotent). One that can't be read or decoded stays a placeholder. */
-  async loadImages(): Promise<void> {
+  async loadImages(changed?: string): Promise<void> {
     const api = this.screensApi, e = this.engine;
     if (!api || !e.screens || !e.setImage || this.closed) return;
-    for (const name of assetsOf(e.screens()).filter((n) => !this.images.has(n))) {
+    const shown = assetsOf(e.screens());
+    // a replaced file is read again; one no screen shows any more gives its texture back
+    for (const name of [...this.images].filter((n) => n === changed || !shown.includes(n))) {
+      this.images.delete(name);
+      e.dropImage?.(name);
+    }
+    for (const name of shown.filter((n) => !this.images.has(n))) {
       this.images.add(name);
       const bytes = await api.readAsset(this.slug, name).catch((err: unknown) => (console.error(err), null));
       const bitmap = bytes && (await this.decode(bytes));
@@ -234,6 +252,7 @@ export class BoardStore {
     const turn = agentStep(this.clock.now(), this.hooks.turns?.() ?? []);
     this.onOut(this.engine.external(JSON.stringify({ screens: list }), turn));
     this.setDisk(list);
+    if (turn) this.hooks.agentMerged?.(this.diskText());
     this.notify();
     void this.loadImages();
     return true;
@@ -244,6 +263,7 @@ export class BoardStore {
     if (o.changed) {
       this.queueSave();
       this.follow();
+      if (this.screensApi) void this.loadImages();
     }
     if (o.placed) this.place(o.placed.id, o.placed.layer);
     if (o.meaning) this.recheck();
@@ -273,7 +293,7 @@ export class BoardStore {
       await this.flush();
       if (this.saveError || this.readOnly.has(this.path)) break;
     }
-    if (this.loaded && !this.closed && this.dirty) await this.keep(this.boardText(), this.saveError);
+    if (this.loaded && !this.closed && this.dirty) await this.keep(this.text(), this.saveError);
   }
 
   /** The engine is about to be freed: the board text is taken now, synchronously, and written
@@ -281,7 +301,7 @@ export class BoardStore {
    *  the recovery copy. The store is disposed. */
   close(): Promise<void> {
     const text = this.loaded ? this.engine.board() : null;
-    const all = this.loaded ? this.boardText() : null;
+    const all = this.loaded ? this.text() : null;
     const screens = this.loaded && this.screensApi ? this.engine.screens?.() : undefined;
     const invalid = this.readOnly.has(this.path);
     this.dispose();
@@ -332,8 +352,12 @@ export class BoardStore {
     if (this.closed) return false;
     this.ok();
     const text = JSON.stringify(d);
+    this.diskDesign = d;
     if (!this.loaded) {
-      this.engine.load(text, this.hooks.context());
+      const screens = this.screensApi ? await this.listScreens() : null;
+      if (this.closed) return false;
+      this.engine.load(JSON.stringify(screens ? { design: d, screens } : d), this.hooks.context());
+      if (screens) this.setDisk(screens);
       this.loaded = true;
       this.dirty = false; // the blank board's state is gone
       this.recheck();
@@ -341,7 +365,7 @@ export class BoardStore {
       const turn = agentStep(this.clock.now(), this.hooks.turns?.() ?? []);
       const o = this.engine.external(text, turn);
       this.onOut(o);
-      if (turn) this.hooks.agentMerged?.(text);
+      if (turn) this.hooks.agentMerged?.(this.diskText());
     }
     this.notify();
     return true;
@@ -387,7 +411,7 @@ export class BoardStore {
       try {
         // a write that ends after dispose never sets the merge base of what the engine shows now
         const engine = { board: () => this.engine.board(), saved: (t: string) => this.closed || this.engine.saved(t) };
-        await save(engine, (t) => this.api.write(this.slug, JSON.parse(t) as Design));
+        this.diskDesign = JSON.parse(await save(engine, (t) => this.api.write(this.slug, JSON.parse(t) as Design))) as Design;
         const now = this.screensApi ? this.engine.screens?.() : undefined;
         if (now) await this.writeScreens(now, (p) => this.closed || this.engine.saved(JSON.stringify({ screens: p })));
         this.saveError = null;

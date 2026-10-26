@@ -308,3 +308,92 @@ fn a_chat_card_on_a_piece_switches_to_the_screens_and_an_image_becomes_the_backg
     assert_eq!(e.hit(200.0, 200.0).as_deref(), Some("login"));
     assert_eq!(e.hit(20.0, 20.0).as_deref(), Some("login/btn-a"));
 }
+
+#[test]
+fn a_click_off_a_pen_line_inside_its_box_selects_the_piece_below() {
+    let mut b = engine().board().clone();
+    let s = b.screens.get_mut("login").unwrap();
+    // a stroke along the top and down the right of the button's box: (8, 8) to (88, 8) to (88, 40)
+    let pen: Piece = serde_json::from_value(serde_json::json!({
+        "id": "pen-1", "kind": "pen", "label": "", "x": 8, "y": 8, "w": 80, "h": 32,
+        "points": [[0, 0, 50], [80, 0, 50], [80, 32, 50]],
+    }))
+    .unwrap();
+    s.elements.push(pen);
+    let mut e = Engine::new(Context::default(), b);
+    e.surface(Surface::Screens);
+    assert_eq!(
+        e.hit(40.0, 26.0).as_deref(),
+        Some("login/btn-a"),
+        "inside the box, off the line"
+    );
+    assert_eq!(
+        e.hit(40.0, 9.0).as_deref(),
+        Some("login/pen-1"),
+        "on the line"
+    );
+    assert_eq!(e.hit(87.0, 30.0).as_deref(), Some("login/pen-1"));
+    // the marquee still takes it by its box
+    e.camera.y = -20.0; // room above the screen to start a marquee
+    let o = drag(&mut e, (2.0, 2.0), (120.0, 80.0));
+    assert!(
+        o.selection.contains(&"login/pen-1".to_string()),
+        "{:?}",
+        o.selection
+    );
+}
+
+#[test]
+fn screen_names_and_state_chips_are_labelled_at_any_zoom() {
+    let mut e = engine();
+    e.variant("login", "loading");
+    (e.camera.zoom, e.camera.y) = (0.2, -100.0);
+    e.scene([0.0, 0.0, 1200.0, 800.0]);
+    let ls = e.labels();
+    let name = |id: &str| ls.iter().find(|l| l.id == id).cloned();
+    let login = name("login").expect("the name is there at 20 %");
+    assert!(login.name && login.chip.is_none());
+    let v = name("login-loading").unwrap();
+    assert_eq!(
+        (v.text.as_str(), v.chip.as_deref(), v.name),
+        ("login", Some("LOADING"), true)
+    );
+    assert!(!name("login/btn-a").unwrap().name);
+}
+
+#[test]
+fn ink_stays_visible_when_zoomed_out() {
+    use crate::screen_scene::ink_width;
+    assert_eq!(ink_width(1.0), 1.6);
+    for z in [0.05, 0.1, 0.2, 0.33, 0.5, 1.0, 4.0] {
+        assert!(ink_width(z) * z >= 1.2, "{z}");
+        assert!(ink_width(z) * z < 2.5 || ink_width(z) == 1.6, "{z}");
+    }
+    let mut e = engine();
+    let near = e.scene([0.0, 0.0, 1200.0, 800.0]).ink.clone();
+    e.camera.zoom = 0.2;
+    let far = e.scene([0.0, 0.0, 1200.0, 800.0]).ink.clone();
+    assert_ne!(near, far, "re-tessellated wider");
+}
+
+#[test]
+fn screen_edits_read_as_lines_and_moves_as_none() {
+    let mut e = engine();
+    let before = e.board().clone();
+    drag(&mut e, (20.0, 20.0), (60.0, 60.0));
+    assert!(crate::delta(&before, e.board()).is_empty(), "a move alone");
+    e.rename("login/btn-a", "Sign in");
+    e.variant("login", "error");
+    key(&mut e, "a");
+    drag(&mut e, (60.0, 60.0), (600.0, 100.0));
+    let lines = crate::delta(&before, e.board());
+    assert_eq!(
+        lines,
+        [
+            "relabeled login/btn-a: btn-a → Sign in",
+            "nav login/btn-a → screen home ()",
+            "added screen login-error (login, state error of login)",
+            "added button login-error/btn-a (Sign in)",
+        ]
+    );
+}

@@ -109,6 +109,7 @@ pub fn delta(prev: &Board, next: &Board) -> Vec<String> {
     if a.title != b.title {
         out.push(format!("title: {}", b.title));
     }
+    out.extend(crate::screens::screen_delta(&prev.screens, &next.screens));
     out
 }
 

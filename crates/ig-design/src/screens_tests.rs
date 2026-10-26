@@ -270,3 +270,25 @@ fn screen_set_moves_retitles_and_sets_the_background() {
     let o = ops(json!([{"op":"screen_set","id":"login","set":{"title":" "}}]));
     assert!(apply(&b, &o).is_err());
 }
+
+#[test]
+fn sizes_and_positions_are_bounded_on_what_changed() {
+    let set = |v: serde_json::Value| ops(json!([{"op":"screen_set","id":"login","set":v}]));
+    assert!(apply(&board(), &set(json!({"w":0}))).is_err());
+    assert!(apply(&board(), &set(json!({"h":20001}))).is_err());
+    assert!(apply(&board(), &set(json!({"x":1000001}))).is_err());
+    assert!(apply(&board(), &set(json!({"w":20000,"x":-1000000}))).is_ok());
+    let bg = json!({"asset":"0123456789ab.png","x":0,"y":0,"w":0,"h":10});
+    assert!(apply(&board(), &set(json!({"background":bg}))).is_err());
+    let upd = |id: &str, v: serde_json::Value| {
+        ops(json!([{"op":"screen_update","screen":"login","id":id,"set":v}]))
+    };
+    assert!(apply(&board(), &upd("btn-go", json!({"w":-5}))).is_err());
+    assert!(apply(&board(), &upd("arrow-1", json!({"w":-5,"h":-20000}))).is_ok());
+    let mv = ops(json!([{"op":"screen_move","screen":"login","id":"btn-go","x":2000000,"y":0}]));
+    assert!(apply(&board(), &mv).is_err());
+    // an old out-of-bounds piece still takes edits that leave its geometry alone
+    let mut b = board();
+    b.screens.get_mut("login").unwrap().elements[0].w = 0;
+    assert!(apply(&b, &upd("btn-go", json!({"label":"Go!"}))).is_ok());
+}

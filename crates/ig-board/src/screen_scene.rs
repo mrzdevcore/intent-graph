@@ -11,8 +11,17 @@ use crate::tess::{fill, stroke};
 use ig_design::{Board, Nav, Piece, PieceKind, Screen};
 use std::collections::{HashMap, HashSet};
 
-/// World px of a sketch line.
+/// World px of a sketch line at 100 %.
 const INK: f32 = 1.6;
+/// The thinnest a sketch line gets on screen, in CSS px, so the wobble shows when zoomed out.
+const MIN_PX: f32 = 1.2;
+
+/// The line width (world px) for a zoom: `INK` doubled until it shows at least `MIN_PX`, so the
+/// cache is rebuilt only when the zoom crosses a power of two.
+pub(crate) fn ink_width(zoom: f32) -> f32 {
+    let need = (MIN_PX / zoom.max(0.01)).max(INK);
+    INK * (need / INK).log2().ceil().exp2()
+}
 
 /// What a cached sketch was made from: kind, size, props and points (never the position).
 #[derive(Clone, PartialEq)]
@@ -23,28 +32,35 @@ pub(crate) struct Inks {
     by_key: HashMap<String, (Source, Vec<[f32; 2]>)>,
     /// The board changed since the last check.
     pub stale: bool,
+    /// The line width the cache was made with.
+    width: f32,
+}
+
+impl Inks {
+    fn cache(&mut self, key: &str, src: Source, seed: u64) {
+        if self.by_key.get(key).is_some_and(|(s, _)| *s == src) {
+            return;
+        }
+        let tris = tessellate(&src, seed, self.width);
+        self.by_key.insert(key.into(), (src, tris));
+    }
 }
 
 fn source(p: &Piece) -> Source {
     Source(p.kind, p.w, p.h, p.props.clone(), p.points.clone())
 }
 
-fn tessellate(
-    kind: PieceKind,
-    w: i32,
-    h: i32,
-    points: &Option<Vec<[i32; 3]>>,
-    seed: u64,
-) -> Vec<[f32; 2]> {
-    if kind == PieceKind::Pen {
+fn tessellate(src: &Source, seed: u64, width: f32) -> Vec<[f32; 2]> {
+    let Source(kind, w, h, _, points) = src;
+    if *kind == PieceKind::Pen {
         return fill(&pen_outline(points.as_deref().unwrap_or_default()))
             .corners()
             .collect();
     }
-    let lines = sketch(kind, w as f32, h as f32, seed);
+    let lines = sketch(*kind, *w as f32, *h as f32, seed);
     lines
         .iter()
-        .flat_map(|l| stroke(l, INK).corners().collect::<Vec<_>>())
+        .flat_map(|l| stroke(l, width).corners().collect::<Vec<_>>())
         .collect()
 }
 
@@ -61,6 +77,24 @@ pub(crate) fn piece_rect(s: &Screen, p: &Piece, off: (f32, f32)) -> [f32; 4] {
         w.abs(),
         h.abs(),
     ]
+}
+
+/// The line a pen or arrow piece is hit by (world segments); empty for the others.
+pub(crate) fn piece_line(s: &Screen, p: &Piece) -> Vec<crate::hit::Seg> {
+    let o = [(s.x + p.x) as f32, (s.y + p.y) as f32];
+    let at = |x: i32, y: i32| [o[0] + x as f32, o[1] + y as f32];
+    match (p.kind, &p.points) {
+        (PieceKind::Arrow, _) => vec![(at(0, 0), at(p.w, p.h))],
+        (PieceKind::Pen, Some(pts)) if pts.len() >= 2 => pts
+            .windows(2)
+            .map(|w| (at(w[0][0], w[0][1]), at(w[1][0], w[1][1])))
+            .collect(),
+        (PieceKind::Pen, Some(pts)) => pts
+            .iter()
+            .map(|q| (at(q[0], q[1]), at(q[0], q[1])))
+            .collect(),
+        _ => vec![],
+    }
 }
 
 /// From the piece's center to the nearest point of the screen the nav leads to. `off` gives a
@@ -89,33 +123,30 @@ fn add(a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
 }
 
 impl Engine {
-    /// Re-tessellates what changed since the last scene and forgets what is gone.
+    /// Re-tessellates what changed since the last scene (or everything, when the zoom asks for
+    /// another line width) and forgets what is gone.
     pub(crate) fn update_inks(&mut self) {
-        if !self.inks.stale {
-            return;
+        let width = ink_width(self.camera.zoom);
+        let mut inks = std::mem::take(&mut self.inks);
+        if inks.width != width {
+            (inks.by_key, inks.width, inks.stale) = (HashMap::new(), width, true);
         }
-        let b = self.board().clone();
-        let mut live = HashSet::new();
-        for s in b.screens.values() {
-            let frame = Source(PieceKind::Frame, s.w, s.h, Default::default(), None);
-            self.cache(&s.id, frame, seed_of(&s.id));
-            live.insert(s.id.clone());
-            for p in &s.elements {
-                let key = piece_key(&s.id, &p.id);
-                self.cache(&key, source(p), seed_of(&p.id));
-                live.insert(key);
+        if inks.stale {
+            let mut live = HashSet::new();
+            for s in self.board().screens.values() {
+                let frame = Source(PieceKind::Frame, s.w, s.h, Default::default(), None);
+                inks.cache(&s.id, frame, seed_of(&s.id));
+                live.insert(s.id.clone());
+                for p in &s.elements {
+                    let key = piece_key(&s.id, &p.id);
+                    inks.cache(&key, source(p), seed_of(&p.id));
+                    live.insert(key);
+                }
             }
+            inks.by_key.retain(|k, _| live.contains(k));
+            inks.stale = false;
         }
-        self.inks.by_key.retain(|k, _| live.contains(k));
-        self.inks.stale = false;
-    }
-
-    fn cache(&mut self, key: &str, src: Source, seed: u64) {
-        if self.inks.by_key.get(key).is_some_and(|(s, _)| *s == src) {
-            return;
-        }
-        let tris = tessellate(src.0, src.1, src.2, &src.4, seed);
-        self.inks.by_key.insert(key.into(), (src, tris));
+        self.inks = inks;
     }
 
     /// The drag offset of a screen id or piece key.
@@ -300,10 +331,12 @@ pub(crate) fn labels(e: &Engine) -> Vec<Label> {
     let seen = e.camera.visible(e.view[2], e.view[3]);
     let reason = |id: &str| e.checks.get(id).map(|c| c.1.clone());
     let mut out = vec![];
-    let mut push = |id: String, text: String, paper: bool| {
+    let mut push = |id: String, text: String, paper: bool, chip: Option<String>| {
         if let Some(r) = label_rect(b, &id).filter(|r| meets(*r, seen) && !text.is_empty()) {
             out.push(Label {
                 title: reason(&id),
+                name: b.screens.contains_key(&id),
+                chip,
                 id,
                 text,
                 r,
@@ -313,12 +346,13 @@ pub(crate) fn labels(e: &Engine) -> Vec<Label> {
         }
     };
     for s in b.screens.values() {
-        push(s.id.clone(), title(s), false);
+        let chip = s.state.as_ref().map(|st| st.to_uppercase());
+        push(s.id.clone(), s.title.clone(), false, chip);
         for p in s.elements.iter().filter(|p| p.kind != PieceKind::Pen) {
-            push(piece_key(&s.id, &p.id), p.label.clone(), true);
+            push(piece_key(&s.id, &p.id), p.label.clone(), true, None);
         }
         for n in &s.navs {
-            push(nav_key(&s.id, n), n.label.clone(), false);
+            push(nav_key(&s.id, n), n.label.clone(), false, None);
         }
     }
     out

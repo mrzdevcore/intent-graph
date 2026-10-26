@@ -181,6 +181,12 @@ impl Renderer {
         Ok(())
     }
 
+    pub fn drop_image(&mut self, asset: &str) {
+        if let Some(t) = self.textures.remove(asset) {
+            self.gl.delete_texture(Some(&t));
+        }
+    }
+
     fn uniforms(&self, p: &Prog, cam: Camera, size: (f32, f32)) {
         self.gl.use_program(Some(&p.p));
         self.gl.uniform3f(p.cam.as_ref(), cam.x, cam.y, cam.zoom);

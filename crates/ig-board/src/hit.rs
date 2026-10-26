@@ -7,6 +7,9 @@ use std::collections::{HashMap, HashSet};
 
 const CELL: f32 = 256.0;
 
+/// A line segment, world px.
+pub(crate) type Seg = ([f32; 2], [f32; 2]);
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Target {
     El(String),
@@ -30,6 +33,8 @@ enum Tier {
     Ctx,
     Frame,
     El,
+    /// Pens and arrows: in the marquee by their box, hit by distance to their line (`lines`).
+    Line,
 }
 
 #[derive(Default)]
@@ -39,6 +44,9 @@ pub(crate) struct Index {
     /// Link key, its ends' centers.
     // ponytail: links are scanned linearly (0.1 µs at 2k); grid them past ~20k links
     pub segs: Vec<(String, [f32; 2], [f32; 2])>,
+    /// Pen and arrow pieces: their key and the segments of their line (world).
+    // ponytail: scanned linearly like `segs`; grid them if pens run to tens of thousands of points
+    pub lines: Vec<(String, Vec<Seg>)>,
     /// Box centers by element or graph id.
     pub centers: HashMap<String, [f32; 2]>,
 }
@@ -93,7 +101,7 @@ impl Index {
     /// The screens surface: frames, then pieces (world rects), then navs from a piece's center
     /// to the nearest point of the screen it leads to. Backgrounds are locked: never hit.
     pub fn build_screens(b: &Board) -> Index {
-        use crate::screen_scene::{nav_ends, piece_rect, screen_rect};
+        use crate::screen_scene::{nav_ends, piece_line, piece_rect, screen_rect};
         use crate::screens::{nav_key, piece_key};
         let mut ix = Index::default();
         for s in b.screens.values() {
@@ -101,8 +109,18 @@ impl Index {
         }
         for s in b.screens.values() {
             for p in &s.elements {
-                let t = Target::El(piece_key(&s.id, &p.id));
-                ix.add(t, piece_rect(s, p, (0.0, 0.0)), Tier::El);
+                let key = piece_key(&s.id, &p.id);
+                let r = piece_rect(s, p, (0.0, 0.0));
+                let line = piece_line(s, p);
+                let tier = if line.is_empty() {
+                    Tier::El
+                } else {
+                    Tier::Line
+                };
+                ix.add(Target::El(key.clone()), r, tier);
+                if !line.is_empty() {
+                    ix.lines.push((key, line));
+                }
             }
         }
         for s in b.screens.values() {
@@ -141,7 +159,12 @@ impl Index {
                 .find(|b| b.2 == tier && inside(b.1, x, y))
                 .map(|b| b.0.clone())
         };
-        top(Tier::El)
+        let near =
+            |l: &[([f32; 2], [f32; 2])]| l.iter().any(|(a, b)| seg_dist([x, y], *a, *b) <= tol);
+        (self.lines.iter().rev())
+            .find(|(_, l)| near(l))
+            .map(|(k, _)| Target::El(k.clone()))
+            .or_else(|| top(Tier::El))
             .or_else(|| {
                 self.segs
                     .iter()

@@ -176,6 +176,12 @@ impl Engine {
         self.pressure = p.clamp(0.0, 1.0);
     }
 
+    /// The image's texture is gone: it draws as a placeholder.
+    pub fn drop_image(&mut self, asset: &str) {
+        self.images.remove(asset);
+        self.drawn = None;
+    }
+
     /// The host decoded this image (`w × h` px): it draws instead of its placeholder.
     pub fn set_image(&mut self, asset: &str, w: u32, h: u32) {
         self.images.insert(asset.into(), (w, h));

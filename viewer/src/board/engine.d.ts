@@ -39,8 +39,10 @@ export interface EngineOut {
 export interface Camera { x: number; y: number; zoom: number }
 
 /** A label in world px; `title` is the check's reason. */
-/** `paper`: on a screen's paper (dark ink in both themes). */
-export interface Label { id: string; text: string; r: [number, number, number, number]; faded: boolean; title: string | null; paper?: boolean }
+/** `paper`: on a screen's paper (dark ink in both themes). `name`: a screen's name, drawn unscaled
+ *  above its frame at any zoom, with its state as `chip` (LOADING, ERROR…). */
+export interface Label { id: string; text: string; r: [number, number, number, number]; faded: boolean; title: string | null;
+  paper?: boolean; name?: boolean; chip?: string }
 
 /** `question`: a sticky note marked as one; `answer`: its answer, null while open. */
 export interface A11yItem { id: string; kind: string; text: string; selected: boolean; highlighted: boolean; problem: string | null;
@@ -82,7 +84,8 @@ export interface BoardEngine {
   redo(): EngineOut;
   /** The canonical design.json text (`ig_design::to_text`). */
   board(): string;
-  /** What changed between two board texts, as lines for Claude; none for a geometry-only change. */
+  /** What changed between two board texts (design and screens), as lines for Claude; none for a
+   *  geometry-only change. */
   delta(prevJson: string, nextJson: string): string[];
   /** After EVERY successful write of `written` (a `board()` result): later merges start from it. */
   saved(written: string): void;
@@ -97,5 +100,7 @@ export interface BoardEngine {
   a11y(): A11yItem[];
   /** Uploads the image's texture (kept for a restored context); drawn instead of its placeholder. */
   setImage(asset: string, bitmap: ImageBitmap): void;
+  /** Frees the image's texture and closes its bitmap (no screen shows it, or its file changed). */
+  dropImage(asset: string): void;
   free(): void;
 }

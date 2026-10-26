@@ -114,6 +114,7 @@
     screens: () => engine!.screens(),
     setImage: (a, b) => void board?.run((e) => e.setImage(a, b)),
     importImage: (a) => board?.run((e) => e.importImage(a)) ?? NOOP,
+    dropImage: (a) => void board?.run((e) => e.dropImage(a)),
   };
 
   async function open(next: string) {
@@ -138,7 +139,7 @@
         version++;
       },
       turns: () => chat?.turns.filter((t) => t.feature === next) ?? [],
-      agentMerged: (d) => engine && outbox?.agent(d, engine.board()),
+      agentMerged: (d) => engine && outbox?.agent(d, s.text()),
     }, screensApi);
     store = s;
     // the context follows the file's scope, which is only known once it is read
@@ -226,12 +227,12 @@
   /** A user edit, after the store's follow-ups (a placed element's file); queued whether or
    *  not the chat is in the feature's session (only the send waits for that). */
   function queue() {
-    if (outbox && engine) outbox.push(engine.board());
+    if (outbox && engine && store) outbox.push(store.text());
   }
 
   /** What Claude knows now: the board as it is, nothing queued. */
   function rebase() {
-    if (engine && outbox) outbox.baseline(engine.board());
+    if (engine && outbox && store) outbox.baseline(store.text());
   }
 
   // the chat's "Edited the board" cards: Show selects and fits, Undo reverts Claude's turn

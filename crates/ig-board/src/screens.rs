@@ -72,6 +72,97 @@ pub(crate) fn diff(a: &Screens, b: &Screens) -> (Vec<String>, Vec<String>) {
     (changed, gone)
 }
 
+fn kind(p: &Piece) -> String {
+    serde_json::to_value(p.kind)
+        .unwrap()
+        .as_str()
+        .unwrap_or_default()
+        .into()
+}
+
+/// What changed in the screens as lines for Claude; a move or resize alone gives none.
+pub(crate) fn screen_delta(a: &Screens, b: &Screens) -> Vec<String> {
+    let mut out = vec![];
+    let asset = |s: &Screen| s.background.as_ref().map(|b| b.asset.clone());
+    for (id, s) in b {
+        let o = a.get(id);
+        match o {
+            None => {
+                let state = match (&s.state, &s.variant_of) {
+                    (Some(st), Some(v)) => format!(", state {st} of {v}"),
+                    (Some(st), None) => format!(", state {st}"),
+                    _ => String::new(),
+                };
+                out.push(format!("added screen {id} ({}{state})", s.title));
+            }
+            Some(o) if o.title != s.title => {
+                out.push(format!("retitled screen {id}: {} → {}", o.title, s.title))
+            }
+            _ => {}
+        }
+        if let Some(o) = o.filter(|o| o.state != s.state) {
+            let st = |v: &Option<String>| v.clone().unwrap_or_else(|| "none".into());
+            out.push(format!(
+                "set screen {id} state: {} → {}",
+                st(&o.state),
+                st(&s.state)
+            ));
+        }
+        if o.and_then(asset) != asset(s) {
+            match asset(s) {
+                Some(x) => out.push(format!("screen {id} background: image {x}")),
+                None => out.push(format!("screen {id} background removed")),
+            }
+        }
+        let (els, navs) = o.map_or((&[][..], &[][..]), |o| (&o.elements[..], &o.navs[..]));
+        for p in &s.elements {
+            let key = piece_key(id, &p.id);
+            let Some(q) = els.iter().find(|q| q.id == p.id) else {
+                out.push(format!("added {} {key} ({})", kind(p), p.label));
+                continue;
+            };
+            if q.label != p.label {
+                out.push(format!("relabeled {key}: {} → {}", q.label, p.label));
+            }
+            if q.props != p.props {
+                let props = serde_json::to_string(&p.props).unwrap_or_default();
+                out.push(format!("set {key} props: {props}"));
+            }
+            if (&q.from, &q.to) != (&p.from, &p.to) {
+                let e = |v: &Option<String>| v.clone().unwrap_or_else(|| "none".into());
+                out.push(format!("arrow {key}: from {} to {}", e(&p.from), e(&p.to)));
+            }
+        }
+        for q in els
+            .iter()
+            .filter(|q| !s.elements.iter().any(|p| p.id == q.id))
+        {
+            out.push(format!("removed {}", piece_key(id, &q.id)));
+        }
+        for n in &s.navs {
+            match navs.iter().find(|m| (&m.from, &m.to) == (&n.from, &n.to)) {
+                None => out.push(format!(
+                    "nav {id}/{} → screen {} ({})",
+                    n.from, n.to, n.label
+                )),
+                Some(m) if m.label != n.label => out.push(format!(
+                    "nav {id}/{} → screen {}: label {} → {}",
+                    n.from, n.to, m.label, n.label
+                )),
+                _ => {}
+            }
+        }
+        let gone = |m: &&Nav| !s.navs.iter().any(|n| (&m.from, &m.to) == (&n.from, &n.to));
+        for m in navs.iter().filter(gone) {
+            out.push(format!("removed nav {id}/{} → screen {}", m.from, m.to));
+        }
+    }
+    for id in a.keys().filter(|id| !b.contains_key(*id)) {
+        out.push(format!("removed screen {id}"));
+    }
+    out
+}
+
 /// Three-way merge of a keyed list: ours where ours changed it, else theirs; an item both
 /// changed is merged field by field. Ours' order first, then what theirs added.
 fn list<T: Clone + PartialEq + Serialize + DeserializeOwned>(
