@@ -238,6 +238,19 @@ pub fn validate(d: &Design) -> Result<(), DesignError> {
             return invalid(format!("{}: question and answer are for notes", e.id));
         }
     }
+    for e in &d.elements {
+        if let Some(f) = &e.frame
+            && !ids.contains(f.as_str())
+        {
+            return invalid(format!("{}: no frame {f}", e.id));
+        }
+        if let Some(o) = &e.on
+            && is_element_id(o)
+            && !ids.contains(o.as_str())
+        {
+            return invalid(format!("{}: note on unknown element {o}", e.id));
+        }
+    }
     // An end that looks like an element id must name one; anything else is a graph id.
     let check = |what: &str, key: String, end: &str| {
         if is_element_id(end) && !ids.contains(end) {
