@@ -95,6 +95,8 @@ export interface EdgeAttrs {
   sys?: boolean;
   /** One row's system edges folded into one edge to the External services band. */
   band?: boolean;
+  /** Between Blueprint nodes. */
+  bp?: boolean;
   /** A band edge's real ends (boxes and systems) and its number of systems. */
   via?: string[];
   systems?: number;
@@ -205,7 +207,7 @@ export function toGraphology(els: El[]): Graph<NodeAttrs, EdgeAttrs> {
     g.addEdgeWithKey(d.id, d.source, d.target, {
       from: d.source!, to: d.target!, size: widthOf(d.count ?? 1, !!d.violation), color: palette.muted,
       kind: d.kind ?? "", status: d.status ?? "unchanged", planned: !!d.planned, violation: !!d.violation, guessed: !!d.guessed,
-      ctx: !!d.ctx, count: d.count, boxed: isBoxEnd(g.getNodeAttributes(d.source!)) && isBoxEnd(g.getNodeAttributes(d.target!)),
+      ctx: !!d.ctx, count: d.count, bp: !!g.getNodeAttribute(d.source!, "bp") || !!g.getNodeAttribute(d.target!, "bp"), boxed: isBoxEnd(g.getNodeAttributes(d.source!)) && isBoxEnd(g.getNodeAttributes(d.target!)),
     });
   });
   // Rows (Architecture): system edges fold into one band edge per row, and skip-row edges curve aside.
@@ -389,9 +391,14 @@ export function edgeReducer(s: ViewState): (id: string, a: EdgeAttrs) => EdgeAtt
     else if (a.kind === "uses") [color, op] = [palette.warning, 0.4];
     if (a.status === "added") [color, op] = [palette.added, 0.6];
     if (a.status === "removed") color = palette.removed;
-    if (a.ctx) op = 0.15;
+    if (a.ctx) op = 0.25;
+    // Floors: Blueprint's journey edges and plain module links (Changed, Focus) stay readable.
+    if (a.bp) op = Math.max(op, 0.7);
+    else if (!a.boxed) op = Math.max(op, 0.5);
     if (a.violation) [color, op] = [palette.error, 1];
-    if (hot) [op, out.zIndex] = [Math.max(op, 0.9), 2];
+    // Hover changes opacity and the label only, never what sigma indexes (zIndex, type, hidden).
+    if (hot) op = Math.max(op, 0.9);
+    if (sel) out.zIndex = 2;
     out.dash = a.guessed ? 2 : a.planned || a.status === "removed" || a.kind === "http" || a.kind === "dispatch" ? 6 : 0;
     // Counts only for the hovered or selected box's edges: never piled over the boxes.
     out.label = a.step ?? (hot && a.count && a.count > 1 ? String(a.count) : undefined);
@@ -404,6 +411,50 @@ export function edgeReducer(s: ViewState): (id: string, a: EdgeAttrs) => EdgeAtt
     out.color = alpha(color, op);
     return out;
   };
+}
+
+type Patch = { partialGraph: { nodes: string[]; edges: string[] }; skipIndexation: true };
+
+/** Hover without a reducer pass over the whole graph: `st.hovered` is set at once and, on the next
+ *  frame, only the previous and new hovered nodes and their edges (band edges folded through them
+ *  included) are re-reduced, without re-indexing. A band anchor highlights nothing. */
+export function hoverer(st: ViewState, graph: () => Graph<NodeAttrs, EdgeAttrs>, refresh: (o: Patch) => void,
+  frame: (f: () => void) => unknown = requestAnimationFrame) {
+  let prev: string | null = null;
+  let queued = false;
+  return (id: string | null) => {
+    const g = graph();
+    if (id && (!g.hasNode(id) || g.getNodeAttribute(id, "kind") === "band")) id = null;
+    if (st.hovered === id) return;
+    st.hovered = id;
+    if (queued) return;
+    queued = true;
+    frame(() => {
+      queued = false;
+      const g = graph();
+      const ids = [...new Set([prev, st.hovered])].filter((x): x is string => !!x && g.hasNode(x));
+      prev = st.hovered;
+      if (!ids.length) return;
+      const edges = new Set<string>();
+      ids.forEach((n) => g.forEachEdge(n, (e) => void edges.add(e)));
+      g.forEachEdge((e, a) => a.band && ids.some((n) => a.via!.includes(n)) && edges.add(e));
+      refresh({ partialGraph: { nodes: ids, edges: [...edges] }, skipIndexation: true });
+    });
+  };
+}
+
+type P = { x: number; y: number };
+
+/** The control point of an edge's curve, which its arrow head aims from: `curve` × the length to
+ *  the left of the middle (dashed.ts's `c`). */
+export function guide(src: P, dst: P, curve: number): P {
+  return { x: (src.x + dst.x) / 2 - (dst.y - src.y) * curve, y: (src.y + dst.y) / 2 + (dst.x - src.x) * curve };
+}
+
+/** The curve's middle, where its count label sits. In viewport pixels (y down) pass `-curve`. */
+export function apex(src: P, dst: P, curve: number): P {
+  const c = guide(src, dst, curve);
+  return { x: (src.x + 2 * c.x + dst.x) / 4, y: (src.y + 2 * c.y + dst.y) / 4 };
 }
 
 /** An edge's tooltip: both ends (box names without their counts) and how many links it stands for. */

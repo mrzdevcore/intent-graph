@@ -6,8 +6,8 @@
   import { NodeCircleProgram } from "sigma/rendering";
   import type { NodeDisplayData, PartialButFor } from "sigma/types";
   import { createNodeImageProgram } from "@sigma/node-image";
-  import { CurvedEdgeProgram, EdgeProgramWithDash, guide } from "./dashed";
-  import { palette, setPalette } from "../model/sigma";
+  import { CurvedEdgeProgram, EdgeProgramWithDash } from "./dashed";
+  import { apex, palette, setPalette } from "../model/sigma";
 
   type Drawn = PartialButFor<NodeDisplayData, "x" | "y" | "size" | "label" | "color"> & {
     ring?: string; ringDash?: number; labelColor?: string; labelSize?: number; kind?: string; anchor?: boolean };
@@ -82,8 +82,8 @@
     let [x, y] = [s.x + dx * 0.35 + dy * k, s.y + dy * 0.35 - dx * k];
     if (d.curve) {
       // The Bézier's middle; the viewport's y is flipped, so its left is the curve's -curve side.
-      const c = guide(s, t, -d.curve);
-      [x, y] = [(s.x + 2 * c.x + t.x) / 4 + dy * k, (s.y + 2 * c.y + t.y) / 4 - dx * k];
+      const m = apex(s, t, -d.curve);
+      [x, y] = [m.x + dy * k, m.y - dx * k];
     }
     ctx.font = `700 11px ${FONT}`;
     const w = ctx.measureText(d.label).width + 6;
@@ -107,7 +107,7 @@
   import type { Lane } from "../model/architecture";
   import type { El } from "../model/graph";
   import { positions } from "../model/layout";
-  import { alpha, background, badge, edgeReducer, edgeTip, frame, groupAt, LAYERS, MIN_SCALE, nodeReducer, toGraphology,
+  import { alpha, background, badge, edgeReducer, edgeTip, frame, groupAt, hoverer, LAYERS, MIN_SCALE, nodeReducer, toGraphology,
     type Background, type EdgeAttrs, type NodeAttrs, type ViewState } from "../model/sigma";
 
   type Context = { id: string; edge: boolean; source: string; target: string; x: number; y: number };
@@ -272,13 +272,12 @@
       select(null);
     });
     // The hovered node's edges come forward with their counts (sigma draws its label, drawHover).
+    const forward = hoverer(st, () => g, (o) => s.refresh(o));
     const hover = (id: string | null) => {
       el.style.cursor = id ? "pointer" : "";
-      if (st.hovered === id) return;
-      st.hovered = id;
-      refresh();
+      forward(id);
     };
-    s.on("enterNode", ({ node }) => hover(g.getNodeAttribute(node, "kind") === "band" ? null : node));
+    s.on("enterNode", ({ node }) => hover(node));
     s.on("leaveNode", () => hover(null));
     s.on("enterEdge", ({ edge, event }) => {
       const m = event.original as MouseEvent;
@@ -307,6 +306,8 @@
       else if (!a.anchor && !["laneadd", "lane", "lanelabel"].includes(a.kind)) [dragged, moved] = [node, false];
     });
     s.on("moveBody", ({ event }) => {
+      const m = event.original as MouseEvent;
+      if (tip) tip = { ...tip, x: m.clientX, y: m.clientY }; // the tooltip follows the mouse
       if (linkFrom) return event.preventSigmaDefault();
       if (!dragged || !g.hasNode(dragged)) return;
       const p = fromView(event.x, event.y);
