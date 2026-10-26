@@ -54,6 +54,20 @@ fn drag_is_one_history_step() {
 }
 
 #[test]
+fn placing_on_a_context_box_takes_the_next_free_slot() {
+    let mut e = engine();
+    e.input(Input::Tool(Tool::Function));
+    // the context box `server/x.ts#GET /x` spans x 400..500, y 10..50
+    down(&mut e, 450.0, 30.0);
+    let placed = e.board().design.elements.last().unwrap();
+    assert_eq!(
+        (placed.x, placed.y),
+        (Some(512), Some(8)),
+        "on the grid, clear of the box"
+    );
+}
+
+#[test]
 fn placing_in_a_row_reports_placed_with_layer() {
     let mut e = engine();
     e.input(Input::Tool(Tool::Function));

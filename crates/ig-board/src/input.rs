@@ -3,7 +3,7 @@
 
 use crate::engine::{EditRequest, Engine, Out};
 use crate::hit::Target;
-use crate::snap::{default_size, rect_of, takes_layer};
+use crate::snap::{default_size, free_x, rect_of, taken, takes_layer};
 use crate::{RowKind, Step, default_link_kind, move_ops, row_at, snap};
 use ig_design::{Board, ElementKind, LinkKind, Op, is_element_id, new_id};
 
@@ -255,6 +255,13 @@ impl Engine {
         name[..1].make_ascii_uppercase();
         let id = new_id(&self.board().design, k, &name);
         let (sw, sh) = default_size(k);
+        let (x, y) = (snap(w.0 - sw as f32 / 2.0), snap(w.1 - sh as f32 / 2.0));
+        // the nearest free slot along the row: never on a context box or another element
+        let x = if k == ElementKind::Frame {
+            x
+        } else {
+            free_x(&taken(&self.ctx, self.board()), x, y, sw, sh)
+        };
         let add = Op::Add {
             id: Some(id.clone()),
             kind: k,
@@ -264,8 +271,8 @@ impl Engine {
             path: None,
             layer: layer.clone(),
             on: None,
-            x: Some(snap(w.0 - sw as f32 / 2.0)),
-            y: Some(snap(w.1 - sh as f32 / 2.0)),
+            x: Some(x),
+            y: Some(y),
             w: None,
             h: None,
         };

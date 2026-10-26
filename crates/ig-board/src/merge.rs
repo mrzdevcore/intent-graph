@@ -1,6 +1,7 @@
 //! Three-way merge of the board on disk (theirs) into the board on screen (ours): the user wins.
 
-use crate::{Lane, RowKind};
+use crate::snap::{default_size, free_x, taken};
+use crate::{Context, RowKind};
 use ig_design::{Board, Bridge, Design, Element, ElementKind, Link, Mark, is_element_id, new_id};
 use std::collections::{HashMap, HashSet};
 
@@ -167,9 +168,12 @@ pub fn merge(base: &Board, ours: &Board, theirs: &Board) -> Merged {
 }
 
 /// Puts unplaced elements (no x/y) in their lane: layer elements in their layer's row, systems
-/// in External services, the rest below the rows.
-pub fn place_new(b: &Board, ids: &[String], lanes: &[Lane]) -> Board {
+/// in External services, the rest below the rows; each in the first free slot, never on a
+/// context box or another element.
+pub fn place_new(b: &Board, ids: &[String], ctx: &Context) -> Board {
+    let lanes = &ctx.lanes;
     let mut out = b.clone();
+    let mut busy = taken(ctx, b);
     let bottom = lanes.iter().map(|l| l.bottom).fold(0.0, f32::max);
     let mut next_x: HashMap<Option<u32>, i32> = HashMap::new();
     for e in out
@@ -188,10 +192,17 @@ pub fn place_new(b: &Board, ids: &[String], lanes: &[Lane]) -> Board {
                 l.kind == RowKind::Layer && e.layer.as_deref() == Some(l.name.as_str())
             }
         });
-        let x = next_x.entry(lane.map(|l| l.row)).or_insert(80);
-        e.x = Some(*x);
-        *x += 160;
-        e.y = Some(crate::snap(lane.map_or(bottom, |l| l.top) + 60.0));
+        let next = next_x.entry(lane.map(|l| l.row)).or_insert(80);
+        let y = crate::snap(lane.map_or(bottom, |l| l.top) + 60.0);
+        let (w, h) = (e.w, e.h);
+        let (w, h) = (
+            w.unwrap_or(default_size(e.kind).0),
+            h.unwrap_or(default_size(e.kind).1),
+        );
+        let x = free_x(&busy, *next, y, w, h);
+        busy.push([x as f32, y as f32, w as f32, h as f32]);
+        (e.x, e.y) = (Some(x), Some(y));
+        *next = x + w + 16;
     }
     out
 }
@@ -345,20 +356,37 @@ mod tests {
 
     #[test]
     fn place_new_puts_an_api_element_into_the_api_row() {
-        let l = |row, name: &str, top, bottom| Lane {
+        let l = |row, name: &str, top, bottom| crate::Lane {
             row,
             name: name.into(),
             kind: RowKind::Layer,
             top,
             bottom,
         };
-        let lanes = [l(0, "ui", 0.0, 100.0), l(1, "api", 150.0, 250.0)];
+        let mut ctx = Context {
+            lanes: vec![l(0, "ui", 0.0, 100.0), l(1, "api", 150.0, 250.0)],
+            ..Context::default()
+        };
         let mut a = el("fn-a", "a");
         a.layer = Some("api".into());
-        let b = place_new(&board(vec![a]), &["fn-a".into()], &lanes);
+        let bd = board(vec![a]);
+        let b = place_new(&bd, &["fn-a".into()], &ctx);
         assert_eq!(
             (b.design.elements[0].x, b.design.elements[0].y),
             (Some(80), Some(208))
         );
+        // a context box on that spot: the element goes to the first free slot after it
+        ctx.boxes.push(crate::CtxBox {
+            id: "api/x.ts".into(),
+            label: "x".into(),
+            kind: "module".into(),
+            layer: Some("api".into()),
+            x: 60.0,
+            y: 200.0,
+            w: 100.0,
+            h: 40.0,
+        });
+        let b = place_new(&bd, &["fn-a".into()], &ctx);
+        assert_eq!(b.design.elements[0].x, Some(168));
     }
 }
