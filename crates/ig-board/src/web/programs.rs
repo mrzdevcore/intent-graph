@@ -1,5 +1,5 @@
-//! The three WebGL2 programs: instanced rounded rectangles with a border, thick lines as quads
-//! with round caps and an optional dash, and textured quads. Positions are world px; the camera
+//! The four WebGL2 programs: instanced rounded rectangles with a border, thick lines as quads
+//! with round caps and an optional dash, textured quads, and ink triangles. Positions are world px; the camera
 //! (`cam` = x, y, zoom) and the canvas size in CSS px (`view`) map them to clip space, so the
 //! device pixel ratio only sizes the backing store.
 
@@ -77,7 +77,17 @@ void main() {
   o = vec4(vcolor.rgb * a, a);
 }";
 
-/// One quad per draw: its world rect and texture (images, Task 14).
+/// Hand-drawn ink: triangles in world px, one colour.
+pub const INK_VS: &str = "
+layout(location = 1) in vec2 pos;
+void main() { gl_Position = clip((pos - cam.xy) * cam.z); }";
+
+pub const INK_FS: &str = "
+uniform vec4 color;
+out vec4 o;
+void main() { o = vec4(color.rgb * color.a, color.a); }";
+
+/// One quad per draw: its world rect and texture (screen images).
 pub const QUAD_VS: &str = "
 layout(location = 0) in vec2 corner;
 uniform vec4 rect;

@@ -1,7 +1,7 @@
 // Loads the board engine (crates/ig-board as wasm, lazily) onto a canvas and adapts its JSON
 // strings to `BoardEngine`. Desktop app only: `ig view` builds never import this file.
 
-import type { A11yItem, BoardEngine, Camera, EngineOut, Label, Tool } from "./engine";
+import type { A11yItem, BoardEngine, Camera, EngineOut, Label, Surface, Tool } from "./engine";
 
 import { loadFailed, noWebgl2 } from "./messages";
 
@@ -11,6 +11,11 @@ export { loadFailed, noWebgl2 };
 export interface RawEngine {
   attach(canvas: HTMLCanvasElement): void;
   load(board: string, context: string): void;
+  surface(name?: string | null): string;
+  screens(): string;
+  variant(screen: string, state: string): string;
+  importImage(asset: string): string;
+  rename(id: string, text: string): string;
   setContext(context: string): void;
   input(ev: string): string;
   hit(x: number, y: number): string | undefined;
@@ -78,6 +83,11 @@ export function wrap(raw: RawEngine, pkg: Pkg, onFail: (reason: string) => void)
   const out = (s: string) => JSON.parse(s) as EngineOut;
   return {
     load: (b, c) => g(() => raw.load(b, c)),
+    surface: (s) => g(() => raw.surface(s ?? null) as Surface),
+    screens: () => g(() => JSON.parse(raw.screens()) as Record<string, string>),
+    variant: (s, st) => g(() => out(raw.variant(s, st))),
+    importImage: (a) => g(() => out(raw.importImage(a))),
+    rename: (id, t) => g(() => out(raw.rename(id, t))),
     setContext: (c) => g(() => raw.setContext(c)),
     input: (ev) => g(() => out(raw.input(JSON.stringify(ev)))),
     hit: (x, y) => g(() => raw.hit(x, y) ?? null),
@@ -162,6 +172,8 @@ const TOKENS: Record<string, [string, number]> = {
   // new elements are green (the design), marks amber or red, problems red
   "element.module": ["--added", 1], "element.function": ["--added", 1], "element.route": ["--added", 1],
   "element.system": ["--added", 1], "element.note": ["--changed", 1], "element.frame": ["--muted", 1],
+  // the screens: warm paper and dark ink in both themes, nav arrows on the board
+  paper: ["--paper", 1], ink: ["--ink", 1], nav: ["--fg", 0.75],
 };
 
 /** `#rgb` / `#rrggbb` to 0..1 RGBA; anything else grey. */

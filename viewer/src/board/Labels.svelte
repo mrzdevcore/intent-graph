@@ -3,14 +3,15 @@
 <script lang="ts">
   import type { Camera, Label } from "./engine";
 
-  let { camera, labels }: { camera: Camera; labels: Label[] } = $props();
+  /** `hand`: the screens' handwriting (a system font; nothing is bundled). */
+  let { camera, labels, hand = false }: { camera: Camera; labels: Label[]; hand?: boolean } = $props();
   const FONT = 12;
 </script>
 
-<div class="labels" aria-hidden="true" class:tiny={FONT * camera.zoom < 6}
+<div class="labels" aria-hidden="true" class:tiny={FONT * camera.zoom < 6} class:hand
   style="transform: translate({-camera.x * camera.zoom}px, {-camera.y * camera.zoom}px) scale({camera.zoom})">
   {#each labels as l (l.id)}
-    <div class="label" class:faded={l.faded} style="left:{l.r[0]}px;top:{l.r[1]}px;width:{l.r[2]}px;height:{l.r[3]}px">{l.text}</div>
+    <div class="label" class:faded={l.faded} class:paper={l.paper} style="left:{l.r[0]}px;top:{l.r[1]}px;width:{l.r[2]}px;height:{l.r[3]}px">{l.text}</div>
   {/each}
 </div>
 
@@ -20,4 +21,6 @@
   .label { position: absolute; display: flex; align-items: center; justify-content: center; text-align: center;
     padding: 0 6px; box-sizing: border-box; overflow: hidden; color: var(--fg); line-height: 1.2; }
   .faded { color: var(--muted); }
+  .hand { font-family: "Bradley Hand", "Chalkboard SE", "Segoe Print", "Comic Neue", "Comic Sans MS", cursive; font-size: 14px; }
+  .paper { color: var(--ink); }
 </style>

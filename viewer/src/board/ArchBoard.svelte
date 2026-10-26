@@ -6,7 +6,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Box, Cloud, Frame, Maximize, MousePointer2, Redo2, Route, SquareFunction, Spline, StickyNote, Undo2 } from "lucide-static";
-  import type { BoardStatus, Design, DesignApi, DesignScope, LinkKind, MarkKind } from "../api";
+  import type { BoardStatus, Design, DesignApi, DesignScope, LinkKind, MarkKind, ScreensApi } from "../api";
   import type { ChatSession } from "../components/chat/session.svelte";
   import { openQuestions } from "../model/chat";
   import type { Group, Index } from "../model/graph";
@@ -14,13 +14,14 @@
   import Checks from "./Checks.svelte";
   import Features from "./Features.svelte";
   import { buildContext, scopeGroup } from "./context";
-  import type { A11yItem, BoardEngine, EngineOut, Tool } from "./engine";
+  import type { A11yItem, BoardEngine, EngineOut, Surface, Tool } from "./engine";
+  import ScreensBoard from "./ScreensBoard.svelte";
   import type { Importer } from "./host";
   import { BoardStore, realClock, targets, type StoreEngine } from "./store";
   import { Outbox, applyPrompt, planPrompt } from "./outbox";
   import { applyState, noteChips, openNotes, readiness } from "./ready";
 
-  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer, chat = null }: {
+  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer, chat = null, screensApi = null, initialSurface = null }: {
     ix: Index;
     api: DesignApi;
     /** The Graph's Architecture scope: offered as a "folder" scope. */
@@ -35,6 +36,10 @@
     importer?: Importer;
     /** The chat's session (desktop app): Plan, Apply and the board updates go through it. */
     chat?: ChatSession | null;
+    /** The feature's screens and images (desktop app): the Screens surface. */
+    screensApi?: ScreensApi | null;
+    /** The surface to show first (the IG_SURFACE dev hook). */
+    initialSurface?: string | null;
   } = $props();
 
   const scopeKey = (s: DesignScope) => JSON.stringify(s);
@@ -66,20 +71,12 @@
 
   const scope = $derived<DesignScope>(doc?.scope ?? { kind: "dir", id: "." });
 
-  function remember(s: string) {
-    try {
-      localStorage.setItem(FEATURE_KEY, s);
-    } catch {
-      // storage blocked: the choice lasts for this page only
-    }
-  }
-  function remembered(): string | null {
-    try {
-      return localStorage.getItem(FEATURE_KEY);
-    } catch {
-      return null;
-    }
-  }
+  const remember = (s: string) => {
+    try { localStorage.setItem(FEATURE_KEY, s); } catch { /* storage blocked: for this page only */ }
+  };
+  const remembered = (): string | null => {
+    try { return localStorage.getItem(FEATURE_KEY); } catch { return null; } // storage blocked
+  };
 
   /** The context for a scope, also kept for the inspector's box lookups. */
   function context(s: DesignScope): string {
@@ -114,6 +111,9 @@
     setCheck: (t) => void board?.run((e) => e.setCheck(t)),
     board: () => engine!.board(),
     saved: (w) => engine!.saved(w),
+    screens: () => engine!.screens(),
+    setImage: (a, b) => void board?.run((e) => e.setImage(a, b)),
+    importImage: (a) => board?.run((e) => e.importImage(a)) ?? NOOP,
   };
 
   async function open(next: string) {
@@ -139,7 +139,7 @@
       },
       turns: () => chat?.turns.filter((t) => t.feature === next) ?? [],
       agentMerged: (d) => engine && outbox?.agent(d, engine.board()),
-    });
+    }, screensApi);
     store = s;
     // the context follows the file's scope, which is only known once it is read
     await s.load();
@@ -164,6 +164,7 @@
 
   function ready(e: BoardEngine) {
     engine = e;
+    if (initialSurface === "screens" && screensApi) surface = e.surface("screens");
     void start();
   }
 
@@ -175,11 +176,21 @@
     else queue();
   }
 
-  /** One user step through the engine; the store saves and checks it. */
-  function ops(list: object[]) {
-    const o = board?.run((e) => e.ops(JSON.stringify(list), "user"));
+  /** One engine step that shows on the board; the store saves and checks it. */
+  function act(f: (e: BoardEngine) => EngineOut) {
+    const o = board?.run(f);
     if (o) store?.onOut(o);
     if (o?.changed) queue();
+    return o;
+  }
+  const ops = (list: object[]) => act((e) => e.ops(JSON.stringify(list), "user"));
+
+  /** The architecture or the screens: one board, one history. */
+  let surface = $state<Surface>("architecture");
+  function setSurface(s: Surface) {
+    surface = board?.run((e) => e.surface(s)) ?? s;
+    tool = "select";
+    board?.fit();
   }
 
   // Plan, Apply and the board updates to Claude.
@@ -229,7 +240,7 @@
     if (!c || !f) return;
     c.board = {
       feature: f,
-      show: (ids) => (board?.run((e) => e.select(ids)), board?.key("2", 1)),
+      show: (ids) => (board?.run((e) => e.select(ids)), (surface = engine?.surface() ?? surface), board?.key("2", 1)),
       undo: (step) => {
         const o = board?.run((e) => e.revert(step));
         if (!o?.changed) return false;
@@ -437,6 +448,8 @@
 <div class="arch">
   <div class="bar">
     <Features bind:this={features} {api} {slug} onpick={(s) => void open(s)} />
+    {#if screensApi}<div class="tabs" role="tablist" aria-label="Surface">{#each [["architecture", "Architecture"], ["screens", "Screens"]] as const as [s, l] (s)}
+      <button role="tab" aria-selected={surface === s} disabled={!store} onclick={() => setSurface(s)}>{l}</button>{/each}</div>{/if}
     <label class="scope">Context
       <select value={scopeKey(scope)} disabled={!store || readOnly} onchange={(e) => setScope(JSON.parse(e.currentTarget.value))}>
         {#each scopeOptions as [s, label] (scopeKey(s))}<option value={scopeKey(s)}>{label}</option>{/each}
@@ -448,15 +461,16 @@
     <button class="icon" title="Fit (Shift+1)" aria-label="Fit" disabled={!store} onclick={() => board?.fit()}>{@html Maximize}</button>
   </div>
 
-  <div class="rail" role="toolbar" aria-label="Tools" aria-orientation="vertical">
+  {#if surface === "architecture"}<div class="rail" role="toolbar" aria-label="Tools" aria-orientation="vertical">
     {#each TOOLS as [t, key, name, icon] (t)}
       <button class="icon" title="{name} ({key})" aria-label="{name} ({key})" aria-pressed={tool === t ? "true" : "false"}
         disabled={!store || readOnly} onclick={() => pickTool(t)}>{@html icon}<kbd>{key}</kbd></button>
     {/each}
-  </div>
+  </div>{/if}
 
   <div class="canvas" inert={readOnly}>
-    <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} {importer} onready={ready} {onout} {reasons} onbeforefree={beforeFree} />
+    <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} {importer} onready={ready} {onout} {reasons}
+      onbeforefree={beforeFree} hand={surface === "screens"} />
     {#if kept}
       <div class="kept" role="alert">
         Unsaved changes from {new Date(kept.at).toLocaleString()} were kept (design.unsaved.json).
@@ -471,7 +485,8 @@
     {/if}
   </div>
 
-  <aside class="inspector" aria-label="Inspector">
+  <ScreensBoard active={surface === "screens"} {slug} {store} api={screensApi} engine={() => engine} {act} {tool} {selection} {version} onpick={pickTool} />
+  {#if surface === "architecture"}<aside class="inspector" aria-label="Inspector">
     {#if element}
       {#key element.id}
         <h3>{element.kind === "system" ? "External system" : element.kind[0].toUpperCase() + element.kind.slice(1)} <span class="new">new</span></h3>
@@ -519,7 +534,7 @@
       <h3>Inspector</h3>
       <p class="muted">Pick a tool, then click in a row: the box joins that layer. L, then drag from one box to another, links them. Double-click or Enter renames.</p>
     {/if}
-  </aside>
+  </aside>{/if}
 
   <div class="foot">
     {#if chat}
@@ -551,7 +566,8 @@
   .icon :global(svg) { width: 18px; height: 18px; }
   .icon[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   kbd { position: absolute; right: 2px; bottom: 0; font-size: 9px; color: inherit; opacity: 0.7; font-family: inherit; }
-  .canvas { position: relative; min-width: 0; min-height: 0; }
+  .canvas { grid-row: 2; grid-column: 2; position: relative; min-width: 0; min-height: 0; }
+  .tabs { display: flex; gap: 2px; } .tabs [aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
   .kept { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; gap: 8px;
     align-items: center; padding: 6px 10px; font-size: 13px; background: var(--panel); border: 1px solid var(--warning);
     border-radius: 6px; color: var(--fg); }

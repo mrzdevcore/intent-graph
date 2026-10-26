@@ -8,19 +8,29 @@ mod history;
 mod hit;
 mod input;
 mod merge;
+mod pen;
 mod scene;
+mod screen_input;
+mod screen_scene;
+mod screens;
+mod sketch;
 mod snap;
+mod tess;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
 pub use camera::Camera;
 pub use delta::{delta, meaning};
-pub use engine::{EditRequest, Engine, Out};
+pub use engine::{EditRequest, Engine, Out, Surface};
 pub use history::{History, Step};
 pub use input::{Input, Tool, mods};
 pub use merge::{Merged, merge, place_new};
+pub use pen::pen_outline;
 pub use scene::{A11yItem, Label, Line, Paint, Rect, Scene, dashed};
+pub use screens::{nav_key, piece_key};
+pub use sketch::{Polyline, seed_of, sketch};
 pub use snap::{GRID, default_link_kind, move_ops, row_at, snap};
+pub use tess::{Mesh, fill, stroke};
 
 use serde::{Deserialize, Serialize};
 

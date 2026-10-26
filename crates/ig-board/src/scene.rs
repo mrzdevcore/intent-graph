@@ -3,7 +3,7 @@
 use crate::Severity;
 use crate::engine::Engine;
 use crate::input::Gesture;
-use ig_design::{ElementKind, LinkKind, MarkKind};
+use ig_design::{ElementKind, LinkKind, MarkKind, PieceKind};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -23,6 +23,14 @@ pub enum Paint {
     Problem(Severity),
     Marquee,
     Preview,
+    /// The screens: a screen's paper, a missing or undecodable image, a sticky note's or a
+    /// primary button's tint, a nav arrow.
+    Paper,
+    Placeholder,
+    Tint(PieceKind),
+    Nav,
+    /// A pen stroke being drawn.
+    Ink,
 }
 
 /// New elements (everything the design adds) have a dashed border; notes, frames, context and
@@ -49,10 +57,17 @@ pub struct Line {
     pub paint: Paint,
 }
 
+/// Draw order: `rects[..top]`, `images`, `ink`, `lines`, `rects[top..]`.
 #[derive(Serialize, Default, Debug)]
 pub struct Scene {
     pub rects: Vec<Rect>,
     pub lines: Vec<Line>,
+    /// The first rect drawn above the lines (the architecture's elements, the screens' outlines).
+    pub top: usize,
+    /// Textured quads: world rect and asset name.
+    pub images: Vec<([f32; 4], String)>,
+    /// Hand-drawn ink: triangles, three corners each, world px.
+    pub ink: Vec<[f32; 2]>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -64,6 +79,8 @@ pub struct Label {
     pub faded: bool,
     /// The check's reason, for the hover title.
     pub title: Option<String>,
+    /// On a screen's paper: dark ink in both themes.
+    pub paper: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -80,7 +97,7 @@ pub struct A11yItem {
     pub answer: Option<String>,
 }
 
-fn meets(a: [f32; 4], b: [f32; 4]) -> bool {
+pub(crate) fn meets(a: [f32; 4], b: [f32; 4]) -> bool {
     a[0] <= b[0] + b[2] && b[0] <= a[0] + a[2] && a[1] <= b[1] + b[3] && b[1] <= a[1] + a[3]
 }
 
@@ -199,6 +216,10 @@ pub(crate) fn build(e: &Engine, view: [f32; 4]) -> Scene {
         .filter(|r| meets(r.r, seen))
         .collect();
     s.rects.splice(0..0, lanes);
+    // links go over lanes, context and frames, under the other elements
+    s.top = (s.rects.iter())
+        .position(|r| matches!(r.paint, Paint::Element(k) if k != ElementKind::Frame))
+        .unwrap_or(s.rects.len());
     s
 }
 
@@ -230,6 +251,7 @@ fn lane_labels(e: &Engine) -> impl Iterator<Item = Label> + '_ {
         ],
         faded: true,
         title: None,
+        paper: false,
     })
 }
 
@@ -247,6 +269,7 @@ pub(crate) fn labels(e: &Engine) -> Vec<Label> {
             r: [c.x, c.y, c.w, c.h],
             faded: true,
             title: title(&c.id),
+            paper: false,
         });
     let els = e.board().design.elements.iter().filter_map(|x| {
         Some(Label {
@@ -255,6 +278,7 @@ pub(crate) fn labels(e: &Engine) -> Vec<Label> {
             r: e.shown_rect(x)?,
             faded: false,
             title: title(&x.id),
+            paper: false,
         })
     });
     (lane_labels(e).chain(ctx).chain(els))

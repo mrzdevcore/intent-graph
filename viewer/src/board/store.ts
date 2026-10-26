@@ -1,8 +1,10 @@
-// The board's link to its file, its live check and Claude's turns: autosave after 300 ms of quiet,
+// The board's link to its files, its live check and Claude's turns: autosave after 300 ms of quiet,
 // compare-and-swap writes that merge on conflict, one check in flight with the latest winning,
-// and outside changes merged through the engine. An unreadable file is never written.
+// and outside changes merged through the engine. An unreadable file is never written. With the
+// screens (desktop), each screen file is written only when it changed, and images go through
+// putAsset (Rust never decodes them; the host does, for the texture).
 
-import type { Design, DesignApi, DesignCheck } from "../api";
+import type { Design, DesignApi, DesignCheck, Screen, ScreensApi } from "../api";
 import type { ViewNode } from "../data";
 import { proposeFile } from "../model/design";
 import type { BoardEngine, EngineOut } from "./engine";
@@ -43,7 +45,23 @@ export const realClock: Clock = {
   },
 };
 
-export type StoreEngine = Pick<BoardEngine, "load" | "ops" | "external" | "setCheck" | "board" | "saved">;
+export type StoreEngine = Pick<BoardEngine, "load" | "ops" | "external" | "setCheck" | "board" | "saved">
+  & Partial<Pick<BoardEngine, "screens" | "setImage" | "importImage">>;
+
+/** Decodes an image for its texture; null when it can't (a placeholder shows instead). */
+export type Decode = (bytes: Uint8Array) => Promise<ImageBitmap | null>;
+export const decodeImage: Decode = (bytes) => createImageBitmap(new Blob([bytes as BlobPart])).catch(() => null);
+
+/** The assets a set of screen texts shows: backgrounds and image pieces. */
+export function assetsOf(screens: Record<string, string>): string[] {
+  const out = new Set<string>();
+  for (const t of Object.values(screens)) {
+    const s = JSON.parse(t) as Screen;
+    if (s.background) out.add(s.background.asset);
+    for (const p of s.elements) if (p.props?.asset) out.add(p.props.asset);
+  }
+  return [...out];
+}
 export interface StoreHooks {
   /** The Context JSON for `engine.load`. */
   context(): string;
@@ -99,10 +117,46 @@ export class BoardStore {
   private rerun = false;
   /** The last placed element and the file proposed for it: its first rename re-proposes. */
   private proposed: { id: string; name: string; file: string } | null = null;
+  /** The screens folder: its key in `errors` and `readOnly` (an invalid screen file). */
+  readonly screensPath: string;
+  /** By screen id: the screen as on disk (compact JSON), to write only what changed. */
+  private disk: Record<string, string> = {};
+  /** Images whose texture is loaded (or failed to decode). */
+  private images = new Set<string>();
+  /** Why the last image was not taken ("Only PNG or JPEG up to 10 MB"). */
+  imageError: string | null = null;
 
   constructor(private api: DesignApi, private engine: StoreEngine, readonly slug: string,
-    private clock: Clock = realClock, private hooks: StoreHooks = { context: () => "{}", nodes: () => [] }) {
+    private clock: Clock = realClock, private hooks: StoreHooks = { context: () => "{}", nodes: () => [] },
+    private screensApi: ScreensApi | null = null, private decode: Decode = decodeImage) {
     this.path = `plans/${slug}/design.json`;
+    this.screensPath = `plans/${slug}/screens/`;
+  }
+
+  /** The board as one text: the design, with every screen when there are screens. */
+  private boardText(): string {
+    if (!this.screensApi || !this.engine.screens) return this.engine.board();
+    const screens = Object.values(this.engine.screens()).map((t) => JSON.parse(t) as Screen);
+    return JSON.stringify({ design: JSON.parse(this.engine.board()), screens });
+  }
+
+  /** The screens on disk; an invalid file makes them read-only (null). */
+  private async listScreens(): Promise<Screen[] | null> {
+    if (!this.screensApi) return [];
+    try {
+      const list = await this.screensApi.list(this.slug);
+      delete this.errors[this.screensPath];
+      this.readOnly.delete(this.screensPath);
+      return list;
+    } catch (e) {
+      this.errors[this.screensPath] = msg(e);
+      this.readOnly.add(this.screensPath);
+      return null;
+    }
+  }
+
+  private setDisk(list: Screen[]) {
+    this.disk = Object.fromEntries(list.map((s) => [s.id, JSON.stringify(s)]));
   }
 
   /** Something unsaved: a change waits for its quiet time or a write is running. */
@@ -123,10 +177,66 @@ export class BoardStore {
     }
     if (this.closed) return;
     this.ok();
-    this.engine.load(JSON.stringify(d), this.hooks.context());
+    const screens = this.screensApi ? await this.listScreens() : null;
+    if (this.closed) return;
+    this.engine.load(JSON.stringify(screens ? { design: d, screens } : d), this.hooks.context());
+    if (screens) this.setDisk(screens);
     this.loaded = true;
     this.recheck();
     this.notify();
+    void this.loadImages();
+  }
+
+  /** Textures for the images the screens show, each read and decoded once (`asset-changed`
+   *  calls this again: idempotent). One that can't be read or decoded stays a placeholder. */
+  async loadImages(): Promise<void> {
+    const api = this.screensApi, e = this.engine;
+    if (!api || !e.screens || !e.setImage || this.closed) return;
+    for (const name of assetsOf(e.screens()).filter((n) => !this.images.has(n))) {
+      this.images.add(name);
+      const bytes = await api.readAsset(this.slug, name).catch((err: unknown) => (console.error(err), null));
+      const bitmap = bytes && (await this.decode(bytes));
+      if (bitmap && !this.closed) e.setImage(name, bitmap);
+    }
+  }
+
+  /** A pasted, dropped or picked image: stored, then a screen's background (one undo step). A
+   *  refusal (not PNG or JPEG, over 10 MB) changes nothing and says why. */
+  async importImage(bytes: Uint8Array): Promise<void> {
+    const api = this.screensApi, e = this.engine;
+    if (!api || !e.importImage || this.closed) return;
+    let name: string;
+    try {
+      name = await api.putAsset(this.slug, bytes);
+    } catch (err) {
+      this.imageError = msg(err);
+      this.notify();
+      return;
+    }
+    this.imageError = null;
+    this.images.add(name);
+    const bitmap = await this.decode(bytes);
+    if (this.closed) return;
+    if (bitmap) e.setImage?.(name, bitmap);
+    this.onOut(e.importImage(name));
+  }
+
+  /** A screen file changed outside: every screen is read again and merged in (one undo step,
+   *  Claude's turn when it is one); an invalid file is reported, and no screen is written. */
+  async externalScreens(): Promise<boolean> {
+    if (!this.screensApi) return true;
+    const list = await this.listScreens();
+    if (this.closed) return false;
+    if (!list || !this.loaded) {
+      this.notify();
+      return false;
+    }
+    const turn = agentStep(this.clock.now(), this.hooks.turns?.() ?? []);
+    this.onOut(this.engine.external(JSON.stringify({ screens: list }), turn));
+    this.setDisk(list);
+    this.notify();
+    void this.loadImages();
+    return true;
   }
 
   /** Every engine answer: save on change, check on a change of meaning, propose a placed file. */
@@ -163,7 +273,7 @@ export class BoardStore {
       await this.flush();
       if (this.saveError || this.readOnly.has(this.path)) break;
     }
-    if (this.loaded && !this.closed && this.dirty) await this.keep(this.engine.board(), this.saveError);
+    if (this.loaded && !this.closed && this.dirty) await this.keep(this.boardText(), this.saveError);
   }
 
   /** The engine is about to be freed: the board text is taken now, synchronously, and written
@@ -171,19 +281,24 @@ export class BoardStore {
    *  the recovery copy. The store is disposed. */
   close(): Promise<void> {
     const text = this.loaded ? this.engine.board() : null;
+    const all = this.loaded ? this.boardText() : null;
+    const screens = this.loaded && this.screensApi ? this.engine.screens?.() : undefined;
     const invalid = this.readOnly.has(this.path);
     this.dispose();
     return (async () => {
       while (this.writing) await this.writing;
       if (!text || !this.dirty) return;
-      if (invalid) return this.keep(text, this.errors[this.path]);
+      if (invalid) return this.keep(all!, this.errors[this.path]);
       this.dirty = false;
       // no merge on a conflict here (the engine is gone): the text is kept instead
-      await this.api.write(this.slug, JSON.parse(text) as Design).catch((e) => {
+      try {
+        await this.api.write(this.slug, JSON.parse(text) as Design);
+        if (screens) await this.writeScreens(screens, () => {});
+      } catch (e) {
         this.dirty = true;
         this.saveError = msg(e);
-        return this.keep(text, e);
-      });
+        await this.keep(all!, e);
+      }
     })();
   }
 
@@ -273,19 +388,40 @@ export class BoardStore {
         // a write that ends after dispose never sets the merge base of what the engine shows now
         const engine = { board: () => this.engine.board(), saved: (t: string) => this.closed || this.engine.saved(t) };
         await save(engine, (t) => this.api.write(this.slug, JSON.parse(t) as Design));
+        const now = this.screensApi ? this.engine.screens?.() : undefined;
+        if (now) await this.writeScreens(now, (p) => this.closed || this.engine.saved(JSON.stringify({ screens: p })));
         this.saveError = null;
         return;
       } catch (e) {
         this.dirty = true;
         // someone else wrote: merge theirs in, then write the result once more
         if (this.closed) return;
-        if (msg(e) === "conflict" && attempt === 0 && (await this.external())) continue;
+        if (msg(e) === "conflict" && attempt === 0 && (await this.external()) && (await this.externalScreens())) continue;
         if (this.closed || this.readOnly.has(this.path)) return;
         this.saveError = msg(e);
         this.cancelSave?.();
         this.cancelSave = this.clock.after(RETRY_MS, () => void this.flush());
         return;
       }
+    }
+  }
+
+  /** Writes the screens that differ from disk and removes the ones gone; each written one
+   *  becomes the merge base (`saved`). Never while a screen file is invalid. */
+  private async writeScreens(now: Record<string, string>, saved: (p: Record<string, Screen | null>) => void) {
+    const api = this.screensApi;
+    if (!api || this.readOnly.has(this.screensPath)) return;
+    for (const [id, text] of Object.entries(now)) {
+      const s = JSON.parse(text) as Screen;
+      if (this.disk[id] === JSON.stringify(s)) continue;
+      await api.write(this.slug, s);
+      this.disk[id] = JSON.stringify(s);
+      saved({ [id]: s });
+    }
+    for (const id of Object.keys(this.disk).filter((id) => !(id in now))) {
+      await api.remove(this.slug, id);
+      delete this.disk[id];
+      saved({ [id]: null });
     }
   }
 

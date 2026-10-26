@@ -2,8 +2,8 @@
 
 use crate::screens::{MAX_SCREENS, PROP_NAMES};
 use crate::{
-    Bridge, Design, DesignError, Nav, Op, Piece, PieceKind, Props, Screen, Touched, VERSION,
-    new_piece_id,
+    Background, Bridge, Design, DesignError, Nav, Op, Piece, PieceKind, Props, Screen, Touched,
+    VERSION, new_piece_id,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -21,6 +21,24 @@ pub struct PiecePatch {
     pub points: Option<Vec<[i32; 3]>>,
     pub from: Option<String>,
     pub to: Option<String>,
+}
+
+/// Fields `screen_set` may change; never the id, `variantOf` or `state`.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ScreenPatch {
+    pub title: Option<String>,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub w: Option<i32>,
+    pub h: Option<i32>,
+    /// Absent: unchanged; `null`: none.
+    #[serde(default, deserialize_with = "some")]
+    pub background: Option<Option<Background>>,
+}
+
+fn some<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<Background>>, D::Error> {
+    Option::<Background>::deserialize(d).map(Some)
 }
 
 type Screens = BTreeMap<String, Screen>;
@@ -72,7 +90,8 @@ fn clear(slot: &mut Option<String>, v: &Option<String>) {
     }
 }
 
-fn size(k: PieceKind) -> (i32, i32) {
+/// The size a new piece of this kind gets.
+pub fn piece_size(k: PieceKind) -> (i32, i32) {
     use PieceKind::*;
     match k {
         Button => (120, 40),
@@ -192,7 +211,7 @@ pub(crate) fn step(
                 &Props::default(),
                 props.as_ref().unwrap_or(&Map::new()),
             )?;
-            let (w, h) = size(*kind);
+            let (w, h) = piece_size(*kind);
             s.elements.push(Piece {
                 id: id.clone(),
                 kind: *kind,
@@ -285,6 +304,21 @@ pub(crate) fn step(
                 return bad(format!("{sid}: no nav {from} to {to}"));
             }
             push(&mut t.screens, sid);
+        }
+        Op::ScreenSet { id, set: p } => {
+            let s = screen(sc, id)?;
+            if let Some(t) = &p.title {
+                if t.trim().is_empty() {
+                    return bad(format!("{id}: empty title"));
+                }
+                s.title = t.clone();
+            }
+            (s.x, s.y) = (p.x.unwrap_or(s.x), p.y.unwrap_or(s.y));
+            (s.w, s.h) = (p.w.unwrap_or(s.w), p.h.unwrap_or(s.h));
+            if let Some(b) = &p.background {
+                s.background = b.clone();
+            }
+            push(&mut t.screens, id);
         }
         _ => return Ok(false),
     }

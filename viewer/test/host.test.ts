@@ -13,7 +13,7 @@ import { loadEngine, release, type Importer, type Pkg, type RawEngine } from "..
 const OUT = (o: object = {}) =>
   JSON.stringify({ redraw: false, changed: false, meaning: false, selection: [], edit: null, placed: null, cursor: "default", error: null, ...o });
 const DEFAULTS: Record<string, (...a: never[]) => unknown> = {
-  input: () => OUT(), ops: () => OUT({ changed: true }), undo: () => OUT(), redo: () => OUT(), external: () => OUT(),
+  input: () => OUT(), ops: () => OUT({ changed: true }), rename: () => OUT({ changed: true }), undo: () => OUT(), redo: () => OUT(), external: () => OUT(),
   highlighted: () => "[]", board: () => "", frame: () => false, camera: () => '{"x":0,"y":0,"zoom":1}',
   labels: () => "[]", a11y: () => "[]",
 };
@@ -132,19 +132,19 @@ async function editing() {
   return { f, el, input: el.querySelector("input.edit") as HTMLInputElement };
 }
 
-test("edit overlay commits one Update op on Enter and none on Esc", async () => {
+test("edit overlay commits one rename on Enter and none on Esc", async () => {
   const a = await editing();
   expect(a.input.style.left).toBe("8px");
   a.input.value = "Export patients";
   key(a.input, "Enter");
   flushSync();
-  expect(a.f.of("ops")).toEqual([['[{"op":"update","id":"fn-a","set":{"name":"Export patients"}}]', '"user"']]);
+  expect(a.f.of("rename")).toEqual([["fn-a", "Export patients"]]);
   expect(a.el.querySelector("input.edit")).toBeNull();
   const b = await editing();
   b.input.value = "Nope";
   key(b.input, "Escape");
   flushSync();
-  expect(b.f.of("ops")).toEqual([]);
+  expect(b.f.of("rename")).toEqual([]);
   expect(b.el.querySelector("input.edit")).toBeNull();
 });
 
@@ -178,7 +178,7 @@ test("board keys, wheel and pointer moves are ignored while the overlay is open"
   canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
   flushSync();
   expect(f.of("input").length).toBe(before);
-  expect(f.of("ops").length).toBe(1);
+  expect(f.of("rename").length).toBe(1);
 });
 
 test("a rename started from the a11y list returns focus to the list", async () => {

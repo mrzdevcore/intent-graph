@@ -1,9 +1,9 @@
-//! Draws a `Scene` with the three programs. Everything here is rebuilt from the in-memory scene
+//! Draws a `Scene` with the four programs. Everything here is rebuilt from the in-memory scene
 //! and the kept bitmaps after a lost context comes back.
 
 use super::programs::*;
 use crate::{Camera, Paint, Rect, Scene, Severity};
-use ig_design::{ElementKind, LinkKind, MarkKind};
+use ig_design::{ElementKind, LinkKind, MarkKind, PieceKind};
 use js_sys::Float32Array;
 use std::collections::HashMap;
 use web_sys::{
@@ -35,6 +35,8 @@ pub struct Renderer {
     lines: Prog,
     quads: Prog,
     quad_rect: Option<WebGlUniformLocation>,
+    ink: Prog,
+    ink_color: Option<WebGlUniformLocation>,
     textures: HashMap<String, WebGlTexture>,
     /// Instance data of the batch being drawn: kept, so frames don't allocate.
     scratch: Vec<f32>,
@@ -44,7 +46,7 @@ pub struct Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         let gl = &self.gl;
-        for p in [&self.rects, &self.lines, &self.quads] {
+        for p in [&self.rects, &self.lines, &self.quads, &self.ink] {
             gl.delete_program(Some(&p.p));
             gl.delete_vertex_array(Some(&p.vao));
             gl.delete_buffer(Some(&p.corners));
@@ -114,6 +116,7 @@ const NONE: Rgba = [0.0; 4];
 enum Batch {
     Rects,
     Lines,
+    Ink,
 }
 
 impl Renderer {
@@ -134,12 +137,23 @@ impl Renderer {
         )?;
         let quads = prog(&gl, QUAD_VS, QUAD_FS, &[], 0)?;
         let quad_rect = gl.get_uniform_location(&quads.p, "rect");
+        // plain triangles: positions at location 1, one per vertex (no corners, no instancing)
+        let ink = prog(&gl, INK_VS, INK_FS, &[], 0)?;
+        gl.bind_vertex_array(Some(&ink.vao));
+        gl.disable_vertex_attrib_array(0);
+        gl.bind_buffer(G::ARRAY_BUFFER, Some(&ink.buf));
+        gl.enable_vertex_attrib_array(1);
+        gl.vertex_attrib_pointer_with_i32(1, 2, G::FLOAT, false, 0, 0);
+        gl.bind_vertex_array(None);
+        let ink_color = gl.get_uniform_location(&ink.p, "color");
         Ok(Renderer {
             gl,
             rects,
             lines,
             quads,
             quad_rect,
+            ink,
+            ink_color,
             textures: HashMap::new(),
             scratch: Vec::new(),
         })
@@ -182,6 +196,7 @@ impl Renderer {
         let p = match which {
             Batch::Rects => &mut self.rects,
             Batch::Lines => &mut self.lines,
+            Batch::Ink => &mut self.ink,
         };
         let gl = &self.gl;
         gl.bind_buffer(G::ARRAY_BUFFER, Some(&p.buf));
@@ -195,10 +210,14 @@ impl Renderer {
         let p = match which {
             Batch::Rects => &self.rects,
             Batch::Lines => &self.lines,
+            Batch::Ink => &self.ink,
         };
         self.uniforms(p, cam, size);
         let n = (self.scratch.len() / floats) as i32;
-        self.gl.draw_arrays_instanced(G::TRIANGLE_STRIP, 0, 4, n);
+        match which {
+            Batch::Ink => self.gl.draw_arrays(G::TRIANGLES, 0, n),
+            _ => self.gl.draw_arrays_instanced(G::TRIANGLE_STRIP, 0, 4, n),
+        }
     }
 
     /// `size` is the canvas in CSS px, `dpr` its device pixel ratio.
@@ -210,10 +229,7 @@ impl Renderer {
         gl.enable(G::BLEND);
         gl.blend_func(G::ONE, G::ONE_MINUS_SRC_ALPHA);
         let c = |k: &str| pal.get(k).copied().unwrap_or([0.5, 0.5, 0.5, 1.0]);
-        // links go over lanes, context and frames, under the other elements
-        let split = (s.rects.iter())
-            .position(|r| matches!(r.paint, Paint::Element(k) if k != ElementKind::Frame))
-            .unwrap_or(s.rects.len());
+        let split = s.top.min(s.rects.len());
         let rects = |v: &mut Vec<f32>, rs: &[Rect]| {
             v.clear();
             for r in rs {
@@ -232,6 +248,14 @@ impl Renderer {
         };
         rects(&mut self.scratch, &s.rects[..split]);
         self.instances(Batch::Rects, cam, size, RECT_FLOATS as usize);
+        self.quads(&s.images, cam, size);
+        self.scratch.clear();
+        self.scratch.extend(s.ink.iter().flatten());
+        let ink = c("ink");
+        self.gl.use_program(Some(&self.ink.p));
+        self.gl
+            .uniform4f(self.ink_color.as_ref(), ink[0], ink[1], ink[2], ink[3]);
+        self.instances(Batch::Ink, cam, size, 2);
         self.scratch.clear();
         for l in &s.lines {
             let (color, width, dash) = line_style(l.paint, &c);
@@ -243,14 +267,13 @@ impl Renderer {
         self.instances(Batch::Lines, cam, size, LINE_FLOATS as usize);
         rects(&mut self.scratch, &s.rects[split..]);
         self.instances(Batch::Rects, cam, size, RECT_FLOATS as usize);
-        self.quads(&[], cam, size);
         self.gl.bind_vertex_array(None);
     }
 
-    /// Images (Task 14 fills the scene's quads): one draw per texture.
-    fn quads(&self, qs: &[([f32; 4], &str)], cam: Camera, size: (f32, f32)) {
+    /// The screens' images: one draw per texture.
+    fn quads(&self, qs: &[([f32; 4], String)], cam: Camera, size: (f32, f32)) {
         for (r, asset) in qs {
-            let Some(t) = self.textures.get(*asset) else {
+            let Some(t) = self.textures.get(asset) else {
                 continue;
             };
             self.uniforms(&self.quads, cam, size);
@@ -298,7 +321,13 @@ fn rect_style(p: Paint, c: &dyn Fn(&str) -> Rgba) -> (Rgba, Rgba, f32, f32) {
         Paint::Highlight => (with(c("highlight"), 0.1), c("highlight"), 8.0, 2.5),
         Paint::Problem(s) => (NONE, c(severity(s)), 8.0, 2.0),
         Paint::Marquee => (with(c("selected"), 0.08), c("selected"), 0.0, 1.0),
-        Paint::ContextEdge | Paint::Link(_) | Paint::Preview => (NONE, c("link"), 0.0, 1.0),
+        Paint::Paper => (c("paper"), NONE, 2.0, 0.0),
+        Paint::Placeholder => (with(c("ink"), 0.06), with(c("ink"), 0.5), 0.0, 1.0),
+        Paint::Tint(PieceKind::Note) => (with(c("element.note"), 0.3), NONE, 2.0, 0.0),
+        Paint::Tint(_) => (with(c("ink"), 0.12), NONE, 4.0, 0.0),
+        Paint::ContextEdge | Paint::Link(_) | Paint::Preview | Paint::Nav | Paint::Ink => {
+            (NONE, c("link"), 0.0, 1.0)
+        }
     }
 }
 
@@ -312,6 +341,8 @@ fn line_style(p: Paint, c: &dyn Fn(&str) -> Rgba) -> (Rgba, f32, f32) {
         Paint::Highlight => (with(c("highlight"), 0.7), 4.0, 0.0),
         Paint::Problem(s) => (c(severity(s)), 2.0, 0.0),
         Paint::Preview => (c("selected"), 1.5, 4.0),
+        Paint::Nav => (c("nav"), 2.0, 0.0),
+        Paint::Ink => (c("ink"), 2.0, 0.0),
         _ => (c("link"), 1.0, 0.0),
     }
 }

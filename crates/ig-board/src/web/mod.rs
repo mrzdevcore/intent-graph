@@ -4,13 +4,15 @@
 mod gl;
 mod programs;
 
-use crate::{Context, Engine, Input, Out, Severity, Step, Tool};
+use crate::{Context, Engine, Input, Out, Severity, Step, Surface, Tool};
 use gl::{Palette, Renderer};
-use ig_design::{Board, Op, Scope, empty, parse, to_text};
+use ig_design::{
+    Board, Op, PieceKind, Scope, Screen, empty, parse, parse_screen, screen_to_text, to_text,
+};
 use serde::Deserialize;
 use serde_json::json;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, ImageBitmap, WebGl2RenderingContext};
@@ -41,11 +43,14 @@ enum Ev {
         y: f32,
         button: u8,
         mods: u8,
+        /// `PointerEvent.pressure` (pen strokes).
+        pressure: Option<f32>,
     },
     Move {
         x: f32,
         y: f32,
         mods: u8,
+        pressure: Option<f32>,
     },
     Up {
         x: f32,
@@ -68,18 +73,99 @@ enum Ev {
     },
 }
 
+const TOOLS: [(&str, Tool); 14] = [
+    ("select", Tool::Select),
+    ("module", Tool::Module),
+    ("function", Tool::Function),
+    ("route", Tool::Route),
+    ("system", Tool::System),
+    ("note", Tool::Note),
+    ("frame", Tool::Frame),
+    ("link", Tool::Link),
+    ("screen", Tool::Screen),
+    ("pieces", Tool::Pieces),
+    ("pen", Tool::Pen),
+    ("arrow", Tool::Arrow),
+    ("import", Tool::Import),
+    ("bridge", Tool::Bridge),
+];
+
+/// `EngineInput`'s tool names; a UI piece is `piece:<kind>`.
 fn tool(s: &str) -> Option<Tool> {
-    Some(match s {
-        "select" => Tool::Select,
-        "module" => Tool::Module,
-        "function" => Tool::Function,
-        "route" => Tool::Route,
-        "system" => Tool::System,
-        "note" => Tool::Note,
-        "frame" => Tool::Frame,
-        "link" => Tool::Link,
-        _ => return None,
-    })
+    if let Some(k) = s.strip_prefix("piece:") {
+        let k: PieceKind = serde_json::from_value(json!(k)).ok()?;
+        return Some(Tool::Piece(k));
+    }
+    TOOLS.iter().find(|t| t.0 == s).map(|t| t.1)
+}
+
+fn tool_name(t: Tool) -> String {
+    match t {
+        Tool::Piece(k) => format!("piece:{}", json!(k).as_str().unwrap_or_default()),
+        t => TOOLS
+            .iter()
+            .find(|x| x.1 == t)
+            .map_or("select", |x| x.0)
+            .into(),
+    }
+}
+
+/// Board text across the boundary: a design.json text, or
+/// `{"design"?: Design, "screens"?: Screen[] | {id: Screen | null}}` (an array is every screen;
+/// an object changes those ids only, null removing one). Each part is validated.
+struct Part {
+    design: Option<ig_design::Design>,
+    all: Option<BTreeMap<String, Screen>>,
+    some: BTreeMap<String, Option<Screen>>,
+}
+
+fn part(text: &str) -> Result<Part, String> {
+    let v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    let screen = |v: &serde_json::Value| parse_screen(&v.to_string()).map_err(|e| e.to_string());
+    let mut p = Part {
+        design: None,
+        all: None,
+        some: BTreeMap::new(),
+    };
+    if v.get("version").is_some() {
+        p.design = Some(parse(text).map_err(|e| e.to_string())?);
+        return Ok(p);
+    }
+    if let Some(d) = v.get("design") {
+        p.design = Some(parse(&d.to_string()).map_err(|e| e.to_string())?);
+    }
+    match v.get("screens") {
+        Some(serde_json::Value::Array(a)) => {
+            let all = a.iter().map(|s| screen(s).map(|s| (s.id.clone(), s)));
+            p.all = Some(all.collect::<Result<_, _>>()?);
+        }
+        Some(serde_json::Value::Object(m)) => {
+            for (id, s) in m {
+                p.some
+                    .insert(id.clone(), (!s.is_null()).then(|| screen(s)).transpose()?);
+            }
+        }
+        _ => {}
+    }
+    Ok(p)
+}
+
+/// `base` with the part laid over it.
+fn over(base: &Board, p: Part) -> Board {
+    let mut b = base.clone();
+    if let Some(d) = p.design {
+        b.design = d;
+    }
+    if let Some(all) = p.all {
+        b.screens = all;
+    }
+    for (id, s) in p.some {
+        match s {
+            Some(s) => b.screens.insert(id, s),
+            None => b.screens.remove(&id),
+        };
+    }
+    b
 }
 
 #[derive(Deserialize)]
@@ -109,6 +195,13 @@ fn error_json(e: impl ToString) -> String {
     json!({"redraw": false, "changed": false, "meaning": false, "selection": [], "edit": null,
            "placed": null, "cursor": "default", "error": e.to_string(), "touched": []})
     .to_string()
+}
+
+fn blank() -> Board {
+    Board {
+        design: empty("", Scope::Dir { id: String::new() }),
+        screens: Default::default(),
+    }
 }
 
 fn board_of(text: &str) -> Result<Board, String> {
@@ -143,15 +236,8 @@ impl BoardEngine {
     /// An empty board without a canvas (`attach` draws it).
     #[wasm_bindgen(constructor)]
     pub fn new() -> BoardEngine {
-        let blank = empty("", Scope::Dir { id: String::new() });
         BoardEngine {
-            engine: Engine::new(
-                Context::default(),
-                Board {
-                    design: blank,
-                    screens: Default::default(),
-                },
-            ),
+            engine: Engine::new(Context::default(), blank()),
             gl: None,
             renderer: None,
             bitmaps: HashMap::new(),
@@ -184,11 +270,56 @@ impl BoardEngine {
         Ok(())
     }
 
+    /// A design.json text or `{design, screens: Screen[]}`; the surface stays.
     pub fn load(&mut self, board: &str, context: &str) -> Result<(), String> {
         let ctx: Context = serde_json::from_str(context).map_err(|e| e.to_string())?;
-        self.engine = Engine::new(ctx, board_of(board)?);
+        let surface = self.engine.current_surface();
+        self.engine = Engine::new(ctx, over(&blank(), part(board)?));
+        self.engine.surface(surface);
+        for (asset, b) in &self.bitmaps {
+            self.engine.set_image(asset, b.width(), b.height());
+        }
         self.dirty = true;
         Ok(())
+    }
+
+    /// `"architecture"` or `"screens"`: switches when given; the current one.
+    pub fn surface(&mut self, name: Option<String>) -> String {
+        match name.as_deref() {
+            Some("screens") => self.engine.surface(Surface::Screens),
+            Some("architecture") => self.engine.surface(Surface::Architecture),
+            _ => {}
+        }
+        self.dirty = true;
+        match self.engine.current_surface() {
+            Surface::Architecture => "architecture",
+            Surface::Screens => "screens",
+        }
+        .into()
+    }
+
+    /// Every screen's canonical file text (`ig_design::screen_to_text`), by id.
+    pub fn screens(&self) -> String {
+        let m: BTreeMap<&String, String> = (self.engine.board().screens.iter())
+            .map(|(id, s)| (id, screen_to_text(s)))
+            .collect();
+        json!(m).to_string()
+    }
+
+    /// A state of a screen (loading, error, empty…): one step.
+    pub fn variant(&mut self, screen: &str, state: &str) -> String {
+        self.after(|e| e.variant(screen, state))
+    }
+
+    /// A stored image (`putAsset`'s name) becomes a screen's locked background: one step.
+    #[wasm_bindgen(js_name = importImage)]
+    pub fn import_image(&mut self, asset: &str) -> String {
+        self.after(|e| e.import_image(asset))
+    }
+
+    /// The rename overlay's commit, on either surface.
+    pub fn rename(&mut self, id: &str, text: &str) -> String {
+        self.after(|e| e.rename(id, text))
     }
 
     /// Another scope's context; the board, its history and the camera stay.
@@ -207,23 +338,30 @@ impl BoardEngine {
 
     /// The current tool, as `EngineInput`'s `tool` names it.
     pub fn tool(&self) -> String {
-        match self.engine.tool() {
-            Tool::Select => "select",
-            Tool::Module => "module",
-            Tool::Function => "function",
-            Tool::Route => "route",
-            Tool::System => "system",
-            Tool::Note => "note",
-            Tool::Frame => "frame",
-            Tool::Link => "link",
-        }
-        .into()
+        tool_name(self.engine.tool())
     }
 
     pub fn input(&mut self, ev: &str) -> String {
         let i = match serde_json::from_str::<Ev>(ev) {
-            Ok(Ev::Down { x, y, button, mods }) => Input::Down { x, y, button, mods },
-            Ok(Ev::Move { x, y, mods }) => Input::Move { x, y, mods },
+            Ok(Ev::Down {
+                x,
+                y,
+                button,
+                mods,
+                pressure,
+            }) => {
+                self.engine.set_pressure(pressure.unwrap_or(0.5));
+                Input::Down { x, y, button, mods }
+            }
+            Ok(Ev::Move {
+                x,
+                y,
+                mods,
+                pressure,
+            }) => {
+                self.engine.set_pressure(pressure.unwrap_or(0.5));
+                Input::Move { x, y, mods }
+            }
             Ok(Ev::Up { x, y, mods }) => Input::Up { x, y, mods },
             Ok(Ev::Wheel { x, y, dx, dy, mods }) => Input::Wheel { x, y, dx, dy, mods },
             Ok(Ev::Key { key, mods }) => Input::Key { key, mods },
@@ -251,10 +389,14 @@ impl BoardEngine {
         self.after(|e| e.ops(&ops, step))
     }
 
-    /// The file changed on disk: merged in (an agent step when `turn` is set).
+    /// A file changed on disk (a design.json text, or screens: see `Part`): merged in (an agent
+    /// step when `turn` is set).
     pub fn external(&mut self, disk: &str, turn: Option<String>) -> String {
-        match board_of(disk) {
-            Ok(b) => self.after(|e| e.external(b, turn.as_deref())),
+        match part(disk) {
+            Ok(p) => {
+                let b = over(self.engine.merge_base(), p);
+                self.after(|e| e.external(b, turn.as_deref()))
+            }
             Err(e) => error_json(e),
         }
     }
@@ -310,9 +452,11 @@ impl BoardEngine {
         to_text(&self.engine.board().design)
     }
 
-    /// The host wrote this text (a `board()` result) to disk: later merges start from it.
+    /// The host wrote this (a `board()` text, or screens: see `Part`) to disk: later merges
+    /// start from it.
     pub fn saved(&mut self, written: &str) -> Result<(), String> {
-        self.engine.saved(board_of(written)?);
+        let b = over(self.engine.merge_base(), part(written)?);
+        self.engine.saved(b);
         Ok(())
     }
 
@@ -367,6 +511,8 @@ impl BoardEngine {
         if let Some(r) = self.renderer.as_mut() {
             r.set_image(asset, &bitmap)?;
         }
+        self.engine
+            .set_image(asset, bitmap.width(), bitmap.height());
         self.bitmaps.insert(asset.into(), bitmap);
         self.dirty = true;
         Ok(())

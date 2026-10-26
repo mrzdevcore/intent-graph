@@ -1,16 +1,23 @@
+import type { PieceKind } from "../api";
+
 // The board engine as the viewer sees it (crates/ig-board, wasm). Hand-written: the generated
 // glue in ./pkg is gitignored and absent from `ig view` builds; host.ts adapts it to this.
 
-/** `mods` bits: Shift 1, Alt 2, Ctrl 4, Meta 8, the second press of a double-click 16. */
+/** `mods` bits: Shift 1, Alt 2, Ctrl 4, Meta 8, the second press of a double-click 16.
+ *  `pressure`: `PointerEvent.pressure` (pen strokes; 0.5 when absent). */
 export type EngineInput =
-  | { t: "down"; x: number; y: number; button: number; mods: number }
-  | { t: "move"; x: number; y: number; mods: number }
+  | { t: "down"; x: number; y: number; button: number; mods: number; pressure?: number }
+  | { t: "move"; x: number; y: number; mods: number; pressure?: number }
   | { t: "up"; x: number; y: number; mods: number }
   | { t: "wheel"; x: number; y: number; dx: number; dy: number; mods: number }
   | { t: "key"; key: string; mods: number }
   | { t: "tool"; tool: Tool };
 
-export type Tool = "select" | "module" | "function" | "route" | "system" | "note" | "frame" | "link";
+export type Tool = "select" | "module" | "function" | "route" | "system" | "note" | "frame" | "link"
+  // the screens: a screen frame, the UI pieces palette, a piece, pen, arrow, image import, link to the architecture
+  | "screen" | "pieces" | `piece:${PieceKind}` | "pen" | "arrow" | "import" | "bridge";
+
+export type Surface = "architecture" | "screens";
 
 export interface EngineOut {
   redraw: boolean;
@@ -32,7 +39,8 @@ export interface EngineOut {
 export interface Camera { x: number; y: number; zoom: number }
 
 /** A label in world px; `title` is the check's reason. */
-export interface Label { id: string; text: string; r: [number, number, number, number]; faded: boolean; title: string | null }
+/** `paper`: on a screen's paper (dark ink in both themes). */
+export interface Label { id: string; text: string; r: [number, number, number, number]; faded: boolean; title: string | null; paper?: boolean }
 
 /** `question`: a sticky note marked as one; `answer`: its answer, null while open. */
 export interface A11yItem { id: string; kind: string; text: string; selected: boolean; highlighted: boolean; problem: string | null;
@@ -41,8 +49,20 @@ export interface A11yItem { id: string; kind: string; text: string; selected: bo
 /** `amend` joins the top undo step (a host follow-up, such as a placed element's file). */
 export type Step = "user" | "amend" | { agent: string };
 
+/** Board text across the boundary: a design.json text, or `{design?, screens?}` where `screens`
+ *  is every screen (an array) or some by id (an object; null removes one). */
 export interface BoardEngine {
   load(boardJson: string, contextJson: string): void;
+  /** Switches the surface when given (selection and tool reset); the current one. */
+  surface(s?: Surface): Surface;
+  /** Every screen's canonical file text, by id. */
+  screens(): Record<string, string>;
+  /** A state of a screen (loading, error, empty…) next to its base: one undo step. */
+  variant(screen: string, state: string): EngineOut;
+  /** A stored image (`putAsset`'s name) becomes a screen's locked background: one undo step. */
+  importImage(asset: string): EngineOut;
+  /** The rename overlay's commit: an element's name, a screen's title, a piece's or nav's label. */
+  rename(id: string, text: string): EngineOut;
   /** Another scope's context: the board, its history and the camera stay. */
   setContext(contextJson: string): void;
   input(ev: EngineInput): EngineOut;
@@ -75,6 +95,7 @@ export interface BoardEngine {
   camera(): Camera;
   labels(): Label[];
   a11y(): A11yItem[];
+  /** Uploads the image's texture (kept for a restored context); drawn instead of its placeholder. */
   setImage(asset: string, bitmap: ImageBitmap): void;
   free(): void;
 }

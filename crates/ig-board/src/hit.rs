@@ -12,12 +12,14 @@ pub(crate) enum Target {
     El(String),
     Ctx(String),
     Link(String),
+    /// A screen's frame (its pieces are `El` by piece key, its navs `Link` by nav key).
+    Screen(String),
 }
 
 impl Target {
     pub fn id(&self) -> &str {
         match self {
-            Target::El(s) | Target::Ctx(s) | Target::Link(s) => s,
+            Target::El(s) | Target::Ctx(s) | Target::Link(s) | Target::Screen(s) => s,
         }
     }
 }
@@ -83,6 +85,31 @@ impl Index {
         for l in &b.design.links {
             if let (Some(a), Some(z)) = (ix.centers.get(&l.from), ix.centers.get(&l.to)) {
                 ix.segs.push((l.key(), *a, *z));
+            }
+        }
+        ix
+    }
+
+    /// The screens surface: frames, then pieces (world rects), then navs from a piece's center
+    /// to the nearest point of the screen it leads to. Backgrounds are locked: never hit.
+    pub fn build_screens(b: &Board) -> Index {
+        use crate::screen_scene::{nav_ends, piece_rect, screen_rect};
+        use crate::screens::{nav_key, piece_key};
+        let mut ix = Index::default();
+        for s in b.screens.values() {
+            ix.add(Target::Screen(s.id.clone()), screen_rect(s), Tier::Frame);
+        }
+        for s in b.screens.values() {
+            for p in &s.elements {
+                let t = Target::El(piece_key(&s.id, &p.id));
+                ix.add(t, piece_rect(s, p, (0.0, 0.0)), Tier::El);
+            }
+        }
+        for s in b.screens.values() {
+            for n in &s.navs {
+                if let Some((a, z)) = nav_ends(b, s, n, &|_| (0.0, 0.0)) {
+                    ix.segs.push((nav_key(&s.id, n), a, z));
+                }
             }
         }
         ix

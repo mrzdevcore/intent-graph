@@ -133,7 +133,7 @@ fn open(app: &AppHandle, root: &Path) {
         let _ = w.set_title(&format!("ig — {name}"));
         // A fresh page for the new project (and one that failed for want of a project). Dev hook
         // for screenshots without input: IG_DESIGN=<slug> opens the Design view on that feature,
-        // IG_THEME=light|dark fixes the theme.
+        // IG_THEME=light|dark fixes the theme, IG_SURFACE=screens shows its screens.
         match dev_url(&w) {
             Some(u) => {
                 let _ = w.navigate(u);
@@ -151,10 +151,14 @@ fn dev_url(w: &tauri::WebviewWindow) -> Option<tauri::Url> {
             .ok()
             .filter(|v| ig_app::design::valid_slug(v))
     };
-    let q: Vec<String> = [("design", var("IG_DESIGN")), ("theme", var("IG_THEME"))]
-        .into_iter()
-        .filter_map(|(k, v)| v.map(|v| format!("{k}={v}")))
-        .collect();
+    let q: Vec<String> = [
+        ("design", var("IG_DESIGN")),
+        ("theme", var("IG_THEME")),
+        ("surface", var("IG_SURFACE")),
+    ]
+    .into_iter()
+    .filter_map(|(k, v)| v.map(|v| format!("{k}={v}")))
+    .collect();
     if q.is_empty() {
         return None;
     }
