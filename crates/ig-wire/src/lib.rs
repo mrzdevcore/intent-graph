@@ -90,6 +90,16 @@ pub fn shown_plan(root: &Path, (plan, applying): &Picked) -> Option<ShownPlan> {
     })
 }
 
+/// Design files need a real `plans/` folder: a symlinked one is refused (the app and `design_edit`).
+pub fn real_plans(root: &Path) -> std::result::Result<(), String> {
+    match std::fs::symlink_metadata(root.join("plans")) {
+        Ok(m) if m.file_type().is_symlink() => {
+            Err("plans/ is a symlink; design files need a real plans folder".into())
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Paths a live view never rebuilds for: ig's own output, git internals, dependencies.
 pub fn ignored(root: &Path, p: &Path) -> bool {
     let rel = p.strip_prefix(root).unwrap_or(p);
@@ -220,9 +230,8 @@ fn design_slug(rel: &Path) -> Option<String> {
         [Some("plans"), Some(s), Some(f)]
             if f == "design.json"
                 || f == "notes.md"
-                || f == "design.unsaved.json"
                 || f.starts_with("design.tmp-")
-                || f.starts_with("design.unsaved.tmp-")
+                || f.starts_with("design.unsaved.")
                 || f.starts_with("notes.tmp-") =>
         {
             Some(s.into())
@@ -424,7 +433,12 @@ mod tests {
 
     #[test]
     fn the_recovery_copy_is_a_design_file() {
-        for f in ["design.unsaved.json", "design.unsaved.tmp-42"] {
+        for f in [
+            "design.unsaved.json",
+            "design.unsaved.tmp-42",
+            "design.unsaved.2.json",
+            "design.unsaved.2.tmp-42",
+        ] {
             assert_eq!(
                 design_slug(Path::new(&format!("plans/a/{f}"))),
                 Some("a".into())

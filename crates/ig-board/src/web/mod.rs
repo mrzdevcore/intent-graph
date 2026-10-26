@@ -405,6 +405,18 @@ impl BoardEngine {
         }
     }
 
+    /// A recovery copy (`kept`, a board text) merged in over `base`, the board text on disk
+    /// when it was kept (None: an older copy, adding and changing only). See `Engine::external_from`.
+    #[wasm_bindgen(js_name = externalFrom)]
+    pub fn external_from(&mut self, kept: &str, base: Option<String>) -> String {
+        let b = |t: &str| part(t).map(|p| over(self.engine.merge_base(), p));
+        let (kept, base) = match (b(kept), base.as_deref().map(b).transpose()) {
+            (Ok(k), Ok(b)) => (k, b),
+            (Err(e), _) | (_, Err(e)) => return error_json(e),
+        };
+        self.after(|e| e.external_from(kept, base))
+    }
+
     /// What changed from `prev` to `next` (board texts: see `Part`) as lines for Claude; a
     /// geometry-only change gives none (`ig_board::delta`).
     pub fn delta(&self, prev: &str, next: &str) -> Result<String, String> {

@@ -60,6 +60,8 @@ When `plans/<slug>/design.json` exists, the plan follows the design. Write `plan
 3. **Screens.** Each of the design's `bridges` (a screen piece to an element or graph id) is a
    requirement: "The Export CSV button on Patient list triggers GET /api/patients/export", plus
    the screen states it opens. Its target must be in the plan. Mockups are context, never layout.
+   A bridge with a warning (`design/bridge-screen-missing`, `design/bridge-source-missing`: its
+   screen or piece is gone) is a question for the user, not a requirement.
 4. **Leaving something out.** Only after the user agrees in the chat or in a note, as
    `omitted: [{id, reason}]` in the `ig-plan` block. Never to silence a gap.
 5. **Gaps.** `ig plan check plans/<slug>/plan.md --json` reports each missing element, link or

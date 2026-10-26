@@ -60,16 +60,14 @@ pub struct Session {
     sink: Sink,
 }
 
-/// A future that is ready after `ms` (the app's tokio has no timers).
-pub fn nap(ms: u64) -> JoinHandle<()> {
-    tauri::async_runtime::spawn_blocking(move || {
-        std::thread::sleep(std::time::Duration::from_millis(ms))
-    })
+/// Ready after `ms` (a tokio timer, no thread).
+pub async fn nap(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await
 }
 
 /// Waits for `task`, at most `ms`.
 pub async fn wait(task: JoinHandle<()>, ms: u64) {
-    let _ = select(task, nap(ms)).await;
+    let _ = select(task, Box::pin(nap(ms))).await;
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -216,7 +214,7 @@ impl Session {
                 }
                 Either::Right((_, conn)) => {
                     // Let the connection write what is queued (the rejects `stop` sent) first.
-                    let _ = select(conn, nap(FLUSH_MS)).await;
+                    let _ = select(conn, Box::pin(nap(FLUSH_MS))).await;
                     let _ = child.kill();
                     let _ = child.status().await;
                 }

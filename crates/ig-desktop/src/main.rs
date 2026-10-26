@@ -15,6 +15,7 @@ mod screens;
 mod session;
 mod shell_path;
 mod trust;
+mod unsaved;
 
 use commands::Project;
 use std::path::{Path, PathBuf};
@@ -211,9 +212,9 @@ fn main() {
             design::plan_status,
             design::write_design,
             design::check_design,
-            design::keep_unsaved,
-            design::read_unsaved,
-            design::discard_unsaved,
+            unsaved::keep_unsaved,
+            unsaved::read_unsaved,
+            unsaved::discard_unsaved,
             screens::list_screens,
             screens::write_screen,
             screens::remove_screen,

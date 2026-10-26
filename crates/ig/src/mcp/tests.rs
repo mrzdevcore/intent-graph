@@ -286,6 +286,24 @@ fn design_edit_writes_canonically_and_reports_touched_and_ok() {
     assert!(t.contains("fn-b") && t.contains("check: ok"), "{t}");
 }
 
+#[cfg(unix)]
+#[test]
+fn design_edit_refuses_a_symlinked_plans_folder() {
+    let dir = design_fixture();
+    let real = dir.join("real-plans");
+    std::fs::rename(dir.join("plans"), &real).unwrap();
+    std::os::unix::fs::symlink(&real, dir.join("plans")).unwrap();
+    let ops = json!([{"op": "remove", "id": "fn-a"}]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    assert_eq!(r["isError"], true, "{r}");
+    let t = r["content"][0]["text"].as_str().unwrap();
+    assert!(t.contains("plans/ is a symlink"), "{t}");
+    assert_eq!(
+        std::fs::read_to_string(real.join("export/design.json")).unwrap(),
+        DESIGN
+    );
+}
+
 #[test]
 fn design_edit_refuses_bad_slug() {
     let dir = design_fixture();

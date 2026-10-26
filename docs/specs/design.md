@@ -469,7 +469,7 @@ plans/<slug>/design.json            architecture (v1)
 plans/<slug>/screens/<id>.json      one screen (v1)
 plans/<slug>/assets/<hash>.png|jpg  imported images
 plans/<slug>/plan.md, notes.md      agent-owned plan, user notes
-plans/<slug>/design.unsaved.json    recovery copy (below)
+plans/<slug>/design.unsaved.json    recovery copy (below; then .2.json, .3.json, …)
 plans/<slug>.md                     a flat plan: a feature with no design
 ```
 
@@ -517,6 +517,7 @@ A design is checked as a plan (`design::to_plan`): elements become new nodes, ma
 | `design/layer-mismatch` | warning | placed in a layer, but its file is in another |
 | `design/bridge-target-missing` | error | a bridge ends on something that is neither an element nor in the graph |
 | `design/bridge-screen-missing` | warning | a bridge starts on a screen that does not exist |
+| `design/bridge-source-missing` | warning | a bridge starts on a piece its screen no longer has |
 
 The app checks the unsaved board against a cached code graph, so an edit shows its result in about 30 ms with 200 elements (see Measured). The cache is dropped when the code changes.
 
@@ -541,7 +542,7 @@ An MCP tool: Claude's only way to write the boards. `{slug, ops[]}`, at most 200
 
 ### Recovery
 
-The board saves itself shortly after an edit and again on quit or a feature switch. When a write fails (or the file changed on disk and could not be merged), the board text is kept in `plans/<slug>/design.unsaved.json`, written atomically, and offered the next time the feature opens. It is removed after a successful write or when you discard it. Nothing is silently dropped.
+The board saves itself shortly after an edit and again on quit or a feature switch. When a write fails (or the file changed on disk and could not be merged), the board text is kept in `plans/<slug>/design.unsaved.json`, written atomically, and offered the next time the feature opens. A copy is never overwritten: a second one goes to `design.unsaved.2.json`, and so on, and each is offered on its own. A copy holds the board and the disk it was made over, so Restore merges only your kept edits: anything added on disk since (by Claude's `design_edit`, say) stays. A copy is removed once restored or when you discard it. Nothing is silently dropped.
 
 ### The engine and the graph view
 

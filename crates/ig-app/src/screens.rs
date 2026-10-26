@@ -6,7 +6,7 @@ use crate::design::valid_slug;
 use crate::{Result, bail};
 use ig_core::design::{self, Screen, is_asset_name};
 use ig_core::ports::Files;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const MAX_ASSET: usize = 10 * 1024 * 1024;
 const REFUSED: &str = "Only PNG or JPEG up to 10 MB";
@@ -55,6 +55,33 @@ pub fn read_all(files: &dyn Files, slug: &str) -> Result<BTreeMap<String, (Scree
         }
     }
     Ok(out)
+}
+
+/// Each screen's piece ids, by screen id (its file name). A file that does not parse has None:
+/// its pieces are unknown, so the check calls no bridge from it missing.
+pub type Pieces = BTreeMap<String, Option<BTreeSet<String>>>;
+
+pub fn pieces(files: &dyn Files, slug: &str) -> Pieces {
+    let pat = format!("plans/{slug}/screens/*.json");
+    let mut out = Pieces::new();
+    for path in files.glob(&[pat]).unwrap_or_default() {
+        let Some(id) = path
+            .rsplit('/')
+            .next()
+            .and_then(|n| n.strip_suffix(".json"))
+        else {
+            continue;
+        };
+        let s = files.read_bytes(&path).and_then(|b| {
+            let t = String::from_utf8(b).ok()?;
+            design::parse_screen(&t).ok()
+        });
+        out.insert(
+            id.into(),
+            s.map(|s| s.elements.into_iter().map(|p| p.id).collect()),
+        );
+    }
+    out
 }
 
 pub fn list(files: &dyn Files, slug: &str) -> Result<Vec<Screen>> {

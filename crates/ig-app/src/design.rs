@@ -3,6 +3,7 @@
 //! action, atomically and never over a file this ig cannot read.
 
 use crate::plan::{self, Head};
+use crate::screens::Pieces;
 use crate::{Result, bail, read_text};
 use ig_core::config::Severity;
 use ig_core::design::{self, Design, Scope};
@@ -205,7 +206,8 @@ pub fn write(files: &dyn Files, slug: &str, d: &Design, expect: Option<&[u8]>) -
 
 /// Live check of an unsaved design against `head`: the plan check on `to_plan(d)` plus the
 /// design's own findings. Every finding gets a `target` (element id, link key, bridge key, null).
-pub fn check(head: &Head, d: &Design, screens: &[String], path: &str) -> Result<Value> {
+/// `screens`: each screen's pieces (`screens::pieces`), for the bridges' sources.
+pub fn check(head: &Head, d: &Design, screens: &Pieces, path: &str) -> Result<Value> {
     let planned = design::to_plan(d, path);
     let mut v = plan::check_plan(head, &planned.plan)?;
     let by_graph: HashMap<&str, &str> = planned
@@ -261,15 +263,22 @@ pub fn check(head: &Head, d: &Design, screens: &[String], path: &str) -> Result<
                 ),
             );
         }
-        if let Some((s, _)) = b.from.split_once('/')
-            && !screens.iter().any(|x| x == s)
-        {
-            extra(
-                "design/bridge-screen-missing",
-                Severity::Warning,
-                &key,
-                format!("bridge {key}: screen {s} does not exist"),
-            );
+        if let Some((s, p)) = b.from.split_once('/') {
+            match screens.get(s) {
+                None => extra(
+                    "design/bridge-screen-missing",
+                    Severity::Warning,
+                    &key,
+                    format!("bridge {key}: screen {s} does not exist"),
+                ),
+                Some(Some(ps)) if !ps.contains(p) => extra(
+                    "design/bridge-source-missing",
+                    Severity::Warning,
+                    &key,
+                    format!("bridge {key}: screen {s} has no {p}"),
+                ),
+                _ => {}
+            }
         }
     }
     // An unknown edge end names the link it came from in its message.
@@ -443,7 +452,7 @@ mod tests {
         let d = dsn(&format!(
             r#""elements":[{FN_N}],"links":[{{"from":"fn-n","to":"ui/b.ts#b","kind":"calls"}}]"#
         ));
-        let v = check(&h, &d, &[], "plans/f/design.json").unwrap();
+        let v = check(&h, &d, &Pieces::new(), "plans/f/design.json").unwrap();
         assert_eq!(v["ok"], false);
         assert_eq!(finding(&v, "ig/arch")["target"], "fn-n|calls|ui/b.ts#b");
         assert_eq!(v["volume"]["newCrossLayer"][0], json!(["core", "ui"]));
@@ -455,7 +464,7 @@ mod tests {
         let d = dsn(
             r#""elements":[{"id":"mod-a","kind":"module","name":"a","file":"core/a.ts","layer":"ui"}]"#,
         );
-        let v = check(&h, &d, &[], "d.json").unwrap();
+        let v = check(&h, &d, &Pieces::new(), "d.json").unwrap();
         assert_eq!(finding(&v, "design/exists")["target"], "mod-a");
         assert_eq!(finding(&v, "design/exists")["severity"], "warning");
         let m = finding(&v, "design/layer-mismatch");
@@ -471,7 +480,14 @@ mod tests {
             r#""elements":[{FN_N}],"links":[{{"from":"fn-n","to":"ui/gone.ts#g","kind":"calls"}}],
                "bridges":[{{"from":"list/btn","to":"ui/gone.ts#g"}},{{"from":"list/ok","to":"fn-n"}}]"#
         ));
-        let v = check(&h, &d, &["list".into()], "d.json").unwrap();
+        let list = |p: &[&str]| {
+            Pieces::from([(
+                "list".into(),
+                Some(p.iter().map(|p| p.to_string()).collect()),
+            )])
+        };
+        let v = check(&h, &d, &list(&["btn", "ok"]), "d.json").unwrap();
+        assert!(!v.to_string().contains("bridge-source-missing"), "{v}");
         assert_eq!(
             finding(&v, "plan/unknown-edge-end")["target"],
             "fn-n|calls|ui/gone.ts#g"
@@ -482,11 +498,22 @@ mod tests {
             (Some("list/btn>ui/gone.ts#g"), Some("error"))
         );
         assert_eq!(v["ok"], false);
-        let v = check(&h, &d, &[], "d.json").unwrap();
+        let v = check(&h, &d, &Pieces::new(), "d.json").unwrap();
         assert_eq!(
             finding(&v, "design/bridge-screen-missing")["severity"],
             "warning"
         );
+        // the piece a bridge starts from is gone
+        let v = check(&h, &d, &list(&["btn"]), "d.json").unwrap();
+        let m = finding(&v, "design/bridge-source-missing");
+        assert_eq!(
+            (m["target"].as_str(), m["severity"].as_str()),
+            (Some("list/ok>fn-n"), Some("warning"))
+        );
+        assert_eq!(m["message"], "bridge list/ok>fn-n: screen list has no ok");
+        // a screen file that does not parse: its pieces are unknown, nothing is called missing
+        let v = check(&h, &d, &Pieces::from([("list".into(), None)]), "d.json").unwrap();
+        assert!(!v.to_string().contains("bridge-source-missing"), "{v}");
     }
 
     #[test]
@@ -495,7 +522,7 @@ mod tests {
         let d = dsn(
             r#""elements":[{"id":"fn-a","kind":"function","name":"n","file":"core/n.ts"},{"id":"fn-b","kind":"function","name":"n","file":"core/n.ts"}]"#,
         );
-        let v = check(&h, &d, &[], "d.json").unwrap();
+        let v = check(&h, &d, &Pieces::new(), "d.json").unwrap();
         assert_eq!(finding(&v, "design/duplicate")["target"], "fn-b");
     }
 
@@ -542,7 +569,7 @@ mod tests {
         let mut ms: Vec<u128> = (0..20)
             .map(|_| {
                 let t = std::time::Instant::now();
-                check(&h, &d, &[], "d.json").unwrap();
+                check(&h, &d, &Pieces::new(), "d.json").unwrap();
                 t.elapsed().as_millis()
             })
             .collect();
