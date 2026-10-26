@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ViewData } from "../src/data";
 import { index } from "../src/model/graph";
-import { applyShow, showFromTool, showReducer, type Show, type ShowState } from "../src/model/show";
+import { applyShow, parseShow, showFromTool, showReducer, type Show, type ShowState } from "../src/model/show";
 import fixture from "./fixture-data.json";
 
 const ix = index(fixture as ViewData);
@@ -64,4 +64,9 @@ test("the chip parses ig_show tool input", () => {
   expect(showFromTool({ title: "ig_focus", rawInput })).toBeNull();
   expect(showFromTool({ title: "ig_show", rawInput: { title: "t", nodes: [] } })).toBeNull();
   expect(showFromTool({ title: "ig_show", rawInput: "nope" })).toBeNull();
+});
+
+test("a host show without edges or steps gets []", () => {
+  expect(parseShow({ seq: 4, title: "t", nodes: [APP], mode: "architecture" })).toMatchObject({ edges: [], steps: [], mode: "architecture" });
+  expect(parseShow({ title: "t" })).toBeNull();
 });

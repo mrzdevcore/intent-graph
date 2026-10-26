@@ -101,10 +101,14 @@ export function completions(commands: ChatState["commands"], text: string) {
     .sort((a, b) => ig(a) - ig(b) || a.name.localeCompare(b.name));
 }
 
-/** A tool call update over the call: fields it sends replace the old ones. */
+/** No input yet: absent, or the `{}` the adapter sends before the input streams in. */
+const noInput = (v: unknown) => v === undefined || v === null || (typeof v === "object" && !Object.keys(v as object).length);
+
+/** A tool call update over the call: fields it sends replace the old ones (an empty input never replaces one). */
 function merge(call: ToolCallInfo, update: ToolCallInfo): ToolCallInfo {
   const out = { ...call };
-  for (const [k, v] of Object.entries(update)) if (v !== null && v !== undefined && k !== "sessionUpdate") out[k] = v;
+  for (const [k, v] of Object.entries(update))
+    if (v !== null && v !== undefined && k !== "sessionUpdate" && !(k === "rawInput" && noInput(v))) out[k] = v;
   return out;
 }
 
@@ -140,11 +144,16 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
       const old = s.items[at] as { kind: "tool"; call: ToolCallInfo };
       return { ...s, items: s.items.map((i, n) => (n === at ? { kind: "tool", call: merge(old.call, u) } : i)) };
     }
-    case "Permission":
+    case "Permission": {
+      // The request carries the tool's input: a card still without one takes it (the "Show in graph" chip needs it).
+      const items = s.items.map((i) =>
+        i.kind === "tool" && i.call.toolCallId === a.toolCall.toolCallId && noInput(i.call.rawInput) && !noInput(a.toolCall.rawInput)
+          ? { ...i, call: { ...i.call, rawInput: a.toolCall.rawInput } } : i);
       return {
         ...s, pending: s.pending + 1,
-        items: [...s.items, { kind: "permission", requestId: a.requestId, toolCall: a.toolCall, options: a.options, answered: null }],
+        items: [...items, { kind: "permission", requestId: a.requestId, toolCall: a.toolCall, options: a.options, answered: null }],
       };
+    }
     case "Question":
       return {
         ...s, pending: s.pending + 1,

@@ -60,17 +60,29 @@ fn open(app: &AppHandle, root: &Path) {
     }
     let emitter = app.clone();
     let show = root.join(ig_app::show::SHOW);
+    let mut bad: Option<String> = None;
     let watcher = ig_wire::watch(&root, move |c| {
         // Notes alone change nothing the app shows yet.
         if c.full {
             let _ = emitter.emit("rebuild", ());
         }
-        // The agent's `ig_show`, already checked against the graph; a removed file shows nothing.
-        let read = || {
-            serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&show).ok()?).ok()
+        // The agent's `ig_show`, already checked against the graph; a removed file shows nothing,
+        // an invalid one is logged (once per content) and never reaches the webview.
+        if !c.show {
+            return;
+        }
+        let Ok(text) = std::fs::read_to_string(&show) else {
+            return;
         };
-        if let Some(v) = c.show.then(read).flatten() {
-            let _ = emitter.emit("show", v);
+        match serde_json::from_str::<ig_app::show::Show>(&text) {
+            Ok(s) => {
+                let _ = emitter.emit("show", s);
+            }
+            Err(e) if bad.as_deref() != Some(&text) => {
+                eprintln!("ig: {}: not a show, ignored: {e}", show.display());
+                bad = Some(text);
+            }
+            Err(_) => {}
         }
     });
     let watcher = match watcher {
