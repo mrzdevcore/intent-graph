@@ -3,12 +3,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ViewData } from "../data";
-import type { FileEntry, IgApi } from "./index";
+import type { FileEntry, FileText, IgApi } from "./index";
 
 export function tauri(): IgApi {
   return {
     viewData: (opts) => invoke<ViewData>("view_data", { plan: opts?.plan, noPlan: !!opts?.noPlan }),
     fileTree: (dir) => invoke<FileEntry[]>("file_tree", { dir }),
+    readFile: (path) => invoke<FileText>("read_file", { path }),
     onRebuild(cb) {
       // listen() is async: an unsubscribe that comes before it resolves must still unlisten.
       let off: (() => void) | undefined;

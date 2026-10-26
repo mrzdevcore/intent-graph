@@ -3,6 +3,7 @@
 
 mod commands;
 mod file_tree;
+mod read_file;
 
 use commands::Project;
 use std::path::{Path, PathBuf};
@@ -108,7 +109,8 @@ fn main() {
         .manage(Project::default())
         .invoke_handler(tauri::generate_handler![
             commands::view_data,
-            commands::file_tree
+            commands::file_tree,
+            commands::read_file
         ])
         .menu(|app| {
             let recent = recent_file(app).map(|f| commands::recent(&f));

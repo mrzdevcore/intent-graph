@@ -10,6 +10,10 @@
     arch: (id: string) => void;
     journey: (id: string) => void;
     uiOnly: (on: boolean) => void;
+    /** The before/after merge view of a changed node. */
+    compare: (id: string) => void;
+    /** Desktop app: the node's file in the code view. */
+    openFile?: (id: string) => void;
   };
 </script>
 
@@ -119,7 +123,7 @@
   {@const rows = codeRows(n)}
   {#if rows.length}
     <h2>{n.diff ? "Code (before → after)" : n.code!.op === "+" ? "Code (new)" : "Code (removed)"}</h2>
-    <div class="btns"><button onclick={() => openOverlay({ heading: n.name + " · " + n.file + ":" + n.line, code: rows })}>Open wide</button></div>
+    <div class="btns"><button onclick={() => openOverlay({ heading: n.name + " · " + n.file + ":" + n.line, code: rows })}>Open wide</button>{#if n.diff}<button onclick={() => on.compare(n.id)}>Merge view</button>{/if}{#if on.openFile}<button onclick={() => on.openFile!(n.id)}>Open file</button>{/if}</div>
     {@render codeBlock(rows)}
   {/if}
 {/snippet}

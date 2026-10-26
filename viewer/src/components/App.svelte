@@ -33,6 +33,8 @@
   import { changedIds, exact } from "../model/changed";
   import { focusIds } from "../model/focus";
   import { ancestors, findNode, index, topMember, type Group } from "../model/graph";
+  import { beforeAfter, nodeNamed } from "../model/code";
+  import CodeView from "./CodeView.svelte";
   import Files from "./Files.svelte";
   import Graph from "./Graph.svelte";
   import SidePanel, { type SideView } from "./SidePanel.svelte";
@@ -288,11 +290,33 @@
   /** The file of the selected node, for the Files panel. */
   const selectedFile = $derived(side.kind === "node" ? (ix.byId[side.id]?.file ?? null) : null);
 
-  /** Files → graph: selects the module of that file, if the graph has one. */
+  /** The code view over the graph: a file's text, or a node's before and after. */
+  let code = $state.raw<{ path: string; text?: string; line?: number; merge?: { before: string; after: string } } | null>(null);
+
+  async function openFile(path: string, line?: number) {
+    try {
+      const f = await api.readFile!(path);
+      code = { path, text: f.text, line };
+    } catch (e) {
+      hint = String((e as Error)?.message ?? e);
+    }
+  }
+
+  /** A file chosen in Files: shown in the code view, and selected in the graph when it has a module. */
   function onFile(path: string) {
     const m = D.nodes.find((n) => n.kind === "module" && n.file === path);
     if (m) onTreeSelect(m.id);
-    else hint = path + " is not in the graph.";
+    else if (!api.readFile) hint = path + " is not in the graph.";
+    if (api.readFile) openFile(path);
+  }
+
+  /** A word clicked in the code view: the graph node of this file with that name, if any. */
+  function onWord(word: string, line: number) {
+    const n = code && nodeNamed(D.nodes, code.path, word, line);
+    if (n) {
+      onTreeSelect(n.id);
+      code = null;
+    }
   }
 
   const crumbs = $derived(mode === "architecture" ? [ix.root, ...ancestors(ix, scope)] : []);
@@ -321,6 +345,11 @@
       uiOnly = on;
       if (journey) draw();
     },
+    compare: (id: string) => {
+      const n = ix.byId[id];
+      if (n?.diff) code = { path: n.file, merge: beforeAfter(n.diff) };
+    },
+    openFile: untrack(() => api.readFile) ? (id: string) => openFile(ix.byId[id].file, ix.byId[id].line) : undefined,
   };
 </script>
 
@@ -349,7 +378,10 @@
     <Tree bind:this={tree} {ix} {mode} {screenIds} onselect={onTreeSelect} onfolder={onTreeFolder} onfocus={focusOn} />
     {#if api.fileTree}<Files list={api.fileTree.bind(api)} path={selectedFile} version={D} onselect={onFile} />{/if}
   </div>
-  <Graph bind:this={graph} {links} ontap={onTap} oncontext={onContext} ondrop={onDrop} onlink={onLink} />
+  <div id="center">
+    <Graph bind:this={graph} {links} ontap={onTap} oncontext={onContext} ondrop={onDrop} onlink={onLink} />
+    {#if code}<CodeView path={code.path} text={code.text} merge={code.merge} line={code.line} onword={onWord} onclose={() => (code = null)} />{/if}
+  </div>
   <div id="side" role="complementary">
     <SidePanel {ix} view={side} {mode} {focusId} {focusDepth} {journey} {uiOnly} {notes} on={sideActions} />
   </div>

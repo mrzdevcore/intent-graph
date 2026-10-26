@@ -15,6 +15,12 @@ export interface FileEntry {
   kind: "file" | "dir";
 }
 
+/** A project file's text; `language` is the backend's guess from the extension. */
+export interface FileText {
+  text: string;
+  language: string;
+}
+
 export interface IgApi {
   /** The plan options apply to the desktop app; `ig serve` picks its own. */
   viewData(opts?: { plan?: string; noPlan?: boolean }): Promise<ViewData>;
@@ -24,6 +30,8 @@ export interface IgApi {
   on?(event: "note" | "focus", cb: (data: unknown) => void): () => void;
   /** Desktop app only: the children of `dir` (the root when omitted), directories first. The Files panel needs it. */
   fileTree?(dir?: string): Promise<FileEntry[]>;
+  /** Desktop app only: the text of a project file (relative path), read-only. Turns on the code view. */
+  readFile?(path: string): Promise<FileText>;
   /** Present when the backend supports plan notes (serve, desktop). */
   notes?: NotesApi;
 }
