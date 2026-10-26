@@ -2,6 +2,7 @@
      diffs (CodeMirror merge view, with "Open in code view"). -->
 <script lang="ts">
   import type { ToolCallInfo } from "../../api";
+  import { shortCommand } from "../../model/chat";
   import CodeView from "../CodeView.svelte";
 
   let { call, root, onopendiff }: {
@@ -21,7 +22,7 @@
 
 <details class="card tool">
   <summary>
-    <span class="ttitle">{call.title ?? call.kind ?? "Tool"}</span>
+    <span class="ttitle" title={call.title}>{call.title ? shortCommand(call.title, root) : (call.kind ?? "Tool")}</span>
     <span class="chip {status}">{status.replace("_", " ")}</span>
     {#if loc}<span class="loc">{rel(loc.path)}{loc.line ? ":" + loc.line : ""}</span>{/if}
   </summary>
