@@ -179,13 +179,32 @@ fn fingerprint(text: &str) -> String {
     format!("{h:016x}")
 }
 
-/// An old install without a manifest: does the file still look like one ig wrote?
+/// An old install without a manifest: does the file still look like one ig wrote? Markdown must
+/// open with that file's own frontmatter name; JSON must have a shipped shape.
 fn looks_generated(rel: &str, text: &str) -> bool {
-    if rel.ends_with(".md") {
-        text.starts_with("---\nname:")
-    } else {
-        text.contains("\"ig\"")
+    let json = || serde_json::from_str::<serde_json::Value>(text).ok();
+    match rel {
+        ".mcp.json" => json() == serde_json::from_str(MCP_JSON).ok(),
+        ".claude-plugin/plugin.json" => json()
+            .is_some_and(|v| v["name"] == "ig" && v["skills"] == serde_json::json!(["./skills"])),
+        "agents/reviewer.md" => text.starts_with("---\nname: reviewer\n"),
+        _ => rel
+            .split('/')
+            .nth(1)
+            .is_some_and(|n| text.starts_with(&format!("---\nname: {n}\n"))),
     }
+}
+
+/// `X.bak`, or the next free `X.bak.N`: an earlier backup is never overwritten.
+fn free_bak(p: &Path) -> PathBuf {
+    let first = PathBuf::from(format!("{}.bak", p.display()));
+    if !first.exists() {
+        return first;
+    }
+    (1..)
+        .map(|n| PathBuf::from(format!("{}.bak.{n}", p.display())))
+        .find(|c| !c.exists())
+        .unwrap()
 }
 
 /// Brings the Claude plugin in `base` up to date: missing files are written; a file untouched
@@ -209,17 +228,24 @@ fn refresh_claude(base: &Path) -> Result<Vec<PathBuf>> {
                 if untouched {
                     write_atomic(&p, &content)?;
                 } else if old.is_none() && looks_generated(&rel, &cur) {
-                    let bak = PathBuf::from(format!("{}.bak", p.display()));
+                    let bak = free_bak(&p);
                     std::fs::copy(&p, &bak)?;
                     write_atomic(&p, &content)?;
+                    eprintln!(
+                        "ig: replaced {}; your copy is {}",
+                        p.display(),
+                        bak.display()
+                    );
                 } else {
                     let new = PathBuf::from(format!("{}.new", p.display()));
-                    write_atomic(&new, &content)?;
-                    eprintln!(
-                        "ig: kept your edited {}; the new version is at {}",
-                        p.display(),
-                        new.display()
-                    );
+                    if std::fs::read_to_string(&new).ok().as_deref() != Some(&content) {
+                        write_atomic(&new, &content)?;
+                        eprintln!(
+                            "ig: kept your edited {}; the new version is at {}",
+                            p.display(),
+                            new.display()
+                        );
+                    }
                     continue;
                 }
                 written.push(p);
@@ -407,6 +433,16 @@ mod tests {
         );
         assert_eq!(std::fs::read_to_string(&apply).unwrap(), "my own apply");
         assert!(apply.with_file_name("SKILL.md.new").is_file());
+        // A second legacy refresh keeps the first backup and takes the next free name.
+        std::fs::remove_file(base.join(GENERATED)).unwrap();
+        std::fs::write(&plan, old).unwrap();
+        install(&dir, claude).unwrap();
+        assert!(plan.with_file_name("SKILL.md.bak.1").is_file());
+        assert!(!looks_generated(
+            "skills/plan/SKILL.md",
+            "---\nname: view\n"
+        ));
+        assert!(!looks_generated(".mcp.json", "{\"x\": \"ig\"}"));
     }
 
     #[test]

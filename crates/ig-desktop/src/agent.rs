@@ -179,9 +179,12 @@ impl Agent {
         };
         self.stop();
         let args: Vec<&str> = l.args.iter().map(String::as_str).collect();
-        let (plugin, notice) = crate::plugin::choose(root, data, |to| {
-            crate::plugin::export_with(l.ig.as_deref(), to)
-        });
+        let ig = l.ig.clone();
+        let (plugin, notice) =
+            crate::plugin::choose(root.to_path_buf(), data.to_path_buf(), move |to| {
+                crate::plugin::export_with(ig.as_deref(), to)
+            })
+            .await;
         if let Some(text) = notice {
             (l.sink)(AgentEvent::Notice { text });
         }

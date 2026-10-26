@@ -14,41 +14,59 @@ pub fn app_dir(data: &Path) -> PathBuf {
 /// Whether this process already exported. Concurrent session starts export once, not twice.
 static EXPORTED: Mutex<bool> = Mutex::new(false);
 
-/// Exports into a sibling directory and swaps it into place (under the lock).
+/// Exports straight into `dir` (each file is written atomically, so a reader never sees half of
+/// one), then prunes what the new export did not write. The directory is never removed as a whole:
+/// a live session or a second app instance may be reading it. Runs under the lock.
 fn ensure(
     done: &Mutex<bool>,
     dir: &Path,
-    export: impl FnOnce(&Path) -> Result<(), String>,
+    export: impl FnOnce(&Path) -> Result<Vec<String>, String>,
 ) -> Result<(), String> {
     let mut done = done.lock().unwrap_or_else(|e| e.into_inner());
     if *done && dir.is_dir() {
         return Ok(());
     }
-    let tmp = dir.with_file_name(format!(".tmp-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&tmp);
-    let r = export(&tmp).and_then(|()| {
-        let _ = std::fs::remove_dir_all(dir);
-        std::fs::rename(&tmp, dir).map_err(|e| e.to_string())
-    });
-    let _ = std::fs::remove_dir_all(&tmp);
+    let r = export(dir).map(|keep| prune(dir, dir, &keep));
     *done = r.is_ok();
     r
 }
 
+/// Removes files under `dir` that are not in `keep` (paths relative to `root`), then empty dirs.
+fn prune(root: &Path, dir: &Path, keep: &[String]) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            prune(root, &p, keep);
+            let _ = std::fs::remove_dir(&p); // only succeeds when empty
+        } else if p
+            .strip_prefix(root)
+            .is_ok_and(|r| !keep.iter().any(|k| Path::new(k) == r))
+        {
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+}
+
 /// The plugin path for a session in `root`, and a notice when the app's own could not be made.
-pub fn choose(
-    root: &Path,
-    data: &Path,
-    export: impl FnOnce(&Path) -> Result<(), String>,
+/// The export runs on a blocking thread; the lock never crosses an await.
+pub async fn choose(
+    root: PathBuf,
+    data: PathBuf,
+    export: impl FnOnce(&Path) -> Result<Vec<String>, String> + Send + 'static,
 ) -> (Option<PathBuf>, Option<String>) {
-    choose_in(&EXPORTED, root, data, export)
+    tauri::async_runtime::spawn_blocking(move || choose_in(&EXPORTED, &root, &data, export))
+        .await
+        .unwrap_or_else(|e| (None, Some(format!("ig plugin export: {e}"))))
 }
 
 fn choose_in(
     done: &Mutex<bool>,
     root: &Path,
     data: &Path,
-    export: impl FnOnce(&Path) -> Result<(), String>,
+    export: impl FnOnce(&Path) -> Result<Vec<String>, String>,
 ) -> (Option<PathBuf>, Option<String>) {
     let dir = app_dir(data);
     match ensure(done, &dir, export) {
@@ -62,7 +80,7 @@ fn choose_in(
 }
 
 /// Exports with the bundled `ig` (the directory the app puts first on the agent's PATH).
-pub fn export_with(ig_dir: Option<&Path>, to: &Path) -> Result<(), String> {
+pub fn export_with(ig_dir: Option<&Path>, to: &Path) -> Result<Vec<String>, String> {
     let ig = ig_dir.ok_or("no bundled ig")?.join("ig");
     let out = std::process::Command::new(&ig)
         .args(["plugin", "export"])
@@ -70,7 +88,10 @@ pub fn export_with(ig_dir: Option<&Path>, to: &Path) -> Result<(), String> {
         .output()
         .map_err(|e| format!("{}: {e}", ig.display()))?;
     if out.status.success() {
-        Ok(())
+        Ok(String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(String::from)
+            .collect())
     } else {
         Err(String::from_utf8_lossy(&out.stderr)
             .trim()
@@ -98,7 +119,8 @@ mod tests {
         let mk = |calls: &mut i32, to: &Path| {
             *calls += 1;
             std::fs::create_dir_all(to).unwrap();
-            Ok(())
+            std::fs::write(to.join("a"), "new").unwrap();
+            Ok(vec!["a".to_string()])
         };
         let run = Mutex::new(false);
         let (p, n) = choose_in(&run, &root, &data, |to| mk(&mut calls, to));
@@ -109,6 +131,12 @@ mod tests {
         let next = Mutex::new(false);
         choose_in(&next, &root, &data, |to| mk(&mut calls, to));
         assert_eq!(calls, 2);
+        // Re-export prunes what is no longer shipped, and never removes the directory itself.
+        let dir = app_dir(&data);
+        std::fs::create_dir_all(dir.join("old/deep")).unwrap();
+        std::fs::write(dir.join("old/deep/x"), "x").unwrap();
+        choose_in(&Mutex::new(false), &root, &data, |to| mk(&mut calls, to));
+        assert!(dir.join("a").is_file() && !dir.join("old").exists());
     }
 
     #[test]
