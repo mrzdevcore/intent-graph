@@ -64,31 +64,35 @@ export function assignRows(ix: Index, nodes: El[]): Record<string, RowOf> {
 export function placeRows(nodes: El[], of: Record<string, RowOf>, width: number): { lanes: Lane[]; width: number } {
   const byRow: Record<number, El[]> = {};
   nodes.forEach((e) => (byRow[of[e.data.id].row] = byRow[of[e.data.id].row] || []).push(e));
-  const lineH = 150;
   const slotOf = (d: ElData) => {
     const n = (d.label || "").length;
-    return d.kind === "layer" || d.kind === "dir" ? Math.max(70, n * 8.5 + 24) + 60 : Math.max(80, Math.min(n, 24) * 7 + 30);
+    if (d.kind === "system") return Math.max(90, Math.min(n, 20) * 6.5 + 24);
+    return d.kind === "layer" || d.kind === "dir" ? Math.max(80, n * 9 + 40) + 60 : Math.max(80, Math.min(n, 24) * 7 + 30);
   };
   const layout = Object.keys(byRow).map(Number).sort((a, b) => a - b).map((row) => {
     const r = byRow[row];
+    const ext = of[r[0].data.id].kind === "external";
+    // External services is a compact grid of icons: tighter lines, about twice as wide as tall.
+    const lineH = ext ? 100 : 150;
     const slot = Math.max(0, ...r.map((e) => slotOf(e.data)));
     let perLine = Math.max(1, Math.floor(width / slot));
+    if (ext) perLine = Math.min(perLine, Math.max(4, Math.ceil(Math.sqrt(r.length * 2))));
     // A row of hundreds of boxes would wrap into a strip too thin to read once fitted: past 20
     // lines it wraps to a square instead, and the view fits that.
     if (r.length / perLine > 20) perLine = Math.max(perLine, Math.ceil(Math.sqrt((r.length * lineH) / slot)));
-    return { r, slot, perLine, lines: Math.ceil(r.length / perLine) };
+    return { r, slot, perLine, lineH, lines: Math.ceil(r.length / perLine) };
   });
   const full = Math.max(0, ...layout.map((o) => Math.min(o.r.length, o.perLine) * o.slot));
   const lanes: Lane[] = [];
   let top = 0;
   layout.forEach((o) => {
-    lanes.push({ ...of[o.r[0].data.id], top, bottom: top + o.lines * lineH - 30 });
+    lanes.push({ ...of[o.r[0].data.id], top, bottom: top + o.lines * o.lineH - 30 });
     o.r.forEach((e, i) => {
       const line = Math.floor(i / o.perLine);
       const k = Math.min(o.perLine, o.r.length - line * o.perLine);
-      e.position = { x: full / 2 + (i - line * o.perLine - (k - 1) / 2) * o.slot, y: top + 60 + line * lineH };
+      e.position = { x: full / 2 + (i - line * o.perLine - (k - 1) / 2) * o.slot, y: top + (o.lineH - 30) / 2 + line * o.lineH };
     });
-    top += o.lines * lineH;
+    top += o.lines * o.lineH;
   });
   return { lanes, width: full };
 }
