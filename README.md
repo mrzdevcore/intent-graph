@@ -246,5 +246,5 @@ ig view --json > viewer/dev-data.json && cd viewer && bun run dev   # the viewer
 Layout: a Cargo workspace in `crates/`. `ig-core` is pure domain plus the ports; `ig-app` holds the use cases;
 `ig-lang-ts`, `ig-fs`, `ig-git` and `ig-checkers` are adapters; `ig` is the binary that wires them.
 The dependency rule (core and adapters depend only on `ig-core`) and a 600-line file limit are enforced by
-`crates/ig/tests/architecture.rs`. To add a language, implement `LanguageFrontend` in a new `ig-lang-*` crate.
+`crates/ig/tests/architecture.rs`. `LanguageFrontend` is the seam for new languages, but it is not drop-in yet: source-file detection (`ig_core::workspace::is_source_ext`) and package discovery (`ig-fs`: npm/pnpm workspaces, package.json, tsconfig) are still TS/npm-shaped, and `prepare_checkout`'s `link_auto_imports` flag and the node hash/intent helpers in `ig-lang-ts` must move first.
 See [Architecture](docs/specs/design.md#architecture).

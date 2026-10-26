@@ -46,6 +46,7 @@ pub fn build_graph(
                 fe.handles(&f.path, config)
                     && !frontends[..i].iter().any(|p| p.handles(&f.path, config))
             })
+            // ponytail: serial reads; parallelise via a Files batch read if large repos need it
             .map(|f| (f.clone(), files.read(&f.path).unwrap_or_default()))
             .collect();
         let out = fe.build(&mine, &ws, config);

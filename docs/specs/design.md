@@ -111,14 +111,14 @@ The repo is a Cargo workspace in a hexagonal layout: a pure core, use cases over
 
 **Dependency rule:** `ig-core` depends on no `ig-*` crate; `ig-app` and every adapter depend only on `ig-core`; only the binary depends on everything. `crates/ig/tests/architecture.rs` enforces this with `cargo metadata`, greps `ig-core` and `ig-app` for I/O (`std::fs`, `std::process`, `std::net`, `Command::new`, `File::open`, `println!`, `eprintln!`) and fails on any `.rs` file over 600 lines.
 
-**Adding a language frontend:** create `crates/ig-lang-<x>` depending only on `ig-core`, implement `LanguageFrontend` (`handles`, extraction, resolution, `prepare_checkout`, `cache_inputs`), and register it where `main` builds the frontend list. Nothing in `ig-core` or `ig-app` changes.
+**Adding a language frontend:** the port (`LanguageFrontend`: `handles`, extraction, resolution, `prepare_checkout`, `cache_inputs`) is the seam, and a new `crates/ig-lang-<x>` crate depends only on `ig-core`. It is not yet drop-in: source-file detection (`ig_core::workspace::is_source_ext`) and package discovery (`ig-fs` discover: npm/pnpm workspaces, package.json, tsconfig) are still TS/npm-shaped, `prepare_checkout`'s `link_auto_imports` flag is TS-specific, and the node hash/intent helpers live in `ig-lang-ts`. Generalising those is the first step of a language project; only then does registering the frontend in `main` suffice.
 
 Data flow, in pipeline order (the stages now live in the crates above):
 
 ```
 cli         CLI parsing, dispatch, exit codes (ig)
 config      ig.yaml → Config (ig-core, read by ig-app)
-workspace   package discovery, workspace import resolution
+workspace   workspace import resolution (package discovery: ig-fs discover)
 files       source file discovery (ig-fs)
 embedded    script extraction and markup scanning for SFCs (ig-lang-ts)
 extract     per-file nodes and edges (oxc AST, ig-lang-ts)
@@ -412,7 +412,7 @@ The note contains, in order:
 - **`ig.yaml`:** with proposed layers (one per workspace package, or one per `src/*` dir), empty rules, the complexity defaults, detected `embedded` extensions (unknown extensions that relative imports point at), and commented examples;
 - **`intents.md`;**
 - **`.claude/settings.json`** (Claude only): with the Stop hook (`ig hook claude`, timeout 300). If the file already exists, the snippet is printed instead;
-- **the `ig-setup` skill** per agent, in the open SKILL.md format: `.claude/skills/ig/skills/setup/SKILL.md` (plugin `.claude/skills/ig/.claude-plugin/plugin.json`) for Claude Code (`/ig:setup`), `.agents/skills/ig-setup/SKILL.md` for Codex (`$ig-setup`). The text is embedded in the binary (`assets/skills/setup.md`);
+- **the `ig-setup` skill** per agent, in the open SKILL.md format: `.claude/skills/ig/skills/setup/SKILL.md` (plugin `.claude/skills/ig/.claude-plugin/plugin.json`) for Claude Code (`/ig:setup`), `.agents/skills/ig-setup/SKILL.md` for Codex (`$ig-setup`). The text is embedded in the binary (`crates/ig/assets/skills/setup.md`);
 - **the `AGENTS.md` snippet:** appended once, guarded by the `<!-- ig:agents -->` marker;
 - **the `.gitignore` entries:** an existing `.ig/` or `.ig` line is rewritten;
 - **the initial baseline:** from `check --all`, excluding checker and parse errors.
@@ -463,7 +463,7 @@ Exit codes: 0 ok, 1 blocking findings, 2 usage or error (`ig: <message>` on stde
 
 ## Verification
 
-1. **Fixture repos under `tests/fixtures/`**, with golden `graph.json` and findings. They cover:
+1. **Fixture repos under `crates/ig/tests/fixtures/`**, with golden `graph.json` and findings. They cover:
    - a monorepo with workspace imports;
    - re-export chains and namespace imports;
    - an SFC with `<script lang="ts">`;
