@@ -100,6 +100,16 @@ fn bench_scene_2000() {
 
 #[test]
 #[ignore]
+fn bench_labels_2000() {
+    let mut e = engine(2000, 1000);
+    e.scene([0.0, 0.0, 1600.0, 1000.0]);
+    let ms = median_ms(|| assert!(!e.labels().is_empty()));
+    println!("labels at 2000 + 1000 context: {ms:.3} ms");
+    assert!(ms < 8.0);
+}
+
+#[test]
+#[ignore]
 fn bench_hit_2000() {
     let e = engine(2000, 1000);
     let c = e.camera();

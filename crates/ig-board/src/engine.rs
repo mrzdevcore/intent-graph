@@ -193,6 +193,7 @@ impl Engine {
 
     /// The file changed on disk: merged into ours (the user wins) as an agent or external step.
     pub fn external(&mut self, disk: Board, turn: Option<&str>) -> Out {
+        self.gesture = Gesture::Idle; // a drag in flight would commit a stale offset
         let m = merge(&self.base, self.board(), &disk);
         self.base = disk;
         if &m.board == self.board() {
@@ -220,27 +221,39 @@ impl Engine {
         self.highlights.clone()
     }
 
-    /// Undoing an agent step clears the highlights.
+    /// The keys a step changed, from the board before it to the board after it.
+    fn step_keys(before: &Board, after: &Board) -> Vec<String> {
+        merge(before, before, after).changed
+    }
+
+    fn highlighted_step(&self) -> bool {
+        !matches!(self.history.top_step(), Step::User)
+    }
+
+    /// Undoing an agent or external step clears that step's highlights only.
     pub fn undo(&mut self) -> Out {
-        let agent = matches!(self.history.top_step(), Step::Agent(_));
+        self.gesture = Gesture::Idle;
+        let (lit, after) = (self.highlighted_step(), self.board().clone());
         if self.history.undo().is_none() {
             return self.out();
         }
-        if agent {
-            self.highlights.clear();
+        if lit {
+            let keys = Self::step_keys(self.board(), &after);
+            self.highlights.retain(|h| !keys.contains(h));
         }
         self.changed()
     }
 
-    /// Redoing an agent step highlights what it changed again.
+    /// Redoing an agent or external step highlights what it changed again.
     pub fn redo(&mut self) -> Out {
+        self.gesture = Gesture::Idle;
         let before = self.board().clone();
         if self.history.redo().is_none() {
             return self.out();
         }
-        if matches!(self.history.top_step(), Step::Agent(_)) {
-            let now = self.board().clone();
-            self.highlight(merge(&before, &before, &now).changed);
+        if self.highlighted_step() {
+            let keys = Self::step_keys(&before, self.board());
+            self.highlight(keys);
         }
         self.changed()
     }

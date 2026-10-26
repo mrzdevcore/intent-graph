@@ -325,6 +325,25 @@ mod tests {
     }
 
     #[test]
+    fn a_bridge_whose_from_names_a_removed_element_stays() {
+        let mut b = base();
+        b.design.bridges = vec![Bridge {
+            from: "login/fn-a".into(),
+            to: "fn-b".into(),
+        }];
+        let mut t = b.clone();
+        t.design.elements.remove(0);
+        let r = merge(&b, &b, &t);
+        assert_eq!(ids(&r.board), ["fn-b"]);
+        assert_eq!(
+            r.board.design.bridges.len(),
+            1,
+            "bridges cascade by `to` only"
+        );
+        assert!(validate(&r.board.design).is_ok());
+    }
+
+    #[test]
     fn place_new_puts_an_api_element_into_the_api_row() {
         let l = |row, name: &str, top, bottom| Lane {
             row,

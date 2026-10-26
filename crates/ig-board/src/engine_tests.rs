@@ -170,3 +170,103 @@ fn checks_reach_scene_labels_and_a11y() {
     assert_eq!(a[0].problem.as_deref(), Some("forbidden"));
     assert_eq!(a[2].text, "fn-a calls fn-b");
 }
+
+#[test]
+fn undo_of_an_agent_step_clears_only_its_highlights() {
+    let mut e = engine();
+    let d1 = renamed(e.board(), "fn-b", "B");
+    e.external(d1.clone(), Some("t1"));
+    e.external(renamed(&d1, "fn-a", "A"), Some("t2"));
+    assert_eq!(e.highlighted(), ["fn-b", "fn-a"]);
+    e.undo();
+    assert_eq!(e.highlighted(), ["fn-b"]);
+}
+
+#[test]
+fn external_merge_highlights_clear_on_undo_and_return_on_redo() {
+    let mut e = engine();
+    e.external(renamed(e.board(), "fn-b", "B"), None);
+    assert_eq!(e.highlighted(), ["fn-b"]);
+    e.undo();
+    assert!(e.highlighted().is_empty());
+    e.redo();
+    assert_eq!(e.highlighted(), ["fn-b"]);
+}
+
+#[test]
+fn hit_with_zoom_and_pan() {
+    let mut e = engine();
+    e.camera = Camera {
+        x: -10.0,
+        y: -10.0,
+        zoom: 2.0,
+    };
+    assert_eq!(e.hit(60.0, 60.0).as_deref(), Some("fn-a"));
+    assert_eq!(e.hit(920.0, 80.0).as_deref(), Some("server/x.ts#GET /x"));
+    assert_eq!(e.hit(20.0, 20.0), None, "world (0, 0) is empty");
+}
+
+#[test]
+fn undo_redo_and_external_during_a_drag_drop_the_drag() {
+    for interrupt in 0..3 {
+        let mut e = engine();
+        e.ops(
+            &[Op::Move {
+                id: "fn-b".into(),
+                x: 216,
+                y: 8,
+            }],
+            Step::User,
+        );
+        let b = |x, y| crate::Input::Down {
+            x,
+            y,
+            button: 0,
+            mods: 0,
+        };
+        e.input(b(20.0, 20.0));
+        e.input(crate::Input::Move {
+            x: 60.0,
+            y: 20.0,
+            mods: 0,
+        });
+        match interrupt {
+            0 => _ = e.undo(),
+            1 => _ = e.redo(),
+            _ => _ = e.external(renamed(e.board(), "fn-b", "B"), Some("t1")),
+        }
+        let s = e.scene([0.0, 0.0, 800.0, 600.0]);
+        assert!(!s.rects.iter().any(|r| r.r[0] == 48.0), "no stale offset");
+        e.input(crate::Input::Up {
+            x: 60.0,
+            y: 20.0,
+            mods: 0,
+        });
+        assert_eq!(e.board().design.elements[0].x, Some(8), "case {interrupt}");
+    }
+}
+
+#[test]
+fn labels_are_culled_by_the_viewport() {
+    let mut e = engine();
+    e.scene([0.0, 0.0, 300.0, 200.0]);
+    let ids: Vec<String> = e.labels().into_iter().map(|l| l.id).collect();
+    assert_eq!(ids, ["fn-a", "fn-b"]);
+}
+
+#[test]
+fn lanes_span_from_the_leftmost_box() {
+    let mut e = engine();
+    e.ops(
+        &[Op::Move {
+            id: "fn-a".into(),
+            x: -200,
+            y: 8,
+        }],
+        Step::User,
+    );
+    e.camera.x = -400.0;
+    let s = e.scene([0.0, 0.0, 1200.0, 600.0]);
+    let lane = s.rects.iter().find(|r| r.paint == Paint::Lane).unwrap();
+    assert_eq!((lane.r[0], lane.r[2]), (-240.0, 780.0));
+}
