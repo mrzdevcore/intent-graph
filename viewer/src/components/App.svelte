@@ -59,7 +59,9 @@
   /** The desktop app's Design view: the architecture board, a lazy chunk; `ig view` builds
    *  (`__BOARDS__` false) drop it with the engine. */
   const DesignView = __BOARDS__ ? () => import("../board/ArchBoard.svelte") : null;
-  let designOpen = $state(false);
+  /** The IG_DESIGN dev hook (`?design=<slug>`): the Design view open on that feature. */
+  const initialDesign = __BOARDS__ ? new URLSearchParams(location.search).get("design") : null;
+  let designOpen = $state(!!initialDesign);
   /** Bumped by Retry: the chunk import runs again. */
   let designTry = $state(0);
   /** "Design around this": the node, numbered so the same one asks again. */
@@ -514,7 +516,8 @@
     <Graph bind:this={graph} {links} ontap={onTap} oncontext={onContext} ondrop={onDrop} onlink={onLink} />
     {#if showSt.current && shown}<ShowBanner title={showSt.current.title} missing={shown.missing.length} steps={shown.steps}
       onclear={clearShow} onback={backShow} onstep={onStep} />{/if}
-    {#if __BOARDS__ && api.design && designOpen}{#key designTry}{#await DesignView!() then V}<V.default {ix} api={api.design} graphScope={scope} {around} />{:catch e}<div role="alert" style="position:absolute;inset:0;z-index:2;padding:15vh 16px 0;background:var(--bg)"><p>{loadFailed(e instanceof Error ? e.message : String(e))}</p><button onclick={() => designTry++}>Retry</button></div>{/await}{/key}{/if}
+    {#if __BOARDS__ && api.design && designOpen}{#key designTry}{#await DesignView!() then V}<V.default {ix} api={api.design} graphScope={scope} {around} initial={initialDesign}
+      beforeClose={api.beforeClose?.bind(api)} />{:catch e}<div role="alert" style="position:absolute;inset:0;z-index:2;padding:15vh 16px 0;background:var(--bg)"><p>{loadFailed(e instanceof Error ? e.message : String(e))}</p><button onclick={() => designTry++}>Retry</button></div>{/await}{/key}{/if}
     {#if code}<CodeView path={code.path} text={code.text} merge={code.merge} line={code.line} onword={onWord} onclose={() => (code = null)} />{/if}
   </div>
   <div id="side" role="complementary">

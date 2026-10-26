@@ -7,6 +7,10 @@ import "./styles/app.css";
 import { pickApi } from "./api";
 import App from "./components/App.svelte";
 
+// Desktop dev hook (IG_THEME): a fixed theme for screenshots taken without input.
+const theme = new URLSearchParams(location.search).get("theme");
+if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+
 const api = pickApi();
 const target = document.getElementById("app")!;
 api.viewData().then(

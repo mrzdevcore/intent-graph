@@ -19,7 +19,7 @@ pub use engine::{EditRequest, Engine, Out};
 pub use history::{History, Step};
 pub use input::{Input, Tool, mods};
 pub use merge::{Merged, merge, place_new};
-pub use scene::{A11yItem, Label, Line, Paint, Rect, Scene};
+pub use scene::{A11yItem, Label, Line, Paint, Rect, Scene, dashed};
 pub use snap::{GRID, default_link_kind, move_ops, row_at, snap};
 
 use serde::{Deserialize, Serialize};

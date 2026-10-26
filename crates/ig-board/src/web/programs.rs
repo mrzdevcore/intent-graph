@@ -11,26 +11,30 @@ uniform vec2 view;
 vec4 clip(vec2 s) { return vec4(s.x / view.x * 2.0 - 1.0, 1.0 - s.y / view.y * 2.0, 0.0, 1.0); }
 ";
 
-/// Per instance: rect (world), fill, stroke (straight alpha), radius (world px) and border (CSS px).
+/// Per instance: rect (world), fill, stroke (straight alpha), radius (world px), border and dash
+/// (CSS px; 0 is solid).
 pub const RECT_VS: &str = "
 layout(location = 0) in vec2 corner;
 layout(location = 1) in vec4 rect;
 layout(location = 2) in vec4 fill;
 layout(location = 3) in vec4 stroke;
-layout(location = 4) in vec2 style;
-out vec2 p; out vec2 halfsize; out vec4 vfill; out vec4 vstroke; out vec2 vstyle;
+layout(location = 4) in vec3 style;
+out vec2 p; out vec2 halfsize; out vec4 vfill; out vec4 vstroke; out vec3 vstyle;
 void main() {
   halfsize = rect.zw * cam.z * 0.5;
   p = (corner * 2.0 - 1.0) * (halfsize + 1.0);
   vec2 center = (rect.xy - cam.xy) * cam.z + halfsize;
-  vfill = fill; vstroke = stroke; vstyle = vec2(style.x * cam.z, style.y);
+  vfill = fill; vstroke = stroke; vstyle = vec3(style.x * cam.z, style.y, style.z);
   gl_Position = clip(center + p);
 }";
 
 pub const RECT_FS: &str = "
-in vec2 p; in vec2 halfsize; in vec4 vfill; in vec4 vstroke; in vec2 vstyle;
+in vec2 p; in vec2 halfsize; in vec4 vfill; in vec4 vstroke; in vec3 vstyle;
 out vec4 o;
 void main() {
+  // the dash runs along the nearer edge: x on the top and bottom, y on the sides
+  float t = abs(p.y) * halfsize.x > abs(p.x) * halfsize.y ? p.x : p.y;
+  float on = vstyle.z > 0.0 ? step(mod(t, vstyle.z * 2.0), vstyle.z) : 1.0;
   float r = min(vstyle.x, min(halfsize.x, halfsize.y));
   vec2 q = abs(p) - halfsize + r;
   float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
@@ -39,7 +43,7 @@ void main() {
   float inner = smoothstep(-aa * 0.5, aa * 0.5, d + vstyle.y);
   vec4 f = vec4(vfill.rgb * vfill.a, vfill.a);
   vec4 s = vec4(vstroke.rgb * vstroke.a, vstroke.a);
-  o = mix(f, s, vstyle.y > 0.0 ? inner : 0.0) * (1.0 - outside);
+  o = mix(f, s, vstyle.y > 0.0 ? inner * on : 0.0) * (1.0 - outside);
 }";
 
 /// Per instance: ends a and b (world), colour, width and dash (CSS px; 0 is solid).

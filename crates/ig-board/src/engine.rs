@@ -171,6 +171,7 @@ impl Engine {
         let next = place_new(&next, &unplaced, &self.ctx.lanes);
         match step {
             Step::Agent(t) => self.history.agent(next, &t),
+            Step::Amend => self.history.amend(next),
             s => self.history.push(next, s),
         }
         self.changed()
@@ -184,7 +185,8 @@ impl Engine {
         }
     }
 
-    /// One history step; a user step clears the highlights it touches, an agent step adds them.
+    /// One history step (`Amend`: joined to the top one); a user step clears the highlights it
+    /// touches, an agent step adds them.
     pub fn ops(&mut self, ops: &[Op], step: Step) -> Out {
         let (next, t) = match apply(self.board(), ops) {
             Ok(r) => r,

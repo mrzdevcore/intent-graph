@@ -57,7 +57,7 @@ impl Drop for Renderer {
 }
 
 const CORNERS: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-const RECT_FLOATS: i32 = 14;
+const RECT_FLOATS: i32 = 15;
 const LINE_FLOATS: i32 = 10;
 
 fn prog(
@@ -122,7 +122,7 @@ impl Renderer {
             &gl,
             RECT_VS,
             RECT_FS,
-            &[(1, 4, 0), (2, 4, 4), (3, 4, 8), (4, 2, 12)],
+            &[(1, 4, 0), (2, 4, 4), (3, 4, 8), (4, 3, 12)],
             RECT_FLOATS,
         )?;
         let lines = prog(
@@ -221,7 +221,13 @@ impl Renderer {
                 v.extend_from_slice(&r.r);
                 v.extend_from_slice(&fill);
                 v.extend_from_slice(&stroke);
-                v.extend_from_slice(&[radius, border]);
+                // new elements: a dashed border (CSS px on, then off)
+                let dash = if crate::scene::dashed(r.paint) {
+                    5.0
+                } else {
+                    0.0
+                };
+                v.extend_from_slice(&[radius, border, dash]);
             }
         };
         rects(&mut self.scratch, &s.rects[..split]);

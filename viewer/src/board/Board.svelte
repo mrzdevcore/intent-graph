@@ -11,12 +11,14 @@
   import EditOverlay from "./EditOverlay.svelte";
   import A11yList from "./A11yList.svelte";
 
-  let { source, importer, onout, onready, message = "", reasons = {}, reload = () => location.reload() }: {
+  let { source, importer, onout, onready, onbeforefree, message = "", reasons = {}, reload = () => location.reload() }: {
     /** The board text and context JSON to load: on start and Retry. */
     source: () => { board: string; context: string };
     importer?: Importer;
     onout?: (o: EngineOut, engine: BoardEngine) => void;
     onready?: (engine: BoardEngine) => void;
+    /** Unmount, just before the engine is freed: the last chance to read the board. */
+    onbeforefree?: (engine: BoardEngine) => void;
     /** Announced politely to screen readers (Claude's edits, check summaries). */
     message?: string;
     /** Retry after a panic (tests replace it). */
@@ -244,6 +246,13 @@
 
   onDestroy(() => {
     cancelAnimationFrame(pending);
+    if (engine) {
+      try {
+        onbeforefree?.(engine);
+      } catch (e) {
+        console.error(e); // the engine is freed regardless
+      }
+    }
     if (engine && canvas) release(canvas, engine);
     engine = null;
   });

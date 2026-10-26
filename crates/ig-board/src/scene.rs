@@ -25,6 +25,17 @@ pub enum Paint {
     Preview,
 }
 
+/// New elements (everything the design adds) have a dashed border; notes, frames, context and
+/// overlays are solid.
+pub fn dashed(p: Paint) -> bool {
+    matches!(
+        p,
+        Paint::Element(
+            ElementKind::Module | ElementKind::Function | ElementKind::Route | ElementKind::System
+        )
+    )
+}
+
 #[derive(Serialize, Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
     pub r: [f32; 4],

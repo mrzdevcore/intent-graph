@@ -2,7 +2,7 @@
      the engine's board over the faded real system, the inspector, and the checks bar. The store
      autosaves to plans/<slug>/design.json and re-checks on every change of meaning. -->
 <script lang="ts">
-  import { onDestroy, untrack } from "svelte";
+  import { untrack } from "svelte";
   import { Box, Cloud, Frame, Maximize, MousePointer2, Redo2, Route, SquareFunction, Spline, StickyNote, Undo2 } from "lucide-static";
   import type { Design, DesignApi, DesignScope, LinkKind, MarkKind } from "../api";
   import type { Group, Index } from "../model/graph";
@@ -11,17 +11,25 @@
   import Features from "./Features.svelte";
   import { buildContext, scopeGroup } from "./context";
   import type { BoardEngine, EngineOut, Tool } from "./engine";
+  import type { Importer } from "./host";
   import { BoardStore, realClock, targets, type StoreEngine } from "./store";
 
-  let { ix, api, graphScope, around = null }: {
+  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer }: {
     ix: Index;
     api: DesignApi;
     /** The Graph's Architecture scope: offered as a "folder" scope. */
     graphScope: Group;
     /** "Design around this" from the Graph: a node id, with a counter so the same id asks again. */
     around?: { id: string; n: number } | null;
+    /** The feature to open first (the IG_DESIGN dev hook), before the remembered one. */
+    initial?: string | null;
+    /** Runs `cb` (awaited) before the app window closes; returns the unsubscribe. */
+    beforeClose?: (cb: () => Promise<void>) => () => void;
+    /** Tests: a fake engine. */
+    importer?: Importer;
   } = $props();
 
+  const scopeKey = (s: DesignScope) => JSON.stringify(s);
   const FEATURE_KEY = "ig.design.feature";
   const WIDTH = 1200;
   const TOOLS: [Tool, string, string, string][] = [
@@ -116,7 +124,6 @@
     // the context follows the file's scope, which is only known once it is read
     await s.load();
     if (store !== s) return;
-    board?.run((e) => e.setContext(context(scope)));
     if (around && around.n !== usedAround) {
       usedAround = around.n;
       setScope({ kind: "around", id: around.id, depth: 1 });
@@ -125,7 +132,7 @@
 
   async function start() {
     const list = (await features?.refresh()) ?? [];
-    const want = remembered();
+    const want = initial ?? remembered();
     const first = list.find((f) => f.slug === want && f.design) ?? list.find((f) => f.design && !f.done) ?? list.find((f) => f.design);
     if (first) await open(first.slug);
   }
@@ -156,14 +163,27 @@
   function setScope(s: DesignScope) {
     if (!store || JSON.stringify(s) === JSON.stringify(scope)) return;
     ops([{ op: "scope", scope: s }]);
-    board?.run((e) => e.setContext(context(s)));
-    board?.fit();
   }
 
-  // a rebuilt graph redraws the context, the board stays
+  // The context follows the board's scope however it changed (picker, undo, redo, a change on
+  // disk); a new scope is fitted. A rebuilt graph redraws it and re-checks; the board stays.
+  const scopeK = $derived(scopeKey(scope));
+  let fittedScope = "";
   $effect(() => {
     void ix;
-    untrack(() => store && board?.run((e) => e.setContext(context(scope))));
+    const k = scopeK;
+    untrack(() => {
+      if (!store) return;
+      board?.run((e) => e.setContext(context(scope)));
+      if (k !== fittedScope) {
+        fittedScope = k;
+        board?.fit();
+      }
+    });
+  });
+  $effect(() => {
+    void ix;
+    untrack(() => store?.recheck());
   });
 
   /** The last "Design around this" applied (a store that loads later applies a newer one). */
@@ -184,13 +204,18 @@
     return api.onChanged((changed) => changed === s && store?.slug === s && void store.external());
   });
 
-  onDestroy(() => {
-    void store?.flush().then(() => store?.dispose());
-  });
+  // App quit: the window waits for the last edit to be written
+  $effect(() => beforeClose?.(async () => {
+    await store?.flush();
+  }));
+
+  /** The board is about to free the engine (the view closes): the store takes the text now. */
+  function beforeFree() {
+    void store?.close();
+  }
 
   // the scope picker: whole system, each layer, the Graph's folder, and the current one
   const layers = $derived(Object.values(ix.root.children).filter((g) => g.layer).map((g) => g.label));
-  const scopeKey = (s: DesignScope) => JSON.stringify(s);
   const scopeOptions = $derived.by(() => {
     const opts: [DesignScope, string][] = [[{ kind: "dir", id: "." }, "Whole system"]];
     layers.forEach((l) => opts.push([{ kind: "layer", name: l }, "Layer " + l]));
@@ -214,7 +239,7 @@
     const s = store;
     if (!s) return { text: "", failed: false };
     const err = s.errors[s.path];
-    if (err) return { text: `Read-only: ${err}. It is never overwritten; fix it and the board reloads.`, failed: true };
+    if (err) return { text: `Read-only: ${err}. It is never overwritten; fix it and the board reloads.${s.pending ? " Unsaved changes stay on screen until then." : ""}`, failed: true };
     if (s.saveError) return { text: `Not saved: ${s.saveError}. Retrying…`, failed: true };
     if (s.pending) return { text: "saving…", failed: false };
     return { text: `Saved to ${s.path}`, failed: false };
@@ -260,7 +285,7 @@
   </div>
 
   <div class="canvas" inert={readOnly}>
-    <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} onready={ready} {onout} {reasons} />
+    <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} {importer} onready={ready} {onout} {reasons} onbeforefree={beforeFree} />
     {#if !slug}
       <div class="empty">
         <p>No feature yet. <strong>New feature</strong> above starts one: <code>plans/&lt;slug&gt;/design.json</code>, drawn over the real system.</p>

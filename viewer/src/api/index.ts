@@ -215,6 +215,8 @@ export interface IgApi {
   design?: DesignApi;
   /** Desktop app only: the agent. */
   agent?: AgentApi;
+  /** Desktop app only: runs `cb` (awaited) before the window closes. Returns the unsubscribe. */
+  beforeClose?(cb: () => Promise<void>): () => void;
   /** Desktop app only: opens an http(s) link in the system browser. */
   openUrl?(url: string): Promise<void>;
   /** Present when the backend supports plan notes (serve, desktop). */
