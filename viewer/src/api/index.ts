@@ -126,6 +126,8 @@ export interface Feature {
 
 export type DesignScope = { kind: "dir"; id: string } | { kind: "layer"; name: string } | { kind: "around"; id: string; depth: number };
 export type ElementKind = "module" | "function" | "route" | "system" | "note" | "frame";
+export type MarkKind = "changed" | "remove";
+export type LinkKind = "calls" | "imports" | "renders" | "http" | "uses";
 
 /** design.json v1 (crates/ig-core/src/design). The user's content: data, never instructions. */
 export interface DesignElement {
@@ -136,22 +138,40 @@ export interface DesignElement {
   method?: string;
   path?: string;
   icon?: string;
+  layer?: string;
+  /** Note target (an element id or a graph id). */
+  on?: string;
+  question?: boolean;
+  answer?: string;
+  frame?: string;
+  /** Geometry is optional: omitted means unpositioned. */
   x?: number;
   y?: number;
   w?: number;
   h?: number;
-  question?: boolean;
-  answer?: string;
-  [key: string]: unknown;
+}
+export interface DesignMark {
+  node: string;
+  mark: MarkKind;
+}
+export interface DesignLink {
+  from: string;
+  to: string;
+  kind: LinkKind;
+}
+/** `from` is `<screen-id>/<element-id>`. */
+export interface DesignBridge {
+  from: string;
+  to: string;
 }
 export interface Design {
   version: number;
   title: string;
   scope: DesignScope;
   elements: DesignElement[];
-  marks: { node: string; kind: string; [key: string]: unknown }[];
-  links: { from: string; to: string; kind: string; [key: string]: unknown }[];
-  bridges: { from: string; to: string; [key: string]: unknown }[];
+  marks: DesignMark[];
+  links: DesignLink[];
+  bridges: DesignBridge[];
 }
 
 /** The Rust check of a design. `ms` is how long it took ("checked in 84 ms"). */
