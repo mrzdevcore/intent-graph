@@ -14,12 +14,9 @@ ig-git = { path = "../ig-git" }
 ig-lang-ts = { path = "../ig-lang-ts" }
 lexopt = "0.3.2"
 notify = "8.2.0"
-rayon = "1.12.0"
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-serde_yaml_ng = "0.10.0"
-sha1 = "0.11.0"
 tiny_http = "0.12.0"
 ureq = { version = "3.5.0", features = ["json"] }
 

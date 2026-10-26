@@ -4,7 +4,7 @@
 
 mod autoimports;
 mod embedded;
-pub mod extract;
+mod extract;
 mod patterns;
 mod prepare;
 mod resolve;
