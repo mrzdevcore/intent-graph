@@ -13,7 +13,7 @@ pub const USAGE: &str =
    | query <id> [--in|--out|--both] [--depth N] [--json] | focus <id>...
    | review [--all] [--json] [--agent] | diff [--base <ref>] [--head <ref>] [--json]
    | view [--base <ref>] [--head <ref>] [--watch] [--no-open] [--json] [--checkers] [--plan <file> | --no-plan] | report --gitlab | mcp | hook claude
-   | serve [--port N] [--checkers] [--plan <file> | --no-plan] | serve claude
+   | plugin export <dir> | serve [--port N] [--checkers] [--plan <file> | --no-plan] | serve claude
    (all accept --root <dir>)";
 
 #[derive(Default)]
@@ -77,7 +77,7 @@ pub fn parse_args() -> Result<Args> {
             Long("both") => a.dir = Some("both".into()),
             Long("depth") => a.depth = Some(p.value()?.parse()?),
             Value(v) if a.sub.is_none() => a.sub = Some(v.string()?),
-            Value(v) if matches!(a.cmd.as_str(), "focus" | "plan" | "apply") => {
+            Value(v) if matches!(a.cmd.as_str(), "focus" | "plan" | "apply" | "plugin") => {
                 a.more.push(v.string()?)
             }
             _ => return Err(arg.unexpected().into()),

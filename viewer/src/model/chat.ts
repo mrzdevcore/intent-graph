@@ -180,6 +180,8 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
       return { ...s, login: a.needed };
     case "Setup":
       return { ...s, setup: { instructions: a.instructions, installable: a.installable } };
+    case "Notice":
+      return { ...s, items: [...s.items, { kind: "error", text: a.text }] };
     case "Stopped":
       return { ...closeAll(s, "stopped"), running: false, stopped: { reason: a.reason, stderr: a.stderr } };
     case "Sent":

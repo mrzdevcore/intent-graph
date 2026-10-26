@@ -6,6 +6,7 @@ mod commands;
 mod events;
 mod file_tree;
 mod permissions;
+mod plugin;
 mod read_file;
 mod session;
 mod shell_path;

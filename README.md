@@ -44,6 +44,7 @@ The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in developmen
 - **Needs:** Rust, bun, node and npm (for the Claude adapter), and the Claude CLI logged in (run `claude`, then `/login`). The app never sees your credentials.
 - **Adapter:** on the first chat, if it is missing, the app offers to install `@agentclientprotocol/claude-agent-acp@0.95.0` into its own data dir (never global).
 - **Trust screen:** before any Claude session the app lists what will run: hooks from `.claude/settings*.json`, permission settings (including bypass modes), `AGENTS.md`/`CLAUDE.md`/`CLAUDE.local.md`, MCP servers from `.mcp.json`, the ig plugin, and the project's skills, commands and agents (with any tools they pre-approve or hooks they run). Every file under `.claude/` is hashed (files over 1 MB by size only). You decide, and confirm natively. It asks again when any of them changes.
+- **Plugin:** the app always uses its own ig plugin (exported per version into its data dir). Run `ig init` after upgrading ig to refresh a project's copy for terminal use.
 - **Settings:** sessions load the project and local settings plus the ig plugin only. Your own skills and user settings do not load.
 - **Chat:** streaming replies, tool cards, diffs in the merge view, permission and question cards, mode and model selectors (switching to a bypass mode asks to confirm), "Attach selection", "Plan this" and `/` commands.
 - **Code:** a file tree and a read-only code view with before/after. A **Tests** toggle shows test and spec files, hidden by default in every graph mode (the `tests` globs in `ig.yaml` decide what a test file is).
@@ -67,6 +68,7 @@ ig view            # open the change as a graph in the browser
 | `ig diff [--base <ref>] [--head <ref>] [--json]` | Changed nodes grouped by file (`+` added, `~` changed, `-` removed). |
 | `ig review [--all] [--json] [--agent]` | Ranked structural problems: cycles, hubs, unstable dependencies, low cohesion, change coupling, unused exports, oversized modules. |
 | `ig query <id> [--in\|--out\|--both] [--depth N] [--json]` | Neighbours of a node (default both, depth 2) as `kind id (file:line)` and `from -kind-> to`. Unknown id: suggestions, exit 1. |
+| `ig plugin export <dir>` | Writes the current Claude plugin (skills, reviewer agent, `.mcp.json`) into `<dir>`, overwriting. The desktop app uses this for its own copy. |
 | `ig plan check <file> [--json]` | Checks a plan file before any code is written (see [Plans](#plans)). Exit 1 if it has errors. |
 | `ig plan notes [--wait] [--json]` | The open notes on the current plan (`plans/<slug>.notes.md`). `--wait` blocks until a new one arrives (exit 1 after 30 min without one). |
 | `ig apply start [<plan>]` | Starts applying a plan (default: the current one): records the base commit and the guarded files in `.ig/apply.json` (see [Apply](#apply)). |
@@ -82,7 +84,7 @@ ig view            # open the change as a graph in the browser
 | `ig report --gitlab` | Checks `HEAD` and creates or updates one MR note (needs `IG_GITLAB_TOKEN` or `GITLAB_TOKEN`). |
 | `ig mcp` | MCP server on stdio with `check`, `get_findings`, `get_intents` and `graph_query`, plus `ig_state`, `ig_notes`, `ig_note_done`, `ig_focus` and `ig_wait_notes`, which talk to a running `ig serve`. |
 | `ig hook claude` | Claude Code Stop hook: blocks the agent on blocking findings, up to `hookMaxRounds`. |
-| `ig init [claude\|codex\|all]` | Scaffolding, including the `ig-setup` skill for the chosen agents (default all). Never overwrites anything. |
+| `ig init [claude\|codex\|all]` | Scaffolding, including the `ig-setup` skill for the chosen agents (default all). Never overwrites your edits; Claude's plugin files untouched since ig wrote them are refreshed (an edited one stays, the new version goes beside it as `.new`). |
 | `ig setup [--json]` | Facts for writing `ig.yaml`: packages, directories, page candidates, unlayered modules, unmapped external packages, HTTP calls, arch violations. |
 | `ig setup claude\|codex` | Starts that coding agent on the `ig-setup` skill (`/ig:setup` in Claude Code, `$ig-setup` in Codex), which populates and validates `ig.yaml`. |
 

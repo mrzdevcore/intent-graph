@@ -179,8 +179,15 @@ impl Agent {
         };
         self.stop();
         let args: Vec<&str> = l.args.iter().map(String::as_str).collect();
-        let session =
-            Arc::new(Session::spawn(&cmd, &args, root, l.ig.as_deref(), l.sink.clone()).await?);
+        let (plugin, notice) = crate::plugin::choose(root, data, |to| {
+            crate::plugin::export_with(l.ig.as_deref(), to)
+        });
+        if let Some(text) = notice {
+            (l.sink)(AgentEvent::Notice { text });
+        }
+        let session = Arc::new(
+            Session::spawn(&cmd, &args, root, l.ig.as_deref(), plugin, l.sink.clone()).await?,
+        );
         *self.running.lock().unwrap() = Some(Running {
             root: root.to_path_buf(),
             session: session.clone(),
