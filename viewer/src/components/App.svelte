@@ -293,11 +293,15 @@
   /** The code view over the graph: a file's text, or a node's before and after. */
   let code = $state.raw<{ path: string; text?: string; line?: number; merge?: { before: string; after: string } } | null>(null);
 
+  let opening = 0;
+
   async function openFile(path: string, line?: number) {
+    const mine = ++opening;
     try {
       const f = await api.readFile!(path);
-      code = { path, text: f.text, line };
+      if (mine === opening) code = { path, text: f.text, line };
     } catch (e) {
+      if (mine !== opening) return;
       hint = String((e as Error)?.message ?? e);
     }
   }

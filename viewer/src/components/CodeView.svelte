@@ -5,7 +5,7 @@
   import { MergeView } from "@codemirror/merge";
   import { EditorState, type Extension } from "@codemirror/state";
   import { EditorView, lineNumbers } from "@codemirror/view";
-  import { languageFor, wordAt } from "../model/code";
+  import { languageFor } from "../model/code";
 
   let { path, text = "", merge, line, onword, onclose }: {
     /** Decides the language; for a merge, the node's file. */
@@ -57,9 +57,9 @@
           EditorView.domEventHandlers({
             click: (e, view) => {
               const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
-              if (pos === null || !onword) return;
-              const w = wordAt(view.state.doc.toString(), pos);
-              if (w) onword(w, view.state.doc.lineAt(pos).number);
+              if (pos === null || !onword || !view.state.selection.main.empty) return;
+              const r = view.state.wordAt(pos);
+              if (r) onword(view.state.sliceDoc(r.from, r.to), view.state.doc.lineAt(pos).number);
             },
           }),
         ],
