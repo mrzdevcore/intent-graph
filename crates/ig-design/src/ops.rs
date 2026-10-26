@@ -136,6 +136,9 @@ fn step(d: &mut Design, op: &Op, t: &mut Touched) -> Result<(), DesignError> {
             w,
             h,
         } => {
+            if name.trim().is_empty() {
+                return Err(DesignError::Invalid("empty name".into()));
+            }
             let id = id.clone().unwrap_or_else(|| new_id(d, *kind, name));
             let mut e = blank(&id, *kind, name);
             (e.file, e.method, e.path, e.layer, e.on) = (
@@ -152,6 +155,9 @@ fn step(d: &mut Design, op: &Op, t: &mut Touched) -> Result<(), DesignError> {
         Op::Update { id, set: p } => {
             let e = find(d, id)?;
             if let Some(n) = &p.name {
+                if n.trim().is_empty() {
+                    return Err(DesignError::Invalid(format!("{id}: empty name")));
+                }
                 e.name = n.clone();
             }
             set(&mut e.file, &p.file);
@@ -200,7 +206,7 @@ fn step(d: &mut Design, op: &Op, t: &mut Touched) -> Result<(), DesignError> {
                 !hit
             });
             d.bridges.retain(|b| {
-                let hit = b.to == *id || b.from.rsplit('/').next() == Some(id);
+                let hit = b.to == *id;
                 if hit {
                     push(&mut t.bridges, b.key());
                 }
@@ -239,8 +245,10 @@ fn step(d: &mut Design, op: &Op, t: &mut Touched) -> Result<(), DesignError> {
                     to: map.get(&l.to).unwrap_or(&l.to).clone(),
                     kind: l.kind,
                 };
-                push(&mut t.links, l.key());
-                d.links.push(l);
+                if !d.links.contains(&l) {
+                    push(&mut t.links, l.key());
+                    d.links.push(l);
+                }
             }
         }
         Op::Link { from, to, kind } => {
@@ -249,8 +257,8 @@ fn step(d: &mut Design, op: &Op, t: &mut Touched) -> Result<(), DesignError> {
                 to: to.clone(),
                 kind: *kind,
             };
-            push(&mut t.links, l.key());
             if !d.links.contains(&l) {
+                push(&mut t.links, l.key());
                 d.links.push(l);
             }
         }
@@ -278,8 +286,8 @@ fn step(d: &mut Design, op: &Op, t: &mut Touched) -> Result<(), DesignError> {
                 from: from.clone(),
                 to: to.clone(),
             };
-            push(&mut t.bridges, b.key());
             if !d.bridges.contains(&b) {
+                push(&mut t.bridges, b.key());
                 d.bridges.push(b);
             }
         }
@@ -430,6 +438,29 @@ mod tests {
     fn link_to_unknown_element_is_refused() {
         let o = ops(r#"[{"op":"link","from":"fn-a","to":"fn-zzz","kind":"calls"}]"#);
         assert!(matches!(apply(&board(), &o), Err(DesignError::Invalid(_))));
+    }
+
+    #[test]
+    fn remove_keeps_bridges_whose_from_tail_matches() {
+        let mut b = board();
+        b.design.bridges.push(Bridge {
+            from: "login/fn-b".into(),
+            to: "fn-a".into(),
+        });
+        let (b, _) = apply(&b, &ops(r#"[{"op":"remove","id":"fn-b"}]"#)).unwrap();
+        assert_eq!(b.design.bridges.len(), 2);
+    }
+
+    #[test]
+    fn empty_names_and_dangling_on_frame_are_refused() {
+        for j in [
+            r#"[{"op":"update","id":"fn-a","set":{"name":" "}}]"#,
+            r#"[{"op":"update","id":"fn-a","set":{"frame":"frame-9"}}]"#,
+            r#"[{"op":"update","id":"note-1","set":{"on":"fn-zzz"}}]"#,
+            r#"[{"op":"add","id":null,"kind":"function","name":"","file":null,"method":null,"path":null,"layer":null,"on":null,"x":null,"y":null,"w":null,"h":null}]"#,
+        ] {
+            assert!(apply(&board(), &ops(j)).is_err(), "{j}");
+        }
     }
 
     #[test]
