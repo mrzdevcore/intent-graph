@@ -21,7 +21,8 @@ export interface ViewNode {
   module: boolean;
   layer: string | null;
   lane: number | null;
-  test: boolean;
+  /** In a test file (ig.yaml `tests`); omitted when not. */
+  test?: boolean;
   planned?: boolean;
   /** For a system: its icon category and its packages from `blueprint.systems`. */
   category?: string;

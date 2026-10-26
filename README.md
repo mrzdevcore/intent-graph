@@ -21,10 +21,32 @@ make install   # builds the viewer page (viewer/dist/index.html), then `cargo in
 
 ## Build
 
-`make build` (needs bun and cargo): the viewer first (`viewer/`, TypeScript, Lit and Vite,
-built into one offline HTML file), then `cargo build --release`, which embeds it. `make test` builds the
+`make build` (needs bun and cargo): the viewer first (`viewer/`, TypeScript, Svelte and Vite,
+built into one offline HTML file), then `cargo build --release -p intent-graph`, which embeds it. `make test` builds the
 viewer, runs its tests, then `cargo test --workspace`. Without bun, outside make: `cd viewer && npm install && npm run build`.
 Without a built viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
+
+Desktop app: see [Desktop app (local build)](#desktop-app-local-build). The workspace includes it, so
+`cargo build` and `cargo test --workspace` compile Tauri too (on Linux that needs webkit2gtk).
+
+## Desktop app (local build)
+
+`crates/ig-desktop` is a Tauri 2 app: the graph viewer plus a chat panel that runs Claude Code on your project.
+It is built locally and not distributed (no signing, no auto-update), pending Anthropic's written confirmation.
+
+```sh
+make app       # target/release/bundle/macos/ig.app (unsigned)
+make app-dev   # run it in development
+```
+
+The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in development) and puts it first on the agent's `PATH`, so the plugin's skills and `ig mcp` match the app even when it is opened from Finder.
+
+- **Needs:** Rust, bun, node and npm (for the Claude adapter), and the Claude CLI logged in (run `claude`, then `/login`). The app never sees your credentials.
+- **Adapter:** on the first chat, if it is missing, the app offers to install `@agentclientprotocol/claude-agent-acp@0.95.0` into its own data dir (never global).
+- **Trust screen:** before any Claude session the app lists what will run: hooks from `.claude/settings*.json`, permission settings (including bypass modes), `AGENTS.md`/`CLAUDE.md`/`CLAUDE.local.md`, MCP servers from `.mcp.json`, the ig plugin, and the project's skills, commands and agents (with any tools they pre-approve or hooks they run). Every file under `.claude/` is hashed (files over 1 MB by size only). You decide, and confirm natively. It asks again when any of them changes.
+- **Settings:** sessions load the project and local settings plus the ig plugin only. Your own skills and user settings do not load.
+- **Chat:** streaming replies, tool cards, diffs in the merge view, permission and question cards, mode and model selectors (switching to a bypass mode asks to confirm), "Attach selection", "Plan this" and `/` commands.
+- **Code:** a file tree and a read-only code view with before/after. A **Tests** toggle shows test and spec files, hidden by default in every graph mode (the `tests` globs in `ig.yaml` decide what a test file is).
 
 ## Quick start
 

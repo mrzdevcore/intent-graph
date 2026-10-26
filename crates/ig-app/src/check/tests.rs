@@ -191,7 +191,7 @@ mod fakes {
         let err = run(&env(&files, Some(&vcs), &runner, &fe), &opts)
             .err()
             .unwrap();
-        assert!(err.downcast_ref::<HeadRootMissing>().is_some());
+        assert!(matches!(err, crate::Error::HeadRootMissing));
         assert_eq!(
             err.to_string(),
             std::io::Error::from_raw_os_error(2).to_string()

@@ -6,7 +6,7 @@ use crate::Env;
 use ig_core::workspace;
 
 /// The ranked items: the top ones and the rest. Writes `.ig/review.json` (all of them).
-pub fn run(env: &Env) -> anyhow::Result<(Vec<ReviewItem>, Vec<ReviewItem>)> {
+pub fn run(env: &Env) -> crate::Result<(Vec<ReviewItem>, Vec<ReviewItem>)> {
     let cfg = crate::config::load(env.files)?;
     let repo_head = env.vcs.and_then(|r| r.head());
     let built = crate::graph(env, env.files, &cfg, repo_head)?;

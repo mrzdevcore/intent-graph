@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The viewer: read the graph and follow rebuilds, and drive the agent. Nothing else.",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-view-data", "allow-file-tree", "allow-read-file", "allow-trust-inventory", "allow-trust-project", "allow-agent-start", "allow-agent-prompt", "allow-agent-load", "allow-agent-restart", "allow-agent-cancel", "allow-agent-answer", "allow-agent-list", "allow-agent-install", "allow-agent-reply", "allow-agent-set-config", "allow-open-url"]
+}

@@ -1,0 +1,29 @@
+[package]
+name = "ig-desktop"
+version.workspace = true
+edition.workspace = true
+
+# The desktop app: a Tauri shell around the viewer. A driving adapter, like the `ig` binary.
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+ig-app = { path = "../ig-app" }
+ig-core = { path = "../ig-core" }
+ig-wire = { path = "../ig-wire" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = { version = "=2.12.5", features = [] }
+tauri-plugin-dialog = "=2.8.3"
+sha2 = "=0.10.9"
+agent-client-protocol = "=3.5.0"
+async-process = "2.5.0"
+futures = "0.3.34"
+url = "2.5.8"
+
+# The scripted ACP agent the session tests drive: a test target, so `cargo test` links it and no
+# app build ships it. Run without `--serve` (as `cargo test` does) it exits at once.
+[[test]]
+name = "fake_agent"
+path = "tests/fake_agent.rs"
+harness = false

@@ -1,10 +1,10 @@
 //! The self-contained HTML viewer page built from `ig_app::view_data`, and opening it.
 
-use crate::{Wired, shown_plan};
 use anyhow::Result;
 use ig_app::Env;
 use ig_app::check::{Opts, Run};
 use ig_app::view_data::{self, FOCUS, Picked};
+use ig_wire::{Wired, shown_plan};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -61,16 +61,6 @@ pub fn open_str(target: &str) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
-}
-
-pub fn ignored(root: &Path, p: &Path) -> bool {
-    let rel = p.strip_prefix(root).unwrap_or(p);
-    rel.components().any(|c| {
-        matches!(
-            c.as_os_str().to_str(),
-            Some(".ig" | ".git" | "node_modules")
-        )
-    })
 }
 
 #[cfg(test)]

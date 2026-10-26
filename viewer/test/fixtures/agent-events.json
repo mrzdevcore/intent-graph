@@ -1,0 +1,223 @@
+[
+  {
+    "type": "Config",
+    "sessionId": "fake-1",
+    "options": [
+      {
+        "id": "mode",
+        "name": "Mode",
+        "category": "mode",
+        "type": "select",
+        "currentValue": "default",
+        "options": [
+          {
+            "value": "default",
+            "name": "Manual"
+          },
+          {
+            "value": "acceptEdits",
+            "name": "Accept edits"
+          },
+          {
+            "value": "plan",
+            "name": "Plan"
+          }
+        ]
+      },
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "default",
+        "options": [
+          {
+            "value": "default",
+            "name": "Default (recommended)"
+          },
+          {
+            "value": "sonnet",
+            "name": "Sonnet"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "Commands",
+    "sessionId": "fake-1",
+    "commands": [
+      {
+        "name": "compact",
+        "description": "Compact the context"
+      },
+      {
+        "name": "ig:plan",
+        "description": "Plan a change"
+      },
+      {
+        "name": "ig:explore",
+        "description": "Explore the repo"
+      }
+    ]
+  },
+  {
+    "type": "Info",
+    "sessionId": "fake-1",
+    "title": "Tour"
+  },
+  {
+    "type": "MessageChunk",
+    "sessionId": "fake-1",
+    "role": "agent",
+    "content": {
+      "type": "text",
+      "text": "Here is **the"
+    }
+  },
+  {
+    "type": "MessageChunk",
+    "sessionId": "fake-1",
+    "role": "agent",
+    "content": {
+      "type": "text",
+      "text": " plan**:\n\n- one"
+    }
+  },
+  {
+    "type": "MessageChunk",
+    "sessionId": "fake-1",
+    "role": "agent",
+    "content": {
+      "type": "text",
+      "text": "\n- two\n"
+    }
+  },
+  {
+    "type": "ToolCall",
+    "sessionId": "fake-1",
+    "call": {
+      "toolCallId": "a",
+      "status": "pending",
+      "title": "Write a.txt",
+      "kind": "edit",
+      "locations": [
+        {
+          "path": "/p/a.txt"
+        }
+      ],
+      "content": [
+        {
+          "type": "diff",
+          "path": "/p/a.txt",
+          "oldText": null,
+          "newText": "hi\n"
+        }
+      ],
+      "sessionUpdate": "tool_call"
+    }
+  },
+  {
+    "type": "Permission",
+    "requestId": 1,
+    "sessionId": "fake-1",
+    "toolCall": {
+      "toolCallId": "a",
+      "kind": "edit",
+      "status": "pending",
+      "title": "Write a.txt",
+      "content": [
+        {
+          "type": "diff",
+          "path": "/p/a.txt",
+          "newText": "hi\n"
+        }
+      ],
+      "locations": [
+        {
+          "path": "/p/a.txt"
+        }
+      ]
+    },
+    "options": [
+      {
+        "optionId": "allow-once",
+        "name": "Yes",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "allow-with-updates",
+        "name": "Yes, allow all edits during this session",
+        "kind": "allow_always"
+      },
+      {
+        "optionId": "reject",
+        "name": "No",
+        "kind": "reject_once"
+      }
+    ]
+  },
+  {
+    "type": "ToolCallUpdate",
+    "sessionId": "fake-1",
+    "update": {
+      "sessionUpdate": "tool_call_update",
+      "toolCallId": "a",
+      "status": "failed",
+      "rawOutput": "reject"
+    }
+  },
+  {
+    "type": "Question",
+    "requestId": 2,
+    "sessionId": "fake-1",
+    "message": "How big?",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "question_0": {
+          "type": "string",
+          "title": "Scope",
+          "oneOf": [
+            {
+              "const": "Small",
+              "title": "Small",
+              "description": "One module"
+            },
+            {
+              "const": "Large",
+              "title": "Large"
+            }
+          ]
+        },
+        "question_0_custom": {
+          "type": "string",
+          "title": "Other"
+        }
+      }
+    }
+  },
+  {
+    "type": "MessageChunk",
+    "sessionId": "fake-1",
+    "role": "agent",
+    "content": {
+      "type": "text",
+      "text": "answer: {\"action\":\"accept\",\"content\":{\"question_0\":\"Small\"}}"
+    }
+  },
+  {
+    "type": "Usage",
+    "sessionId": "fake-1",
+    "used": 31639,
+    "size": 1000000,
+    "cost": {
+      "amount": 0.16,
+      "currency": "USD"
+    },
+    "rateLimit": {
+      "status": "allowed",
+      "utilization": 0.42
+    }
+  }
+]

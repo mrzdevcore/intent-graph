@@ -1,5 +1,6 @@
 use super::*;
 use std::io::BufRead;
+use std::sync::mpsc;
 use std::time::Instant;
 
 /// A scratch copy of the monorepo fixture with a checked plan, served on a free port.
@@ -69,6 +70,30 @@ fn a_taken_default_port_falls_back_but_an_explicit_one_errors() {
 }
 
 pub(crate) const COMMENT: &str = "packages/core/src/repo.ts#Repo.find";
+
+#[test]
+fn api_view_serves_the_pages_data_without_a_token() {
+    let (_dir, info) = start("serve-view");
+    let mut resp = agent(Some(Duration::from_secs(10)))
+        .get(info.url("/api/view"))
+        .call()
+        .unwrap();
+    let v: Value = resp.body_mut().read_json().unwrap();
+    assert!(v["nodes"].as_array().is_some_and(|n| !n.is_empty()), "{v}");
+    assert_eq!(v["state"], "planned");
+    assert!(v["plan"]["title"].is_string(), "{v}");
+    let page = agent(None)
+        .get(info.url("/"))
+        .call()
+        .unwrap()
+        .into_body()
+        .read_to_string()
+        .unwrap();
+    assert!(
+        page.contains(&v["root"].to_string()),
+        "root differs from the page's"
+    );
+}
 
 #[test]
 fn posts_need_the_token_and_a_local_origin_and_a_note_reaches_the_file_and_the_stream() {

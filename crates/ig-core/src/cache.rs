@@ -3,7 +3,7 @@
 use crate::model::{TOOL_VERSION, sha1_hex};
 
 /// Bump whenever extraction or resolution changes output, so cached base graphs are rebuilt.
-pub const GRAPH_REVISION: u32 = 14;
+pub const GRAPH_REVISION: u32 = 15;
 
 /// Config, tool and revision, plus the `autoImports` declaration files as (path, contents) (base
 /// graphs read the working tree's copy when the commit lacks them, e.g. a gitignored `.nuxt/`).
@@ -30,15 +30,15 @@ mod tests {
         };
         let decls = [(".nuxt/imports.d.ts".to_string(), "export {}\n".to_string())];
         let key = cache_key(&config.graph_key_input(), &decls);
-        // The input format and revision 14 are a contract with users' `.ig/cache`.
+        // The input format and revision 15 are a contract with users' `.ig/cache`.
         let input = format!(
-            "{TOOL_VERSION}|14|{}|.nuxt/imports.d.ts:export {{}}\n",
+            "{TOOL_VERSION}|15|{}|.nuxt/imports.d.ts:export {{}}\n",
             config.graph_key_input()
         );
         assert_eq!(key, sha1_hex(&input)[..12]);
-        // What the binary's `git::cache_key` gave for this tree before the move.
+        // Pinned for revision 15.
         if TOOL_VERSION == "0.1.0" {
-            assert_eq!(key, "bf0cd3cedcd7");
+            assert_eq!(key, "e9db1fa89547");
         }
     }
 }

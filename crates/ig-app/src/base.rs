@@ -33,7 +33,7 @@ pub fn work_info(env: &Env, config: &Config) -> WorkspaceInfo {
 }
 
 /// The graph of commit `sha`, from the cache or built (and cached).
-pub fn graph(env: &Env, vcs: &dyn Vcs, sha: &str, config: &Config) -> anyhow::Result<Graph> {
+pub fn graph(env: &Env, vcs: &dyn Vcs, sha: &str, config: &Config) -> crate::Result<Graph> {
     let path = format!(".ig/cache/{sha}-{}.json", cache_key(env, config));
     if let Some(g) = crate::read_json::<Graph>(env.files, &path) {
         return Ok(g);
@@ -45,7 +45,7 @@ pub fn graph(env: &Env, vcs: &dyn Vcs, sha: &str, config: &Config) -> anyhow::Re
 }
 
 /// Builds the graph of commit `sha` in a temporary checkout.
-fn graph_at(env: &Env, vcs: &dyn Vcs, sha: &str, config: &Config) -> anyhow::Result<Graph> {
+fn graph_at(env: &Env, vcs: &dyn Vcs, sha: &str, config: &Config) -> crate::Result<Graph> {
     let wt = vcs.checkout(sha)?;
     let Some(r) = wt.root() else {
         // The ig root did not exist at that commit.

@@ -58,7 +58,7 @@ fn top_dirs(files: impl Iterator<Item = String>, depth: usize) -> Vec<(String, u
 }
 
 /// Collects the facts as JSON (also the source of the Markdown report).
-pub fn facts(env: &Env) -> anyhow::Result<Value> {
+pub fn facts(env: &Env) -> crate::Result<Value> {
     let (config, config_error) = match crate::config::load(env.files) {
         Ok(c) => (c, None),
         Err(e) => (Config::default(), Some(e.to_string())),
