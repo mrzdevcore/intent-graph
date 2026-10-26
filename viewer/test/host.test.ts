@@ -7,8 +7,8 @@ import { afterEach, expect, test } from "vitest";
 import Board from "../src/board/Board.svelte";
 import EditOverlay from "../src/board/EditOverlay.svelte";
 import Labels from "../src/board/Labels.svelte";
-import type { Label } from "../src/board/engine";
-import { loadEngine, type Importer, type Pkg, type RawEngine } from "../src/board/host";
+import type { BoardEngine, Label } from "../src/board/engine";
+import { loadEngine, release, type Importer, type Pkg, type RawEngine } from "../src/board/host";
 
 const OUT = (o: object = {}) =>
   JSON.stringify({ redraw: false, changed: false, meaning: false, selection: [], edit: null, placed: null, cursor: "default", error: null, ...o });
@@ -86,19 +86,28 @@ test("no webgl2 shows the WebGL2 message and keeps the app usable", async () => 
   expect(r).toEqual({ error: expect.stringContaining("turned off by ig.dev.noWebgl2"), retry: false });
 });
 
-test("a panic reports the load message and Retry reloads the last saved board", async () => {
+test("a panic reports the load message and Retry reloads the page, not the trapped wasm", async () => {
   const f = fake({ input: () => { throw new WebAssembly.RuntimeError("unreachable"); } });
   f.pkg.lastPanic = () => "panicked at scene.rs:1";
-  let saved = "v1";
-  const el = show(Board, { source: () => ({ board: saved, context: "{}" }), importer: () => Promise.resolve(f.pkg) });
+  let imports = 0, reloads = 0;
+  const el = show(Board, { source, importer: () => (imports++, Promise.resolve(f.pkg)), reload: () => void reloads++ });
   await settle();
-  saved = "v2";
   key(el.querySelector("canvas")!, "v");
   await settle();
   expect(el.querySelector("[role=alert]")!.textContent).toContain("The board engine failed to load: panicked at scene.rs:1.");
   (el.querySelector("[role=alert] button") as HTMLButtonElement).click();
   await settle();
-  expect(f.of("load").map((a) => a[0])).toEqual(["v1", "v2"]);
+  expect([imports, reloads, f.of("load").length]).toEqual([1, 1, 1]);
+});
+
+test("unmount loses the WebGL context, then frees the engine", () => {
+  const order: string[] = [];
+  const canvas = { getContext: () => ({ getExtension: () => ({ loseContext: () => order.push("lose") }) }) } as unknown as HTMLCanvasElement;
+  release(canvas, { free: () => order.push("free") } as unknown as BoardEngine);
+  expect(order).toEqual(["lose", "free"]);
+  const none = { getContext: () => null } as unknown as HTMLCanvasElement;
+  release(none, { free: () => order.push("free") } as unknown as BoardEngine);
+  expect(order).toEqual(["lose", "free", "free"]);
 });
 
 test("labels layer uses the camera transform", () => {
@@ -155,11 +164,39 @@ test("composition blocks Enter until compositionend", () => {
   expect(names).toEqual(["にほん"]);
 });
 
-test("board keys are ignored while the overlay is focused", async () => {
-  const { f, input } = await editing();
+test("board keys, wheel and pointer moves are ignored while the overlay is open", async () => {
+  const { f, el, input } = await editing();
   const before = f.of("input").length;
   for (const k of ["Delete", "Backspace", "r", "z"]) key(input, k, { metaKey: k === "z" });
+  const canvas = el.querySelector("canvas")!;
+  el.querySelector(".board")!.dispatchEvent(new WheelEvent("wheel", { deltaY: 40, bubbles: true, cancelable: true }));
+  canvas.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+  canvas.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
   expect(f.of("input").length).toBe(before);
+  // a press outside commits the rename (blur) and is not a board press
+  input.value = "B";
+  canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  flushSync();
+  expect(f.of("input").length).toBe(before);
+  expect(f.of("ops").length).toBe(1);
+});
+
+test("a rename started from the a11y list returns focus to the list", async () => {
+  const f = fake({
+    a11y: () => JSON.stringify([{ id: "fn-a", kind: "function", text: "A", selected: true, highlighted: false, problem: null }]),
+    input: (ev: string) => (JSON.parse(ev).key === "Enter" ? OUT({ edit: { id: "fn-a", rect: [8, 8, 80, 40], text: "A" } }) : OUT()),
+  });
+  const el = show(Board, { source, importer: () => Promise.resolve(f.pkg) });
+  await settle();
+  const tree = el.querySelector("[role=tree]") as HTMLElement;
+  tree.focus();
+  key(tree, "Enter");
+  flushSync();
+  const input = el.querySelector("input.edit") as HTMLInputElement;
+  expect(document.activeElement).toBe(input);
+  key(input, "Escape");
+  flushSync();
+  expect(document.activeElement).toBe(tree);
 });
 
 test("a11y list mirrors a11y() and arrows call input(Key)", async () => {

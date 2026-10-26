@@ -279,7 +279,10 @@ impl BoardEngine {
 
     /// Draws when something changed since the last frame; says whether it drew.
     pub fn frame(&mut self) -> bool {
-        let Some(r) = self.renderer.as_ref().filter(|_| self.dirty) else {
+        if !self.dirty {
+            return false;
+        }
+        let Some(r) = self.renderer.as_mut() else {
             return false;
         };
         let (w, h, dpr) = self.size;

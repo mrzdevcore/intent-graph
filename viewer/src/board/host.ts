@@ -134,6 +134,16 @@ export async function loadEngine(canvas: HTMLCanvasElement, importer: Importer =
   return { engine: wrap(raw, pkg, onFail) };
 }
 
+/** Unmount: the context is given back now (browsers cap live WebGL contexts), then the engine
+ *  frees its GL objects and memory. */
+export function release(canvas: HTMLCanvasElement, engine: BoardEngine): void {
+  try {
+    canvas.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext();
+  } finally {
+    engine.free();
+  }
+}
+
 /** Paint names the renderer knows, from the theme tokens. */
 const TOKENS: Record<string, [string, number]> = {
   lane: ["--code", 0.7], context: ["--panel", 0.6], contextBorder: ["--line", 1], contextEdge: ["--unchanged", 0.5],

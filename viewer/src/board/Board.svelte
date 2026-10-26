@@ -1,23 +1,26 @@
 <!-- The board host: the engine's canvas, the label layer, the rename overlay and the
      accessibility list. It loads the engine lazily and says plainly when it can't: a failed
-     load (with Retry), no WebGL2, or a panic (reloaded from `source`, the last saved board).
+     load (with Retry), no WebGL2, or a panic (Retry reloads the page: a trapped wasm instance
+     can't be re-initialised, and the board comes back from disk).
      The frame loop runs only while something changed. -->
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
   import type { A11yItem, BoardEngine, Camera, EngineInput, EngineOut, Label } from "./engine";
-  import { loadEngine, loadFailed, palette, type Importer } from "./host";
+  import { loadEngine, loadFailed, palette, release, type Importer } from "./host";
   import Labels from "./Labels.svelte";
   import EditOverlay from "./EditOverlay.svelte";
   import A11yList from "./A11yList.svelte";
 
-  let { source, importer, onout, onready, message = "" }: {
-    /** The board text and context JSON to load: on start, Retry and after a panic. */
+  let { source, importer, onout, onready, message = "", reload = () => location.reload() }: {
+    /** The board text and context JSON to load: on start and Retry. */
     source: () => { board: string; context: string };
     importer?: Importer;
     onout?: (o: EngineOut, engine: BoardEngine) => void;
     onready?: (engine: BoardEngine) => void;
     /** Announced politely to screen readers (Claude's edits, check summaries). */
     message?: string;
+    /** Retry after a panic (tests replace it). */
+    reload?: () => void;
   } = $props();
 
   let host: HTMLDivElement;
@@ -48,7 +51,12 @@
     }
   }
 
+  let panicked = false;
+  /** Where focus goes back when the rename overlay closes (the canvas or the a11y list). */
+  let opener: HTMLElement | null = null;
+
   function fail(reason: string) {
+    panicked = true;
     engine = null;
     edit = null;
     failure = { text: loadFailed(reason), retry: true };
@@ -104,7 +112,10 @@
   function handle(o: EngineOut | undefined) {
     if (!o || !engine) return;
     cursor = o.cursor;
-    if (o.edit) edit = o.edit;
+    if (o.edit) {
+      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      edit = o.edit;
+    }
     status = o.error ?? "";
     if (o.changed || o.selection.join("\n") !== items.filter((i) => i.selected).map((i) => i.id).join("\n"))
       items = act((e) => e.a11y()) ?? items;
@@ -120,6 +131,11 @@
   }
 
   function onpointerdown(e: PointerEvent) {
+    if (edit) {
+      // a click outside the rename overlay commits it (blur), and does nothing else
+      (document.activeElement as HTMLElement | null)?.blur();
+      return;
+    }
     canvas!.focus();
     canvas!.setPointerCapture?.(e.pointerId);
     const p = point(e);
@@ -143,14 +159,14 @@
   function commit(name: string) {
     const ed = edit!;
     edit = null;
-    canvas?.focus();
+    (opener?.isConnected ? opener : canvas)?.focus();
     if (name === ed.text) return;
     handle(act((e) => e.ops(JSON.stringify([{ op: "update", id: ed.id, set: { name } }]), "user")));
   }
 
   function cancel() {
     edit = null;
-    canvas?.focus();
+    (opener?.isConnected ? opener : canvas)?.focus();
   }
 
   function select(id: string) {
@@ -170,6 +186,7 @@
     const wheel = (e: WheelEvent) => {
       if (!engine) return;
       e.preventDefault();
+      if (edit) return; // the overlay's rect would no longer match
       const r = canvas!.getBoundingClientRect();
       send({ t: "wheel", x: e.clientX - r.left, y: e.clientY - r.top, dx: e.deltaX, dy: e.deltaY, mods: MODS(e) });
     };
@@ -185,7 +202,7 @@
 
   onDestroy(() => {
     cancelAnimationFrame(pending);
-    engine?.free();
+    if (engine && canvas) release(canvas, engine);
     engine = null;
   });
 </script>
@@ -194,13 +211,13 @@
   {#if failure}
     <div class="failure" role="alert">
       <p>{failure.text}</p>
-      {#if failure.retry}<button onclick={start}>Retry</button>{/if}
+      {#if failure.retry}<button onclick={() => (panicked ? reload() : start())}>Retry</button>{/if}
     </div>
   {:else}
     <canvas bind:this={canvas} tabindex="0" aria-label="Board canvas; the element list follows" style="cursor:{cursor}"
       {onpointerdown}
-      onpointermove={(e) => send({ t: "move", ...point(e) })}
-      onpointerup={(e) => send({ t: "up", ...point(e) })}
+      onpointermove={(e) => edit || send({ t: "move", ...point(e) })}
+      onpointerup={(e) => edit || send({ t: "up", ...point(e) })}
       oncontextmenu={(e) => e.preventDefault()}
       onmousedown={(e) => e.preventDefault() /* focus is set in pointerdown; the default would take it from the rename overlay */}></canvas>
     <Labels {camera} {labels} />

@@ -19,7 +19,7 @@ test: viewer
 WASM_BINDGEN = target/tools/bin/wasm-bindgen
 board-wasm:
 	@rustup target list --installed | grep -qx wasm32-unknown-unknown || { echo "missing the wasm32 target: run rustup target add wasm32-unknown-unknown"; exit 1; }
-	@test -x $(WASM_BINDGEN) || cargo install wasm-bindgen-cli --version =0.2.129 --locked --root target/tools
+	@test "$$($(WASM_BINDGEN) --version 2>/dev/null)" = "wasm-bindgen 0.2.129" || cargo install wasm-bindgen-cli --version =0.2.129 --locked --force --root target/tools
 	cargo build -p ig-board --target wasm32-unknown-unknown --release
 	cargo clippy -p ig-board --target wasm32-unknown-unknown -- -D warnings
 	$(WASM_BINDGEN) --target web --out-dir viewer/src/board/pkg "$${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/ig_board.wasm"
