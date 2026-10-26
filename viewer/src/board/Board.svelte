@@ -227,7 +227,11 @@
 
   onMount(() => {
     void start();
-    const unregister = registerBoard((ids) => ids.forEach(select));
+    const unregister = registerBoard((ids) => {
+      if (!act((e) => e.a11y())?.some((i) => i.id === ids[0])) return false;
+      ids.forEach((i) => select(i));
+      return true;
+    });
     // the wheel must not scroll the page, so it is not passive
     const wheel = (e: WheelEvent) => {
       if (!engine) return;

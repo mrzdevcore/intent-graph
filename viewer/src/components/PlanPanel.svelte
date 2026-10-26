@@ -39,15 +39,15 @@
     {/if}
     {#if p.design}
       {@const d = p.design}
-      {@const gapIds = p.findings.filter((f) => f.ruleId === "plan/design-gap" && f.nodeId).map((f) => f.nodeId!)}
+      {@const gaps = p.findings.filter((f) => f.ruleId === "plan/design-gap")}
       {#each [
-        { title: "Not in the plan", n: d.gaps, rows: gapIds.map((id) => ({ id, why: "" })) },
+        { title: "Not in the plan", n: gaps.length, rows: gaps.map((f) => ({ id: f.nodeId ?? "", why: f.message })) },
         { title: "Left out", n: d.omitted.length, rows: d.omitted.map((o) => ({ id: o.id, why: o.reason })) },
         { title: "Added by the agent", n: d.added.length, rows: d.added.map((id) => ({ id, why: "" })) },
       ] as l}
         <h2>{l.title} ({l.n})</h2>
         {#if l.rows.length}
-          <ul class="design-list">{#each l.rows as r}<li><button class="loc" onclick={() => selectOnBoard(r.id) || focus(r.id)}>{r.id}</button>{r.why ? " " + r.why : ""}</li>{/each}</ul>
+          <ul class="design-list">{#each l.rows as r}<li>{#if r.id}<button class="loc" onclick={() => selectOnBoard(r.id) || focus(r.id)}>{r.id}</button>{/if}{r.why ? " " + r.why : ""}</li>{/each}</ul>
         {:else}<p class="loc">None.</p>{/if}
       {/each}
     {/if}
