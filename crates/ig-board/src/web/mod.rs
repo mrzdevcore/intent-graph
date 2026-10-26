@@ -249,6 +249,12 @@ impl BoardEngine {
         }
     }
 
+    /// What changed from `prev` to `next` (design.json texts) as lines for Claude; a
+    /// geometry-only change gives none (`ig_board::delta`).
+    pub fn delta(&self, prev: &str, next: &str) -> Result<String, String> {
+        Ok(json!(crate::delta(&board_of(prev)?, &board_of(next)?)).to_string())
+    }
+
     /// `[[id, "error" | "warning" | "note", reason], …]`
     #[wasm_bindgen(js_name = setCheck)]
     pub fn set_check(&mut self, targets: &str) -> Result<(), String> {

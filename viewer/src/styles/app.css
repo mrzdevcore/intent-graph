@@ -14,6 +14,9 @@ header .toggle[aria-pressed="true"], .modes button[aria-pressed="true"] { backgr
 .pane-h { margin: 8px 12px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; flex: 1; min-height: 0; }
 main.with-chat { grid-template-columns: 240px minmax(0, 1fr) 300px 400px; }
+main.designing { grid-template-columns: minmax(0, 1fr); }
+main.designing.with-chat { grid-template-columns: minmax(0, 1fr) 400px; }
+main.designing > #tree, main.designing > #side { display: none; }
 #tree { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #tree-filter { font: inherit; font-size: 13px; margin: 10px 10px 4px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
 #tree > label { margin: 0 12px 6px; }

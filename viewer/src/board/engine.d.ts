@@ -32,7 +32,9 @@ export interface Camera { x: number; y: number; zoom: number }
 /** A label in world px; `title` is the check's reason. */
 export interface Label { id: string; text: string; r: [number, number, number, number]; faded: boolean; title: string | null }
 
-export interface A11yItem { id: string; kind: string; text: string; selected: boolean; highlighted: boolean; problem: string | null }
+/** `question`: a sticky note marked as one; `answer`: its answer, null while open. */
+export interface A11yItem { id: string; kind: string; text: string; selected: boolean; highlighted: boolean; problem: string | null;
+  question: boolean; answer: string | null }
 
 /** `amend` joins the top undo step (a host follow-up, such as a placed element's file). */
 export type Step = "user" | "amend" | { agent: string };
@@ -56,6 +58,8 @@ export interface BoardEngine {
   redo(): EngineOut;
   /** The canonical design.json text (`ig_design::to_text`). */
   board(): string;
+  /** What changed between two board texts, as lines for Claude; none for a geometry-only change. */
+  delta(prevJson: string, nextJson: string): string[];
   /** After EVERY successful write of `written` (a `board()` result): later merges start from it. */
   saved(written: string): void;
   palette(colors: Record<string, [number, number, number, number]>): void;

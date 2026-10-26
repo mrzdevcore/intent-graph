@@ -62,6 +62,7 @@ function fakeApi() {
     keepUnsaved: async () => {},
     unsaved: async () => null,
     discardUnsaved: async () => {},
+    planStatus: async () => ({ exists: false, blocking: 0 }),
     onChanged: () => () => {},
   };
   return { api, writes, setWrite: (f: typeof api.write) => (api.write = f) };

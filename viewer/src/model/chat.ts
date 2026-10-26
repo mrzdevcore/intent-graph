@@ -197,6 +197,9 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
   }
 }
 
+/** Claude's question cards still waiting for an answer (the board's readiness line). */
+export const openQuestions = (s: ChatState) => s.items.filter((i) => i.kind === "question" && i.answered === null).length;
+
 /** A transcript row: an item, or consecutive tool calls of one kind in one card. */
 export type Row = Item | { kind: "group"; label: string; status: string; calls: ToolCallInfo[] };
 

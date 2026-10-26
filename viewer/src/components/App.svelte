@@ -48,6 +48,7 @@
   import { applyShow, commonScope, parseShow, showReducer, type Show, type ShowState } from "../model/show";
   import ShowBanner from "./ShowBanner.svelte";
   import Chat from "./chat/Chat.svelte";
+  import { ChatSession } from "./chat/session.svelte";
   import { nodeMatcher } from "../model/markdown";
   import CodeView from "./CodeView.svelte";
   import Files from "./Files.svelte";
@@ -437,6 +438,8 @@
   let chatOpen = $state(true);
   const nodeMatch = $derived(nodeMatcher(Object.values(ix.byId), D.root));
   const chatApi = untrack(() => (api.agent && api.trustInventory && api.trustProject ? api : null));
+  /** One session for the chat panel and the board. */
+  const chat = chatApi ? new ChatSession(chatApi.agent!, chatApi.trustInventory!.bind(chatApi), chatApi.trustProject!.bind(chatApi)) : null;
 
   /** What "Attach selection" and "Plan this" take: the selected node, else the file in the code view. */
   const selection = $derived(
@@ -507,7 +510,8 @@
     onclick={() => (designOpen = !designOpen)}>Design</button>{/if}
   {#if chatApi}<button id="chat-toggle" class="toggle" aria-pressed={chatOpen ? "true" : "false"} onclick={() => (chatOpen = !chatOpen)}>Chat</button>{/if}
 </header>
-<main class:with-chat={chatApi && chatOpen}>
+<!-- The Design view: the board with the chat docked on its right ("Chat" collapses it). -->
+<main class:with-chat={chatApi && chatOpen} class:designing={__BOARDS__ && api.design && designOpen}>
   <div id="tree" aria-label="Files" role="navigation">
     <Tree bind:this={tree} {ix} {mode} {screenIds} onselect={onTreeSelect} onfolder={onTreeFolder} onfocus={focusOn} />
     {#if api.fileTree}<Files list={api.fileTree.bind(api)} path={selectedFile} version={D} onselect={onFile} />{/if}
@@ -517,7 +521,7 @@
     {#if showSt.current && shown}<ShowBanner title={showSt.current.title} missing={shown.missing.length} steps={shown.steps}
       onclear={clearShow} onback={backShow} onstep={onStep} />{/if}
     {#if __BOARDS__ && api.design && designOpen}{#key designTry}{#await DesignView!() then V}<V.default {ix} api={api.design} graphScope={scope} {around} initial={initialDesign}
-      beforeClose={api.beforeClose?.bind(api)} />{:catch e}<div role="alert" style="position:absolute;inset:0;z-index:2;padding:15vh 16px 0;background:var(--bg)"><p>{loadFailed(e instanceof Error ? e.message : String(e))}</p><button onclick={() => designTry++}>Retry</button></div>{/await}{/key}{/if}
+      beforeClose={api.beforeClose?.bind(api)} {chat} />{:catch e}<div role="alert" style="position:absolute;inset:0;z-index:2;padding:15vh 16px 0;background:var(--bg)"><p>{loadFailed(e instanceof Error ? e.message : String(e))}</p><button onclick={() => designTry++}>Retry</button></div>{/await}{/key}{/if}
     {#if code}<CodeView path={code.path} text={code.text} merge={code.merge} line={code.line} onword={onWord} onclose={() => (code = null)} />{/if}
   </div>
   <div id="side" role="complementary">
@@ -525,7 +529,7 @@
   </div>
   {#if chatApi}
     <div id="chat" hidden={!chatOpen}>
-      <Chat agent={chatApi.agent!} trustInventory={chatApi.trustInventory!} trustProject={chatApi.trustProject!}
+      <Chat chat={chat!}
         openUrl={chatApi.openUrl ? (u) => chatApi.openUrl!(u).catch((e: unknown) => (hint = msg(e))) : undefined}
         root={D.root} {selection} onopendiff={(path, before, after) => (code = { path, merge: { before, after } })}
         match={nodeMatch} onnode={focusOn} onshow={showAnswer} />

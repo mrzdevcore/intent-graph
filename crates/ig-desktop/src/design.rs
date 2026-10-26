@@ -131,6 +131,41 @@ pub fn check_for(
     Ok(v)
 }
 
+/// Whether `plans/<slug>/plan.md` exists and how many blocking (error) findings its check has.
+/// Named apart from `ig_core::plan::PlanStatus`.
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct BoardStatus {
+    pub exists: bool,
+    pub blocking: u32,
+}
+
+/// `ig plan check` on the feature's plan.md, without recording it. A plan that does not parse
+/// counts as one blocking finding: it can't be applied.
+pub fn plan_status_for(root: &Path, slug: &str) -> Result<BoardStatus, String> {
+    if !app::valid_slug(slug) {
+        return Err(format!("bad feature name {slug:?}"));
+    }
+    let w = Wired::new(root);
+    let path = format!("plans/{slug}/plan.md");
+    let Some(bytes) = w.files().read_bytes(&path) else {
+        return Ok(BoardStatus {
+            exists: false,
+            blocking: 0,
+        });
+    };
+    let blocking = match ig_app::plan::check_text(&w.env(), &path, &String::from_utf8_lossy(&bytes))
+    {
+        Ok(v) => v["findings"].as_array().map_or(0, |f| {
+            f.iter().filter(|f| f["severity"] == "error").count() as u32
+        }),
+        Err(_) => 1,
+    };
+    Ok(BoardStatus {
+        exists: true,
+        blocking,
+    })
+}
+
 /// The slugs among `slugs` whose design.json differs from what the app last read or wrote.
 pub fn changed_outside(root: &Path, known: &Known, slugs: &BTreeSet<String>) -> Vec<String> {
     let files = Wired::new(root);
@@ -266,6 +301,15 @@ pub async fn check_design(
 }
 
 #[tauri::command]
+pub async fn plan_status(
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+) -> Result<BoardStatus, String> {
+    let root = root_of(&project)?;
+    blocking(move || plan_status_for(&root, &slug)).await
+}
+
+#[tauri::command]
 pub async fn keep_unsaved(
     project: tauri::State<'_, crate::commands::Project>,
     slug: String,
@@ -367,6 +411,39 @@ mod tests {
         assert!(v["ms"].is_u64() && c.0.lock().unwrap().1.is_some());
         assert_eq!(v["seq"], 7);
         assert!(check_for(&root, &c, "../x", &d, None).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn plan_status_reports_missing_and_blocking_plans() {
+        let root = std::env::temp_dir().join(format!("ig-desktop-status-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("plans/f")).unwrap();
+        std::fs::write(root.join("ig.yaml"), "layers: {}\n").unwrap();
+        let none = BoardStatus {
+            exists: false,
+            blocking: 0,
+        };
+        assert_eq!(plan_status_for(&root, "f"), Ok(none));
+        std::fs::write(
+            root.join("plans/f/plan.md"),
+            "# F\n\n```ig-plan\nnodes: []\n```\n",
+        )
+        .unwrap();
+        let clean = BoardStatus {
+            exists: true,
+            blocking: 0,
+        };
+        assert_eq!(plan_status_for(&root, "f"), Ok(clean));
+        // a design element the plan neither builds nor omits: a blocking design gap
+        std::fs::write(
+            root.join("plans/f/design.json"),
+            r#"{"version":1,"title":"D","scope":{"kind":"dir","id":"."},"elements":[{"id":"mod-a","kind":"module","name":"a","file":"z.ts"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan_status_for(&root, "f").unwrap().blocking, 1);
+        assert!(!root.join(".ig/current-plan").exists(), "never recorded");
+        assert!(plan_status_for(&root, "../x").is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 

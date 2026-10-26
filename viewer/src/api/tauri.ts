@@ -63,6 +63,7 @@ export function tauri(): IgApi {
       keepUnsaved: (slug, text) => invoke<void>("keep_unsaved", { slug, text }),
       unsaved: (slug) => invoke<{ text: string; at: number } | null>("read_unsaved", { slug }),
       discardUnsaved: (slug) => invoke<void>("discard_unsaved", { slug }),
+      planStatus: (slug) => invoke("plan_status", { slug }),
       onChanged: (cb) => subscribe<{ slug: string }>("design-changed", (e) => cb(e.slug)),
     },
     agent: {

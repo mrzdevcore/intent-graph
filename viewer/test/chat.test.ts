@@ -1,7 +1,7 @@
 // The chat reducer over the fake agent's recorded `tour` (crates/ig-desktop record_chat_fixture).
 import { expect, test } from "vitest";
 import type { AgentEvent, ToolCallInfo } from "../src/api";
-import { chatReducer, completions, controls, fastNext, fastOn, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
+import { chatReducer, completions, openQuestions, controls, fastNext, fastOn, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
 import chat from "../src/components/chat/Chat.svelte?raw";
 import events from "./fixtures/agent-events.json";
 
@@ -145,5 +145,13 @@ test("a tool card without input takes the permission request's input; an empty u
 });
 
 test("the setup card says Installing only while an install runs", () => {
-  expect(chat).toContain('{installing ? "Installing…" : "Install"}');
+  expect(chat).toContain('{c.installing ? "Installing…" : "Install"}');
+});
+
+test("openQuestions counts only unanswered question items", () => {
+  const q = (requestId: number): ChatAction => ({ type: "Question", requestId, sessionId: "s", message: "?", schema: {} });
+  const perm: ChatAction = { type: "Permission", requestId: 9, sessionId: "s", toolCall: { toolCallId: "t" }, options: [] };
+  const s = play([{ type: "Sent", text: "hi" }, q(1), q(2), perm, { type: "Answered", requestId: 1, answer: "a" }]);
+  expect(openQuestions(s)).toBe(1);
+  expect(openQuestions(play([{ type: "TurnEnded", stopReason: "end_turn" }], s))).toBe(0);
 });

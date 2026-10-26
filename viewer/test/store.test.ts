@@ -114,6 +114,7 @@ function fakeApi(disk: () => Design | Error = () => design()) {
     keepUnsaved: async (_slug, text) => void kept.push(text),
     unsaved: async () => null,
     discardUnsaved: async () => void discarded++,
+    planStatus: async () => ({ exists: false, blocking: 0 }),
     onChanged: () => () => {},
   };
   return { api, writes, kept, discarded: () => discarded, checks, failWrites: (f: (() => Promise<void>) | null) => (writeResult = f) };
