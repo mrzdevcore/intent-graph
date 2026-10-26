@@ -6,7 +6,7 @@ use serde_json::json;
 use std::path::Path;
 
 fn start(dir: &Path, plan: &Path) -> anyhow::Result<()> {
-    let (rel, text) = crate::read_plan(dir, plan)?;
+    let (rel, text) = ig_wire::read_plan(dir, plan)?;
     Ok(apply::start(&env(dir), &rel, &text)?)
 }
 
