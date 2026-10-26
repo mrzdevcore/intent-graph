@@ -237,3 +237,36 @@ fn caps_hit_only_what_the_edit_changed() {
     let o = ops(json!([{"op":"screen_move","screen":"login","id":"arrow-1","x":1,"y":1}]));
     assert!(apply(&b, &o).is_ok());
 }
+
+#[test]
+fn screen_set_moves_retitles_and_sets_the_background() {
+    let bg = json!({"asset":"0123456789ab.png","x":0,"y":0,"w":1280,"h":720});
+    let o = ops(
+        json!([{"op":"screen_set","id":"login","set":{"title":"Sign in","x":40,"y":-80,"background":bg}}]),
+    );
+    let (b, t) = apply(&board(), &o).unwrap();
+    let s = &b.screens["login"];
+    assert_eq!(
+        (s.title.as_str(), s.x, s.y, s.w),
+        ("Sign in", 40, -80, 1280)
+    );
+    assert_eq!(s.background.as_ref().unwrap().asset, "0123456789ab.png");
+    assert_eq!(t.screens, ["login"]);
+    let clear = ops(json!([{"op":"screen_set","id":"login","set":{"background":null}}]));
+    assert!(
+        apply(&b, &clear).unwrap().0.screens["login"]
+            .background
+            .is_none()
+    );
+    let keep = ops(json!([{"op":"screen_set","id":"login","set":{"w":640}}]));
+    assert!(
+        apply(&b, &keep).unwrap().0.screens["login"]
+            .background
+            .is_some()
+    );
+    let bad = json!({"asset":"x.svg","x":0,"y":0,"w":1,"h":1});
+    let o = ops(json!([{"op":"screen_set","id":"login","set":{"background":bad}}]));
+    assert!(apply(&b, &o).is_err());
+    let o = ops(json!([{"op":"screen_set","id":"login","set":{"title":" "}}]));
+    assert!(apply(&b, &o).is_err());
+}

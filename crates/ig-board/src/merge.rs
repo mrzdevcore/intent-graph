@@ -3,6 +3,8 @@
 use crate::snap::{default_size, free_x, taken};
 use crate::{Context, RowKind};
 use ig_design::{Board, Bridge, Design, Element, ElementKind, Link, Mark, is_element_id, new_id};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::collections::{HashMap, HashSet};
 
 pub struct Merged {
@@ -90,11 +92,11 @@ fn reid(base: &Design, ours: &Design, theirs: &Design) -> (Design, Vec<(String, 
     (t, renamed)
 }
 
-/// Three-way merge of one element's fields: theirs where ours kept the base, else ours.
-fn fields(b: &Element, o: &Element, t: &Element) -> Element {
-    let obj = |e: &Element| match serde_json::to_value(e) {
+/// Three-way merge of one item's fields (as JSON): theirs where ours kept the base, else ours.
+pub(crate) fn fields<T: Serialize + DeserializeOwned>(b: &T, o: &T, t: &T) -> T {
+    let obj = |e: &T| match serde_json::to_value(e) {
         Ok(serde_json::Value::Object(m)) => m,
-        _ => unreachable!("an element is an object"),
+        _ => unreachable!("merged items are objects"),
     };
     let (b, mut o, t) = (obj(b), obj(o), obj(t));
     let keys: HashSet<String> = b.keys().chain(o.keys()).chain(t.keys()).cloned().collect();
@@ -106,7 +108,7 @@ fn fields(b: &Element, o: &Element, t: &Element) -> Element {
             };
         }
     }
-    serde_json::from_value(serde_json::Value::Object(o)).expect("merged fields form an element")
+    serde_json::from_value(serde_json::Value::Object(o)).expect("merged fields form the item")
 }
 
 pub fn merge(base: &Board, ours: &Board, theirs: &Board) -> Merged {
@@ -138,8 +140,8 @@ pub fn merge(base: &Board, ours: &Board, theirs: &Board) -> Merged {
             && oe != be
             && te != be
         {
-            let e = fields(be, oe, te);
-            if &e != *oe {
+            let e = fields(*be, *oe, *te);
+            if e != **oe {
                 changed.push(k.clone());
             }
             d.elements.push(e);
@@ -198,12 +200,13 @@ pub fn merge(base: &Board, ours: &Board, theirs: &Board) -> Merged {
     Merged {
         board: Board {
             design: d,
-            screens: ours.screens.clone(),
+            screens: Default::default(),
         },
         changed: bare(ch),
         removed: bare(removed),
         renamed,
     }
+    .with_screens(base, ours, theirs)
 }
 
 /// Puts unplaced elements (no x/y) in their lane: layer elements in their layer's row, systems

@@ -1,7 +1,7 @@
 //! Validated, all-or-nothing edits of a design: the one code path for the board engine and
 //! `design_edit`.
 
-use crate::screen_ops::{self, PiecePatch};
+use crate::screen_ops::{self, PiecePatch, ScreenPatch};
 use crate::{
     Bridge, Design, DesignError, Element, ElementKind, Link, LinkKind, Mark, MarkKind, PieceKind,
     Scope, Screen, check_refs, new_id, validate, validate_screen,
@@ -143,6 +143,11 @@ pub enum Op {
         from: String,
         to: String,
     },
+    /// A screen's title, place, size or background (`null` takes the background away).
+    ScreenSet {
+        id: String,
+        set: ScreenPatch,
+    },
 }
 
 impl Op {
@@ -158,6 +163,7 @@ impl Op {
                 | ScreenRemove { .. }
                 | Nav { .. }
                 | Unnav { .. }
+                | ScreenSet { .. }
         )
     }
 }

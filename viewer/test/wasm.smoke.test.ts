@@ -92,3 +92,32 @@ test.skipIf(!built)("the board over a real context: place in a row, file propose
   expect(JSON.parse(e.board()).elements.map((x: { id: string }) => x.id)).not.toContain("fn-audit");
   e.free();
 });
+
+test.skipIf(!built)("screens across the boundary: load, a piece, rename, a state, a merge from disk, saved", async () => {
+  const glue = (await import(/* @vite-ignore */ new URL("ig_board.js", dir).href)) as Pkg & {
+    default(i: { module_or_path: BufferSource }): Promise<unknown>;
+  };
+  await glue.default({ module_or_path: readFileSync(new URL("ig_board_bg.wasm", dir)) });
+  const e = wrap(new glue.BoardEngine(), glue, (r) => { throw new Error(r); });
+  const design = { version: 1, title: "S", scope: { kind: "dir", id: "." } };
+  const login = { version: 1, id: "login", title: "Login", x: 0, y: 0, w: 400, h: 300, elements: [], navs: [] };
+  e.load(JSON.stringify({ design, screens: [login] }), JSON.stringify({ lanes: [], boxes: [], edges: [] }));
+  expect(e.surface("screens")).toBe("screens");
+  e.input({ t: "key", key: "b", mods: 0 });
+  expect(e.tool()).toBe("piece:button");
+  const o = e.input({ t: "down", x: 100, y: 100, button: 0, mods: 0 });
+  expect([o.error, o.changed, o.edit?.id]).toEqual([null, true, "login/btn-button"]);
+  expect(e.rename("login/btn-button", "Sign in").changed).toBe(true);
+  expect(JSON.parse(e.screens().login).elements[0].label).toBe("Sign in");
+  expect(e.variant("login", "error").changed).toBe(true);
+  expect(Object.keys(e.screens())).toEqual(["login", "login-error"]);
+  // Claude retitles login on disk (from the merge base: no screens saved yet, so the base has login only)
+  e.saved(JSON.stringify({ screens: { login: JSON.parse(e.screens().login) } }));
+  const disk = { ...JSON.parse(e.screens().login), title: "Sign in page" };
+  const m = e.external(JSON.stringify({ screens: { login: disk } }), "t1");
+  expect(m.touched).toEqual(["login"]);
+  expect(JSON.parse(e.screens().login).title).toBe("Sign in page");
+  expect(e.highlighted()).toEqual(["login"]);
+  expect(e.external(JSON.stringify({ screens: { login: { ...disk, version: 2 } } }), null).error).toMatch(/version 2/);
+  e.free();
+});

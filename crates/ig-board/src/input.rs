@@ -1,11 +1,11 @@
 //! Gestures, a small state machine (idle, placing, dragging, linking, marquee, panning), and
-//! the keys of the architecture board.
+//! the keys of the architecture board (the screens': `screen_input.rs`).
 
-use crate::engine::{EditRequest, Engine, Out};
+use crate::engine::{EditRequest, Engine, Out, Surface};
 use crate::hit::Target;
 use crate::snap::{default_size, free_x, rect_of, taken, takes_layer};
 use crate::{RowKind, Step, default_link_kind, move_ops, row_at, snap};
-use ig_design::{Board, ElementKind, LinkKind, Op, is_element_id, new_id};
+use ig_design::{Board, ElementKind, LinkKind, Op, PieceKind, is_element_id, new_id};
 
 /// Modifier bits of `Input`.
 pub mod mods {
@@ -28,6 +28,17 @@ pub enum Tool {
     Note,
     Frame,
     Link,
+    /// The screens' tools (`screen_input.rs`).
+    Screen,
+    /// The UI pieces palette is open (the host shows it).
+    Pieces,
+    Piece(PieceKind),
+    Pen,
+    Arrow,
+    /// The host opens the file picker.
+    Import,
+    /// Link to the architecture (Task 15).
+    Bridge,
 }
 
 /// Pointer coordinates are screen (canvas CSS) px; keys are `KeyboardEvent.key`.
@@ -89,6 +100,15 @@ pub(crate) enum Gesture {
     Pan {
         last: (f32, f32),
     },
+    /// World points and pressure (0..1), in this screen.
+    Pen {
+        screen: String,
+        points: Vec<[f32; 3]>,
+    },
+    Arrow {
+        start: (f32, f32),
+        to: (f32, f32),
+    },
 }
 
 const KINDS: [LinkKind; 5] = [
@@ -107,7 +127,7 @@ fn element_kind(t: Tool) -> Option<ElementKind> {
         Tool::System => ElementKind::System,
         Tool::Note => ElementKind::Note,
         Tool::Frame => ElementKind::Frame,
-        Tool::Select | Tool::Link => return None,
+        _ => return None,
     })
 }
 
@@ -130,6 +150,12 @@ impl Engine {
             Input::Tool(t) => {
                 (self.tool, self.gesture) = (t, Gesture::Idle);
                 self.out()
+            }
+            i
+            @ (Input::Down { .. } | Input::Move { .. } | Input::Up { .. } | Input::Key { .. })
+                if self.surface == Surface::Screens =>
+            {
+                self.screen_input(i)
             }
             Input::Down { x, y, button, mods } => self.down(x, y, button, mods),
             Input::Move { x, y, .. } => self.drag_to(x, y),
@@ -154,14 +180,17 @@ impl Engine {
         o
     }
 
-    fn redraw(&self) -> Out {
+    pub(crate) fn redraw(&self) -> Out {
         Out {
             redraw: true,
             ..self.out()
         }
     }
 
-    fn edit(&self, id: &str) -> Option<EditRequest> {
+    pub(crate) fn edit(&self, id: &str) -> Option<EditRequest> {
+        if self.surface == Surface::Screens {
+            return self.screen_edit(id);
+        }
         let e = self.board().design.elements.iter().find(|e| e.id == id)?;
         Some(EditRequest {
             id: id.into(),
@@ -178,11 +207,11 @@ impl Engine {
             Target::Ctx(id) => (self.ctx.boxes.iter())
                 .find(|c| &c.id == id)
                 .map(|c| c.kind.clone()),
-            Target::Link(_) => None,
+            Target::Link(_) | Target::Screen(_) => None,
         }
     }
 
-    fn down(&mut self, x: f32, y: f32, button: u8, mods: u8) -> Out {
+    pub(crate) fn down(&mut self, x: f32, y: f32, button: u8, mods: u8) -> Out {
         if button == 1 {
             self.gesture = Gesture::Pan { last: (x, y) };
             return self.out();
@@ -285,7 +314,7 @@ impl Engine {
         o
     }
 
-    fn drag_to(&mut self, x: f32, y: f32) -> Out {
+    pub(crate) fn drag_to(&mut self, x: f32, y: f32) -> Out {
         let w = self.camera.to_world(x, y);
         if let Gesture::Press { at, target } = &self.gesture {
             let (at, link) = (*at, matches!(target, Target::Link(_)));
@@ -311,12 +340,12 @@ impl Engine {
                 self.camera.y -= (y - last.1) / self.camera.zoom;
                 *last = (x, y);
             }
-            Gesture::Idle | Gesture::Press { .. } => return self.out(),
+            _ => return self.out(),
         }
         self.redraw()
     }
 
-    fn up(&mut self, x: f32, y: f32, mods: u8) -> Out {
+    pub(crate) fn up(&mut self, x: f32, y: f32, mods: u8) -> Out {
         match std::mem::replace(&mut self.gesture, Gesture::Idle) {
             Gesture::Press {
                 target: Target::Link(key),
@@ -384,7 +413,10 @@ impl Engine {
         }
     }
 
-    fn selected_elements(&self) -> Vec<String> {
+    pub(crate) fn selected_elements(&self) -> Vec<String> {
+        if self.surface == Surface::Screens {
+            return self.selected_movable();
+        }
         let d = &self.board().design;
         (self.selection.iter())
             .filter(|s| d.elements.iter().any(|e| &e.id == *s))
@@ -392,7 +424,7 @@ impl Engine {
             .collect()
     }
 
-    fn key(&mut self, key: &str, mods: u8) -> Out {
+    pub(crate) fn key(&mut self, key: &str, mods: u8) -> Out {
         let (cmd, shift) = (mods & (CTRL | META) != 0, mods & SHIFT != 0);
         let key = key.to_ascii_lowercase();
         let tool = |t| Input::Tool(t);
@@ -474,32 +506,6 @@ impl Engine {
                 self.redraw()
             }
             _ => self.out(), // Cmd/Ctrl+Enter (Plan) is the host's
-        }
-    }
-
-    /// Fits the view to the board and its context, or (`selected`) to the selected elements.
-    fn fit(&mut self, selected: bool) {
-        let sel = |id: &String| !selected || self.selection.contains(id);
-        let rects = (self.board().design.elements.iter())
-            .filter(|e| sel(&e.id))
-            .filter_map(|e| self.shown_rect(e))
-            .chain(
-                (self.ctx.boxes.iter())
-                    .filter(|c| sel(&c.id))
-                    .map(|c| [c.x, c.y, c.w, c.h]),
-            );
-        let b = rects.fold(None, |a: Option<[f32; 4]>, r| {
-            let [x0, y0, x1, y1] = a.unwrap_or([r[0], r[1], r[0] + r[2], r[1] + r[3]]);
-            Some([
-                x0.min(r[0]),
-                y0.min(r[1]),
-                x1.max(r[0] + r[2]),
-                y1.max(r[1] + r[3]),
-            ])
-        });
-        if let Some([x0, y0, x1, y1]) = b {
-            self.camera
-                .fit([x0, y0, x1 - x0, y1 - y0], self.view[2], self.view[3]);
         }
     }
 

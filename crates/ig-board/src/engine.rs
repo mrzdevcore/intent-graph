@@ -3,6 +3,7 @@
 use crate::hit::{Index, Target};
 use crate::input::{Gesture, Tool};
 use crate::scene::{self, A11yItem, Label, Scene};
+use crate::screens::{diff, split_key, split_nav};
 use crate::snap::rect_of;
 use crate::{Camera, Context, History, Severity, Step, meaning, merge, place_new};
 use ig_design::{Board, Element, Link, Op, apply};
@@ -33,8 +34,23 @@ pub struct Out {
     pub touched: Vec<String>,
 }
 
+/// Which board the engine shows and edits; both share the one board, history and highlights.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Surface {
+    Architecture,
+    Screens,
+}
+
 pub struct Engine {
     pub(crate) ctx: Context,
+    pub(crate) surface: Surface,
+    /// Images the host has decoded: their size in px. The others draw as a placeholder.
+    pub(crate) images: HashMap<String, (u32, u32)>,
+    /// Ink triangles per screen or piece key, in its own px, with what they were made from.
+    pub(crate) inks: crate::screen_scene::Inks,
+    /// Pen pressure (0..1) of the latest pointer event: `PointerEvent.pressure`.
+    pub(crate) pressure: f32,
+    pub(crate) pieces_clip: Vec<(String, ig_design::Piece)>,
     history: History,
     /// The disk state ours was last in sync with: the merge base.
     base: Board,
@@ -60,6 +76,11 @@ impl Engine {
             history: History::new(board.clone(), 200),
             base: board,
             ctx,
+            surface: Surface::Architecture,
+            images: HashMap::new(),
+            inks: Default::default(),
+            pressure: 0.5,
+            pieces_clip: vec![],
             hidden: HashSet::new(),
             selection: vec![],
             highlights: vec![],
@@ -125,7 +146,39 @@ impl Engine {
     }
 
     pub(crate) fn refresh(&mut self) {
-        self.index = Index::build(self.board(), &self.ctx, &self.hidden);
+        self.index = match self.surface {
+            Surface::Architecture => Index::build(self.board(), &self.ctx, &self.hidden),
+            Surface::Screens => Index::build_screens(self.board()),
+        };
+        self.inks.stale = true;
+        self.drawn = None;
+    }
+
+    pub fn surface(&mut self, s: Surface) {
+        if s != self.surface {
+            (self.surface, self.tool, self.gesture) = (s, Tool::Select, Gesture::Idle);
+            self.selection.clear();
+            self.refresh();
+        }
+    }
+
+    pub fn current_surface(&self) -> Surface {
+        self.surface
+    }
+
+    /// The board the last save or outside change left on disk (the merge base).
+    pub fn merge_base(&self) -> &Board {
+        &self.base
+    }
+
+    /// `PointerEvent.pressure` of the next pointer events (pen strokes).
+    pub fn set_pressure(&mut self, p: f32) {
+        self.pressure = p.clamp(0.0, 1.0);
+    }
+
+    /// The host decoded this image (`w × h` px): it draws instead of its placeholder.
+    pub fn set_image(&mut self, asset: &str, w: u32, h: u32) {
+        self.images.insert(asset.into(), (w, h));
         self.drawn = None;
     }
 
@@ -143,12 +196,30 @@ impl Engine {
         }
     }
 
-    /// An element, link key or context box of the current board.
+    /// An element, link key or context box of the current board; on the screens, a screen,
+    /// piece or nav key.
     fn live(&self, id: &str) -> bool {
-        let d = &self.board().design;
-        d.elements.iter().any(|e| e.id == id)
-            || d.links.iter().any(|l| l.key() == id)
-            || self.ctx.boxes.iter().any(|c| c.id == id)
+        self.live_in(self.surface, id)
+    }
+
+    fn live_in(&self, s: Surface, id: &str) -> bool {
+        let b = self.board();
+        let d = &b.design;
+        match s {
+            Surface::Architecture => {
+                d.elements.iter().any(|e| e.id == id)
+                    || d.links.iter().any(|l| l.key() == id)
+                    || self.ctx.boxes.iter().any(|c| c.id == id)
+            }
+            Surface::Screens => match (split_nav(id), split_key(id)) {
+                (Some((s, f, t)), _) => (b.screens.get(s))
+                    .is_some_and(|s| s.navs.iter().any(|n| n.from == f && n.to == t)),
+                (_, Some((s, p))) => {
+                    (b.screens.get(s)).is_some_and(|s| s.elements.iter().any(|e| e.id == p))
+                }
+                _ => b.screens.contains_key(id),
+            },
+        }
     }
 
     /// A new current board (already in the history): selection, index and flags follow it.
@@ -202,7 +273,13 @@ impl Engine {
         if &next == self.board() {
             return self.out();
         }
-        let touched: Vec<String> = [t.elements, t.links, t.bridges].concat();
+        let touched: Vec<String> = [
+            t.elements,
+            t.links,
+            t.bridges,
+            diff(&self.board().screens, &next.screens).0,
+        ]
+        .concat();
         match step {
             Step::Agent(_) => self.highlight(touched.clone()),
             _ => self.highlights.retain(|h| !touched.contains(h)),
@@ -273,8 +350,16 @@ impl Engine {
         self.drawn = None;
     }
 
-    /// Selects these ids (elements, link keys, context boxes); unknown ones are dropped.
+    /// Selects these ids (elements, link keys, context boxes; screen, piece and nav keys);
+    /// unknown ones are dropped. Ids only the other surface has switch to it (a chat card's Show).
     pub fn select(&mut self, ids: Vec<String>) {
+        let other = match self.surface {
+            Surface::Architecture => Surface::Screens,
+            Surface::Screens => Surface::Architecture,
+        };
+        if !ids.iter().any(|i| self.live(i)) && ids.iter().any(|i| self.live_in(other, i)) {
+            self.surface(other);
+        }
         self.selection = ids.into_iter().filter(|s| self.live(s)).collect();
         self.drawn = None;
     }
@@ -324,7 +409,13 @@ impl Engine {
     pub fn scene(&mut self, viewport: [f32; 4]) -> &Scene {
         self.view = viewport;
         if self.drawn != Some((viewport, self.camera)) {
-            self.scene = scene::build(self, viewport);
+            self.scene = match self.surface {
+                Surface::Architecture => scene::build(self, viewport),
+                Surface::Screens => {
+                    self.update_inks();
+                    crate::screen_scene::build(self, viewport)
+                }
+            };
             self.drawn = Some((viewport, self.camera));
         }
         &self.scene
@@ -335,11 +426,17 @@ impl Engine {
     }
 
     pub fn labels(&self) -> Vec<Label> {
-        scene::labels(self)
+        match self.surface {
+            Surface::Architecture => scene::labels(self),
+            Surface::Screens => crate::screen_scene::labels(self),
+        }
     }
 
     pub fn a11y(&self) -> Vec<A11yItem> {
-        scene::a11y(self)
+        match self.surface {
+            Surface::Architecture => scene::a11y(self),
+            Surface::Screens => crate::screen_scene::a11y(self),
+        }
     }
 
     /// The topmost element, link key or context box at a screen point.

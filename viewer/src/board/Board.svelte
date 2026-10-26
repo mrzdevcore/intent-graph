@@ -12,7 +12,7 @@
   import EditOverlay from "./EditOverlay.svelte";
   import A11yList from "./A11yList.svelte";
 
-  let { source, importer, onout, onready, onbeforefree, message = "", reasons = {}, reload = () => location.reload() }: {
+  let { source, importer, onout, onready, onbeforefree, message = "", reasons = {}, hand = false, reload = () => location.reload() }: {
     /** The board text and context JSON to load: on start and Retry. */
     source: () => { board: string; context: string };
     importer?: Importer;
@@ -26,6 +26,8 @@
     reload?: () => void;
     /** Check reasons by element, link key or context box: the canvas title on hover. */
     reasons?: Record<string, string>;
+    /** The screens: handwritten labels. */
+    hand?: boolean;
   } = $props();
 
   let host: HTMLDivElement;
@@ -172,7 +174,7 @@
 
   function point(e: PointerEvent) {
     const r = canvas!.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top, mods: MODS(e) };
+    return { x: e.clientX - r.left, y: e.clientY - r.top, mods: MODS(e), pressure: e.pressure || 0.5 };
   }
 
   function onpointerdown(e: PointerEvent) {
@@ -206,7 +208,7 @@
     edit = null;
     (opener?.isConnected ? opener : canvas)?.focus();
     if (name === ed.text) return;
-    handle(act((e) => e.ops(JSON.stringify([{ op: "update", id: ed.id, set: { name } }]), "user")));
+    handle(act((e) => e.rename(ed.id, name)));
   }
 
   function cancel() {
@@ -279,7 +281,7 @@
       onpointerup={(e) => edit || send({ t: "up", ...point(e) })}
       oncontextmenu={(e) => e.preventDefault()}
       onmousedown={(e) => e.preventDefault() /* focus is set in pointerdown; the default would take it from the rename overlay */}></canvas>
-    <Labels {camera} {labels} />
+    <Labels {camera} {labels} {hand} />
     {#if edit}<EditOverlay rect={edit.rect} text={edit.text} oncommit={commit} oncancel={cancel} />{/if}
     <A11yList {items} {message} onselect={select} onkey={(key) => send({ t: "key", key, mods: 0 })} />
     {#if status}<div class="status" role="status">{status}</div>{/if}
@@ -287,7 +289,8 @@
 </div>
 
 <style>
-  .board { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+  /* the screens' paper and ink: the same in both themes */
+  .board { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--bg); --paper: #f4f1ea; --ink: #2b2b2b; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
   .failure { max-width: 34em; margin: 15vh auto 0; padding: 16px; color: var(--fg); }
   .status { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 4px; font-size: 12px;

@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import type { Design, DesignApi, DesignCheck } from "../src/api";
+import type { Design, DesignApi, DesignCheck, Screen, ScreensApi } from "../src/api";
 import type { ViewNode } from "../src/data";
 import type { EngineOut } from "../src/board/engine";
 import { Outbox } from "../src/board/outbox";
@@ -438,4 +438,82 @@ test("agent merges re-check and do not echo to the outbox", async () => {
   expect(sent[0]).toContain("added fn-u");
   expect(sent[0]).toContain("added fn-v");
   expect(sent[0]).not.toContain("fn-c");
+});
+
+// The screens: one file each, images through putAsset.
+const screen = (id: string, title = id): Screen =>
+  ({ version: 1, id, title, x: 0, y: 0, w: 400, h: 300, elements: [], navs: [] });
+
+function fakeScreens(list: Screen[]) {
+  const writes: Screen[] = [], removed: string[] = [];
+  let refuse: string | null = null;
+  const api: ScreensApi = {
+    list: async () => list,
+    write: async (_slug, s) => void writes.push(s),
+    remove: async (_slug, id) => void removed.push(id),
+    putAsset: async () => {
+      if (refuse) throw refuse;
+      return "0123456789ab.png";
+    },
+    readAsset: async () => new Uint8Array([1]),
+    onScreenChanged: () => () => {},
+    onAssetChanged: () => () => {},
+  };
+  return { api, writes, removed, refuse: (why: string | null) => (refuse = why) };
+}
+
+function screensSetup(list: Screen[]) {
+  const c = fakeClock(), e = fakeEngine(), a = fakeApi(), sc = fakeScreens(list);
+  let screens: Record<string, string> = Object.fromEntries(list.map((s) => [s.id, JSON.stringify(s, null, 2)]));
+  const images: string[] = [];
+  const engine: StoreEngine = {
+    ...e.engine,
+    screens: () => screens,
+    setImage: (name) => void images.push(name),
+    importImage: (name) => {
+      e.calls.push(["importImage", [name]]);
+      return OUT({ changed: true });
+    },
+  };
+  const store = new BoardStore(a.api, engine, "export", c.clock, { context: () => "{}", nodes: () => NODES }, sc.api,
+    async () => ({ width: 2, height: 1 }) as ImageBitmap);
+  return { ...c, ...e, ...a, sc, store, images, setScreens: (s: Record<string, string>) => (screens = s) };
+}
+
+test("store saves only the changed screen file", async () => {
+  const s = screensSetup([screen("login"), screen("home")]);
+  await s.store.load();
+  expect(JSON.parse(s.of("load")[0][0] as string).screens.map((x: Screen) => x.id)).toEqual(["login", "home"]);
+  // the user retitles home and removes login
+  s.setScreens({ home: JSON.stringify(screen("home", "Start"), null, 2) });
+  s.store.onOut(OUT({ changed: true }));
+  await s.advance(300);
+  expect(s.sc.writes.map((x) => [x.id, x.title])).toEqual([["home", "Start"]]);
+  expect(s.sc.removed).toEqual(["login"]);
+  expect(s.of("saved").slice(1)).toEqual([[JSON.stringify({ screens: { home: screen("home", "Start") } })],
+    [JSON.stringify({ screens: { login: null } })]]);
+  // nothing changed since: no screen is written again
+  s.store.onOut(OUT({ changed: true }));
+  await s.advance(300);
+  expect(s.sc.writes).toHaveLength(1);
+  expect(s.writes).toHaveLength(2); // design.json, as before
+});
+
+test("refused image leaves the board unchanged", async () => {
+  const s = screensSetup([screen("login")]);
+  await s.store.load();
+  s.sc.refuse("Only PNG or JPEG up to 10 MB");
+  await s.store.importImage(new Uint8Array([0x3c, 0x73, 0x76, 0x67]));
+  expect(s.store.imageError).toBe("Only PNG or JPEG up to 10 MB");
+  expect(s.of("importImage")).toEqual([]);
+  expect(s.images).toEqual([]);
+  await s.advance(1000);
+  expect(s.writes).toHaveLength(0);
+  expect(s.sc.writes).toHaveLength(0);
+  // a PNG goes in: its texture, then the background, saved
+  s.sc.refuse(null);
+  await s.store.importImage(new Uint8Array([0x89, 0x50]));
+  expect(s.store.imageError).toBeNull();
+  expect(s.images).toEqual(["0123456789ab.png"]);
+  expect(s.of("importImage")).toEqual([["0123456789ab.png"]]);
 });

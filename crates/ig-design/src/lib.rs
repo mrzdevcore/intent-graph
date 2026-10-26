@@ -7,7 +7,7 @@ mod screens;
 
 pub use caps::{MAX_FILE, MAX_ID, MAX_NAME, MAX_TEXT};
 pub use ops::{Board, ElementPatch, Op, Touched, apply};
-pub use screen_ops::PiecePatch;
+pub use screen_ops::{PiecePatch, ScreenPatch, piece_size};
 pub use screens::{
     Background, MAX_NAVS, MAX_PIECES, MAX_POINTS, MAX_SCREENS, Nav, Piece, PieceKind, Props,
     Screen, check_refs, is_asset_name, new_piece_id, parse_screen, screen_to_text, validate_screen,
