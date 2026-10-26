@@ -153,3 +153,16 @@ test("tauri design api invokes the commands", async () => {
   handler({ payload: { slug: "a" } });
   expect(cb).toHaveBeenCalledWith("a");
 });
+
+test("on quit every flush finishes before the ack, even when one fails", async () => {
+  const { flushThenAck } = await import("../src/api/tauri");
+  const log: string[] = [];
+  const slow = () => new Promise<void>((r) => setTimeout(() => (log.push("slow"), r()), 10));
+  const bad = () => Promise.reject(new Error("disk full"));
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  await flushThenAck([slow, bad], async () => void log.push("ack"));
+  expect(log).toEqual(["slow", "ack"]);
+  await flushThenAck([], async () => void log.push("ack"));
+  expect(log).toEqual(["slow", "ack", "ack"]);
+  err.mockRestore();
+});

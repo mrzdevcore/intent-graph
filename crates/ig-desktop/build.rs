@@ -1,7 +1,7 @@
 //! Fills `dist/`, the app's frontend, from the viewer: `viewer/dist-app/` (`make viewer-app`:
 //! multi-file, with the board engine's lazy chunk and .wasm), else `viewer/dist/index.html`
 //! (`make viewer`, no boards), else a page that says so, so Rust-only work still builds. Then
-//! Tauri's build, with `view_data`, `file_tree`, `read_file`, the trust commands, the design commands, the agent commands and `open_url` as the only commands the webview may call (granted in `capabilities/`).
+//! Tauri's build, with `view_data`, `file_tree`, `read_file`, the trust commands, the design commands, the agent commands, `open_url` and `exit_flushed` as the only commands the webview may call (granted in `capabilities/`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -74,6 +74,7 @@ fn main() {
         "agent_reply",
         "agent_set_config",
         "open_url",
+        "exit_flushed",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)).unwrap();
 }
