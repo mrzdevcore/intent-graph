@@ -31,6 +31,8 @@ export interface TrustState {
   any_files: boolean;
   ig_plugin: boolean;
   hash: string;
+  /** Why `.claude/` could not be fully checked: trust is not possible. */
+  incomplete: string | null;
   trusted: boolean;
 }
 

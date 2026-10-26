@@ -192,3 +192,39 @@ fn trust_needs_the_hash_and_the_confirm_and_keeps_a_bad_store() {
     );
     done(&root);
 }
+
+#[test]
+fn past_the_file_cap_trust_is_not_possible() {
+    let (root, data) = scratch("cap");
+    let d = root.join(".claude/skills/many");
+    std::fs::create_dir_all(&d).unwrap();
+    for i in 0..=MAX_FILES {
+        std::fs::write(d.join(format!("{i}.md")), "").unwrap();
+    }
+    let inv = inventory(&root);
+    assert_eq!(inv.incomplete.as_deref(), Some(TOO_MANY));
+    assert!(trust(&data, &root, &inv).is_err());
+    assert_eq!(
+        trust_if(&data, &root, &inv.hash, |_| true),
+        Err(TOO_MANY.into())
+    );
+    assert!(!is_trusted(&data, &root, &inv));
+    done(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_dir_under_claude_cannot_be_trusted() {
+    use std::os::unix::fs::PermissionsExt;
+    let (root, data) = scratch("unreadable");
+    let d = root.join(".claude/agents");
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let inv = inventory(&root);
+    std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(inv.incomplete.is_some(), "{inv:?}");
+    assert!(trust(&data, &root, &inv).is_err());
+    assert!(!is_trusted(&data, &root, &inv));
+    assert!(inventory(&root).incomplete.is_none(), "readable again");
+    done(&root);
+}
