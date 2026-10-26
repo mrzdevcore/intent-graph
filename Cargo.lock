@@ -2086,6 +2086,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-board"
+version = "0.1.0"
+dependencies = [
+ "ig-design",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ig-checkers"
 version = "0.1.0"
 dependencies = [

@@ -47,7 +47,7 @@ fn dependency_rule() {
             .collect();
         let allowed: &[&str] = match name {
             "ig-design" => &[],
-            "ig-core" => &["ig-design"],
+            "ig-core" | "ig-board" => &["ig-design"],
             _ => &["ig-core"],
         };
         for d in &deps {
@@ -55,8 +55,8 @@ fn dependency_rule() {
         }
     }
     assert_eq!(
-        seen, 7,
-        "ig-design, ig-core, ig-app, ig-lang-ts, ig-fs, ig-git, ig-checkers"
+        seen, 8,
+        "ig-design, ig-board, ig-core, ig-app, ig-lang-ts, ig-fs, ig-git, ig-checkers"
     );
 }
 
@@ -72,7 +72,7 @@ fn no_io_in_core_or_app() {
         "eprintln!",
     ];
     let mut files = vec![];
-    for c in ["ig-design", "ig-core", "ig-app"] {
+    for c in ["ig-design", "ig-board", "ig-core", "ig-app"] {
         rs_files(&root().join("crates").join(c).join("src"), &mut files);
     }
     assert!(!files.is_empty());
