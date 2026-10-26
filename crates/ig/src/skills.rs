@@ -244,6 +244,9 @@ mod tests {
                 .unwrap()
                 .contains("name: ig-setup")
         );
+        let explore =
+            std::fs::read_to_string(dir.join(".claude/skills/ig/skills/explore/SKILL.md")).unwrap();
+        assert!(explore.contains("`ig_show`") && explore.contains("`.ig/show.json`"));
         assert_eq!(invoke(agent("codex").unwrap(), "plan"), "$ig-plan");
         assert_eq!(invoke(agent("claude").unwrap(), "plan"), "/ig:plan");
     }

@@ -1,9 +1,9 @@
 <!-- The app: header (status, plan, modes, search, counts, breadcrumb, hint), and the state the tree,
      graph and side panel share: mode, Architecture scope, focus, journey. -->
 <script module lang="ts">
-  const STATE_LABEL = { planned: "Planning", applying: "Applying", done: "Done", plain: "Plan" };
+  import type { Mode } from "../model/show";
 
-  type Mode = "changed" | "architecture" | "focus" | "blueprint";
+  const STATE_LABEL = { planned: "Planning", applying: "Applying", done: "Done", plain: "Plan" };
 
   const MODES: [Mode, string, string][] = [
     ["changed", "Changed", "Changed nodes and their direct neighbours"],
@@ -44,6 +44,8 @@
   import { withTests } from "../model/tests";
   import { ancestors, findNode, index, topMember, type Group } from "../model/graph";
   import { beforeAfter, nodeNamed } from "../model/code";
+  import { applyShow, commonScope, showReducer, type Show, type ShowState } from "../model/show";
+  import ShowBanner from "./ShowBanner.svelte";
   import Chat from "./chat/Chat.svelte";
   import { nodeMatcher } from "../model/markdown";
   import CodeView from "./CodeView.svelte";
@@ -79,6 +81,10 @@
   let graph: ReturnType<typeof Graph>;
   let tree: ReturnType<typeof Tree>;
   let lastMode: Mode | null = null;
+  /** Claude's `ig_show`: the answer (re-applied to every new index) and the view Back returns to. */
+  let showSt = $state.raw<ShowState>({ current: null, previous: null });
+  const shown = $derived(showSt.current ? applyShow(ix, showSt.current) : null);
+  let showSeq = 0;
 
   /** Back to the data's own start state: first paint, and after a rebuild swaps the data. */
   function reset() {
@@ -91,6 +97,7 @@
     uiOnly = false;
     lastMode = null;
     menu = null;
+    showView();
     draw();
     side = { kind: "overview" };
     refreshNotes();
@@ -121,6 +128,7 @@
       }),
       api.on?.("note", () => refreshNotes()),
       api.on?.("focus", (ids) => focusAll(ids as string[])),
+      api.on?.("show", (s) => Array.isArray((s as Show)?.nodes) && showAnswer(s as Show)),
     ];
     return () => offs.forEach((off) => off?.());
   });
@@ -140,6 +148,67 @@
     focusId = known[0];
     mode = "focus";
     draw();
+  }
+
+  /** From `ig_show` or a chat chip: the answer in gold, in its view; Back returns to the view before the first show. */
+  export function showAnswer(s: Show) {
+    const view = { mode, selection: side.kind === "node" ? [side.id] : [], scope: scope.id, focus: focusRoots.length ? focusRoots : focusId ? [focusId] : [] };
+    showSt = showReducer(showSt, { t: "show", s: { ...s, seq: ++showSeq }, view }).state;
+    showView();
+    draw();
+    const first = showSt.current?.mode === "chain" && [...shown!.nodes][0];
+    if (first) details(first); // the side panel shows its calls down
+  }
+
+  /** The show's view: Focus on its nodes, or Architecture at their common scope. Draws nothing. */
+  function showView() {
+    const ids = shown ? [...shown.nodes] : [];
+    if (!ids.length) return;
+    if (shown!.mode === "architecture") scope = commonScope(ix, ids);
+    else [focusRoots, focusId] = [ids, ids[0]];
+    mode = shown!.mode;
+  }
+
+  /** The drawn element that stands for node `id` in this mode. */
+  function onGraph(id: string): string | null {
+    const n = ix.byId[id];
+    if (!n) return null;
+    return mode === "architecture" ? rep(ix, scope, id) : mode === "blueprint" ? unitOf(ix, id) : graph.pick([id, topMember(ix, n).id, n.file]);
+  }
+
+  function highlightShow() {
+    if (!shown) return graph.highlight(null);
+    const key = (t: string) => t.split("|").map(onGraph).join("|");
+    const steps: Record<string, number[]> = {};
+    shown.steps.forEach((st) => (steps[key(st.target)] ??= []).push(st.n));
+    const nodes = new Set([...shown.nodes].map(onGraph).filter((x): x is string => !!x));
+    graph.highlight({ nodes, edges: new Set([...shown.edges].map(key)), steps });
+  }
+
+  function clearShow() {
+    showSt = showReducer(showSt, { t: "clear" }).state;
+    highlightShow();
+  }
+
+  function backShow() {
+    const r = showReducer(showSt, { t: "back" });
+    showSt = r.state;
+    const p = r.restore;
+    if (!p) return highlightShow();
+    scope = (p.scope && ix.groups[p.scope]) || (p.scope === ix.root.id ? ix.root : initialScope(ix));
+    [focusRoots, focusId] = [p.focus, p.focus[0] ?? null];
+    mode = p.mode === "focus" && !focusId ? D.mode : p.mode;
+    draw();
+    const sel = p.selection.find((id) => ix.byId[id]);
+    if (sel) onTreeSelect(sel);
+    else side = { kind: "overview" };
+  }
+
+  /** A step: the first click selects its node (an edge's source), the second opens its code. */
+  function onStep(target: string, again: boolean) {
+    const id = target.split("|")[0];
+    if (again && sideActions.openFile) return sideActions.openFile(id);
+    onTreeSelect(id);
   }
 
   /** Gestures make notes only on a checked plan that is not being applied, in `ig serve`. */
@@ -203,6 +272,7 @@
     lastMode = mode;
     graph.show(els, { fresh, preset: mode === "blueprint" || mode === "architecture", zoomTo });
     graph.decorate(pins(notes), ghosts(notes));
+    highlightShow();
     if (mode === "focus" && focusId) graph.select(focusId);
     if (mode === "blueprint") side = { kind: "journeys" };
     screenIds = graph.ids();
@@ -425,6 +495,8 @@
   </div>
   <div id="center">
     <Graph bind:this={graph} {links} ontap={onTap} oncontext={onContext} ondrop={onDrop} onlink={onLink} />
+    {#if showSt.current && shown}<ShowBanner title={showSt.current.title} missing={shown.missing.length} steps={shown.steps}
+      onclear={clearShow} onback={backShow} onstep={onStep} />{/if}
     {#if code}<CodeView path={code.path} text={code.text} merge={code.merge} line={code.line} onword={onWord} onclose={() => (code = null)} />{/if}
   </div>
   <div id="side" role="complementary">
@@ -435,7 +507,7 @@
       <Chat agent={chatApi.agent!} trustInventory={chatApi.trustInventory!} trustProject={chatApi.trustProject!}
         openUrl={chatApi.openUrl ? (u) => chatApi.openUrl!(u).catch((e: unknown) => (hint = msg(e))) : undefined}
         root={D.root} {selection} onopendiff={(path, before, after) => (code = { path, merge: { before, after } })}
-        match={nodeMatch} onnode={focusOn} />
+        match={nodeMatch} onnode={focusOn} onshow={showAnswer} />
     </div>
   {/if}
 </main>

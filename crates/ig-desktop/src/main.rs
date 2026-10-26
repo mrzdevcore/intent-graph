@@ -59,10 +59,18 @@ fn open(app: &AppHandle, root: &Path) {
         return;
     }
     let emitter = app.clone();
-    let watcher = ig_wire::watch(&root, move |full| {
+    let show = root.join(ig_app::show::SHOW);
+    let watcher = ig_wire::watch(&root, move |c| {
         // Notes alone change nothing the app shows yet.
-        if full {
+        if c.full {
             let _ = emitter.emit("rebuild", ());
+        }
+        // The agent's `ig_show`, already checked against the graph; a removed file shows nothing.
+        let read = || {
+            serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&show).ok()?).ok()
+        };
+        if let Some(v) = c.show.then(read).flatten() {
+            let _ = emitter.emit("show", v);
         }
     });
     let watcher = match watcher {

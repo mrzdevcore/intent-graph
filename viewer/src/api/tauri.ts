@@ -26,6 +26,8 @@ export function tauri(): IgApi {
     trustProject: (hash) => invoke<void>("trust_project", { hash }),
     openUrl: (url) => invoke<void>("open_url", { url }),
     onRebuild: (cb) => subscribe("rebuild", () => cb()),
+    // Only `show` is emitted (crates/ig-desktop/src/main.rs).
+    on: (event, cb) => subscribe(event, cb),
     agent: {
       start: (feature) => invoke<string>("agent_start", { feature }),
       prompt: (text, attachments) => invoke<string>("agent_prompt", { text, attachments: attachments ?? [] }),

@@ -97,6 +97,21 @@ ul.notes li.done { color: var(--muted); }
 #ig-code .host { flex: 1; min-height: 0; overflow: auto; }
 #ig-code .cm-mergeView { height: 100%; overflow: auto; }
 
+/* An answer shown by Claude (ig_show): a banner over the graph, with the numbered steps. */
+.show-banner { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 4; max-width: 560px; background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--brand); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.15); font-size: 13px; }
+.show-bar { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 10px; }
+.show-bar strong { min-width: 0; overflow-wrap: anywhere; }
+.show-missing { color: var(--warning); }
+.show-actions { margin-left: auto; display: flex; gap: 6px; }
+.show-banner button { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+.show-banner button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.show-steps { list-style: none; margin: 0; padding: 4px 6px 8px; max-height: 40vh; overflow: auto; border-top: 1px solid var(--line); }
+.show-steps button { display: flex; gap: 8px; width: 100%; text-align: left; border: 0; background: none; padding: 4px; }
+.show-steps button:hover, .show-steps button.picked { background: var(--code); }
+.show-n { flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; background: var(--brand); color: var(--on-accent); font-weight: 700;
+  font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+
 /* The chat panel (desktop app). */
 #chat { border-left: 1px solid var(--line); background: var(--panel); min-width: 0; min-height: 0; display: flex; }
 #chat[hidden] { display: none; }
@@ -133,6 +148,7 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat .tool .loc { color: var(--muted); font-size: 12px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ig-chat .tool.group > .card { margin-top: 6px; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 4px 0 0; }
 #ig-chat .chip { font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
+#ig-chat button.chip { font: inherit; font-size: 11px; background: none; cursor: pointer; color: var(--accent-text); border-color: var(--brand); }
 #ig-chat .chip.completed { color: var(--added); border-color: var(--added); }
 #ig-chat .chip.failed { color: var(--error); border-color: var(--error); }
 #ig-chat .chip.in_progress { color: var(--accent); border-color: var(--accent); }

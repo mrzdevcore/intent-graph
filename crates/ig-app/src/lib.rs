@@ -14,6 +14,7 @@ pub mod plan;
 pub mod query;
 pub mod review;
 pub mod setup;
+pub mod show;
 pub mod view_data;
 
 pub(crate) use error::bail;

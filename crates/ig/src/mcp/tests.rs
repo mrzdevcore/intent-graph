@@ -20,10 +20,11 @@ fn protocol_basics() {
         "ig_note_done",
         "ig_focus",
         "ig_wait_notes",
+        "ig_show",
     ] {
         assert!(names.contains(&t), "{t} missing");
     }
-    assert_eq!(names.len(), 9);
+    assert_eq!(names.len(), 10);
     let r = handle(
         root,
         &json!({"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}}),
@@ -183,4 +184,70 @@ fn channel_events_start_only_after_initialized() {
     }
     let msgs = got.lock().unwrap();
     assert_eq!(msgs[0]["id"], 1, "the initialize reply comes first");
+}
+
+#[test]
+fn writes_show_json_canonically_and_nothing_else() {
+    let dir = crate::tests::git_fixture("monorepo");
+    let g = head_graph(&dir).unwrap();
+    let e = g.edges.iter().find(|e| e.kind == "calls").unwrap();
+    let ig_files = |d: &Path| -> Vec<String> {
+        std::fs::read_dir(d.join(".ig"))
+            .map(|r| {
+                r.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let before = ig_files(&dir);
+    let args = json!({"title": "How it flows", "nodes": [e.from, e.to], "edges": [format!("{}|{}|{}", e.from, e.kind, e.to)],
+        "steps": [{"target": e.from, "text": "starts here"}], "mode": "chain"});
+    let r = call_tool(&dir, "ig_show", args.clone());
+    assert!(r.get("isError").is_none(), "{r}");
+    assert_eq!(
+        r["content"][0]["text"],
+        "no viewer is open; answer with a diagram too"
+    );
+    let mut new: Vec<String> = ig_files(&dir)
+        .into_iter()
+        .filter(|f| !before.contains(f))
+        .collect();
+    new.sort();
+    assert_eq!(new, vec!["show.json".to_string()]);
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .args(["status", "--porcelain"])
+        .output()
+        .unwrap();
+    let status = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        status.lines().all(|l| l.ends_with(" .ig/")),
+        "outside .ig/: {status}"
+    );
+    let text = std::fs::read_to_string(dir.join(ig_app::show::SHOW)).unwrap();
+    let show: ig_app::show::Show = serde_json::from_str(&text).unwrap();
+    assert_eq!(text, ig_app::show::canonical(&show));
+    assert_eq!(show.seq, 1);
+    assert_eq!(show.edges, vec![(e.from.clone(), e.to.clone())]);
+    call_tool(&dir, "ig_show", args);
+    let text = std::fs::read_to_string(dir.join(ig_app::show::SHOW)).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&text).unwrap()["seq"], 2);
+}
+
+#[test]
+fn unknown_id_is_a_tool_error_and_writes_nothing() {
+    let dir = crate::tests::git_fixture("monorepo");
+    let r = call_tool(
+        &dir,
+        "ig_show",
+        json!({"title": "t", "nodes": ["packages/core/src/repo.ts#Repo.fnd"]}),
+    );
+    assert_eq!(r["isError"], true);
+    let text = r["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("unknown id packages/core/src/repo.ts#Repo.fnd; did you mean packages/core/src/repo.ts#Repo.find"),
+        "{text}"
+    );
+    assert!(!dir.join(ig_app::show::SHOW).exists());
 }

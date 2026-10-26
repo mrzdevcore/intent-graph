@@ -114,7 +114,9 @@ impl Session {
         let path = std::env::var_os("PATH").unwrap_or_default();
         c.args(args)
             .current_dir(root)
-            .env("PATH", crate::shell_path::child_path(ig, &path));
+            .env("PATH", crate::shell_path::child_path(ig, &path))
+            // ig_show answers "shown in app" to the agent.
+            .env("IG_APP", "1");
         let mut c = async_process::Command::from(c);
         c.stdin(Stdio::piped())
             .stdout(Stdio::piped())
