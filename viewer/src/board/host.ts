@@ -3,10 +3,9 @@
 
 import type { A11yItem, BoardEngine, Camera, EngineOut, Label } from "./engine";
 
-export const loadFailed = (reason: string) =>
-  `The board engine failed to load: ${reason}. Rebuild the app with \`make app\`.`;
-export const noWebgl2 = (reason: string) =>
-  `This board needs WebGL2, which this system doesn't offer (${reason}). Graph, Code and chat still work.`;
+import { loadFailed, noWebgl2 } from "./messages";
+
+export { loadFailed, noWebgl2 };
 
 /** What host.ts uses of the generated glue (./pkg/ig_board.js). */
 export interface RawEngine {
