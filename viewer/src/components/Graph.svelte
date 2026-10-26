@@ -152,6 +152,7 @@
       window.removeEventListener("keydown", shift);
       window.removeEventListener("keyup", shift);
       c.destroy();
+      if ((window as unknown as { igCy?: cytoscape.Core }).igCy === c) delete (window as unknown as { igCy?: cytoscape.Core }).igCy;
     };
   });
 

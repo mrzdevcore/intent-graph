@@ -26,7 +26,8 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import type { NoteInput, Note, ViewData } from "../data";
-  import { dropNote, ghosts, pins, type Client } from "../model/notes";
+  import type { IgApi } from "../api";
+  import { dropNote, ghosts, pins } from "../model/notes";
   import { architecture, initialScope, rep } from "../model/architecture";
   import { blueprint, journeyName, unitOf } from "../model/blueprint";
   import { changedIds, exact } from "../model/changed";
@@ -36,16 +37,17 @@
   import SidePanel, { type SideView } from "./SidePanel.svelte";
   import Tree from "./Tree.svelte";
 
-  /** The embedded data, and the notes API client when served by `ig serve`. */
-  let { data, api }: { data: ViewData; api?: Client } = $props();
+  /** The first data (the host reads it before mounting) and the host's API. */
+  let { data: first, api }: { data: ViewData; api: IgApi } = $props();
 
-  // The page is rebuilt (reloaded) when the data changes, so it is read once.
-  const D = untrack(() => data);
-  const ix = index(D);
+  // Rebuilds swap the data in place; everything below follows `D`.
+  let data = $state.raw(untrack(() => first));
+  const D = $derived(data);
+  const ix = $derived(index(D));
   /** Extra start nodes from `D.focus`; cleared when the user focuses on one node. */
-  let focusRoots: string[] = (D.focus ?? []).filter((id) => ix.byId[id]);
-  let mode = $state<Mode>(focusRoots.length ? "focus" : D.mode);
-  let scope = $state.raw<Group>(initialScope(ix));
+  let focusRoots: string[] = untrack(() => (D.focus ?? []).filter((id) => ix.byId[id]));
+  let mode = $state<Mode>(untrack(() => (focusRoots.length ? "focus" : D.mode)));
+  let scope = $state.raw<Group>(untrack(() => initialScope(ix)));
   let focusId = $state<string | null>(focusRoots[0] ?? null);
   let focusDepth = $state(1);
   let journey = $state<string | null>(null);
@@ -61,14 +63,45 @@
   let tree: ReturnType<typeof Tree>;
   let lastMode: Mode | null = null;
 
-  onMount(() => {
+  /** Back to the data's own start state: first paint, and after a rebuild swaps the data. */
+  function reset() {
+    focusRoots = (D.focus ?? []).filter((id) => ix.byId[id]);
+    mode = focusRoots.length ? "focus" : D.mode;
+    scope = initialScope(ix);
+    focusId = focusRoots[0] ?? null;
+    focusDepth = 1;
+    journey = null;
+    uiOnly = false;
+    lastMode = null;
     draw();
     side = { kind: "overview" };
-    if (api) refreshNotes();
+  }
+
+  onMount(() => {
+    reset();
+    refreshNotes();
+  });
+
+  // A swapped `data` starts over (the first run is onMount's).
+  let seen = untrack(() => data);
+  $effect(() => {
+    if (data === seen) return;
+    seen = data;
+    untrack(reset);
+  });
+
+  // The host's events; the cleanup closes its stream.
+  $effect(() => {
+    const offs = [
+      api.onRebuild(() => api.viewData().then((d) => (data = d), (e: Error) => (hint = e.message))),
+      api.on?.("note", () => refreshNotes()),
+      api.on?.("focus", (ids) => focusAll(ids as string[])),
+    ];
+    return () => offs.forEach((off) => off?.());
   });
 
   export function refreshNotes() {
-    api?.notes().then((ns) => {
+    api.notes?.notes().then((ns) => {
       notes = ns;
       graph.decorate(pins(ns), ghosts(ns));
     }, (e: Error) => (hint = e.message));
@@ -85,10 +118,10 @@
   }
 
   /** Gestures make notes only on a checked plan that is not being applied, in `ig serve`. */
-  const planning = () => !!api && D.state === "planned";
+  const planning = () => !!api.notes && D.state === "planned";
 
   function addNote(n: NoteInput) {
-    api?.add(n).then(() => {
+    api.notes?.add(n).then(() => {
       hint = "Note added; the agent will pick it up.";
       refreshNotes();
     }, (e: Error) => (hint = e.message));

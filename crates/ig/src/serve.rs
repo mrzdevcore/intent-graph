@@ -59,6 +59,8 @@ struct Built {
     plan: Option<PathBuf>,
     /// `{state, plan}` for `/api/state`.
     state: Value,
+    /// The page's data (`view::data`), for `/api/view`.
+    view: Value,
     /// The working-tree graph with the plan applied: note targets are checked against it.
     merged: Graph,
     page: String,
@@ -92,6 +94,7 @@ fn build(
     );
     let _ = std::fs::remove_file(root.join(view_data::FOCUS)); // a focus is shown once
     let page = render::page(&d, Some(token));
+    let view = d.clone();
     let mut state = json!({"state": d["state"].take(), "plan": d["plan"].take()});
     if let (Some(p), Some(o)) = (&picked.0, state["plan"].as_object_mut()) {
         let rel = workspace::rel(root, p).unwrap_or_else(|| p.to_string_lossy().into());
@@ -101,6 +104,7 @@ fn build(
     Ok(Built {
         plan: picked.0,
         state,
+        view,
         merged,
         page,
     })
@@ -185,6 +189,11 @@ impl Server {
             }
             (false, "/api/ping") => {
                 respond(req, 200, &json!({"root": self.root.to_string_lossy()}))
+            }
+            // Not token-gated, like every GET: it is what the page already embeds.
+            (false, "/api/view") => {
+                let v = self.built.lock().unwrap().view.clone();
+                respond(req, 200, &v)
             }
             (false, "/api/state") => {
                 let mut v = self.built.lock().unwrap().state.clone();
