@@ -246,7 +246,10 @@ fn real_main() -> Result<u8> {
         },
         "plugin" => match (a.sub.as_deref(), a.more.as_slice()) {
             (Some("export"), [dir]) => {
-                skills::export(Path::new(dir))?;
+                // Prints each file written, relative to <dir> (the app prunes anything else).
+                for p in skills::export(Path::new(dir))? {
+                    println!("{}", p.strip_prefix(dir).unwrap_or(&p).display());
+                }
                 Ok(0)
             }
             _ => bail!("plugin: expected `plugin export <dir>`"),
