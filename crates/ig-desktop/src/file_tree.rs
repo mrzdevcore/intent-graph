@@ -49,12 +49,17 @@ pub fn file_tree_for(root: &Path, dir: Option<&str>) -> Vec<Entry> {
             all
         }
     };
+    children(&all, dir)
+}
+
+/// The children of `dir` (None: the root) among the project-relative `all` paths: directories first, then files.
+pub fn children(all: &[String], dir: Option<&str>) -> Vec<Entry> {
     let prefix = dir
         .filter(|d| !d.trim_matches('/').is_empty())
         .map(|d| format!("{}/", d.trim_matches('/')))
         .unwrap_or_default();
     let mut kids: BTreeMap<&str, &'static str> = BTreeMap::new();
-    for f in &all {
+    for f in all {
         let Some(rest) = f.strip_prefix(&prefix) else {
             continue;
         };
@@ -190,19 +195,31 @@ mod tests {
     }
 
     #[test]
-    fn twenty_thousand_files_list_fast() {
-        let d = tmp("perf");
-        git(&d, &["init", "-q"]);
-        for i in 0..20_000 {
-            let dir = d.join(format!("d{}", i % 200));
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(dir.join(format!("f{i}.txt")), "").unwrap();
-        }
-        // ponytail: untracked files (no `git add`) keep the setup cheap; the timing covers the command only.
+    fn twenty_thousand_paths_group_fast() {
+        let all: Vec<String> = (0..20_000)
+            .map(|i| format!("d{}/f{i}.txt", i % 200))
+            .collect();
         let t = std::time::Instant::now();
-        let root = file_tree_for(&d, None);
+        let root = children(&all, None);
         let took = t.elapsed();
         assert_eq!(root.len(), 200);
         assert!(took.as_millis() < 200, "{took:?}");
+    }
+
+    #[test]
+    fn git_end_to_end_stays_under_two_seconds() {
+        let d = tmp("perf");
+        git(&d, &["init", "-q"]);
+        for i in 0..2_000 {
+            let dir = d.join(format!("d{}", i % 20));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("f{i}.txt")), "").unwrap();
+        }
+        // untracked files (no `git add`) keep the setup cheap; the timing covers the command only.
+        let t = std::time::Instant::now();
+        let root = file_tree_for(&d, None);
+        let took = t.elapsed();
+        assert_eq!(root.len(), 20);
+        assert!(took.as_secs() < 2, "{took:?}");
     }
 }

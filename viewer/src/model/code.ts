@@ -38,17 +38,6 @@ export function beforeAfter(diff: DiffLine[]) {
   return { before: side("-"), after: side("+") };
 }
 
-const WORD = /[\w$]/;
-
-/** The identifier at `pos` of `text`, if any. */
-export function wordAt(text: string, pos: number): string {
-  let a = pos;
-  let b = pos;
-  while (a > 0 && WORD.test(text[a - 1])) a--;
-  while (b < text.length && WORD.test(text[b])) b++;
-  return text.slice(a, b);
-}
-
 /** The non-module node of `file` that `word` names; of several, the one whose lines contain `line`. */
 export function nodeNamed(nodes: ViewNode[], file: string, word: string, line: number): ViewNode | undefined {
   const named = nodes.filter((n) => n.file === file && !n.module && n.name === word);

@@ -103,7 +103,8 @@
 </script>
 
 <section id="ig-files" aria-label="Project files">
-  <input id="files-filter" type="search" placeholder="Filter loaded files…" aria-label="Filter project files"
+  <div class="pane-h">Files</div>
+  <input id="files-filter" type="search" placeholder="Filter files in the tree…" aria-label="Filter project files"
     autocomplete="off" bind:value={filter}>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div id="files-body" role="tree" tabindex="0" bind:this={body} onkeydown={onKey}>

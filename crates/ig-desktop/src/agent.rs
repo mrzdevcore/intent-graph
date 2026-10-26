@@ -394,26 +394,50 @@ pub async fn agent_list(
     agent.running(&root)?.list().await
 }
 
-/// Installs the pinned adapter into the app's data dir (the UI asks the user first).
+/// Runs `install` only if `confirm` (the native dialog) agrees.
+fn install_if(
+    confirm: impl FnOnce() -> bool,
+    install: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if !confirm() {
+        return Err("not installed: cancelled".into());
+    }
+    install()
+}
+
+/// Installs the pinned adapter into the app's data dir, after a native confirm.
 #[tauri::command]
 pub async fn agent_install(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
     let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let confirm = move || {
+        app.dialog()
+            .message("Install the agent adapter into ig's data folder with npm?")
+            .title("ig")
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Install".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show()
+    };
     tauri::async_runtime::spawn_blocking(move || {
-        std::fs::create_dir_all(data.join("agent")).map_err(|e| e.to_string())?;
-        let out = std::process::Command::new("npm")
-            .args(install_args(&data))
-            .output()
-            .map_err(|e| format!("npm: {e}"))?;
-        if out.status.success() {
-            return Ok(());
-        }
-        let err = String::from_utf8_lossy(&out.stderr);
-        let last: Vec<&str> = err.lines().rev().take(5).collect();
-        Err(format!(
-            "npm install failed ({}):\n{}",
-            out.status,
-            last.into_iter().rev().collect::<Vec<_>>().join("\n")
-        ))
+        install_if(confirm, || {
+            std::fs::create_dir_all(data.join("agent")).map_err(|e| e.to_string())?;
+            let out = std::process::Command::new("npm")
+                .args(install_args(&data))
+                .output()
+                .map_err(|e| format!("npm: {e}"))?;
+            if out.status.success() {
+                return Ok(());
+            }
+            let err = String::from_utf8_lossy(&out.stderr);
+            let last: Vec<&str> = err.lines().rev().take(5).collect();
+            Err(format!(
+                "npm install failed ({}):\n{}",
+                out.status,
+                last.into_iter().rev().collect::<Vec<_>>().join("\n")
+            ))
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -422,6 +446,33 @@ pub async fn agent_install(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_runs_only_when_confirmed() {
+        let mut ran = false;
+        assert!(
+            install_if(
+                || false,
+                || {
+                    ran = true;
+                    Ok(())
+                }
+            )
+            .is_err()
+        );
+        assert!(!ran);
+        assert!(
+            install_if(
+                || true,
+                || {
+                    ran = true;
+                    Ok(())
+                }
+            )
+            .is_ok()
+        );
+        assert!(ran);
+    }
 
     #[test]
     fn only_a_bypass_mode_needs_the_confirm() {

@@ -41,7 +41,7 @@ make app-dev   # run it in development
 
 - **Needs:** Rust, bun, node and npm (for the Claude adapter), and the Claude CLI logged in (run `claude`, then `/login`). The app never sees your credentials.
 - **Adapter:** on the first chat, if it is missing, the app offers to install `@agentclientprotocol/claude-agent-acp@0.95.0` into its own data dir (never global).
-- **Trust screen:** before any Claude session the app lists what will run: hooks from `.claude/settings*.json`, permission settings (including bypass modes), `AGENTS.md`/`CLAUDE.md`, MCP servers from `.mcp.json` and the ig plugin. You decide, and confirm natively. It asks again when any of them changes.
+- **Trust screen:** before any Claude session the app lists what will run: hooks from `.claude/settings*.json`, permission settings (including bypass modes), `AGENTS.md`/`CLAUDE.md`/`CLAUDE.local.md`, MCP servers from `.mcp.json`, the ig plugin, and the project's skills, commands and agents (with any tools they pre-approve or hooks they run). Every file under `.claude/` is hashed (files over 1 MB by size only). You decide, and confirm natively. It asks again when any of them changes.
 - **Settings:** sessions load the project and local settings plus the ig plugin only. Your own skills and user settings do not load.
 - **Chat:** streaming replies, tool cards, diffs in the merge view, permission and question cards, mode and model selectors (switching to a bypass mode asks to confirm), "Attach selection", "Plan this" and `/` commands.
 - **Code:** a file tree and a read-only code view with before/after. A **Tests** toggle shows test and spec files, hidden by default in every graph mode (the `tests` globs in `ig.yaml` decide what a test file is).

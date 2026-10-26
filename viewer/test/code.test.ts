@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { beforeAfter, languageFor, nodeNamed, wordAt } from "../src/model/code";
+import { beforeAfter, languageFor, nodeNamed } from "../src/model/code";
 import type { DiffLine, ViewNode } from "../src/data";
 
 test("the language is chosen by extension", () => {
@@ -13,10 +13,7 @@ test("before and after are rebuilt from the diff rows", () => {
   expect(beforeAfter(d)).toEqual({ before: "a\nold\nz", after: "a\nnew\nz" });
 });
 
-test("a clicked word maps to the node of that file with that name", () => {
-  expect(wordAt("let foo$1 = bar(2);", 6)).toBe("foo$1");
-  expect(wordAt("a  b", 1)).toBe("a");
-  expect(wordAt("a  b", 2)).toBe("");
+test("a word maps to the node of that file with that name", () => {
   const n = (id: string, name: string, line: number, endLine: number, file = "f.ts") => ({ id, name, line, endLine, file, module: false }) as unknown as ViewNode;
   const nodes = [n("a", "go", 1, 3), n("b", "go", 10, 12), n("c", "go", 1, 3, "g.ts"), { ...n("m", "go", 1, 99), module: true } as ViewNode];
   expect(nodeNamed(nodes, "f.ts", "go", 11)?.id).toBe("b");
