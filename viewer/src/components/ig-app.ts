@@ -298,7 +298,7 @@ export class IgApp extends LitElement {
     if (!D) return null;
     const c = D.counts;
     return html`<header>
-        <h1>ig</h1>
+        <h1><svg class="mark" viewBox="0 0 120 120" width="22" height="22" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M30 42 Q30 22 60 22 Q90 22 90 42 V86 Q90 104 60 104 Q30 104 30 86 Z"/><path d="M35 28 L30 13 L46 23"/><path d="M85 28 L90 13 L74 23"/><path d="M56 62 L60 68 L64 62"/><circle cx="47" cy="48" r="11"/><circle cx="73" cy="48" r="11"/><circle cx="47" cy="48" r="4.5" fill="#E8A317" stroke="none"/><circle cx="73" cy="48" r="4.5" fill="#E8A317" stroke="none"/></svg>ig</h1>
         <span id="status" class="status ${D.blocking ? "block" : "ok"}">${D.blocking ? "blocking" : "not blocking"}</span>
         <span id="plan" class="status">${D.plan ? STATE_LABEL[D.state] + " · " + D.plan.title : ""}</span>
         <div class="modes" role="group" aria-label="View mode">

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" role="img" aria-label="ig owl, watching">
+  <title>ig owl, watching</title>
+  <path d="M30 42 Q30 22 60 22 Q90 22 90 42 V86 Q90 104 60 104 Q30 104 30 86 Z" stroke="#14161A" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M35 28 L30 13 L46 23" stroke="#14161A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M85 28 L90 13 L74 23" stroke="#14161A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M56 62 L60 68 L64 62" stroke="#14161A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="47" cy="48" r="11" stroke="#14161A" stroke-width="2.4"/>
+  <circle cx="73" cy="48" r="11" stroke="#14161A" stroke-width="2.4"/>
+  <circle cx="47" cy="48" r="4.5" fill="#E8A317"/>
+  <circle cx="73" cy="48" r="4.5" fill="#E8A317"/>
+</svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" role="img" aria-label="ig owl, flagging">
+  <title>ig owl, flagging</title>
+  <path d="M30 42 Q30 22 60 22 Q90 22 90 42 V86 Q90 104 60 104 Q30 104 30 86 Z" stroke="#14161A" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M35 26 L29 9 L46 22" stroke="#14161A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M85 26 L91 9 L74 22" stroke="#14161A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="47" cy="48" r="13" stroke="#14161A" stroke-width="2.4"/>
+  <circle cx="73" cy="48" r="13" stroke="#14161A" stroke-width="2.4"/>
+  <circle cx="47" cy="48" r="2.6" fill="#E03131"/>
+  <circle cx="73" cy="48" r="2.6" fill="#E03131"/>
+  <path d="M56 64 L60 70 L64 64" stroke="#14161A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M102 40 L102 62" stroke="#E03131" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="102" cy="71" r="2.4" fill="#E03131"/>
+</svg>

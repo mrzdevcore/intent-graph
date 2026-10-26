@@ -3,7 +3,7 @@
 html, body { margin: 0; height: 100%; }
 body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .status { font-weight: 600; }
 .status.block { color: var(--error); } .status.ok { color: var(--added); }
 .modes { display: flex; gap: 4px; }
