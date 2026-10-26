@@ -196,7 +196,10 @@ pub fn merge(base: &Board, ours: &Board, theirs: &Board) -> Merged {
         out
     };
     Merged {
-        board: Board { design: d },
+        board: Board {
+            design: d,
+            screens: ours.screens.clone(),
+        },
         changed: bare(ch),
         removed: bare(removed),
         renamed,

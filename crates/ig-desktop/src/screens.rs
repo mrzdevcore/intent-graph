@@ -1,0 +1,219 @@
+//! Screen and image commands. Like design.json, the app remembers the bytes it last read or
+//! wrote per screen file: a write is refused ("conflict") when the disk moved on, and a watched
+//! change that equals them is the app's own autosave, not news.
+
+use crate::design::{Known, blocking, conflict, root_of};
+use base64::Engine as _;
+use ig_app::screens as app;
+use ig_core::design::{Screen, screen_to_text};
+use ig_core::ports::Files;
+use ig_wire::Wired;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
+use std::path::Path;
+use tauri::{Emitter, Manager};
+
+pub fn list_for(root: &Path, known: &Known, slug: &str) -> Result<Vec<Screen>, String> {
+    let all = app::read_all(Wired::new(root).files(), slug).map_err(|e| e.to_string())?;
+    let mut k = known.0.lock().unwrap();
+    let pre = format!("plans/{slug}/screens/");
+    k.retain(|p, _| !p.starts_with(&pre)); // a screen removed outside is not remembered
+    let mut out = vec![];
+    for (id, (s, bytes)) in all {
+        k.insert(app::screen_path(slug, &id), bytes);
+        out.push(s);
+    }
+    Ok(out)
+}
+
+pub fn write_for(root: &Path, known: &Known, slug: &str, s: &Screen) -> Result<(), String> {
+    let path = app::screen_path(slug, &s.id);
+    // Held across the write: a second autosave must see the first one's bytes.
+    let mut k = known.0.lock().unwrap();
+    let expect = k.get(&path).cloned();
+    let w = Wired::new(root);
+    if !app::write(w.files(), slug, s, expect.as_deref()).map_err(|e| e.to_string())? {
+        return Err(conflict());
+    }
+    k.insert(path, screen_to_text(s).into_bytes());
+    Ok(())
+}
+
+pub fn remove_for(root: &Path, known: &Known, slug: &str, id: &str) -> Result<(), String> {
+    let path = app::screen_path(slug, id);
+    let mut k = known.0.lock().unwrap();
+    let w = Wired::new(root);
+    if w.files().read_bytes(&path) != k.get(&path).cloned() {
+        return Err(conflict());
+    }
+    app::remove(w.files(), slug, id).map_err(|e| e.to_string())?;
+    k.remove(&path);
+    Ok(())
+}
+
+/// Stores a PNG or JPEG sent as base64; the name is the first 12 hex digits of its SHA-256.
+pub fn put_asset_for(root: &Path, slug: &str, data: &str) -> Result<String, String> {
+    let refused = || "Only PNG or JPEG up to 10 MB".to_string();
+    // refuse before decoding what could not fit anyway
+    if data.len() > app::MAX_ASSET / 3 * 4 + 8 {
+        return Err(refused());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|_| refused())?;
+    let hash: String = Sha256::digest(&bytes)
+        .iter()
+        .take(6)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    app::put_asset(Wired::new(root).files(), slug, &bytes, &hash).map_err(|e| e.to_string())
+}
+
+pub fn read_asset_for(root: &Path, slug: &str, name: &str) -> Result<Vec<u8>, String> {
+    app::read_asset(Wired::new(root).files(), slug, name).map_err(|e| e.to_string())
+}
+
+/// Screens that differ from what the app last read or wrote, and the images that appeared.
+pub fn emit_changed(
+    app: &tauri::AppHandle,
+    root: &Path,
+    screens: &BTreeSet<(String, String)>,
+    assets: &BTreeSet<(String, String)>,
+) {
+    let files = Wired::new(root);
+    for (slug, id) in screens {
+        let p = ig_app::screens::screen_path(slug, id);
+        let news =
+            files.files().read_bytes(&p) != app.state::<Known>().0.lock().unwrap().get(&p).cloned();
+        if news {
+            let _ = app.emit(
+                "screen-changed",
+                serde_json::json!({ "slug": slug, "id": id }),
+            );
+        }
+    }
+    for (slug, name) in assets {
+        let _ = app.emit(
+            "asset-changed",
+            serde_json::json!({ "slug": slug, "name": name }),
+        );
+    }
+}
+
+#[tauri::command]
+pub async fn list_screens(
+    app: tauri::AppHandle,
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+) -> Result<Vec<Screen>, String> {
+    let root = root_of(&project)?;
+    blocking(move || list_for(&root, &app.state::<Known>(), &slug)).await
+}
+
+#[tauri::command]
+pub async fn write_screen(
+    app: tauri::AppHandle,
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+    screen: Screen,
+) -> Result<(), String> {
+    let root = root_of(&project)?;
+    blocking(move || write_for(&root, &app.state::<Known>(), &slug, &screen)).await
+}
+
+#[tauri::command]
+pub async fn remove_screen(
+    app: tauri::AppHandle,
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+    id: String,
+) -> Result<(), String> {
+    let root = root_of(&project)?;
+    blocking(move || remove_for(&root, &app.state::<Known>(), &slug, &id)).await
+}
+
+#[tauri::command]
+pub async fn put_asset(
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+    base64: String,
+) -> Result<String, String> {
+    let root = root_of(&project)?;
+    blocking(move || put_asset_for(&root, &slug, &base64)).await
+}
+
+#[tauri::command]
+pub async fn read_asset(
+    project: tauri::State<'_, crate::commands::Project>,
+    slug: String,
+    name: String,
+) -> Result<tauri::ipc::Response, String> {
+    let root = root_of(&project)?;
+    blocking(move || read_asset_for(&root, &slug, &name))
+        .await
+        .map(tauri::ipc::Response::new)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(n: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("ig-desktop-{n}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn screen(id: &str) -> Screen {
+        ig_core::design::parse_screen(&format!(
+            r#"{{"version":1,"id":"{id}","title":"T","x":0,"y":0,"w":9,"h":9}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn screens_conflict_like_designs_and_autosave_is_not_news() {
+        let root = tmp("screens");
+        let k = Known::default();
+        let mut s = screen("home");
+        write_for(&root, &k, "f", &s).unwrap();
+        assert_eq!(list_for(&root, &k, "f").unwrap(), [s.clone()]);
+        s.title = "Mine".into();
+        write_for(&root, &k, "f", &s).unwrap();
+        s.title = "Theirs".into();
+        let p = root.join(app::screen_path("f", "home"));
+        std::fs::write(&p, screen_to_text(&s)).unwrap();
+        assert_eq!(write_for(&root, &k, "f", &s), Err("conflict".into()));
+        assert_eq!(remove_for(&root, &k, "f", "home"), Err("conflict".into()));
+        list_for(&root, &k, "f").unwrap();
+        remove_for(&root, &k, "f", "home").unwrap();
+        assert!(!p.exists());
+        assert!(write_for(&root, &k, "../x", &s).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn assets_are_named_by_hash_and_refused_unless_png_or_jpeg() {
+        let root = tmp("assets");
+        let enc = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+        let png = b"\x89PNG\r\n\x1a\nxyz";
+        let n = put_asset_for(&root, "f", &enc(png)).unwrap();
+        assert_eq!(n.len(), 16);
+        assert!(n.ends_with(".png"));
+        assert_eq!(put_asset_for(&root, "f", &enc(png)).unwrap(), n);
+        assert_eq!(read_asset_for(&root, "f", &n).unwrap(), png);
+        for bad in [
+            enc(b"<svg/>"),
+            "!!not base64".into(),
+            "A".repeat(15 * 1024 * 1024),
+        ] {
+            assert_eq!(
+                put_asset_for(&root, "f", &bad),
+                Err("Only PNG or JPEG up to 10 MB".into())
+            );
+        }
+        assert!(read_asset_for(&root, "f", "../../ig.yaml").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

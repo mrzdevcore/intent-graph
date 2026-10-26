@@ -2,9 +2,16 @@
 
 mod caps;
 mod ops;
+mod screen_ops;
+mod screens;
 
 pub use caps::{MAX_FILE, MAX_ID, MAX_NAME, MAX_TEXT};
 pub use ops::{Board, ElementPatch, Op, Touched, apply};
+pub use screen_ops::PiecePatch;
+pub use screens::{
+    Background, MAX_POINTS, Nav, Piece, PieceKind, Props, Screen, check_refs, is_asset_name,
+    new_piece_id, parse_screen, screen_to_text, validate_screen,
+};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

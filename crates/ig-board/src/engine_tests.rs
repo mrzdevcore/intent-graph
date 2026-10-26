@@ -341,7 +341,13 @@ fn saved_takes_the_written_board_not_a_later_edit() {
 #[test]
 fn smoke_fixture_is_the_canonical_text() {
     let d = ig_design::parse(r#"{"version":1,"title":"Smoke","scope":{"kind":"dir","id":"src"}}"#);
-    let mut e = Engine::new(Context::default(), Board { design: d.unwrap() });
+    let mut e = Engine::new(
+        Context::default(),
+        Board {
+            design: d.unwrap(),
+            screens: Default::default(),
+        },
+    );
     let add = |id: &str, kind, x| Op::Add {
         id: Some(id.into()),
         kind,

@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ViewData } from "../data";
-import type { AgentEvent, Design, Feature, FileEntry, FileText, IgApi, TrustState } from "./index";
+import type { AgentEvent, Design, Feature, FileEntry, FileText, IgApi, Screen, TrustState } from "./index";
 
 /** listen() is async: an unsubscribe that comes before it resolves must still unlisten. */
 function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
@@ -16,6 +16,13 @@ function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
     off?.();
     off = undefined;
   };
+}
+
+/** Chunked: String.fromCharCode(...bytes) overflows the stack on a big image. */
+export function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 /** What must be written before the app goes away (the board's autosave). */
@@ -65,6 +72,15 @@ export function tauri(): IgApi {
       discardUnsaved: (slug) => invoke<void>("discard_unsaved", { slug }),
       planStatus: (slug) => invoke("plan_status", { slug }),
       onChanged: (cb) => subscribe<{ slug: string }>("design-changed", (e) => cb(e.slug)),
+    },
+    screens: {
+      list: (slug) => invoke<Screen[]>("list_screens", { slug }),
+      write: (slug, screen) => invoke<void>("write_screen", { slug, screen }),
+      remove: (slug, id) => invoke<void>("remove_screen", { slug, id }),
+      putAsset: (slug, bytes) => invoke<string>("put_asset", { slug, base64: toBase64(bytes) }),
+      readAsset: async (slug, name) => new Uint8Array(await invoke<ArrayBuffer>("read_asset", { slug, name })),
+      onScreenChanged: (cb) => subscribe<{ slug: string; id: string }>("screen-changed", (e) => cb(e.slug, e.id)),
+      onAssetChanged: (cb) => subscribe<{ slug: string; name: string }>("asset-changed", (e) => cb(e.slug, e.name)),
     },
     agent: {
       start: (feature) => invoke<string>("agent_start", { feature }),

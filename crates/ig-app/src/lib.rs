@@ -14,6 +14,7 @@ pub mod notes;
 pub mod plan;
 pub mod query;
 pub mod review;
+pub mod screens;
 pub mod setup;
 pub mod show;
 pub mod view_data;

@@ -48,7 +48,7 @@ impl HeadCache {
     }
 }
 
-fn conflict() -> String {
+pub(crate) fn conflict() -> String {
     "conflict".into()
 }
 
@@ -225,7 +225,7 @@ pub fn discard_unsaved_for(root: &Path, slug: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-fn root_of(project: &crate::commands::Project) -> Result<PathBuf, String> {
+pub(crate) fn root_of(project: &crate::commands::Project) -> Result<PathBuf, String> {
     let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
     let root = root.ok_or_else(|| "no project open: Project > Open… (⌘O)".to_string())?;
     check_plans(&root)?;
@@ -241,7 +241,7 @@ fn check_plans(root: &Path) -> Result<(), String> {
     }
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(f)

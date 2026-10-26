@@ -329,6 +329,7 @@ fn design_edit_and_engine_share_validation() {
     let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
     let board = ig_core::design::Board {
         design: ig_core::design::parse(DESIGN).unwrap(),
+        screens: Default::default(),
     };
     let parsed: Vec<ig_core::design::Op> = serde_json::from_value(ops).unwrap();
     let want = ig_core::design::apply(&board, &parsed)
@@ -385,4 +386,47 @@ fn a_check_that_fails_after_the_write_is_reported_not_an_error() {
             .unwrap()
             .contains("\"A\"")
     );
+}
+
+#[test]
+fn design_edit_writes_screen_files() {
+    let dir = design_fixture();
+    let ops = json!([
+        {"op": "add_screen", "id": "login", "title": "Login"},
+        {"op": "add_screen", "id": "home", "title": "Home"},
+        {"op": "screen_add", "screen": "login", "kind": "button", "label": "Go", "props": {"text": "Go"}},
+        {"op": "nav", "screen": "login", "from": "btn-go", "to": "home", "label": "ok"},
+        {"op": "bridge", "from": "login/btn-go", "to": "fn-a"}
+    ]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    assert!(r.get("isError").is_none(), "{r}");
+    assert_eq!(
+        r["structuredContent"]["touched"]["screens"],
+        json!(["login", "home"])
+    );
+    let f = |id: &str| {
+        std::fs::read_to_string(dir.join(format!("plans/export/screens/{id}.json"))).unwrap()
+    };
+    let s = ig_core::design::parse_screen(&f("login")).unwrap();
+    assert_eq!(f("login"), ig_core::design::screen_to_text(&s));
+    assert_eq!(s.elements[0].id, "btn-go");
+    // removing a screen deletes its file and the bridge in the same call
+    let ops = json!([{"op": "remove_screen", "id": "login"}]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    assert!(r.get("isError").is_none(), "{r}");
+    assert!(!dir.join("plans/export/screens/login.json").exists());
+    assert!(
+        !String::from_utf8(design_bytes(&dir))
+            .unwrap()
+            .contains("login/btn-go")
+    );
+    // a broken screen file is never overwritten, and blocks only screen ops
+    std::fs::write(dir.join("plans/export/screens/home.json"), "<<<").unwrap();
+    let ops = json!([{"op": "screen_add", "screen": "home", "kind": "text", "label": "x"}]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(f("home"), "<<<");
+    let ops = json!([{"op": "update", "id": "fn-a", "set": {"name": "A"}}]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    assert!(r.get("isError").is_none(), "{r}");
 }
