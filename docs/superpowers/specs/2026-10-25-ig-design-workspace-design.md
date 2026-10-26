@@ -106,6 +106,16 @@ The frontend reaches ig only through a single API client module, so the same scr
   - a TODO list as progress;
   - sessions per feature, resumable and listed.
 - **Context from the canvas:** selecting a box, link, note or screen element can attach it to the next message. The board's **Plan** button sends the design to the chat as `/ig:plan` for that feature (see The board). Notes and design edits reach the agent as app events, so the experimental Claude Code channel isn't needed.
+- **Answers shown in the graph (decided with the user, 2026-10-26).**
+  - **What the user asks:** questions such as "how does X work?" or "how is X connected?". Claude answers on the graph rather than with a drawn diagram.
+  - **How it works:** Claude calls an ig tool with the nodes, the edges and ordered steps. ig checks every id against the graph.
+  - **What the app shows:**
+    - the requested view (focus, architecture or call chain);
+    - the answer highlighted in gold, with the rest dimmed;
+    - numbered steps;
+    - a banner "Shown by Claude: <title>", with Clear and Back.
+  - **The chat:** a "Show in graph" chip re-shows the answer later.
+  - **Where it works:** the app and `ig serve`. A show never changes design files.
 - **Login is owned by the agent, never by ig,** following Anthropic's terms and the way Zed does it:
   - ig never reads, stores or passes on Claude credentials or session tokens;
   - when the adapter reports it isn't authenticated, the chat says so and offers `/login` (handled by the agent: the user picks their Claude subscription or an API key through Anthropic's own flow);
