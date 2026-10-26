@@ -21,16 +21,23 @@ function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
 /** What must be written before the app goes away (the board's autosave). */
 const flushers = new Set<() => Promise<void>>();
 
-/** Quit (Cmd+Q): every flush runs (a failing one doesn't stop the others), then the ack lets the
- *  held exit go on (crates/ig-desktop/src/exit.rs). */
-export async function flushThenAck(fs: Iterable<() => Promise<void>>, ack: () => Promise<unknown>): Promise<void> {
-  await Promise.all([...fs].map((f) => f().catch((e: unknown) => console.error(e))));
+/** Quit (Cmd+Q) or window close: every flush runs (a failing one is logged, the whole is bounded
+ *  by 2 s), then `ack` lets the close or the held exit go on (crates/ig-desktop/src/exit.rs). */
+export async function flushThenAck(fs: Iterable<() => Promise<void>>, ack: () => Promise<unknown>, ms = 2000): Promise<void> {
+  const all = Promise.all([...fs].map((f) => f().catch((e: unknown) => console.error(e))));
+  await Promise.race([all, new Promise((r) => setTimeout(r, ms))]);
   await ack();
 }
 
 export function tauri(): IgApi {
   // always listening: with nothing to flush, the ack comes at once
   subscribe("flush-before-exit", () => void flushThenAck(flushers, () => invoke("exit_flushed")));
+  // one close handler: Tauri closes the window once it returns
+  try {
+    getCurrentWindow().onCloseRequested(() => flushThenAck(flushers, async () => {})).catch((e: unknown) => console.error(e));
+  } catch {
+    // no Tauri window (tests): nothing to hold
+  }
   return {
     viewData: (opts) => invoke<ViewData>("view_data", { plan: opts?.plan, noPlan: !!opts?.noPlan }),
     fileTree: (dir) => invoke<FileEntry[]>("file_tree", { dir }),
@@ -42,16 +49,7 @@ export function tauri(): IgApi {
     // Tauri awaits the handler, then closes the window (core:window:allow-destroy).
     beforeClose: (cb) => {
       flushers.add(cb);
-      let off: (() => void) | undefined;
-      let stopped = false;
-      getCurrentWindow().onCloseRequested(async () => {
-        await cb().catch((e: unknown) => console.error(e));
-      }).then((u) => (stopped ? u() : (off = u)));
-      return () => {
-        flushers.delete(cb);
-        stopped = true;
-        off?.();
-      };
+      return () => void flushers.delete(cb);
     },
     // Only `show` is emitted (crates/ig-desktop/src/main.rs).
     on: (event, cb) => subscribe(event, cb),
@@ -62,6 +60,9 @@ export function tauri(): IgApi {
       write: (slug, design) => invoke<void>("write_design", { slug, design }),
       // Task 3 adds the command.
       check: (slug, design, seq) => invoke("check_design", { slug, design, seq }),
+      keepUnsaved: (slug, text) => invoke<void>("keep_unsaved", { slug, text }),
+      unsaved: (slug) => invoke<{ text: string; at: number } | null>("read_unsaved", { slug }),
+      discardUnsaved: (slug) => invoke<void>("discard_unsaved", { slug }),
       onChanged: (cb) => subscribe<{ slug: string }>("design-changed", (e) => cb(e.slug)),
     },
     agent: {

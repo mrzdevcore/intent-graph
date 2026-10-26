@@ -59,9 +59,12 @@ function fakeApi() {
     read: async () => design({ kind: "dir", id: "." }),
     write: async (_s, d) => void writes.push(d),
     check: () => new Promise(() => {}),
+    keepUnsaved: async () => {},
+    unsaved: async () => null,
+    discardUnsaved: async () => {},
     onChanged: () => () => {},
   };
-  return { api, writes };
+  return { api, writes, setWrite: (f: typeof api.write) => (api.write = f) };
 }
 
 const settle = async () => {
@@ -76,11 +79,11 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function show(f: ReturnType<typeof fakeEngine>, api: DesignApi) {
+function show(f: ReturnType<typeof fakeEngine>, api: DesignApi, beforeClose?: (cb: () => Promise<void>) => () => void) {
   const target = document.createElement("div");
   document.body.append(target);
   const ix = index(fixture as ViewData);
-  mounted = mount(ArchBoard, { target, props: { ix, api, graphScope: ix.root, importer: () => Promise.resolve(f.pkg) } });
+  mounted = mount(ArchBoard, { target, props: { ix, api, graphScope: ix.root, beforeClose, importer: () => Promise.resolve(f.pkg) } });
   return target;
 }
 
@@ -121,4 +124,27 @@ test("closing the view writes the pending edit before the engine is freed", asyn
   await settle();
   expect(a.writes).toEqual([design({ kind: "dir", id: "." })]);
   expect(f.of("free")).toHaveLength(1);
+});
+
+test("a quit right after closing the view waits for the close's write", async () => {
+  const f = fakeEngine();
+  const a = fakeApi();
+  const flushers = new Set<() => Promise<void>>();
+  show(f, a.api, (cb) => (flushers.add(cb), () => void flushers.delete(cb)));
+  await settle();
+  (document.querySelector("button[aria-label=Undo]") as HTMLButtonElement).click();
+  await settle();
+  let release!: () => void;
+  a.setWrite(() => new Promise<void>((r) => (release = r)));
+  unmount(mounted!);
+  mounted = null;
+  // the quit: every registered flush
+  let quit = false;
+  const quitting = Promise.all([...flushers].map((cb) => cb())).then(() => (quit = true));
+  await settle();
+  expect(quit).toBe(false);
+  release();
+  await quitting;
+  expect(quit).toBe(true);
+  expect(flushers.size).toBe(0); // the close's own registration is gone once written
 });

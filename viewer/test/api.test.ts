@@ -166,3 +166,10 @@ test("on quit every flush finishes before the ack, even when one fails", async (
   expect(log).toEqual(["slow", "ack", "ack"]);
   err.mockRestore();
 });
+
+test("a flush that never ends holds the quit only until the bound", async () => {
+  const { flushThenAck } = await import("../src/api/tauri");
+  let acked = false;
+  await flushThenAck([() => new Promise(() => {})], async () => void (acked = true), 20);
+  expect(acked).toBe(true);
+});

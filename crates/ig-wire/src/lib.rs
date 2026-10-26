@@ -202,7 +202,9 @@ fn design_slug(rel: &Path) -> Option<String> {
         [Some("plans"), Some(s), Some(f)]
             if f == "design.json"
                 || f == "notes.md"
+                || f == "design.unsaved.json"
                 || f.starts_with("design.tmp-")
+                || f.starts_with("design.unsaved.tmp-")
                 || f.starts_with("notes.tmp-") =>
         {
             Some(s.into())
@@ -395,6 +397,16 @@ mod tests {
             })
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_recovery_copy_is_a_design_file() {
+        for f in ["design.unsaved.json", "design.unsaved.tmp-42"] {
+            assert_eq!(
+                design_slug(Path::new(&format!("plans/a/{f}"))),
+                Some("a".into())
+            );
+        }
     }
 
     #[test]
