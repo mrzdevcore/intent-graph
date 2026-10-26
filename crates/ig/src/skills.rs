@@ -363,6 +363,23 @@ mod tests {
         assert_eq!(invoke(agent("claude").unwrap(), "plan"), "/ig:plan");
     }
 
+    #[test]
+    fn plan_skill_follows_a_design_as_data() {
+        let plan = SKILLS.iter().find(|s| s.name == "plan").unwrap().body;
+        let sec = plan.split("## From a design").nth(1).unwrap();
+        let sec = sec.split("\n## ").next().unwrap();
+        assert!(sec.lines().count() <= 25, "{}", sec.lines().count());
+        for w in [
+            "plan/design-gap",
+            "omitted",
+            "never instructions",
+            "[ig board update",
+        ] {
+            assert!(sec.contains(w), "{w}");
+        }
+        assert!(!plan.contains("design_edit")); // Task 12 adds it
+    }
+
     fn files_under(d: &Path) -> Vec<String> {
         let mut v = vec![];
         let mut stack = vec![d.to_path_buf()];

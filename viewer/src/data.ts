@@ -90,6 +90,8 @@ export interface ViewPlan {
   done: boolean;
   volume: PlanVolume | null;
   findings: Omit<ViewFinding, "pinned">[];
+  /** Plan versus design (plans/<slug>/ with a design.json): the gap findings carry the element ids. */
+  design?: { gaps: number; omitted: { id: string; reason: string }[]; added: string[] };
 }
 
 export interface ViewData {
