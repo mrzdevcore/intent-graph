@@ -127,20 +127,27 @@ pub async fn trust_inventory(
     .map_err(|e| e.to_string())
 }
 
-/// Trusts the project only if it still hashes to `hash`: the user trusts exactly what they saw.
+/// Trusts the project only if it still hashes to `hash` (the user trusts exactly what they saw)
+/// and a native dialog, which webview script cannot click, is confirmed.
 #[tauri::command]
 pub async fn trust_project(
     app: tauri::AppHandle,
     project: tauri::State<'_, Project>,
     hash: String,
 ) -> Result<(), String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
     let (root, data) = open_root_and_data(&project, &app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let inv = crate::trust::inventory(&root);
-        if inv.hash != hash {
-            return Err("the project's agent files changed: review them again".to_string());
-        }
-        crate::trust::trust(&data, &root, &inv).map_err(|e| e.to_string())
+        crate::trust::trust_if(&data, &root, &hash, |_| {
+            app.dialog()
+                .message(format!(
+                    "Trust {}?\n\nClaude Code will run its hooks, MCP servers and instructions as listed.",
+                    root.display()
+                ))
+                .title("ig")
+                .buttons(MessageDialogButtons::OkCancelCustom("Trust".into(), "Cancel".into()))
+                .blocking_show()
+        })
     })
     .await
     .map_err(|e| e.to_string())?

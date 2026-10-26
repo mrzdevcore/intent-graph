@@ -15,17 +15,19 @@
   <p>Claude Code will run this project's own setup as soon as a session starts.</p>
   {#if state.hooks.length}
     <p>These hooks will run:</p>
-    <ul>{#each state.hooks as h}<li>on {h.event}: <code>{h.command}</code></li>{/each}</ul>
+    <ul>{#each state.hooks as h}<li>{h.when}: <code>{h.command}</code></li>{/each}</ul>
   {/if}
   {#if state.instructions.length}
     <p>It will follow the instructions in: {#each state.instructions as f, i}{i ? ", " : ""}<code>{f}</code>{/each}</p>
   {/if}
   {#if state.mcp.length}
-    <p>These MCP servers may start: {#each state.mcp as m, i}{i ? ", " : ""}<code>{m}</code>{/each}</p>
+    <p>These MCP servers may start:</p>
+    <ul>{#each state.mcp as m}<li><code>{m}</code></li>{/each}</ul>
   {/if}
+  {#each state.notes as n}<p>{n}</p>{/each}
   {#each state.unreadable as f}<p>Could not read <code>{f}</code>.</p>{/each}
   {#if state.ig_plugin}<p>The ig plugin in <code>.claude/skills/ig</code> will be loaded.</p>{/if}
-  {#if !state.hooks.length && !state.instructions.length && !state.mcp.length && !state.ig_plugin}
+  {#if !state.any_files}
     <p>Nothing in the project runs on its own.</p>
   {/if}
   <p>

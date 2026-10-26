@@ -23,10 +23,12 @@ export interface FileText {
 
 /** What a Claude Code session in the project would run, and whether the user trusted exactly that. */
 export interface TrustState {
-  hooks: { event: string; command: string }[];
+  hooks: { event: string; when: string; command: string }[];
   instructions: string[];
   mcp: string[];
   unreadable: string[];
+  notes: string[];
+  any_files: boolean;
   ig_plugin: boolean;
   hash: string;
   trusted: boolean;

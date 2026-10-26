@@ -31,5 +31,6 @@ mod tests {
         assert_eq!(start_session(&base, &data), Err(AgentError::NotTrusted));
         trust::trust(&data, &base, &trust::inventory(&base)).unwrap();
         assert_eq!(start_session(&base, &data), Err(AgentError::NotImplemented));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
