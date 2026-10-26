@@ -36,6 +36,20 @@
         ] as t}<li class="loc">{t}</li>{/each}
       </ul>
     {/if}
+    {#if p.design}
+      {@const d = p.design}
+      {@const gapIds = p.findings.filter((f) => f.ruleId === "plan/design-gap" && f.nodeId).map((f) => f.nodeId!)}
+      {#each [
+        { title: "Not in the plan", n: d.gaps, rows: gapIds.map((id) => ({ id, why: "" })) },
+        { title: "Left out", n: d.omitted.length, rows: d.omitted.map((o) => ({ id: o.id, why: o.reason })) },
+        { title: "Added by the agent", n: d.added.length, rows: d.added.map((id) => ({ id, why: "" })) },
+      ] as l}
+        <h2>{l.title} ({l.n})</h2>
+        {#if l.rows.length}
+          <ul class="design-list">{#each l.rows as r}<li><button class="loc" onclick={() => focus(r.id)}>{r.id}</button>{r.why ? " " + r.why : ""}</li>{/each}</ul>
+        {:else}<p class="loc">None.</p>{/if}
+      {/each}
+    {/if}
     <h2>Plan findings ({p.findings.length})</h2>
     {#if p.findings.length}
       <ul>{#each p.findings as f}{@render findingItem(data, { ...f, pinned: f.nodeId && known[f.nodeId] ? f.nodeId : null }, focus)}{/each}</ul>
