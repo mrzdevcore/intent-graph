@@ -225,6 +225,9 @@ impl Engine {
         let mut o = self.redraw();
         if mods & DOUBLE != 0 {
             o.edit = self.edit(&id);
+            if matches!(t, Target::Link(_)) {
+                return o; // the first click already stepped the kind
+            }
         }
         self.gesture = Gesture::Press {
             at: (x, y),

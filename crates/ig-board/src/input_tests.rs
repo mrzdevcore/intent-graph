@@ -269,3 +269,29 @@ fn wheel_pans_and_ctrl_wheel_zooms() {
     mv(&mut e, -27.0, 0.0);
     assert!(e.camera().x > x);
 }
+
+#[test]
+fn escape_cancels_a_drag_without_a_step() {
+    let mut e = engine();
+    down(&mut e, 20.0, 20.0);
+    mv(&mut e, 60.0, 20.0);
+    key(&mut e, "Escape", 0);
+    let o = up(&mut e, 60.0, 20.0);
+    assert!(!o.changed);
+    assert_eq!(e.board().design.elements[0].x, Some(8));
+    assert!(!e.undo().changed, "no history step");
+}
+
+#[test]
+fn double_click_on_a_link_steps_its_kind_once() {
+    let mut e = engine();
+    click(&mut e, 148.0, 28.0);
+    e.input(Input::Down {
+        x: 148.0,
+        y: 28.0,
+        button: 0,
+        mods: DOUBLE,
+    });
+    up(&mut e, 148.0, 28.0);
+    assert_eq!(links(&e), ["fn-a|imports|fn-b"]);
+}

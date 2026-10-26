@@ -173,15 +173,20 @@ pub(crate) fn build(e: &Engine, view: [f32; 4]) -> Scene {
         }
         _ => {}
     }
-    let right = (e.ctx.boxes.iter().map(|c| c.x + c.w))
-        .chain(els.iter().map(|(_, r)| r[0] + r[2]))
-        .fold(0.0, f32::max);
+    let spans = (e.ctx.boxes.iter().map(|c| (c.x, c.x + c.w)))
+        .chain(els.iter().map(|(_, r)| (r[0], r[0] + r[2])));
+    let (left, right) = spans.fold((f32::MAX, f32::MIN), |(l, r), (a, b)| (l.min(a), r.max(b)));
+    let (left, right) = if left > right {
+        (0.0, 0.0)
+    } else {
+        (left, right)
+    };
     let lanes: Vec<Rect> = e
         .ctx
         .lanes
         .iter()
         .map(|l| Rect {
-            r: [-40.0, l.top, right + 80.0, l.bottom - l.top],
+            r: [left - 40.0, l.top, right - left + 80.0, l.bottom - l.top],
             paint: Paint::Lane,
         })
         .filter(|r| meets(r.r, seen))
@@ -190,7 +195,9 @@ pub(crate) fn build(e: &Engine, view: [f32; 4]) -> Scene {
     s
 }
 
+/// Labels of what the last viewport shows.
 pub(crate) fn labels(e: &Engine) -> Vec<Label> {
+    let seen = e.camera.visible(e.view[2], e.view[3]);
     let title = |id: &str| e.checks.get(id).map(|c| c.1.clone());
     let ctx = e
         .ctx
@@ -213,7 +220,7 @@ pub(crate) fn labels(e: &Engine) -> Vec<Label> {
             title: title(&x.id),
         })
     });
-    ctx.chain(els).collect()
+    ctx.chain(els).filter(|l| meets(l.r, seen)).collect()
 }
 
 pub(crate) fn a11y(e: &Engine) -> Vec<A11yItem> {
