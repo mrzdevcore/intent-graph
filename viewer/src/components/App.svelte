@@ -45,6 +45,7 @@
   import { ancestors, findNode, index, topMember, type Group } from "../model/graph";
   import { beforeAfter, nodeNamed } from "../model/code";
   import Chat from "./chat/Chat.svelte";
+  import { nodeMatcher } from "../model/markdown";
   import CodeView from "./CodeView.svelte";
   import Files from "./Files.svelte";
   import Graph from "./Graph.svelte";
@@ -351,6 +352,7 @@
 
   /** The chat (desktop app only), docked on the right; "Chat" in the header hides it. */
   let chatOpen = $state(true);
+  const nodeMatch = $derived(nodeMatcher(Object.values(ix.byId), D.root));
   const chatApi = untrack(() => (api.agent && api.trustInventory && api.trustProject ? api : null));
 
   /** What "Attach selection" and "Plan this" take: the selected node, else the file in the code view. */
@@ -432,7 +434,8 @@
     <div id="chat" hidden={!chatOpen}>
       <Chat agent={chatApi.agent!} trustInventory={chatApi.trustInventory!} trustProject={chatApi.trustProject!}
         openUrl={chatApi.openUrl ? (u) => chatApi.openUrl!(u).catch((e: unknown) => (hint = msg(e))) : undefined}
-        root={D.root} {selection} onopendiff={(path, before, after) => (code = { path, merge: { before, after } })} />
+        root={D.root} {selection} onopendiff={(path, before, after) => (code = { path, merge: { before, after } })}
+        match={nodeMatch} onnode={focusOn} />
     </div>
   {/if}
 </main>
