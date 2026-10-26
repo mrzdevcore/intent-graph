@@ -192,3 +192,21 @@ export function palette(el: Element): Record<string, [number, number, number, nu
   const css = getComputedStyle(el);
   return Object.fromEntries(Object.entries(TOKENS).map(([k, [v, a]]) => [k, rgba(css.getPropertyValue(v), a)]));
 }
+
+/** Fits once the size has really changed after `want()`: a CSS move (the link dock) resizes the
+ *  canvas a frame or more later, and a fit before that uses the old size. */
+export function refitter() {
+  let pending = false;
+  let last = "";
+  return {
+    want: () => void (pending = true),
+    /** The current size; true when the wanted fit is due now. */
+    sized(w: number, h: number): boolean {
+      const k = w + "x" + h, changed = k !== last;
+      last = k;
+      if (!pending || !changed) return false;
+      pending = false;
+      return true;
+    },
+  };
+}

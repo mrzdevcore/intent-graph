@@ -133,7 +133,8 @@ fn open(app: &AppHandle, root: &Path) {
         let _ = w.set_title(&format!("ig — {name}"));
         // A fresh page for the new project (and one that failed for want of a project). Dev hook
         // for screenshots without input: IG_DESIGN=<slug> opens the Design view on that feature,
-        // IG_THEME=light|dark fixes the theme, IG_SURFACE=screens shows its screens.
+        // IG_THEME=light|dark fixes the theme, IG_SURFACE=screens shows its screens, IG_LINK=1
+        // opens link mode on the first linked (else first) piece.
         match dev_url(&w) {
             Some(u) => {
                 let _ = w.navigate(u);
@@ -155,6 +156,7 @@ fn dev_url(w: &tauri::WebviewWindow) -> Option<tauri::Url> {
         ("design", var("IG_DESIGN")),
         ("theme", var("IG_THEME")),
         ("surface", var("IG_SURFACE")),
+        ("link", var("IG_LINK")),
     ]
     .into_iter()
     .filter_map(|(k, v)| v.map(|v| format!("{k}={v}")))

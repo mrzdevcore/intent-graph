@@ -22,7 +22,7 @@
   import { Outbox, applyPrompt, planPrompt } from "./outbox";
   import { applyState, noteChips, openNotes, readiness } from "./ready";
 
-  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer, chat = null, screensApi = null, initialSurface = null, openCode }: {
+  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer, chat = null, screensApi = null, initialSurface = null, openCode, initialLink = false }: {
     ix: Index;
     /** Opens a file in the Code view (the bridge's call chain). */
     openCode?: (file: string, line: number) => void;
@@ -43,6 +43,8 @@
     screensApi?: ScreensApi | null;
     /** The surface to show first (the IG_SURFACE dev hook). */
     initialSurface?: string | null;
+    /** Link mode open on the first piece (the IG_LINK dev hook). */
+    initialLink?: boolean;
   } = $props();
 
   const scopeKey = (s: DesignScope) => JSON.stringify(s);
@@ -494,7 +496,8 @@
   </div>
 
   <ScreensBoard bind:this={screens} active={surface === "screens"} {slug} {store} api={screensApi} engine={() => engine} {act} {tool} {selection} {version}
-    onpick={pickTool} {ix} context={contextJson} {hover} {openCode} canvas={() => canvasEl} ondock={(d) => (docked = d)} />
+    onpick={pickTool} {ix} context={contextJson} {hover} {openCode} canvas={() => canvasEl} ondock={(d) => (docked = d)}
+    {initialLink} />
   {#if surface === "architecture"}<Inspector {ix} {doc} {selection} {boxes} {reasons} {ops} cmd={CMD} />{/if}
 
   <div class="foot">

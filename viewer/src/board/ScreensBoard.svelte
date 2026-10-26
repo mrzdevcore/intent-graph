@@ -13,7 +13,7 @@
   import LinkDock from "./LinkDock.svelte";
   import type { BoardStore } from "./store";
 
-  let { active, slug, store, api, engine, act, tool, selection, version, onpick, ix, context, hover = null, openCode, canvas, ondock }: {
+  let { active, slug, store, api, engine, act, tool, selection, version, onpick, ix, context, hover = null, openCode, canvas, ondock, initialLink = false }: {
     /** The screens surface is the one shown. */
     active: boolean;
     slug: string | null;
@@ -36,6 +36,8 @@
     /** The canvas cell (link mode docks over its right half). */
     canvas: () => HTMLElement | undefined;
     ondock: (docked: boolean) => void;
+    /** Link mode open on the first piece (dev hook). */
+    initialLink?: boolean;
   } = $props();
 
   const TOOLS: [Tool, string, string, string][] = [
@@ -175,7 +177,7 @@
   onchange={(e) => { const f = e.currentTarget.files?.[0]; if (f) void take(f); e.currentTarget.value = ""; }}>
 
 {#if active}
-  <LinkDock bind:this={dock} {ix} {context} {version} {engine} {screens} selected={piece ? sel : null} {hover} {ops} {openCode} {canvas} {ondock} />
+  <LinkDock bind:this={dock} {ix} {context} {version} {engine} {screens} selected={piece ? sel : null} {hover} {ops} {openCode} {canvas} {ondock} {initialLink} />
   <div class="rail" role="toolbar" aria-label="Screen tools" aria-orientation="vertical">
     {#each TOOLS as [t, key, name, icon] (t)}
       <button class="icon" title="{name} ({key})" aria-label="{name} ({key})" aria-pressed={tool === t || (t === "pieces" && palette) ? "true" : "false"}
