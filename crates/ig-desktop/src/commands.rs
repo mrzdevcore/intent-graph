@@ -90,6 +90,62 @@ pub async fn read_file(
         .map_err(|e| e.to_string())?
 }
 
+/// What a session in the open project would run, and whether the user already trusted exactly that.
+#[derive(serde::Serialize)]
+pub struct TrustState {
+    #[serde(flatten)]
+    inv: crate::trust::Inventory,
+    trusted: bool,
+}
+
+fn open_root_and_data(
+    project: &Project,
+    app: &tauri::AppHandle,
+) -> Result<(PathBuf, PathBuf), String> {
+    use tauri::Manager;
+    let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
+    let Some(root) = root else {
+        return Err("no project open: Project > Open… (⌘O)".into());
+    };
+    Ok((root, app.path().app_data_dir().map_err(|e| e.to_string())?))
+}
+
+#[tauri::command]
+pub async fn trust_inventory(
+    app: tauri::AppHandle,
+    project: tauri::State<'_, Project>,
+) -> Result<TrustState, String> {
+    let (root, data) = open_root_and_data(&project, &app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let inv = crate::trust::inventory(&root);
+        TrustState {
+            trusted: crate::trust::is_trusted(&data, &root, &inv),
+            inv,
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Trusts the project only if it still hashes to `hash`: the user trusts exactly what they saw.
+#[tauri::command]
+pub async fn trust_project(
+    app: tauri::AppHandle,
+    project: tauri::State<'_, Project>,
+    hash: String,
+) -> Result<(), String> {
+    let (root, data) = open_root_and_data(&project, &app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let inv = crate::trust::inventory(&root);
+        if inv.hash != hash {
+            return Err("the project's agent files changed: review them again".to_string());
+        }
+        crate::trust::trust(&data, &root, &inv).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 const RECENT_MAX: usize = 10;
 
 /// The recent projects, newest first, from `file` (a JSON list of paths); ones that are gone or

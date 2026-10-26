@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "The viewer: read the graph and follow rebuilds. Nothing else.",
   "windows": ["main"],
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-view-data", "allow-file-tree", "allow-read-file"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-view-data", "allow-file-tree", "allow-read-file", "allow-trust-inventory", "allow-trust-project"]
 }

@@ -1,9 +1,11 @@
 //! The ig desktop app: the viewer in a window, for a project opened from the Project menu (a
 //! native folder picker or a recent project), rebuilt live as its files change.
 
+mod agent;
 mod commands;
 mod file_tree;
 mod read_file;
+mod trust;
 
 use commands::Project;
 use std::path::{Path, PathBuf};
@@ -110,7 +112,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::view_data,
             commands::file_tree,
-            commands::read_file
+            commands::read_file,
+            commands::trust_inventory,
+            commands::trust_project
         ])
         .menu(|app| {
             let recent = recent_file(app).map(|f| commands::recent(&f));
