@@ -8,6 +8,7 @@ mod file_tree;
 mod permissions;
 mod read_file;
 mod session;
+mod shell_path;
 mod trust;
 
 use commands::Project;
@@ -118,7 +119,7 @@ fn stop_agent(app: &AppHandle) {
 }
 
 fn main() {
-    agent::login_path();
+    shell_path::login_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Project::default())

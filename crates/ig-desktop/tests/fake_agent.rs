@@ -5,7 +5,8 @@
 //! `crash` (exits mid-turn), `auth` (not logged in), `meta` (echoes session/new's `_meta`),
 //! `ask` (an `AskUserQuestion` form, the answer echoed), `tour` (commands, title, usage, text, a
 //! permission and a question: what the chat's recorded fixture comes from).
-//! `--serve <file>` also appends what happened to `<file>`: `spawn`, then `answer <optionId>`s.
+//! `--serve <file>` also appends what happened to `<file>`: `spawn`, `ig <path>` (the `ig` on
+//! PATH), then `answer <optionId>`s.
 
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
@@ -210,6 +211,14 @@ fn main() {
         return;
     }
     record("spawn");
+    // The `ig` this agent's tools would run: the first on PATH.
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if let Some(ig) = std::env::split_paths(&path)
+        .map(|d| d.join("ig"))
+        .find(|f| f.is_file())
+    {
+        record(&format!("ig {}", ig.display()));
+    }
     let mut a = Agent {
         lines: std::io::stdin().lock().lines(),
         next_id: 0,
