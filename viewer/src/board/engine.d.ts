@@ -25,6 +25,8 @@ export interface EngineOut {
   placed: { id: string; layer: string | null } | null;
   cursor: string;
   error: string | null;
+  /** What an outside change brought in or took out (element ids, link keys, …). */
+  touched?: string[];
 }
 
 export interface Camera { x: number; y: number; zoom: number }
@@ -54,6 +56,8 @@ export interface BoardEngine {
   dismiss(id: string | null): void;
   highlighted(): string[];
   select(ids: string[]): void;
+  /** Takes back agent turn `turn` as one user step; later edits stay. */
+  revert(turn: string): EngineOut;
   undo(): EngineOut;
   redo(): EngineOut;
   /** The canonical design.json text (`ig_design::to_text`). */

@@ -82,5 +82,13 @@ test.skipIf(!built)("the board over a real context: place in a row, file propose
   expect(e.board()).toBe(before);
   expect(e.undo().changed).toBe(true);
   expect(JSON.parse(e.board()).links).toEqual([]);
+  // Claude's turn comes in from the file: highlighted, touched, and reverted in one step
+  const disk = JSON.parse(e.board());
+  disk.elements.push({ id: "fn-audit", kind: "function", name: "audit", layer: lane.name });
+  const a = e.external(JSON.stringify(disk), "turn-1");
+  expect(a.touched).toEqual(["fn-audit"]);
+  expect(e.highlighted()).toEqual(["fn-audit"]);
+  expect(e.revert("turn-1").changed).toBe(true);
+  expect(JSON.parse(e.board()).elements.map((x: { id: string }) => x.id)).not.toContain("fn-audit");
   e.free();
 });

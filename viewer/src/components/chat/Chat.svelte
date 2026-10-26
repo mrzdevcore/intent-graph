@@ -4,7 +4,7 @@
      session.svelte.ts. -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import { groupTools } from "../../model/chat";
+  import { editCounts, groupTools } from "../../model/chat";
   import { contextBlock } from "../../board/ready";
   import Trust from "../Trust.svelte";
   import AgentControls from "./AgentControls.svelte";
@@ -136,7 +136,18 @@
         <PermissionCard toolCall={item.toolCall} options={item.options} answered={item.answered} onanswer={(o) => c.answer(item.requestId, o)} />
       {:else if item.kind === "question"}
         <QuestionCard message={item.message} questions={item.questions} answered={item.answered} onreply={(v, sum) => c.reply(item.requestId, v, sum)} />
-      {:else}
+      {:else if item.kind === "board-edit"}
+        {@const here = c.board?.feature === item.feature}
+        <div class="card board-edit">
+          <span>Edited the board · {editCounts(item, true)}</span>
+          <div class="row">
+            <button disabled={!here} title={here ? "Select and zoom to them" : `Open ${item.feature}'s board to show them`}
+              onclick={() => c.board?.show(item.ids)}>Show</button>
+            <button disabled={!here || item.undone} title="Undo Claude's edit, keeping your later ones"
+              onclick={() => c.board?.undo(item.step)}>{item.undone ? "Undone" : "Undo"}</button>
+          </div>
+        </div>
+      {:else if item.kind === "error"}
         <div class="msg error" role="alert">{item.text}</div>
       {/if}
     {/each}

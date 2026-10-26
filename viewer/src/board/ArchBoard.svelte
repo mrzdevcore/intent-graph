@@ -107,8 +107,8 @@
     ops: (o, s) => board?.run((e) => e.ops(o, s)) ?? NOOP,
     external: (d, t) => {
       const o = board?.run((e) => e.external(d, t)) ?? NOOP;
-      // Claude's own edit (or one from outside) with nothing queued: not news for Claude
-      if (o.changed && outbox && !outbox.pending) rebase();
+      // an outside edit with nothing queued: not news for Claude (its own edits: agentMerged)
+      if (!t && o.changed && outbox && !outbox.pending) rebase();
       return o;
     },
     setCheck: (t) => void board?.run((e) => e.setCheck(t)),
@@ -137,6 +137,9 @@
         readDoc();
         version++;
       },
+      turns: () => chat?.turns.filter((t) => t.feature === next) ?? [],
+      agentMerged: (d) => engine && outbox?.agent(d, engine.board()),
+      edited: (e) => chat?.dispatch({ type: "BoardEdit", feature: next, ...e }),
     });
     store = s;
     // the context follows the file's scope, which is only known once it is read
@@ -220,6 +223,24 @@
   function rebase() {
     if (engine && outbox) outbox.baseline(engine.board());
   }
+
+  // the chat's "Edited the board" cards: Show selects and fits, Undo reverts Claude's turn
+  $effect(() => {
+    const c = chat, f = slug;
+    if (!c || !f) return;
+    c.board = {
+      feature: f,
+      show: (ids) => (board?.run((e) => e.select(ids)), board?.key("2", 1)),
+      undo: (step) => {
+        const o = board?.run((e) => e.revert(step));
+        if (!o) return;
+        store?.onOut(o);
+        if (o.changed) queue();
+        c.dispatch({ type: "BoardUndone", step });
+      },
+    };
+    return () => c.board?.feature === f && (c.board = null);
+  });
 
   /** "open <feature>'s session to send". */
   function openSession() {

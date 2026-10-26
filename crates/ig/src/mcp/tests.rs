@@ -24,7 +24,7 @@ fn protocol_basics() {
     ] {
         assert!(names.contains(&t), "{t} missing");
     }
-    assert_eq!(names.len(), 10);
+    assert_eq!(names.len(), 11);
     let r = handle(
         root,
         &json!({"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}}),
@@ -250,4 +250,89 @@ fn unknown_id_is_a_tool_error_and_writes_nothing() {
         "{text}"
     );
     assert!(!dir.join(ig_app::show::SHOW).exists());
+}
+
+const DESIGN: &str = r#"{"version":1,"title":"Export","scope":{"kind":"dir","id":"."},"elements":[{"id":"fn-a","kind":"function","name":"a","file":"packages/core/src/a.ts"}]}"#;
+
+fn design_fixture() -> std::path::PathBuf {
+    let dir = crate::tests::git_fixture("monorepo");
+    std::fs::create_dir_all(dir.join("plans/export")).unwrap();
+    std::fs::write(dir.join("plans/export/design.json"), DESIGN).unwrap();
+    dir
+}
+
+fn design_bytes(dir: &Path) -> Vec<u8> {
+    std::fs::read(dir.join("plans/export/design.json")).unwrap()
+}
+
+#[test]
+fn design_edit_writes_canonically_and_reports_touched_and_ok() {
+    let dir = design_fixture();
+    let ops = json!([
+        {"op": "add", "id": "fn-b", "kind": "function", "name": "b", "file": "packages/core/src/b.ts"},
+        {"op": "link", "from": "fn-a", "to": "fn-b", "kind": "calls"}
+    ]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    assert!(r.get("isError").is_none(), "{r}");
+    let text = String::from_utf8(design_bytes(&dir)).unwrap();
+    let d = ig_core::design::parse(&text).unwrap();
+    assert_eq!(text, ig_core::design::to_text(&d));
+    assert_eq!(d.elements.len(), 2);
+    let s = &r["structuredContent"];
+    assert_eq!(s["touched"]["elements"], json!(["fn-b"]));
+    assert_eq!(s["touched"]["links"], json!(["fn-a|calls|fn-b"]));
+    assert_eq!(s["check"]["ok"], true, "{s}");
+    let t = r["content"][0]["text"].as_str().unwrap();
+    assert!(t.contains("fn-b") && t.contains("check: ok"), "{t}");
+}
+
+#[test]
+fn design_edit_refuses_bad_slug() {
+    let dir = design_fixture();
+    for slug in ["../export", "Export", ""] {
+        let r = call_tool(&dir, "design_edit", json!({"slug": slug, "ops": []}));
+        assert_eq!(r["isError"], true, "{slug}");
+        assert!(
+            r["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("bad feature name")
+        );
+    }
+    assert_eq!(design_bytes(&dir), DESIGN.as_bytes());
+}
+
+#[test]
+fn invalid_ops_leave_the_bytes_unchanged() {
+    let dir = design_fixture();
+    // the first op is fine, the second is not: all or nothing
+    let ops = json!([
+        {"op": "update", "id": "fn-a", "set": {"name": "A"}},
+        {"op": "move", "id": "fn-zzz", "x": 1, "y": 2}
+    ]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(design_bytes(&dir), DESIGN.as_bytes());
+    let r = call_tool(
+        &dir,
+        "design_edit",
+        json!({"slug": "export", "ops": [{"op": "nope"}]}),
+    );
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(design_bytes(&dir), DESIGN.as_bytes());
+}
+
+#[test]
+fn design_edit_and_engine_share_validation() {
+    let dir = design_fixture();
+    let ops = json!([{"op": "link", "from": "fn-a", "to": "fn-nope", "kind": "calls"}]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    let board = ig_core::design::Board {
+        design: ig_core::design::parse(DESIGN).unwrap(),
+    };
+    let parsed: Vec<ig_core::design::Op> = serde_json::from_value(ops).unwrap();
+    let want = ig_core::design::apply(&board, &parsed)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(r["content"][0]["text"], format!("ig: {want}"));
 }

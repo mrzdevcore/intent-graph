@@ -309,3 +309,20 @@ fn double_click_on_a_link_steps_its_kind_once() {
     up(&mut e, 148.0, 28.0);
     assert_eq!(links(&e), ["fn-a|imports|fn-b"]);
 }
+
+#[test]
+fn shift_esc_dismisses_every_highlight_and_shift_2_fits_the_selection() {
+    let mut e = engine();
+    let mut disk = e.board().clone();
+    disk.design.elements[1].name = "B".into();
+    disk.design.elements[0].name = "A".into();
+    e.external(disk, Some("t1"));
+    assert_eq!(e.highlighted().len(), 2);
+    key(&mut e, "Escape", SHIFT);
+    assert!(e.highlighted().is_empty());
+    e.select(vec!["fn-b".into()]);
+    key(&mut e, "@", SHIFT);
+    // fn-b (208, 8, 80, 40) is centred at full zoom
+    assert_eq!(e.camera().zoom, 1.0);
+    assert_eq!(e.camera().x, 248.0 - e.view[2] / 2.0);
+}

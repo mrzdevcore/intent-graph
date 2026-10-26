@@ -29,6 +29,8 @@ pub struct Out {
     pub placed: Option<(String, Option<String>)>,
     pub cursor: &'static str,
     pub error: Option<String>,
+    /// What an outside change brought in or took out: element ids, link keys, mark nodes, bridge keys.
+    pub touched: Vec<String>,
 }
 
 pub struct Engine {
@@ -137,6 +139,7 @@ impl Engine {
             placed: None,
             cursor: self.cursor(),
             error: None,
+            touched: vec![],
         }
     }
 
@@ -208,16 +211,53 @@ impl Engine {
     }
 
     /// The file changed on disk: merged into ours (the user wins) as an agent or external step.
+    /// A drag in flight goes on and wins: its elements keep the position it started from.
     pub fn external(&mut self, disk: Board, turn: Option<&str>) -> Out {
-        self.gesture = Gesture::Idle; // a drag in flight would commit a stale offset
-        let m = merge(&self.base, self.board(), &disk);
+        let mut m = merge(&self.base, self.board(), &disk);
         self.base = disk;
+        match &self.gesture {
+            Gesture::Drag { ids, .. } => {
+                for e in m
+                    .board
+                    .design
+                    .elements
+                    .iter_mut()
+                    .filter(|e| ids.contains(&e.id))
+                {
+                    if let Some(o) = self.board().design.elements.iter().find(|o| o.id == e.id) {
+                        (e.x, e.y) = (o.x, o.y);
+                    }
+                }
+            }
+            _ => self.gesture = Gesture::Idle,
+        }
         if &m.board == self.board() {
             return self.out();
         }
+        let touched = [m.changed.clone(), m.removed].concat();
         self.highlight(m.changed);
         let step = turn.map_or(Step::External, |t| Step::Agent(t.into()));
-        self.commit(m.board, step)
+        let mut o = self.commit(m.board, step);
+        o.touched = touched;
+        o
+    }
+
+    /// Takes back agent turn `turn` (its steps still in the history, not undone) as one user
+    /// step: each step's change is merged out of the board, so later edits stay.
+    pub fn revert(&mut self, turn: &str) -> Out {
+        self.gesture = Gesture::Idle;
+        let mut next = self.board().clone();
+        let mut keys = vec![];
+        for (before, after) in self.history.turn_steps(turn).into_iter().rev() {
+            keys.extend(Self::step_keys(&before, &after));
+            next = merge(&after, &next, &before).board;
+        }
+        self.highlights.retain(|h| !keys.contains(h));
+        self.drawn = None;
+        if &next == self.board() {
+            return self.out();
+        }
+        self.commit(next, Step::User)
     }
 
     pub fn set_check(&mut self, targets: Vec<(String, Severity, String)>) {

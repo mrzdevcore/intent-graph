@@ -63,8 +63,9 @@ When `plans/<slug>/design.json` exists, the plan follows the design. Write `plan
    bridge as `plan/design-gap` (the design id is on the finding). Fill in what the design leaves
    open, ask in the chat about anything ambiguous, and re-run until `ok` is true. A
    `plan/design-unreadable` warning means the design was not checked: tell the user.
-5. **Changing the design.** Never write the design files yourself: they belong to the user.
-   Propose the change in the chat in one line (what and why).
+5. **Changing the design.** Only through the `design_edit` tool (`{slug, ops}`, id-based ops,
+   all or nothing), never by writing the files: they belong to the user, who sees your change
+   highlighted and can undo it. Say in one line what you changed and why.
 6. **App messages.** A message starting `[ig board update` lists the user's board changes. Take
    them into the discussion, or into `plan.md` once it exists.
 

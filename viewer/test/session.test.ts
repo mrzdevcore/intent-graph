@@ -151,3 +151,12 @@ test("opening the board loads the feature's session when the chat has nothing go
   await c.adopt("g"); // a conversation is going: left alone
   expect(f.calls.length).toBe(2);
 });
+
+test("each turn is recorded with its feature, start and end (the board's agent steps)", async () => {
+  const f = fake({ trusted: true });
+  const c = new ChatSession(f.agent, f.inv, f.trust);
+  await c.ask("export", "hi");
+  await tick();
+  await c.send("again");
+  expect(c.turns.map((t) => [t.id, t.feature, t.end !== null])).toEqual([["turn-1", "export", true], ["turn-2", "export", true]]);
+});

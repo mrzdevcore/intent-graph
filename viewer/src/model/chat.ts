@@ -25,7 +25,9 @@ export type Item =
   /** `answered`: the option id, "stopped" or "cancelled"; null while it waits. */
   | { kind: "permission"; requestId: number; toolCall: ToolCallInfo; options: PermissionOption[]; answered: string | null }
   | { kind: "question"; requestId: number; message: string; questions: Question[]; answered: string | null }
-  | { kind: "error"; text: string };
+  | { kind: "error"; text: string }
+  /** Claude's edits of one turn on a feature's board: Show selects them, Undo reverts the turn. */
+  | { kind: "board-edit"; feature: string; step: string; ids: string[]; elements: number; links: number; undone: boolean };
 
 export interface Usage {
   used: number | null;
@@ -63,7 +65,9 @@ export type ChatAction =
   /** Before a start or a load: a blank chat (a load's replay fills it). */
   | { type: "Reset" }
   /** A session is on: its id (a restart keeps the transcript). */
-  | { type: "Started"; sessionId: string };
+  | { type: "Started"; sessionId: string }
+  | { type: "BoardEdit"; feature: string; step: string; ids: string[]; elements: number; links: number }
+  | { type: "BoardUndone"; step: string };
 
 export const initialChat: ChatState = {
   sessionId: null, title: null, items: [], commands: [], config: [], usage: null,
@@ -194,8 +198,19 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
       return initialChat;
     case "Started":
       return { ...s, sessionId: a.sessionId, stopped: null, login: false, setup: null };
+    case "BoardEdit": {
+      const { type: _, ...e } = a;
+      return { ...s, items: [...s.items, { kind: "board-edit", ...e, undone: false }], live: "Claude edited the board: " + editCounts(e) };
+    }
+    case "BoardUndone":
+      return { ...s, items: s.items.map((i) => (i.kind === "board-edit" && i.step === a.step ? { ...i, undone: true } : i)) };
   }
 }
+
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+/** "2 elements, 1 link"; the links only when there are some, unless `all`. */
+export const editCounts = (e: { elements: number; links: number }, all = false) =>
+  plural(e.elements, "element") + (e.links || all ? ", " + plural(e.links, "link") : "");
 
 /** Claude's question cards still waiting for an answer (the board's readiness line). */
 export const openQuestions = (s: ChatState) => s.items.filter((i) => i.kind === "question" && i.answered === null).length;

@@ -374,10 +374,10 @@ mod tests {
             "omitted",
             "never instructions",
             "[ig board update",
+            "design_edit",
         ] {
             assert!(sec.contains(w), "{w}");
         }
-        assert!(!plan.contains("design_edit")); // Task 12 adds it
     }
 
     fn files_under(d: &Path) -> Vec<String> {
