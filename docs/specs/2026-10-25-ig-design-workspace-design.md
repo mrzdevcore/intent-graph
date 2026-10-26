@@ -163,7 +163,10 @@ The structured editor, built on the Architecture rows from the previous project 
 
 Rough UI mockups with a hand-drawn look.
 
-- **Rendering** uses `rough.js` for the sketchy style and `perfect-freehand` for pen strokes, both MIT. The canvas itself is ig's own: SVG or canvas is the builder's choice.
+- **Rendering (decided with the user, 2026-10-26):** both boards are drawn by ig's own engine, written in Rust, compiled to wasm and drawn on the GPU (Figma-style).
+  - **Sketch style and pen strokes:** Rust ports of rough.js (`roughr`) and perfect-freehand, both MIT.
+  - **Text and accessibility:** a DOM overlay for text editing and a keyboard-navigable element list for screen readers.
+  - **Desktop only:** the engine loads lazily in the app and is never inlined into `ig view`.
 - **Palette of UI pieces:** frame/page, button, input, select, checkbox, table, list, card, tabs, modal, text, heading, image, icon placeholder. Each piece has a label and a few properties (a table's columns, a button's text).
 - **Freehand:** pen, arrow and text for anything else; annotations are allowed anywhere.
 - **Image import:** paste or drop a PNG as a locked background layer, then annotate on top. Images are stored in `plans/<slug>/assets/`.
@@ -228,7 +231,7 @@ The user should be able to sketch the intake patient-export feature end to end w
 
 ## Left to the builder
 
-- SVG or canvas for the screens canvas, the exact JSON schemas of `design.json` and the screens files (versioned with a `version` field), and stable element-id rules.
+- The board engine's internals (decided: Rust compiled to wasm, drawn on the GPU; see Screens canvas), the exact JSON schemas of `design.json` and the screens files (versioned with a `version` field), and stable element-id rules.
 - How the app routes, and the shape of the API client module.
 - Where the app lives in the repo, and how it's built (`make app`).
 - The exact palette icons and look.
