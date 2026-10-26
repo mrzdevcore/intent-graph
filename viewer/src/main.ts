@@ -8,4 +8,8 @@ import { pickApi } from "./api";
 import App from "./components/App.svelte";
 
 const api = pickApi();
-api.viewData().then((data) => mount(App, { target: document.getElementById("app")!, props: { data, api } }));
+const target = document.getElementById("app")!;
+api.viewData().then(
+  (data) => mount(App, { target, props: { data, api } }),
+  (e) => (target.textContent = "ig: could not load the data: " + String(e?.message ?? e)),
+);

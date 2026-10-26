@@ -73,16 +73,21 @@
     journey = null;
     uiOnly = false;
     lastMode = null;
+    menu = null;
     draw();
     side = { kind: "overview" };
+    refreshNotes();
   }
+
+  /** Tauri's invoke rejects with a plain string. */
+  const msg = (e: unknown) => String((e as Error)?.message ?? e);
 
   onMount(() => {
     reset();
-    refreshNotes();
   });
 
   // A swapped `data` starts over (the first run is onMount's).
+  let seq = 0;
   let seen = untrack(() => data);
   $effect(() => {
     if (data === seen) return;
@@ -93,7 +98,10 @@
   // The host's events; the cleanup closes its stream.
   $effect(() => {
     const offs = [
-      api.onRebuild(() => api.viewData().then((d) => (data = d), (e: Error) => (hint = e.message))),
+      api.onRebuild(() => {
+        const mine = ++seq; // a slow older response must not overwrite a newer one
+        api.viewData().then((d) => mine === seq && (data = d), (e: unknown) => (hint = msg(e)));
+      }),
       api.on?.("note", () => refreshNotes()),
       api.on?.("focus", (ids) => focusAll(ids as string[])),
     ];
@@ -104,7 +112,7 @@
     api.notes?.notes().then((ns) => {
       notes = ns;
       graph.decorate(pins(ns), ghosts(ns));
-    }, (e: Error) => (hint = e.message));
+    }, (e: unknown) => (hint = msg(e)));
   }
 
   /** From `ig_focus`: Focus mode on these nodes. */
@@ -124,7 +132,7 @@
     api.notes?.add(n).then(() => {
       hint = "Note added; the agent will pick it up.";
       refreshNotes();
-    }, (e: Error) => (hint = e.message));
+    }, (e: unknown) => (hint = msg(e)));
   }
 
   function onContext(d: { id: string; edge: boolean; source: string; target: string; x: number; y: number }) {

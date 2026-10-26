@@ -51,7 +51,7 @@ test("pickApi: tauri when __TAURI_INTERNALS__ exists, else http", async () => {
   vi.resetModules();
   const t = (await import("../src/api")).pickApi();
   expect(await t.viewData({ plan: "p.md" })).toEqual(SAMPLE);
-  expect(invoke).toHaveBeenCalledWith("view_data", { plan: "p.md", noPlan: undefined });
+  expect(invoke).toHaveBeenCalledWith("view_data", { plan: "p.md", noPlan: false });
 });
 
 test("http: a failed /api/view throws; onRebuild shares one EventSource and closes it", async () => {
@@ -90,7 +90,7 @@ test("tauri: viewData invokes view_data; onRebuild listens to rebuild and unlist
   const { tauri } = await import("../src/api/tauri");
   const api = tauri();
   expect(await api.viewData()).toEqual(SAMPLE);
-  expect(invoke).toHaveBeenCalledWith("view_data", { plan: undefined, noPlan: undefined });
+  expect(invoke).toHaveBeenCalledWith("view_data", { plan: undefined, noPlan: false });
   const cb = vi.fn();
   const off = api.onRebuild(cb);
   await vi.waitFor(() => expect(listen).toHaveBeenCalledWith("rebuild", expect.any(Function)));
