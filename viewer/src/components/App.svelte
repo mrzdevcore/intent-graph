@@ -36,6 +36,7 @@
   import { onMount, untrack } from "svelte";
   import type { NoteInput, Note, ViewData } from "../data";
   import type { IgApi } from "../api";
+  import { coalesce } from "../model/coalesce";
   import { dropNote, ghosts, pins } from "../model/notes";
   import { architecture, initialScope, rep } from "../model/architecture";
   import { blueprint, journeyName, unitOf } from "../model/blueprint";
@@ -111,7 +112,6 @@
   });
 
   // A swapped `data` starts over (the first run is onMount's).
-  let seq = 0;
   let seen = untrack(() => data);
   $effect(() => {
     if (data === seen) return;
@@ -122,10 +122,8 @@
   // The host's events; the cleanup closes its stream.
   $effect(() => {
     const offs = [
-      api.onRebuild(() => {
-        const mine = ++seq; // a slow older response must not overwrite a newer one
-        api.viewData().then((d) => mine === seq && (data = d), (e: unknown) => (hint = msg(e)));
-      }),
+      // One view_data build at a time, plus one pending for the events that came meanwhile.
+      api.onRebuild(coalesce(() => api.viewData().then((d) => (data = d), (e: unknown) => (hint = msg(e))))),
       api.on?.("note", () => refreshNotes()),
       api.on?.("focus", (ids) => focusAll(ids as string[])),
       api.on?.("show", (raw) => {
