@@ -184,6 +184,20 @@ impl Vcs for GitVcs {
         out
     }
 
+    fn list_files(&self) -> Vec<String> {
+        let Ok(out) = git(&self.root, &["ls-files", "-z", "-co", "--exclude-standard"]) else {
+            return vec![];
+        };
+        let mut v: Vec<String> = out
+            .split('\0')
+            .filter(|f| !f.is_empty())
+            .map(String::from)
+            .collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
     fn is_clean(&self) -> bool {
         git(&self.top, &["status", "--porcelain"])
             .map(|s| s.is_empty())

@@ -82,3 +82,7 @@ a { color: var(--accent); }
 .ctx-menu button { font: inherit; text-align: left; padding: 4px 14px; border: 0; background: none; color: var(--fg); cursor: pointer; border-radius: 4px; }
 .ctx-menu button:hover { background: var(--code); }
 ul.notes li.done { color: var(--muted); }
+#ig-files { border-top: 1px solid var(--line); display: flex; flex-direction: column; flex: 0 0 40%; min-height: 0; }
+#files-filter { font: inherit; font-size: 13px; margin: 8px 10px 4px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+#files-body { overflow: auto; flex: 1; padding-bottom: 12px; font-size: 13px; outline: none; }
+#files-body:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }

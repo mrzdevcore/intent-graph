@@ -136,6 +136,7 @@ pub struct FakeVcs {
     /// (rev, path) → contents.
     pub shows: HashMap<(String, String), String>,
     pub changed: Vec<String>,
+    pub files: Vec<String>,
     pub clean: bool,
     pub history: Vec<Vec<String>>,
     pub checkout_root: Option<PathBuf>,
@@ -169,6 +170,9 @@ impl Vcs for FakeVcs {
     }
     fn changed_files(&self, _base: Option<&str>, _notices: &mut Vec<String>) -> Vec<String> {
         self.changed.clone()
+    }
+    fn list_files(&self) -> Vec<String> {
+        self.files.clone()
     }
     fn is_clean(&self) -> bool {
         self.clean
@@ -278,6 +282,7 @@ pub fn files_contract(f: &dyn Files) {
 
 /// `v` has at least one commit, and `file` holds `content` at HEAD.
 pub fn vcs_contract(v: &dyn Vcs, file: &str, content: &str) {
+    assert!(v.list_files().iter().any(|f| f == file), "lists {file}");
     let head = v.head().expect("a head commit");
     assert_eq!(v.verify(&head).as_ref(), Some(&head));
     assert_eq!(v.verify("0123456789abcdef0123456789abcdef01234567"), None);
@@ -386,6 +391,7 @@ mod tests {
             commits: ["abc".to_string()].into(),
             shows: [(("abc".into(), "intents.md".into()), "# I\n".into())].into(),
             checkout_root: Some("wt".into()),
+            files: vec!["intents.md".into()],
             ..FakeVcs::default()
         };
         vcs_contract(&v, "intents.md", "# I\n");

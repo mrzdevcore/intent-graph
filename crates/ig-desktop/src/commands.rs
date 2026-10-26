@@ -1,5 +1,6 @@
 //! The project the app shows, the `view_data` command, and the recent-projects list.
 
+use crate::file_tree::{Entry, file_tree_for};
 use ig_app::check::Opts;
 use ig_app::view_data;
 use ig_core::workspace;
@@ -56,6 +57,21 @@ pub async fn view_data(
     tauri::async_runtime::spawn_blocking(move || view_data_for(&root, plan.as_deref(), no_plan))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// The children of `dir` (None: the project root); see `file_tree::file_tree_for`.
+#[tauri::command]
+pub async fn file_tree(
+    project: tauri::State<'_, Project>,
+    dir: Option<String>,
+) -> Result<Vec<Entry>, String> {
+    let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
+    let Some(root) = root else {
+        return Err("no project open: Project > Open… (⌘O)".into());
+    };
+    tauri::async_runtime::spawn_blocking(move || file_tree_for(&root, dir.as_deref()))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 const RECENT_MAX: usize = 10;

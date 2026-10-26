@@ -2,6 +2,7 @@
 //! native folder picker or a recent project), rebuilt live as its files change.
 
 mod commands;
+mod file_tree;
 
 use commands::Project;
 use std::path::{Path, PathBuf};
@@ -105,7 +106,10 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Project::default())
-        .invoke_handler(tauri::generate_handler![commands::view_data])
+        .invoke_handler(tauri::generate_handler![
+            commands::view_data,
+            commands::file_tree
+        ])
         .menu(|app| {
             let recent = recent_file(app).map(|f| commands::recent(&f));
             menu(app, &recent.unwrap_or_default())

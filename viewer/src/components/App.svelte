@@ -33,6 +33,7 @@
   import { changedIds, exact } from "../model/changed";
   import { focusIds } from "../model/focus";
   import { ancestors, findNode, index, topMember, type Group } from "../model/graph";
+  import Files from "./Files.svelte";
   import Graph from "./Graph.svelte";
   import SidePanel, { type SideView } from "./SidePanel.svelte";
   import Tree from "./Tree.svelte";
@@ -284,6 +285,16 @@
     if (hit) focusOn(hit);
   }
 
+  /** The file of the selected node, for the Files panel. */
+  const selectedFile = $derived(side.kind === "node" ? (ix.byId[side.id]?.file ?? null) : null);
+
+  /** Files → graph: selects the module of that file, if the graph has one. */
+  function onFile(path: string) {
+    const m = D.nodes.find((n) => n.kind === "module" && n.file === path);
+    if (m) onTreeSelect(m.id);
+    else hint = path + " is not in the graph.";
+  }
+
   const crumbs = $derived(mode === "architecture" ? [ix.root, ...ancestors(ix, scope)] : []);
 
   const sideActions = {
@@ -336,6 +347,7 @@
 <main>
   <div id="tree" aria-label="Files" role="navigation">
     <Tree bind:this={tree} {ix} {mode} {screenIds} onselect={onTreeSelect} onfolder={onTreeFolder} onfocus={focusOn} />
+    {#if api.fileTree}<Files list={api.fileTree.bind(api)} path={selectedFile} version={D} onselect={onFile} />{/if}
   </div>
   <Graph bind:this={graph} {links} ontap={onTap} oncontext={onContext} ondrop={onDrop} onlink={onLink} />
   <div id="side" role="complementary">
