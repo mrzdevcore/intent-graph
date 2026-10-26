@@ -113,6 +113,16 @@ test("going live mid-quiet-period sends at once, and only once", () => {
   expect(sent.length).toBe(1);
 });
 
+test("a queued update keeps its own feature's plan state while another feature shows", () => {
+  const { o, c, sent } = setup(true);
+  o.setLive(false);
+  o.push(B(["a"])); // feature A's board, A has a plan
+  o.hasPlan = () => false; // the board now shows B, which has none
+  o.setLive(true);
+  c.tick(0);
+  expect(sent[0]).toContain("Update plans/patient-export/plan.md to match");
+});
+
 test("the prompts", () => {
   expect(planPrompt("patient-export")).toBe("/ig:plan plans/patient-export/design.json");
   expect(applyPrompt("patient-export")).toBe("/ig:apply plans/patient-export/plan.md");
