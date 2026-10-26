@@ -289,6 +289,7 @@
       {onpointerdown}
       title={hover ? reasons[hover] : undefined}
       onpointermove={onmove}
+      onpointerleave={() => hover && (onhover?.(null), (hover = null))}
       onpointerup={(e) => edit || send({ t: "up", ...point(e) })}
       oncontextmenu={(e) => e.preventDefault()}
       onmousedown={(e) => e.preventDefault() /* focus is set in pointerdown; the default would take it from the rename overlay */}></canvas>

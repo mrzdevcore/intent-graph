@@ -431,4 +431,8 @@ fn a_piece_dragged_out_of_the_view_stays_and_is_handed_to_the_host() {
     // inside the view it moves as before
     let o = drag(&mut e, (20.0, 20.0), (60.0, 20.0));
     assert!(o.changed && o.dropped.is_none());
+    // a screen dragged past the edge still moves
+    let o = drag(&mut e, (700.0, 200.0), (1300.0, 200.0));
+    assert!(o.changed && o.dropped.is_none(), "{o:?}");
+    assert!(e.board().screens["home"].x > 1000);
 }

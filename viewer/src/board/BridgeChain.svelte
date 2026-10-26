@@ -56,8 +56,9 @@
 </section>
 
 <style>
-  .chain { grid-row: 2; grid-column: 2; align-self: end; z-index: 3; margin: 0 12px 12px; padding: 8px 10px; max-height: 45%; overflow: auto;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; color: var(--fg); }
+  /* its own row under the canvas: the canvas shrinks, never covered */
+  .chain { grid-row: 3; grid-column: 2; min-width: 0; max-height: 40vh; overflow: auto; padding: 8px 10px;
+    background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--fg); }
   header { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
   .unlink { margin-left: auto; font-size: 12px; }
   .seq { display: grid; column-gap: 0; row-gap: 4px; position: relative; }

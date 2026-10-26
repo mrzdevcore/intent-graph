@@ -8,7 +8,7 @@ description: Implement an approved ig plan step by step, checking the graph afte
 Never do any of these without the user's yes: edit `.ig/baseline.json`, `ig.yaml`, `rules.md` or the plan; edit a checker tool's config file; add a suppression or disable comment (`eslint-disable`, `@ts-ignore`, `stylelint-disable`, `nosemgrep`, ...); weaken or delete tests.
 
 1. Read `rules.md`. Re-run `ig plan check <plan>`, then run `ig apply start [<plan>]` (without the argument it uses the current plan) and announce the plan's steps.
-   **UI from a design** (`plans/<slug>/screens/`): build it only from the project's existing UI components and design tokens; the mockup is context, never code. A mockup element with no matching component is a question for the user, not a new component. A design-system linter in `ig.yaml` `checkers` runs with `ig check --agent`.
+   **UI from a design** (`plans/<slug>/screens/`): build it only from the project's existing UI components and design tokens; the mockup is context, never code. A mockup element with no matching component is a question for the user, not a new component. A design-system linter in `ig.yaml` `checkers` runs with `ig check --agent`; if none is configured, say so to the user.
 2. For each step:
    - implement it;
    - run `ig check --agent`;

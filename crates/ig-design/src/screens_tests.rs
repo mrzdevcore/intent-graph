@@ -292,3 +292,32 @@ fn sizes_and_positions_are_bounded_on_what_changed() {
     b.screens.get_mut("login").unwrap().elements[0].w = 0;
     assert!(apply(&b, &upd("btn-go", json!({"label":"Go!"}))).is_ok());
 }
+
+#[test]
+fn bridge_ends_are_checked_when_added() {
+    let mut b = board();
+    b.design.bridges.clear();
+    b.design.elements.push(crate::Element {
+        id: "note-1".into(),
+        kind: crate::ElementKind::Note,
+        ..b.design.elements[0].clone()
+    });
+    let bridge = |from: &str, to: &str| ops(json!([{"op": "bridge", "from": from, "to": to}]));
+    assert!(apply(&b, &bridge("login/btn-go", "fn-a")).is_ok());
+    assert!(apply(&b, &bridge("login/btn-go", "api/x.ts#GET /x")).is_ok());
+    for (from, to) in [
+        ("login/nothing", "fn-a"),
+        ("gone/btn-go", "fn-a"),
+        ("login/btn-go", "fn-a|calls|fn-b"),
+        ("login/btn-go", "note-1"),
+    ] {
+        let r = apply(&b, &bridge(from, to));
+        assert!(matches!(r, Err(DesignError::Invalid(_))), "{from} > {to}");
+    }
+    // an old bridge whose piece is gone never blocks another edit
+    b.design.bridges.push(Bridge {
+        from: "login/gone".into(),
+        to: "fn-a".into(),
+    });
+    assert!(apply(&b, &bridge("login/btn-go", "fn-a")).is_ok());
+}

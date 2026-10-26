@@ -467,9 +467,12 @@ impl Engine {
         }
     }
 
-    /// The topmost element, link key or context box at a screen point.
+    /// The topmost element, link key or context box at a screen point; read-only, only what can
+    /// be picked (an element or context box).
     pub fn hit(&self, x: f32, y: f32) -> Option<String> {
-        self.target(x, y).map(|t| t.id().to_string())
+        (self.target(x, y))
+            .filter(|t| self.read_only.is_none() || matches!(t, Target::El(_) | Target::Ctx(_)))
+            .map(|t| t.id().to_string())
     }
 
     pub(crate) fn target(&self, x: f32, y: f32) -> Option<Target> {

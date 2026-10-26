@@ -201,10 +201,14 @@ impl Engine {
 
     fn screen_up(&mut self, x: f32, y: f32, mods: u8) -> Out {
         let mut o = match std::mem::replace(&mut self.gesture, Gesture::Idle) {
-            Gesture::Drag { ids, .. } if ids.len() == 1 && self.off_view(x, y) => Out {
-                dropped: split_key(&ids[0]).map(|_| (ids[0].clone(), x, y)),
-                ..self.out()
-            },
+            Gesture::Drag { ids, .. }
+                if ids.len() == 1 && split_key(&ids[0]).is_some() && self.off_view(x, y) =>
+            {
+                Out {
+                    dropped: Some((ids[0].clone(), x, y)),
+                    ..self.out()
+                }
+            }
             Gesture::Drag { ids, dx, dy, .. } => {
                 let ops = self.move_ops(&ids, dx, dy);
                 self.ops(&ops, Step::User)

@@ -1,5 +1,5 @@
-<!-- K on a selected piece: link it to the architecture. Type to filter (the design's elements
-     first), arrows move, Enter links, Esc closes. -->
+<!-- Link mode's search, on top of the docked architecture: type to filter (names starting with
+     it first, then the design's elements), arrows move, Enter links, Esc closes. -->
 <script lang="ts">
   let { items, piece, onpick, onclose }: {
     items: (q: string) => { id: string; label: string; kind: string }[];
@@ -28,7 +28,7 @@
   <!-- svelte-ignore a11y_autofocus -->
   <input bind:value={q} autofocus placeholder="Link {piece} to…" aria-label="Filter link targets" role="combobox"
     aria-expanded="true" aria-controls="bridge-targets" aria-activedescendant={active ? "bridge-" + list.indexOf(active) : undefined}
-    oninput={() => (at = 0)} {onkeydown} onblur={onclose}>
+    oninput={() => (at = 0)} {onkeydown}>
   <ul id="bridge-targets" role="listbox">
     {#each list as it, i (it.id)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -42,7 +42,7 @@
 </div>
 
 <style>
-  .picker { grid-row: 2; grid-column: 2; align-self: start; justify-self: center; z-index: 5; margin-top: 12px; width: min(480px, 90%);
+  .picker { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5; width: min(420px, 92%);
     background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.2); font-size: 13px; }
   input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 0; border-bottom: 1px solid var(--line); background: var(--bg);
     color: var(--fg); font: inherit; border-radius: 6px 6px 0 0; }

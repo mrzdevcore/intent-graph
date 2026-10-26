@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Design, Screen } from "../src/api";
 import type { ViewData, ViewEdge, ViewNode } from "../src/data";
-import { bridgeChain, pickerItems, requirement, withDesign, type Board } from "../src/board/bridge";
+import { Bridges, bridgeChain, designIndex, pickerItems, requirement, withDesign, type Board } from "../src/board/bridge";
 
 const node = (id: string, o: Partial<ViewNode> = {}): ViewNode => {
   const file = o.file ?? id.split("#")[0];
@@ -65,7 +65,7 @@ const b: Board = {
 };
 
 test("withDesign adds planned nodes and edges", () => {
-  const W = withDesign(D, b);
+  const W = withDesign(D, design);
   const route = W.nodes.find((n) => n.id === "export-route")!;
   expect(route).toMatchObject({ planned: true, kind: "route", name: "GET /api/patients/export", layer: "api", lane: 1 });
   expect(W.nodes.some((n) => n.id === "note-stream")).toBe(false);
@@ -77,7 +77,7 @@ test("withDesign adds planned nodes and edges", () => {
 });
 
 test("bridgeChain follows button to route to use case to repository to system", () => {
-  const c = bridgeChain(D, b, "patients/export-csv")!;
+  const c = bridgeChain(designIndex(D, design), design, "patients/export-csv", "Patient list")!;
   expect(c.lifelines.map((l) => l.label)).toEqual(["Patient list", "API", "Use cases", "Adapters", "PostgreSQL"]);
   expect(c.steps.map((s) => [s.n, s.label, !!s.planned, !!s.changed])).toEqual([
     [1, "GET /api/patients/export", true, false],
@@ -89,8 +89,9 @@ test("bridgeChain follows button to route to use case to repository to system", 
 });
 
 test("bridgeChain returns null for an unresolved target", () => {
-  expect(bridgeChain(D, b, "patients/title")).toBeNull();
-  expect(bridgeChain(D, b, "patients/nothing")).toBeNull();
+  const ix = designIndex(D, design);
+  expect(bridgeChain(ix, design, "patients/title", "Patient list")).toBeNull();
+  expect(bridgeChain(ix, design, "patients/nothing", "Patient list")).toBeNull();
 });
 
 test("requirement sentence", () => {
@@ -108,4 +109,28 @@ test("pickerItems filters and lists design first", () => {
   expect(pickerItems(D, b, "")[0]).toEqual({ id: "export-route", label: "GET /api/patients/export", kind: "route" });
   expect(pickerItems(D, b, "export").some((i) => i.id === "api/export.test.ts#exportsAll")).toBe(false);
   expect(pickerItems(D, b, "").length).toBeLessThanOrEqual(20);
+  expect(pickerItems(D, b, "patient")[0].id).toBe("api/repo.ts#PatientRepo.findAll");
+});
+
+test("an element whose code exists is its real node: the chain goes on into real calls", () => {
+  const d: Design = { ...design, elements: design.elements.map((e) => e.id === "export-route"
+    ? { ...e, method: "GET", path: "/api/patients", file: "api/routes/patients.ts" } : e) };
+  const real = { ...D, edges: [...D.edges, edge("api/routes/patients.ts#GET /api/patients", "api/use-cases/list.ts#listPatients")] } as ViewData;
+  expect(withDesign(real, d).nodes.some((n) => n.id === "export-route")).toBe(false);
+  const c = bridgeChain(designIndex(real, d), d, "patients/export-csv", "Patient list")!;
+  expect(c.steps.map((s) => [s.label, !!s.planned])).toEqual([
+    ["GET /api/patients", false], ["exportPatients", true], ["PatientRepo.findAll", true], ["uses", false], ["listPatients", false],
+  ]);
+});
+
+test("a chain is not computed again for an edit that does not change its meaning", () => {
+  const br = new Bridges();
+  const c = br.chain(D, design, "patients/export-csv", "Patient list");
+  const moved: Design = { ...design, elements: design.elements.map((e) => ({ ...e, x: 99, y: 99 })) };
+  expect(br.chain(D, moved, "patients/export-csv", "Patient list")).toBe(c);
+  expect(br.chain(D, moved, "patients/title", "Patient list")).toBeNull();
+  expect(br.builds).toBe(1);
+  const renamed: Design = { ...moved, elements: moved.elements.map((e) => (e.id === "export-patients" ? { ...e, name: "exportAll" } : e)) };
+  expect(br.chain(D, renamed, "patients/export-csv", "Patient list")!.steps[1].label).toBe("exportAll");
+  expect(br.builds).toBe(2);
 });

@@ -414,12 +414,38 @@ pub fn apply(b: &Board, ops: &[Op]) -> Result<(Board, Touched), DesignError> {
     crate::caps::caps(&b.design, &d)?;
     crate::screens::caps(&b.screens, &screens)?;
     validate(&d)?;
+    new_bridges(&b.design, &d, &screens)?;
     // Only what the edit touched is checked: an old broken screen never blocks another edit.
     for s in t.screens.iter().filter_map(|id| screens.get(id)) {
         validate_screen(s)?;
         check_refs(s, &screens)?;
     }
     Ok((Board { design: d, screens }, t))
+}
+
+/// A bridge this edit adds starts at a piece of a screen and ends at an element that stands for
+/// code (not a note or frame) or at a graph id (never a link key).
+fn new_bridges(
+    old: &Design,
+    d: &Design,
+    screens: &std::collections::BTreeMap<String, crate::Screen>,
+) -> Result<(), DesignError> {
+    for b in d.bridges.iter().filter(|b| !old.bridges.contains(b)) {
+        let bad = |why: &str| Err(DesignError::Invalid(format!("bridge {}: {why}", b.key())));
+        let piece = (b.from.split_once('/'))
+            .and_then(|(s, p)| screens.get(s)?.elements.iter().find(|e| e.id == p));
+        if piece.is_none() {
+            return bad("from must be a piece of a screen");
+        }
+        if b.to.contains('|') {
+            return bad("to must be an element or graph id, not a link");
+        }
+        let kind = d.elements.iter().find(|e| e.id == b.to).map(|e| e.kind);
+        if matches!(kind, Some(ElementKind::Note | ElementKind::Frame)) {
+            return bad("to must not be a note or frame");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

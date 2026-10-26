@@ -330,7 +330,10 @@ fn shift_esc_dismisses_every_highlight_and_shift_2_fits_the_selection() {
 #[test]
 fn pick_mode_returns_the_hit_and_never_edits() {
     let mut e = engine();
+    let link = e.hit(150.0, 28.0);
+    assert_eq!(link.as_deref(), Some("fn-a|calls|fn-b"));
     e.set_read_only(true);
+    assert_eq!(e.hit(150.0, 28.0), None, "a drop on a link picks nothing");
     let before = e.board().clone();
     let o = mv(&mut e, 20.0, 20.0);
     assert!(
