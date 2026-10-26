@@ -336,3 +336,53 @@ fn design_edit_and_engine_share_validation() {
         .to_string();
     assert_eq!(r["content"][0]["text"], format!("ig: {want}"));
 }
+
+#[test]
+fn design_edit_caps_ops_and_strings_and_leaves_empty_edits_alone() {
+    let dir = design_fixture();
+    let mv = json!({"op": "move", "id": "fn-a", "x": 8, "y": 8});
+    let r = call_tool(
+        &dir,
+        "design_edit",
+        json!({"slug": "export", "ops": vec![mv; 201]}),
+    );
+    assert!(
+        r["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("at most 200 ops"),
+        "{r}"
+    );
+    let long = json!([{"op": "update", "id": "fn-a", "set": {"name": "x".repeat(201)}}]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": long}));
+    assert!(
+        r["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("longer than 200 bytes"),
+        "{r}"
+    );
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": []}));
+    assert!(r.get("isError").is_none(), "{r}");
+    assert_eq!(
+        design_bytes(&dir),
+        DESIGN.as_bytes(),
+        "not even rewritten canonically"
+    );
+}
+
+#[test]
+fn a_check_that_fails_after_the_write_is_reported_not_an_error() {
+    let dir = design_fixture();
+    std::fs::write(dir.join("ig.yaml"), "layers: [unclosed\n").unwrap();
+    let ops = json!([{"op": "update", "id": "fn-a", "set": {"name": "A"}}]);
+    let r = call_tool(&dir, "design_edit", json!({"slug": "export", "ops": ops}));
+    assert!(r.get("isError").is_none(), "{r}");
+    let t = r["content"][0]["text"].as_str().unwrap();
+    assert!(t.contains("check: unavailable ("), "{t}");
+    assert!(
+        String::from_utf8(design_bytes(&dir))
+            .unwrap()
+            .contains("\"A\"")
+    );
+}
