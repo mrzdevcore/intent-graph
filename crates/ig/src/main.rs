@@ -132,23 +132,7 @@ fn real_main() -> Result<u8> {
                 },
             )?;
             if a.json {
-                let lookup: std::collections::HashMap<&str, &model::Node> = run
-                    .result
-                    .graph
-                    .nodes
-                    .iter()
-                    .chain(run.base_graph.iter().flat_map(|b| b.nodes.iter()))
-                    .map(|n| (n.id.as_str(), n))
-                    .collect();
-                let v: Vec<serde_json::Value> = run
-                    .result
-                    .changes
-                    .iter()
-                    .filter_map(|(id, s)| {
-                        let n = lookup.get(id.as_str())?;
-                        Some(serde_json::json!({"id": id, "status": s, "file": n.file, "kind": n.kind, "name": n.name}))
-                    })
-                    .collect();
+                let v = check::diff_json(&run.result, run.base_graph.as_ref());
                 println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
                 print!("{}", check::diff_text(&run.result, run.base_graph.as_ref()));
@@ -221,7 +205,7 @@ fn real_main() -> Result<u8> {
                 let mut out = String::new();
                 let r = apply::finish(&env, &mut out);
                 print!("{out}");
-                r
+                Ok(r?)
             }
             (Some("abort"), []) => {
                 println!("apply aborted: {}", apply::abort(&env)?);
@@ -367,7 +351,7 @@ fn query_cmd(env: &Env, a: &Args) -> Result<u8> {
     let cfg = ig_app::config::load(env.files)?;
     let repo_head = env.vcs.and_then(|r| r.head());
     let built = ig_app::graph(env, env.files, &cfg, repo_head)?;
-    let v = mcp::query(
+    let v = ig_app::query::query(
         &built.graph,
         id,
         a.dir.as_deref().unwrap_or("both"),

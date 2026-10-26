@@ -15,8 +15,8 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-/// `ig_core::plan::parse` with an `anyhow` error, so `{e:#}` keeps showing the YAML cause.
-pub fn parse(path: &str, text: &str) -> anyhow::Result<Plan> {
+/// `ig_core::plan::parse` with an `Error::PlanParse`.
+pub fn parse(path: &str, text: &str) -> crate::Result<Plan> {
     Ok(ig_core::plan::parse(path, text)?)
 }
 
@@ -56,7 +56,7 @@ pub fn overlay(run: &mut Run, plan: &Plan) {
 }
 
 /// `ig plan check` on plan text, without recording it.
-pub fn check_text(env: &Env, path: &str, text: &str) -> anyhow::Result<Value> {
+pub fn check_text(env: &Env, path: &str, text: &str) -> crate::Result<Value> {
     let plan = parse(path, text)?;
     let cfg = crate::config::load(env.files)?;
     let built = crate::graph(env, env.files, &cfg, None)?;
@@ -110,7 +110,7 @@ pub fn check_text(env: &Env, path: &str, text: &str) -> anyhow::Result<Value> {
 }
 
 /// Checks the plan at `rel` (root-relative) with `text` and records it in `.ig/current-plan`.
-pub fn check(env: &Env, rel: &str, text: &str) -> anyhow::Result<Value> {
+pub fn check(env: &Env, rel: &str, text: &str) -> crate::Result<Value> {
     let v = check_text(env, rel, text)?;
     env.files
         .write_atomic(".ig/current-plan", format!("{rel}\n").as_bytes())?;

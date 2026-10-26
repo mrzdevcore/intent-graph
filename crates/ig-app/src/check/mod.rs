@@ -5,7 +5,7 @@ mod checkers;
 mod text;
 
 pub use checkers::attach_nodes;
-pub use text::{agent_text, diff_text, findings_text, summary_text};
+pub use text::{agent_text, diff_json, diff_text, findings_text, summary_text};
 
 use crate::{Env, apply};
 use ig_core::config::{Config, Severity};
@@ -82,20 +82,6 @@ pub struct Run {
     pub plan: Option<serde_json::Value>,
 }
 
-/// `--head` names a commit where the ig root does not exist. The graph build failed on the
-/// missing directory there, so ig has always shown the system's "not found" text; it is kept
-/// as is (this refactor changes no output).
-#[derive(Debug)]
-pub struct HeadRootMissing;
-
-impl std::fmt::Display for HeadRootMissing {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", std::io::Error::from_raw_os_error(2))
-    }
-}
-
-impl std::error::Error for HeadRootMissing {}
-
 /// The head tree (the working tree, or a checkout of `--head`) and the base commit.
 struct Trees {
     head_root: PathBuf,
@@ -115,12 +101,12 @@ impl Trees {
 }
 
 /// Resolves base and head; materialises `--head` when needed.
-fn trees(env: &Env, opts: &Opts) -> anyhow::Result<Trees> {
+fn trees(env: &Env, opts: &Opts) -> crate::Result<Trees> {
     let work_cfg = crate::config::load(env.files)?;
     let mut notices = vec![];
     let Some(repo) = env.vcs else {
         if opts.head.is_some() || opts.base.is_some() {
-            anyhow::bail!("--base/--head need a git repository");
+            crate::bail!("--base/--head need a git repository");
         }
         notices.push("not a git repository: every node counts as added".into());
         return Ok(Trees {
@@ -139,14 +125,14 @@ fn trees(env: &Env, opts: &Opts) -> anyhow::Result<Trees> {
         None => (env.root.to_path_buf(), None, head_sha, None, work_cfg),
         Some(h) => {
             let Some(sha) = repo.verify(h) else {
-                anyhow::bail!("--head {h}: not a commit")
+                crate::bail!("--head {h}: not a commit")
             };
             if Some(&sha) == head_sha.as_ref() && repo.is_clean() {
                 (env.root.to_path_buf(), None, Some(sha), None, work_cfg)
             } else {
                 let wt = repo.checkout(&sha)?;
                 let Some(r) = wt.root().map(Path::to_path_buf) else {
-                    return Err(HeadRootMissing.into());
+                    return Err(crate::Error::HeadRootMissing);
                 };
                 let work = crate::base::work_info(env, &work_cfg);
                 for fe in env.frontends {
@@ -221,7 +207,7 @@ fn snippet(lines: &[&str], line: u32) -> Option<String> {
     )
 }
 
-pub fn run(env: &Env, opts: &Opts) -> anyhow::Result<Run> {
+pub fn run(env: &Env, opts: &Opts) -> crate::Result<Run> {
     // Apply in progress: compare against its base. Stale state is ignored, never fatal.
     let apply = apply::active(env, opts.base.as_deref());
     let stale = match (&apply, &opts.base) {
@@ -424,7 +410,7 @@ pub fn changed_only(m: &BTreeMap<String, Status>) -> BTreeMap<String, Status> {
 }
 
 /// `.ig/graph.json` and `.ig/findings.json`.
-pub fn write_state(env: &Env, r: &CheckResult) -> anyhow::Result<()> {
+pub fn write_state(env: &Env, r: &CheckResult) -> crate::Result<()> {
     env.files
         .write_atomic(".ig/graph.json", &serde_json::to_vec(&r.graph)?)?;
     env.files

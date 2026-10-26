@@ -202,7 +202,7 @@ impl Server {
                         let Some(plan) = &b.plan else {
                             bail!("no plan: run `ig plan check <file>` first");
                         };
-                        notes::append(&CWD, plan, input, &b.merged)
+                        Ok(notes::append(&CWD, plan, input, &b.merged)?)
                     });
                 match r {
                     Ok(n) => {
@@ -249,7 +249,7 @@ impl Server {
                         v["done"].as_bool().unwrap_or(true),
                         v["reply"].as_str(),
                     ),
-                    None => Err(anyhow::anyhow!("no plan")),
+                    None => Err(anyhow::anyhow!("no plan").into()),
                 };
                 match r {
                     Ok(()) => {

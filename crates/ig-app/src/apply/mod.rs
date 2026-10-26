@@ -6,8 +6,8 @@ mod conformance;
 pub use conformance::{change_hash, findings};
 
 use crate::check::{self, Opts};
-use crate::{Env, baseline, plan};
-use anyhow::{Context, bail};
+use crate::{Env, Error, bail, baseline, plan};
+use anyhow::Context;
 use ig_core::config::Config;
 use ig_core::model::{Finding, sha1_bytes};
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,7 @@ pub fn stale(env: &Env, st: &ApplyState) -> Option<String> {
     }
 }
 
-fn save(env: &Env, st: &ApplyState) -> anyhow::Result<()> {
+fn save(env: &Env, st: &ApplyState) -> crate::Result<()> {
     env.files
         .write_atomic(STATE, &serde_json::to_vec_pretty(st)?)?;
     Ok(())
@@ -79,7 +79,7 @@ fn hashes(env: &Env, plan: &str, config: &Config) -> BTreeMap<String, String> {
 }
 
 /// `ig apply start` for the plan at `rel` (root-relative) with `text`.
-pub fn start(env: &Env, rel: &str, text: &str) -> anyhow::Result<()> {
+pub fn start(env: &Env, rel: &str, text: &str) -> crate::Result<()> {
     plan::parse(rel, text)?;
     let Some(base) = env.vcs.and_then(|r| r.head()) else {
         bail!("apply start: needs a git repository with at least one commit");
@@ -98,9 +98,9 @@ pub fn start(env: &Env, rel: &str, text: &str) -> anyhow::Result<()> {
 }
 
 /// `ig apply abort`: drops the apply state; returns the plan it was for.
-pub fn abort(env: &Env) -> anyhow::Result<String> {
+pub fn abort(env: &Env) -> crate::Result<String> {
     let Some(st) = load(env) else {
-        bail!("no apply in progress");
+        return Err(Error::NoApplyInProgress);
     };
     env.files.remove(STATE)?;
     Ok(st.plan)
@@ -114,9 +114,9 @@ pub fn exceptions_since(env: &Env, st: &ApplyState) -> Vec<(String, String)> {
         .collect()
 }
 
-pub fn accept(env: &Env) -> anyhow::Result<()> {
+pub fn accept(env: &Env) -> crate::Result<()> {
     let Some(mut st) = load(env) else {
-        bail!("no apply in progress");
+        return Err(Error::NoApplyInProgress);
     };
     st.hashes = hashes(env, &st.plan, &crate::config::load(env.files)?);
     save(env, &st)
@@ -125,7 +125,7 @@ pub fn accept(env: &Env) -> anyhow::Result<()> {
 /// `ig except`: records an exception with its reason in the baseline. During apply only the
 /// baseline's hash is re-recorded, so other pending tamper stays visible. Refuses `ig/plan` and
 /// `ig/tamper` findings of the last check: those are never baselined.
-pub fn except(env: &Env, fingerprint: &str, reason: &str) -> anyhow::Result<()> {
+pub fn except(env: &Env, fingerprint: &str, reason: &str) -> crate::Result<()> {
     let last: Value = crate::read_json(env.files, ".ig/findings.json").unwrap_or_default();
     let rule = last["findings"]
         .as_array()
@@ -155,7 +155,7 @@ pub fn except(env: &Env, fingerprint: &str, reason: &str) -> anyhow::Result<()> 
 
 /// `ig apply review`: stores the reviewer agent's JSON array (prose around it is ignored) for
 /// the current change; returns the finding count.
-pub fn review_ingest(env: &Env, json: &str) -> anyhow::Result<usize> {
+pub fn review_ingest(env: &Env, json: &str) -> crate::Result<usize> {
     let (Some(a), Some(b)) = (json.find('['), json.rfind(']')) else {
         bail!("apply review: no JSON array in the input");
     };
@@ -176,12 +176,12 @@ pub fn review_ingest(env: &Env, json: &str) -> anyhow::Result<usize> {
 
 /// The final check: 0 when nothing blocks (apply is then cleared and the plan marked done).
 /// What it reports goes to `out`, also when it fails part way.
-pub fn finish(env: &Env, out: &mut String) -> anyhow::Result<u8> {
+pub fn finish(env: &Env, out: &mut String) -> crate::Result<u8> {
     let Some(st) = load(env) else {
-        bail!("no apply in progress");
+        return Err(Error::NoApplyInProgress);
     };
     if let Some(r) = stale(env, &st) {
-        bail!("stale apply state ({r}): run ig apply abort");
+        return Err(Error::StaleApply(r));
     }
     let mut run = check::run(env, &Opts::default())?;
     let seen: HashSet<String> = run
