@@ -155,6 +155,8 @@ pub fn gaps(d: &Design, plan: &Plan) -> Vec<Finding> {
         .iter()
         .map(|e| (e.from.as_str(), e.to.as_str()))
         .collect();
+    // Omitting an element also silences the links and bridges that touch it.
+    let touched = |a: &str, b: &str| omitted.contains(a) || omitted.contains(b);
     let mut out = vec![];
     for e in &d.elements {
         if let Some(g) = by_node.get(&e.id)
@@ -165,19 +167,25 @@ pub fn gaps(d: &Design, plan: &Plan) -> Vec<Finding> {
         }
     }
     for l in &d.links {
+        // An end on an incomplete or duplicate element: design/incomplete already says why.
         let (Some(f), Some(t)) = (
             translate(&by_node, &ids, &l.from),
             translate(&by_node, &ids, &l.to),
         ) else {
             continue;
         };
-        if !edges.contains(&(f.as_str(), t.as_str())) && !omitted.contains(l.key().as_str()) {
+        if !edges.contains(&(f.as_str(), t.as_str()))
+            && !omitted.contains(l.key().as_str())
+            && !touched(&l.from, &l.to)
+        {
             out.push(gap(&plan.path, &l.key(), &format!("link {}", l.key())));
         }
     }
     for b in &d.bridges {
-        let covered = translate(&by_node, &ids, &b.to).is_some_and(|t| planned(&t));
-        if !covered && !omitted.contains(b.key().as_str()) {
+        let Some(t) = translate(&by_node, &ids, &b.to) else {
+            continue;
+        };
+        if !planned(&t) && !omitted.contains(b.key().as_str()) && !omitted.contains(b.to.as_str()) {
             out.push(gap(&plan.path, &b.key(), &format!("bridge {}", b.key())));
         }
     }
@@ -334,12 +342,66 @@ mod tests {
             id: "fn-a".into(),
             reason: "no".into(),
         }];
-        assert_eq!(n(&plan), ["plan/design-gap"; 2]);
+        assert_eq!(n(&plan), ["plan/design-gap"; 1]); // fn-a, and its link
+        plan.omitted = vec![Omitted {
+            id: "fn-a|calls|server/z.ts#z".into(),
+            reason: "no".into(),
+        }];
+        assert_eq!(n(&plan), ["plan/design-gap"; 2]); // fn-a, bridge
+        plan.omitted = vec![Omitted {
+            id: "fn-a".into(),
+            reason: "no".into(),
+        }];
         plan.omitted.push(Omitted {
             id: "fn-zzz".into(),
             reason: "x".into(),
         });
         assert_eq!(n(&plan).last().unwrap(), "plan/unknown-omitted");
+    }
+
+    #[test]
+    fn bridge_to_omitted_or_incomplete_element_is_not_a_gap() {
+        let mut d = design();
+        d.bridges = vec![Bridge {
+            from: "list/btn".into(),
+            to: "fn-a".into(),
+        }];
+        d.links.clear();
+        let mut plan = to_plan(
+            &Design {
+                elements: vec![],
+                bridges: vec![],
+                marks: vec![],
+                ..d.clone()
+            },
+            "p.md",
+        )
+        .plan;
+        assert_eq!(gaps(&d, &plan).len(), 4); // 3 elements and the bridge
+        plan.omitted = vec![Omitted {
+            id: "fn-a".into(),
+            reason: "x".into(),
+        }];
+        let ids: Vec<_> = gaps(&d, &plan)
+            .iter()
+            .map(|f| f.node_id.clone().unwrap())
+            .collect();
+        assert!(!ids.contains(&"list/btn>fn-a".to_string()));
+        d.elements.push(el("mod-x", ElementKind::Module, "x"));
+        d.bridges.push(Bridge {
+            from: "list/b2".into(),
+            to: "mod-x".into(),
+        });
+        d.links.push(Link {
+            from: "fn-a".into(),
+            to: "mod-x".into(),
+            kind: LinkKind::Uses,
+        });
+        let ids: Vec<_> = gaps(&d, &plan)
+            .iter()
+            .map(|f| f.node_id.clone().unwrap())
+            .collect();
+        assert!(!ids.iter().any(|i| i.contains("mod-x")), "{ids:?}");
     }
 
     #[test]
