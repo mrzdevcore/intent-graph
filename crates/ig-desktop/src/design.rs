@@ -87,7 +87,18 @@ pub fn emit_changed(app: &tauri::AppHandle, root: &Path, slugs: &BTreeSet<String
 
 fn root_of(project: &crate::commands::Project) -> Result<PathBuf, String> {
     let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
-    root.ok_or_else(|| "no project open: Project > Open… (⌘O)".into())
+    let root = root.ok_or_else(|| "no project open: Project > Open… (⌘O)".to_string())?;
+    check_plans(&root)?;
+    Ok(root)
+}
+
+fn check_plans(root: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(root.join("plans")) {
+        Ok(m) if m.file_type().is_symlink() => {
+            Err("plans/ is a symlink; design files need a real plans folder".into())
+        }
+        _ => Ok(()),
+    }
 }
 
 async fn blocking<T: Send + 'static>(
@@ -163,6 +174,17 @@ mod tests {
         std::fs::write(root.join(app::design_path(&f.slug)), theirs).unwrap();
         assert_eq!(changed_outside(&root, &k, &slugs), vec![f.slug.clone()]);
         assert_eq!(write_for(&root, &k, &f.slug, &d), Err("conflict".into()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_plans_folder_is_refused() {
+        let root = std::env::temp_dir().join(format!("ig-desktop-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::os::unix::fs::symlink("/tmp", root.join("plans")).unwrap();
+        assert!(check_plans(&root).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

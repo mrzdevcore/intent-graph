@@ -11,7 +11,11 @@ use std::path::{Path, PathBuf};
 
 /// `plans/<slug>.md` -> `plans/<slug>.notes.md`; `plans/<slug>/plan.md` -> `plans/<slug>/notes.md`.
 pub fn path_for(plan: &Path) -> PathBuf {
-    if plan.file_name().is_some_and(|f| f == "plan.md") {
+    let in_plans = plan
+        .parent()
+        .and_then(|d| d.parent())
+        .and_then(|d| d.file_name());
+    if plan.file_name().is_some_and(|f| f == "plan.md") && in_plans.is_some_and(|d| d == "plans") {
         return plan.with_file_name("notes.md");
     }
     plan.with_extension("notes.md")
@@ -172,6 +176,10 @@ mod tests {
         assert_eq!(
             path_for(Path::new("plans/a/plan.md")),
             Path::new("plans/a/notes.md")
+        );
+        assert_eq!(
+            path_for(Path::new("docs/plan.md")),
+            Path::new("docs/plan.notes.md")
         );
         assert_eq!(
             path_for(Path::new("plans/a.md")),
