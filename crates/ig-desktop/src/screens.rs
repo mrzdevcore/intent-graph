@@ -2,6 +2,7 @@
 //! wrote per screen file: a write is refused ("conflict") when the disk moved on, and a watched
 //! change that equals them is the app's own autosave, not news.
 
+use crate::bounded::Gate;
 use crate::design::{Known, blocking, conflict, root_of};
 use base64::Engine as _;
 use ig_app::screens as app;
@@ -40,6 +41,9 @@ pub fn write_for(root: &Path, known: &Known, slug: &str, s: &Screen) -> Result<(
 }
 
 pub fn remove_for(root: &Path, known: &Known, slug: &str, id: &str) -> Result<(), String> {
+    if !ig_app::design::valid_slug(slug) || !ig_core::design::is_element_id(id) {
+        return Err(format!("bad screen {slug:?}/{id:?}"));
+    }
     let path = app::screen_path(slug, id);
     let mut k = known.0.lock().unwrap();
     let w = Wired::new(root);
@@ -111,52 +115,63 @@ pub fn emit_changed(
 pub async fn list_screens(
     app: tauri::AppHandle,
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
 ) -> Result<Vec<Screen>, String> {
     let root = root_of(&project)?;
-    blocking(move || list_for(&root, &app.state::<Known>(), &slug)).await
+    blocking(&gate, move || list_for(&root, &app.state::<Known>(), &slug)).await
 }
 
 #[tauri::command]
 pub async fn write_screen(
     app: tauri::AppHandle,
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
     screen: Screen,
 ) -> Result<(), String> {
     let root = root_of(&project)?;
-    blocking(move || write_for(&root, &app.state::<Known>(), &slug, &screen)).await
+    blocking(&gate, move || {
+        write_for(&root, &app.state::<Known>(), &slug, &screen)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn remove_screen(
     app: tauri::AppHandle,
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
     id: String,
 ) -> Result<(), String> {
     let root = root_of(&project)?;
-    blocking(move || remove_for(&root, &app.state::<Known>(), &slug, &id)).await
+    blocking(&gate, move || {
+        remove_for(&root, &app.state::<Known>(), &slug, &id)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn put_asset(
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
     base64: String,
 ) -> Result<String, String> {
     let root = root_of(&project)?;
-    blocking(move || put_asset_for(&root, &slug, &base64)).await
+    blocking(&gate, move || put_asset_for(&root, &slug, &base64)).await
 }
 
 #[tauri::command]
 pub async fn read_asset(
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
     name: String,
 ) -> Result<tauri::ipc::Response, String> {
     let root = root_of(&project)?;
-    blocking(move || read_asset_for(&root, &slug, &name))
+    blocking(&gate, move || read_asset_for(&root, &slug, &name))
         .await
         .map(tauri::ipc::Response::new)
 }
@@ -197,6 +212,13 @@ mod tests {
         remove_for(&root, &k, "f", "home").unwrap();
         assert!(!p.exists());
         assert!(write_for(&root, &k, "../x", &s).is_err());
+        for (slug, id) in [("../x", "home"), ("f", "../../ig"), ("f", "a/b")] {
+            assert!(
+                remove_for(&root, &k, slug, id)
+                    .unwrap_err()
+                    .starts_with("bad screen")
+            );
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -233,5 +255,32 @@ mod tests {
         std::fs::write(root.join("plans/f/assets/eeeeeeeeeeee.png"), "<svg/>").unwrap();
         assert!(read_asset_for(&root, "f", "eeeeeeeeeeee.png").is_err());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_below_plans_never_lead_writes_outside() {
+        let (root, out) = (tmp("escape"), tmp("escape-out"));
+        std::fs::create_dir_all(root.join("plans/x")).unwrap();
+        for p in ["plans/x/screens", "plans/x/assets", "plans/y"] {
+            std::os::unix::fs::symlink(&out, root.join(p)).unwrap();
+        }
+        let k = Known::default();
+        let png = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\nxyz");
+        let d = ig_core::design::empty("Y", ig_core::design::Scope::Dir { id: ".".into() });
+        let errs = [
+            write_for(&root, &k, "x", &screen("home")).unwrap_err(),
+            put_asset_for(&root, "x", &png).unwrap_err(),
+            crate::design::write_for(&root, &k, "y", &d).unwrap_err(),
+        ];
+        let left = std::fs::read_dir(&out).unwrap().count();
+        let _ = (
+            std::fs::remove_dir_all(&root),
+            std::fs::remove_dir_all(&out),
+        );
+        for e in errs {
+            assert!(e.contains("outside the project"), "{e}");
+        }
+        assert_eq!(left, 0, "nothing written outside");
     }
 }

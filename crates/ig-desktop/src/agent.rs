@@ -526,7 +526,7 @@ mod tests {
                 if a.current(&root).is_none() {
                     break;
                 }
-                crate::session::nap(20).await.unwrap();
+                crate::session::nap(20).await;
             }
             assert!(a.running(&root).is_err(), "the dead session is gone");
             a.load(&root, &data, "fake-1", fake(&rec)).await.unwrap();

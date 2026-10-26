@@ -2,6 +2,7 @@
 //! write is refused ("conflict") when the disk moved on, and a watched change that equals them is
 //! the app's own autosave, not news.
 
+use crate::bounded::Gate;
 use ig_app::design as app;
 use ig_core::design::{Design, Scope};
 use ig_core::ports::Files;
@@ -16,9 +17,8 @@ use tauri::{Emitter, Manager};
 pub struct Known(pub Mutex<HashMap<String, Vec<u8>>>);
 
 /// The code graph the live checks compare designs with: built on the first check, dropped when
-/// the code changes.
+/// the code changes. The number counts clears: a load that started before one never fills the cache.
 #[derive(Default)]
-/// The number counts clears: a load that started before one never fills the cache.
 pub struct HeadCache(pub Mutex<(u64, Option<Arc<ig_app::plan::Head>>)>);
 
 impl HeadCache {
@@ -111,18 +111,7 @@ pub fn check_for(
     let t = std::time::Instant::now();
     let w = Wired::new(root);
     let head = cache.get(|| ig_app::plan::Head::load(&w.env()).map_err(|e| e.to_string()))?;
-    let screens: Vec<String> = w
-        .files()
-        .glob(&[format!("plans/{slug}/screens/*.json")])
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|p| {
-            p.rsplit('/')
-                .next()?
-                .strip_suffix(".json")
-                .map(String::from)
-        })
-        .collect();
+    let screens = ig_app::screens::pieces(w.files(), slug);
     let mut v =
         app::check(&head, d, &screens, &app::design_path(slug)).map_err(|e| e.to_string())?;
     // Handed back as given, so the caller can drop a response that is no longer the latest.
@@ -186,181 +175,99 @@ pub fn emit_changed(app: &tauri::AppHandle, root: &Path, slugs: &BTreeSet<String
     }
 }
 
-/// The recovery copy of edits that could not be written to design.json.
-fn unsaved_path(slug: &str) -> Result<String, String> {
-    if !app::valid_slug(slug) {
-        return Err(format!("bad feature name {slug:?}"));
-    }
-    Ok(format!("plans/{slug}/design.unsaved.json"))
-}
-
-/// Keeps `text` (the board) as the feature's recovery copy, atomically.
-pub fn keep_unsaved_for(root: &Path, slug: &str, text: &str) -> Result<(), String> {
-    let path = unsaved_path(slug)?;
-    let w = Wired::new(root);
-    w.files()
-        .write_atomic(&path, text.as_bytes())
-        .map_err(|e| e.to_string())
-}
-
-/// The recovery copy and when it was written (ms since the epoch), if there is one.
-pub fn unsaved_for(root: &Path, slug: &str) -> Result<Option<(String, u64)>, String> {
-    let path = unsaved_path(slug)?;
-    let Some(bytes) = Wired::new(root).files().read_bytes(&path) else {
-        return Ok(None);
-    };
-    let at = std::fs::metadata(root.join(&path))
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_millis() as u64);
-    Ok(Some((String::from_utf8_lossy(&bytes).into_owned(), at)))
-}
-
-pub fn discard_unsaved_for(root: &Path, slug: &str) -> Result<(), String> {
-    let path = unsaved_path(slug)?;
-    Wired::new(root)
-        .files()
-        .remove(&path)
-        .map_err(|e| e.to_string())
-}
-
 pub(crate) fn root_of(project: &crate::commands::Project) -> Result<PathBuf, String> {
     let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
     let root = root.ok_or_else(|| "no project open: Project > Open… (⌘O)".to_string())?;
-    check_plans(&root)?;
+    ig_wire::real_plans(&root)?;
     Ok(root)
 }
 
-fn check_plans(root: &Path) -> Result<(), String> {
-    match std::fs::symlink_metadata(root.join("plans")) {
-        Ok(m) if m.file_type().is_symlink() => {
-            Err("plans/ is a symlink; design files need a real plans folder".into())
-        }
-        _ => Ok(()),
-    }
-}
-
+/// `f` on a blocking thread, at most `bounded`'s limit at once with the other disk commands.
 pub(crate) async fn blocking<T: Send + 'static>(
+    gate: &Gate,
     f: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(f)
-        .await
-        .map_err(|e| e.to_string())?
+    gate.run(f).await?
 }
 
 #[tauri::command]
 pub async fn features(
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
 ) -> Result<Vec<app::Feature>, String> {
     let root = root_of(&project)?;
-    blocking(move || Ok(features_for(&root))).await
+    blocking(&gate, move || Ok(features_for(&root))).await
 }
 
 #[tauri::command]
 pub async fn create_feature(
     app: tauri::AppHandle,
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     title: String,
 ) -> Result<app::Feature, String> {
     let root = root_of(&project)?;
-    blocking(move || create_for(&root, &app.state::<Known>(), &title)).await
+    blocking(&gate, move || {
+        create_for(&root, &app.state::<Known>(), &title)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn read_design(
     app: tauri::AppHandle,
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
 ) -> Result<Design, String> {
     let root = root_of(&project)?;
-    blocking(move || read_for(&root, &app.state::<Known>(), &slug)).await
+    blocking(&gate, move || read_for(&root, &app.state::<Known>(), &slug)).await
 }
 
 #[tauri::command]
 pub async fn write_design(
     app: tauri::AppHandle,
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
     design: Design,
 ) -> Result<(), String> {
     let root = root_of(&project)?;
-    blocking(move || write_for(&root, &app.state::<Known>(), &slug, &design)).await
+    blocking(&gate, move || {
+        write_for(&root, &app.state::<Known>(), &slug, &design)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn check_design(
     app: tauri::AppHandle,
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
     design: Design,
     seq: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let root = root_of(&project)?;
-    blocking(move || check_for(&root, &app.state::<HeadCache>(), &slug, &design, seq)).await
-}
-
-#[tauri::command]
-pub async fn plan_status(
-    project: tauri::State<'_, crate::commands::Project>,
-    slug: String,
-) -> Result<BoardStatus, String> {
-    let root = root_of(&project)?;
-    blocking(move || plan_status_for(&root, &slug)).await
-}
-
-#[tauri::command]
-pub async fn keep_unsaved(
-    project: tauri::State<'_, crate::commands::Project>,
-    slug: String,
-    text: String,
-) -> Result<(), String> {
-    let root = root_of(&project)?;
-    blocking(move || keep_unsaved_for(&root, &slug, &text)).await
-}
-
-#[tauri::command]
-pub async fn read_unsaved(
-    project: tauri::State<'_, crate::commands::Project>,
-    slug: String,
-) -> Result<Option<serde_json::Value>, String> {
-    let root = root_of(&project)?;
-    blocking(move || {
-        let u = unsaved_for(&root, &slug)?;
-        Ok(u.map(|(text, at)| serde_json::json!({ "text": text, "at": at })))
+    blocking(&gate, move || {
+        check_for(&root, &app.state::<HeadCache>(), &slug, &design, seq)
     })
     .await
 }
 
 #[tauri::command]
-pub async fn discard_unsaved(
+pub async fn plan_status(
     project: tauri::State<'_, crate::commands::Project>,
+    gate: tauri::State<'_, Gate>,
     slug: String,
-) -> Result<(), String> {
+) -> Result<BoardStatus, String> {
     let root = root_of(&project)?;
-    blocking(move || discard_unsaved_for(&root, &slug)).await
+    blocking(&gate, move || plan_status_for(&root, &slug)).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_recovery_copy_is_kept_read_and_discarded() {
-        let root = std::env::temp_dir().join(format!("ig-desktop-unsaved-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        assert_eq!(unsaved_for(&root, "export"), Ok(None));
-        keep_unsaved_for(&root, "export", "{\"title\":\"x\"}").unwrap();
-        let (text, at) = unsaved_for(&root, "export").unwrap().unwrap();
-        assert_eq!(text, "{\"title\":\"x\"}");
-        assert!(at > 0);
-        assert!(!root.join("plans/export/design.json").exists());
-        discard_unsaved_for(&root, "export").unwrap();
-        assert_eq!(unsaved_for(&root, "export"), Ok(None));
-        assert!(keep_unsaved_for(&root, "../x", "{}").is_err());
-        let _ = std::fs::remove_dir_all(&root);
-    }
 
     #[test]
     fn autosave_is_not_news_and_a_stale_write_conflicts() {
@@ -469,7 +376,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::os::unix::fs::symlink("/tmp", root.join("plans")).unwrap();
-        assert!(check_plans(&root).is_err());
+        assert!(ig_wire::real_plans(&root).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ViewData } from "../data";
-import type { AgentEvent, Design, Feature, FileEntry, FileText, IgApi, Screen, TrustState } from "./index";
+import type { AgentEvent, Design, Feature, FileEntry, FileText, IgApi, Kept, Screen, TrustState } from "./index";
 
 /** listen() is async: an unsubscribe that comes before it resolves must still unlisten. */
 function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
@@ -67,9 +67,9 @@ export function tauri(): IgApi {
       write: (slug, design) => invoke<void>("write_design", { slug, design }),
       // Task 3 adds the command.
       check: (slug, design, seq) => invoke("check_design", { slug, design, seq }),
-      keepUnsaved: (slug, text) => invoke<void>("keep_unsaved", { slug, text }),
-      unsaved: (slug) => invoke<{ text: string; at: number } | null>("read_unsaved", { slug }),
-      discardUnsaved: (slug) => invoke<void>("discard_unsaved", { slug }),
+      keepUnsaved: (slug, text) => invoke<string>("keep_unsaved", { slug, text }).then(() => {}),
+      unsaved: (slug) => invoke<Kept[]>("read_unsaved", { slug }),
+      discardUnsaved: (slug, name) => invoke<void>("discard_unsaved", { slug, name }),
       planStatus: (slug) => invoke("plan_status", { slug }),
       onChanged: (cb) => subscribe<{ slug: string }>("design-changed", (e) => cb(e.slug)),
     },

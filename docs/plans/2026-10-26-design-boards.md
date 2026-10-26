@@ -38,7 +38,7 @@ When the boards are clear, the user clicks **Plan**, then **Apply**. `ig plan ch
 - **wasm32:** wasm-bindgen and web-sys, with WebGL2.
 - **Frontend:** TypeScript, Svelte 5, Vitest and bun.
 - **Graph view:** sigma.js and graphology.
-- **New dependencies** are listed and justified in Decisions 21–24.
+- **New dependencies** are listed and justified in Decisions 21–25.
 
 **Spec:** `docs/specs/2026-10-25-ig-design-workspace-design.md`. The sections that apply:
 - "The board", "Ownership: design vs plan", "Architecture canvas", "Screens canvas", "The bridge between the canvases", "Call chain view", "Agent loop", "Author's calls", "Usability bar", "Constraints" and "Left to the builder".
@@ -183,6 +183,7 @@ The spec leaves these to the builder, unless a line says the decision was the us
     - **Compound nodes:** sigma has none. Rows and group boxes are drawn on a background canvas layer, re-projected on `afterRender`, and a click on a group box opens it.
     - **Planned edges:** drawn dashed by a small custom edge program.
     - **Layouts for Changed and Focus:** `graphology-layout-forceatlas2`, or `d3-force`/`d3-hierarchy` (ISC), whichever the before/after measurement favours. Pinned exactly and seeded, so it is deterministic.
+25. **`tokio =1.54.1` in ig-desktop** (MIT; features `sync` and `time`), accepted with the memory fix: tauri's runtime is already tokio, so this adds no runtime. It gives the bounded command gate (`Semaphore`), the file list's single flight and real timers (`session::nap`), instead of blocking threads.
 
 ## Global Constraints
 
@@ -210,7 +211,7 @@ The spec leaves these to the builder, unless a line says the decision was the us
   - pinned by headless engine benchmarks (scene build, hit-testing), not GPU timings;
   - an edit shows its check result in under 150 ms on acme.
 - **The boards are desktop-only.** The wasm is never inlined into `ig view`. `ig view`, `ig serve` and flat plans keep working unchanged.
-- **Dependencies:** only those named in Decisions 21–24, pinned exactly. No global installs.
+- **Dependencies:** only those named in Decisions 21–25, pinned exactly. No global installs.
 - **Files are ≤ 600 lines.**
 - **Gates for every task:**
   - `make test`

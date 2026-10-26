@@ -5,7 +5,6 @@ use super::*;
 use ig_app::design as app;
 use ig_app::screens;
 use ig_core::design::{Board, Op, apply};
-use ig_core::ports::Files;
 
 const MAX_OPS: usize = 200;
 
@@ -21,6 +20,7 @@ pub(super) fn edit(root: &Path, args: &Value) -> anyhow::Result<(String, Option<
     if ops.len() > MAX_OPS {
         anyhow::bail!("design_edit: at most {MAX_OPS} ops per call");
     }
+    ig_wire::real_plans(root).map_err(|e| anyhow::anyhow!("design_edit: {e}"))?;
     let path = app::design_path(slug);
     if ops.is_empty() {
         return Ok((format!("no ops: {path} unchanged"), None));
@@ -72,16 +72,7 @@ pub(super) fn edit(root: &Path, args: &Value) -> anyhow::Result<(String, Option<
 
 /// `ig_app::design::check` of the written design (the app's live check).
 fn design_check(w: &Wired, slug: &str, d: &ig_core::design::Design) -> anyhow::Result<Value> {
-    let screens: Vec<String> = (w.files().glob(&[format!("plans/{slug}/screens/*.json")]))
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|p| {
-            p.rsplit('/')
-                .next()?
-                .strip_suffix(".json")
-                .map(String::from)
-        })
-        .collect();
+    let screens = ig_app::screens::pieces(w.files(), slug);
     let head = ig_app::plan::Head::load(&w.env())?;
     let v = ig_app::design::check(&head, d, &screens, &ig_app::design::design_path(slug))?;
     Ok(json!({"ok": v["ok"], "findings": v["findings"]}))

@@ -23,6 +23,7 @@ export interface RawEngine {
   tool(): string;
   ops(ops: string, step: string): string;
   external(disk: string, turn?: string | null): string;
+  externalFrom(kept: string, base?: string | null): string;
   setCheck(targets: string): void;
   dismiss(id?: string | null): void;
   highlighted(): string;
@@ -97,6 +98,7 @@ export function wrap(raw: RawEngine, pkg: Pkg, onFail: (reason: string) => void)
     tool: () => g(() => raw.tool() as Tool),
     ops: (o, step) => g(() => out(raw.ops(o, JSON.stringify(step)))),
     external: (d, turn) => g(() => out(raw.external(d, turn))),
+    externalFrom: (k, base) => g(() => out(raw.externalFrom(k, base))),
     setCheck: (t) => g(() => raw.setCheck(t)),
     dismiss: (id) => g(() => raw.dismiss(id)),
     highlighted: () => g(() => JSON.parse(raw.highlighted()) as string[]),

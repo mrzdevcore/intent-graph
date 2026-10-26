@@ -164,3 +164,43 @@ test.skipIf(!built)("screen edits reach Claude through the outbox: lines for mea
   expect([box.pending, sent.length]).toEqual([0, 1]);
   e.free();
 });
+
+test.skipIf(!built)("a kept copy restored after Claude edited the disk: Claude's add survives and the kept edits apply", async () => {
+  const { BoardStore } = await import("../src/board/store");
+  const glue = (await import(/* @vite-ignore */ new URL("ig_board.js", dir).href)) as Pkg & {
+    default(i: { module_or_path: BufferSource }): Promise<unknown>;
+  };
+  await glue.default({ module_or_path: readFileSync(new URL("ig_board_bg.wasm", dir)) });
+  const e = wrap(new glue.BoardEngine(), glue, (r) => { throw new Error(r); });
+  const fn = (id: string, x: number) => ({ id, kind: "function", name: id, x, y: 8, w: 80, h: 40 });
+  let disk = { version: 1, title: "R", scope: { kind: "dir", id: "." }, elements: [fn("fn-a", 8)], marks: [], links: [], bridges: [] };
+  const kept: string[] = [], writes: { elements: { id: string }[] }[] = [];
+  let failing = true;
+  const api = { read: async () => disk, check: () => new Promise(() => {}), features: async () => [], onChanged: () => () => {},
+    write: async (_: string, d: typeof writes[0]) => { if (failing) throw new Error("disk full"); writes.push(d); },
+    keepUnsaved: async (_: string, t: string) => void kept.push(t), discardUnsaved: async () => {} };
+  const clock = { now: () => 0, after: () => () => {} };
+  const hooks = { context: () => JSON.stringify({ lanes: [], boxes: [], edges: [] }), nodes: () => [] };
+  const err = console.error;
+  console.error = () => {};
+  const first = new BoardStore(api as never, e, "r", clock, hooks);
+  await first.load();
+  const add = (id: string) => [{ op: "add", id, kind: "function", name: id, file: null, method: null, path: null, layer: null, on: null, x: 208, y: 8, w: null, h: null }];
+  first.onOut(e.ops(JSON.stringify(add("fn-u")), "user"));
+  await first.finish();
+  first.dispose();
+  console.error = err;
+  expect(kept).toHaveLength(1);
+  // Claude's design_edit adds fn-c on disk; the feature opens again on the disk
+  disk = { ...disk, elements: [...disk.elements, fn("fn-c", 408)] };
+  const again = new BoardStore(api as never, e, "r", clock, hooks);
+  await again.load();
+  await again.restore({ name: "design.unsaved.json", text: kept[0] });
+  const ids = (t: { elements: { id: string }[] }) => t.elements.map((x) => x.id).sort();
+  expect(ids(JSON.parse(e.board()))).toEqual(["fn-a", "fn-c", "fn-u"]);
+  // the merge base is still the disk: the restored board gets written
+  failing = false;
+  await again.flush();
+  expect(ids(writes.at(-1)!)).toEqual(["fn-a", "fn-c", "fn-u"]);
+  e.free();
+});

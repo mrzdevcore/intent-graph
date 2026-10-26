@@ -60,7 +60,7 @@ function fakeApi() {
     write: async (_s, d) => void writes.push(d),
     check: () => new Promise(() => {}),
     keepUnsaved: async () => {},
-    unsaved: async () => null,
+    unsaved: async () => [],
     discardUnsaved: async () => {},
     planStatus: async () => ({ exists: false, blocking: 0 }),
     onChanged: () => () => {},

@@ -4,7 +4,7 @@
 // screens (desktop), each screen file is written only when it changed, and images go through
 // putAsset (Rust never decodes them; the host does, for the texture).
 
-import type { Design, DesignApi, DesignCheck, Screen, ScreensApi } from "../api";
+import type { Design, DesignApi, DesignCheck, Kept, Screen, ScreensApi } from "../api";
 import type { ViewNode } from "../data";
 import { proposeFile } from "../model/design";
 import type { BoardEngine, EngineOut } from "./engine";
@@ -45,7 +45,7 @@ export const realClock: Clock = {
   },
 };
 
-export type StoreEngine = Pick<BoardEngine, "load" | "ops" | "external" | "setCheck" | "board" | "saved">
+export type StoreEngine = Pick<BoardEngine, "load" | "ops" | "external" | "externalFrom" | "setCheck" | "board" | "saved">
   & Partial<Pick<BoardEngine, "screens" | "setImage" | "importImage" | "dropImage">>;
 
 /** Decodes an image for its texture; null when it can't (a placeholder shows instead). */
@@ -94,6 +94,19 @@ export function targets(c: DesignCheck): [string, string, string][] {
     by.set(f.target, t);
   }
   return [...by].map(([id, t]) => [id, t.sev, t.why.join("; ")]);
+}
+
+const KEPT = "ig-unsaved";
+/** A recovery file: the board text and the board on disk it was made over, both in `text()`'s form. */
+interface KeptCopy { kind: typeof KEPT; version: 2; base: string; board: string }
+
+/** A recovery file's board and base; an older file is the bare board text (base null). */
+export function parseKept(text: string): { board: string; base: string | null } {
+  try {
+    const c = JSON.parse(text) as Partial<KeptCopy>;
+    if (c.kind === KEPT && typeof c.board === "string" && typeof c.base === "string") return { board: c.board, base: c.base };
+  } catch { /* not JSON: the engine reports it */ }
+  return { board: text, base: null };
 }
 
 export class BoardStore {
@@ -322,21 +335,25 @@ export class BoardStore {
     })();
   }
 
-  /** Board text that could not be written: plans/<slug>/design.unsaved.json. */
+  /** Board text that could not be written, kept with the disk it was made over (its merge base):
+   *  plans/<slug>/design.unsaved.json, or the next free design.unsaved.<n>.json. */
   private async keep(text: string, why: unknown) {
     console.error(`${this.path}: not written (${msg(why)}); keeping the edits in design.unsaved.json`);
-    await this.api.keepUnsaved(this.slug, text).catch((e: unknown) => console.error(e));
+    const copy: KeptCopy = { kind: KEPT, version: 2, base: this.diskText(), board: text };
+    await this.api.keepUnsaved(this.slug, JSON.stringify(copy)).catch((e: unknown) => console.error(e));
   }
 
-  /** The recovery copy, merged into the board as one outside step, then deleted. */
-  async restore(text: string): Promise<void> {
+  /** A recovery copy, merged into the board over its own base as one outside step (later work
+   *  on disk stays), then deleted. An older copy (the bare board) adds and changes only. */
+  async restore(k: Pick<Kept, "name" | "text">): Promise<void> {
     if (this.closed) return;
-    this.onOut(this.engine.external(text, null));
-    await this.api.discardUnsaved(this.slug);
+    const c = parseKept(k.text);
+    this.onOut(this.engine.externalFrom(c.board, c.base));
+    await this.api.discardUnsaved(this.slug, k.name);
   }
 
-  discard(): Promise<void> {
-    return this.api.discardUnsaved(this.slug);
+  discard(name: string): Promise<void> {
+    return this.api.discardUnsaved(this.slug, name);
   }
 
   /** The file changed outside: merged in (one undo step, Claude's turn when it is one), or, when

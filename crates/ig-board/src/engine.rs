@@ -2,6 +2,7 @@
 
 use crate::hit::{Index, Target};
 use crate::input::{Gesture, Tool};
+use crate::merge::only_in;
 use crate::scene::{self, A11yItem, Label, Scene};
 use crate::screens::{diff, split_key, split_nav};
 use crate::snap::rect_of;
@@ -318,8 +319,20 @@ impl Engine {
     /// The file changed on disk: merged into ours (the user wins) as an agent or external step.
     /// A drag in flight goes on and wins: its elements keep the position it started from.
     pub fn external(&mut self, disk: Board, turn: Option<&str>) -> Out {
-        let mut m = merge(&self.base, self.board(), &disk);
-        self.base = disk;
+        let base = std::mem::replace(&mut self.base, disk.clone());
+        self.merge_in(&base, disk, turn)
+    }
+
+    /// A recovery copy merged in as one outside step, over the disk it was kept against
+    /// (`base`; None, an older copy: over the disk now, adding and changing only, never
+    /// removing). The merge base stays the disk, so the result still gets written.
+    pub fn external_from(&mut self, kept: Board, base: Option<Board>) -> Out {
+        let base = base.unwrap_or_else(|| only_in(&self.base, &kept));
+        self.merge_in(&base, kept, None)
+    }
+
+    fn merge_in(&mut self, base: &Board, theirs: Board, turn: Option<&str>) -> Out {
+        let mut m = merge(base, self.board(), &theirs);
         match &self.gesture {
             Gesture::Drag { ids, .. } => {
                 for e in m

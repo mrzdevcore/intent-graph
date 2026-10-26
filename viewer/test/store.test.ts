@@ -3,7 +3,7 @@ import type { Design, DesignApi, DesignCheck, Screen, ScreensApi } from "../src/
 import type { ViewNode } from "../src/data";
 import type { EngineOut } from "../src/board/engine";
 import { Outbox } from "../src/board/outbox";
-import { agentStep, BoardStore, save, type Clock, type StoreEngine, type StoreHooks } from "../src/board/store";
+import { agentStep, BoardStore, parseKept, save, type Clock, type StoreEngine, type StoreHooks } from "../src/board/store";
 
 test("agentStep groups arrivals up to 1 s after the turn ends", () => {
   const turns = [{ id: "t1", start: 100, end: 500 }, { id: "t2", start: 5000, end: null }];
@@ -71,6 +71,10 @@ function fakeEngine(d = design()) {
       calls.push(["external", [JSON.parse(disk), turn]]);
       return OUT({ changed: true, meaning: true });
     },
+    externalFrom: (kept, base) => {
+      calls.push(["externalFrom", [JSON.parse(kept), base && JSON.parse(base)]]);
+      return OUT({ changed: true, meaning: true });
+    },
     setCheck: (t) => void calls.push(["setCheck", [JSON.parse(t)]]),
     board: () => JSON.stringify(board),
     saved: (w) => void calls.push(["saved", [w]]),
@@ -113,7 +117,7 @@ function fakeApi(disk: () => Design | Error = () => design()) {
       return d.promise;
     },
     keepUnsaved: async (_slug, text) => void kept.push(text),
-    unsaved: async () => null,
+    unsaved: async () => [],
     discardUnsaved: async () => void discarded++,
     planStatus: async () => ({ exists: false, blocking: 0 }),
     onChanged: () => () => {},
@@ -341,7 +345,9 @@ test("a conflict on close keeps the edits in the recovery file", async () => {
   s.setBoard(design([{ id: "fn-a", kind: "function", name: "A" }]));
   s.store.onOut(OUT({ changed: true }));
   await s.store.close();
-  expect(s.kept.map((t) => JSON.parse(t))).toEqual([design([{ id: "fn-a", kind: "function", name: "A" }])]);
+  const k = parseKept(s.kept[0]);
+  expect(JSON.parse(k.board)).toEqual(design([{ id: "fn-a", kind: "function", name: "A" }]));
+  expect(JSON.parse(k.base!)).toEqual(design()); // the disk it was made over
   expect(err).toHaveBeenCalled();
   err.mockRestore();
 });
@@ -374,16 +380,20 @@ test("a switch with an edit during the flush loses nothing", async () => {
   expect(s.kept).toHaveLength(0);
 });
 
-test("restore merges the recovery copy as one outside step and deletes it; discard deletes it", async () => {
+test("restore merges the recovery copy over its own base as one outside step and deletes it; discard deletes it", async () => {
   const s = setup();
   await s.store.load();
-  const text = JSON.stringify(design([{ id: "fn-a", kind: "function", name: "A" }]));
-  await s.store.restore(text);
-  expect(s.of("external")).toEqual([[JSON.parse(text), null]]);
-  expect(s.discarded()).toBe(1);
-  await s.store.discard();
+  const board = design([{ id: "fn-a", kind: "function", name: "A" }]);
+  const copy = { kind: "ig-unsaved", version: 2, base: JSON.stringify(design()), board: JSON.stringify(board) };
+  await s.store.restore({ name: "design.unsaved.2.json", text: JSON.stringify(copy) });
+  expect(s.of("externalFrom")).toEqual([[board, design()]]);
+  // an older copy is the bare board: no base, the engine adds and changes only
+  await s.store.restore({ name: "design.unsaved.json", text: JSON.stringify(board) });
+  expect(s.of("externalFrom")[1]).toEqual([board, null]);
   expect(s.discarded()).toBe(2);
-  expect(s.of("external")).toHaveLength(1);
+  await s.store.discard("design.unsaved.json");
+  expect(s.discarded()).toBe(3);
+  expect(s.of("external")).toHaveLength(0);
 });
 
 const fn = (id: string) => ({ id, kind: "function" as const, name: id });

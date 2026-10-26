@@ -6,7 +6,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Box, Cloud, Frame, Maximize, MousePointer2, Redo2, Route, SquareFunction, Spline, StickyNote, Undo2 } from "lucide-static";
-  import type { BoardStatus, Design, DesignApi, DesignScope, ScreensApi } from "../api";
+  import type { BoardStatus, Design, DesignApi, DesignScope, Kept, ScreensApi } from "../api";
   import type { ChatSession } from "../components/chat/session.svelte";
   import { openQuestions } from "../model/chat";
   import type { Group, Index } from "../model/graph";
@@ -106,6 +106,7 @@
       board?.fit();
     },
     ops: (o, s) => board?.run((e) => e.ops(o, s)) ?? NOOP,
+    externalFrom: (k, base) => board?.run((e) => e.externalFrom(k, base)) ?? NOOP,
     external: (d, t) => {
       const o = board?.run((e) => e.external(d, t)) ?? NOOP;
       // an outside edit with nothing queued: not news for Claude (its own edits: agentMerged)
@@ -128,7 +129,7 @@
       await old.finish();
       old.dispose();
     }
-    kept = null;
+    kept = [];
     slug = next;
     remember(next);
     selection = [];
@@ -152,7 +153,7 @@
     attach(next);
     void refreshStatus();
     void chat?.adopt(next);
-    const u = await api.unsaved(next).catch((e: unknown) => (console.error(e), null));
+    const u = await api.unsaved(next).catch((e: unknown) => (console.error(e), []));
     if (store === s) kept = u;
     if (around && around.n !== usedAround) {
       usedAround = around.n;
@@ -399,14 +400,14 @@
     void p.finally(() => off?.());
   }
 
-  /** Edits a failed write kept in design.unsaved.json, offered back on open. */
-  let kept = $state.raw<{ text: string; at: number } | null>(null);
-  async function restoreKept(restore: boolean) {
-    const k = kept, s = store;
-    if (!k || !s) return;
-    kept = null;
+  /** Edits failed writes kept in design.unsaved*.json, offered back on open, each on its own. */
+  let kept = $state.raw<Kept[]>([]);
+  async function restoreKept(k: Kept, restore: boolean) {
+    const s = store;
+    if (!s) return;
+    kept = kept.filter((x) => x !== k);
     try {
-      await (restore ? s.restore(k.text) : s.discard());
+      await (restore ? s.restore(k) : s.discard(k.name));
     } catch (e) {
       console.error(e);
     }
@@ -481,11 +482,15 @@
   <div class="canvas" class:docked inert={readOnly} bind:this={canvasEl}>
     <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} {importer} onready={ready} {onout} {reasons}
       onbeforefree={beforeFree} hand={surface === "screens"} onhover={(h) => (hover = h)} />
-    {#if kept}
+    {#if kept.length}
       <div class="kept" role="alert">
-        Unsaved changes from {new Date(kept.at).toLocaleString()} were kept (design.unsaved.json).
-        <button onclick={() => restoreKept(true)}>Restore</button>
-        <button onclick={() => restoreKept(false)}>Discard</button>
+        {#each kept as k (k.name)}
+          <div>
+            Unsaved changes from {new Date(k.at).toLocaleString()} were kept ({k.name}).
+            <button onclick={() => restoreKept(k, true)}>Restore</button>
+            <button onclick={() => restoreKept(k, false)}>Discard</button>
+          </div>
+        {/each}
       </div>
     {/if}
     {#if !slug}
@@ -533,9 +538,10 @@
   .canvas { grid-row: 2; grid-column: 2; position: relative; min-width: 0; min-height: 0; }
   .canvas.docked { margin-right: 50%; }
   .tabs { display: flex; gap: 2px; } .tabs [aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
-  .kept { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; gap: 8px;
+  .kept { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; flex-direction: column; gap: 4px;
     align-items: center; padding: 6px 10px; font-size: 13px; background: var(--panel); border: 1px solid var(--warning);
     border-radius: 6px; color: var(--fg); }
+  .kept > div { display: flex; gap: 8px; align-items: center; }
   .empty { position: absolute; inset: 0; background: var(--bg); padding: 15vh 16px 0; color: var(--muted); }
   .empty p { max-width: 34em; margin: 0 auto; }
   .muted { color: var(--muted); }

@@ -209,6 +209,32 @@ pub fn merge(base: &Board, ours: &Board, theirs: &Board) -> Merged {
     .with_screens(base, ours, theirs)
 }
 
+/// `b` without what `like` lacks (elements, links, marks, bridges, screens and their pieces and
+/// navs): a merge base under which `like` adds and changes but never removes.
+// ponytail: O(n²) lookups, fine at a board's size; key sets if a restore is ever slow.
+pub fn only_in(b: &Board, like: &Board) -> Board {
+    let (l, mut out) = (&like.design, b.clone());
+    let d = &mut out.design;
+    d.elements
+        .retain(|e| l.elements.iter().any(|x| x.id == e.id));
+    d.links
+        .retain(|k| l.links.iter().any(|x| x.key() == k.key()));
+    d.marks.retain(|m| l.marks.iter().any(|x| x.node == m.node));
+    d.bridges
+        .retain(|k| l.bridges.iter().any(|x| x.key() == k.key()));
+    out.screens.retain(|id, s| {
+        let Some(t) = like.screens.get(id) else {
+            return false;
+        };
+        s.elements
+            .retain(|p| t.elements.iter().any(|x| x.id == p.id));
+        s.navs
+            .retain(|n| t.navs.iter().any(|x| x.from == n.from && x.to == n.to));
+        true
+    });
+    out
+}
+
 /// Puts unplaced elements (no x/y) in their lane: layer elements in their layer's row, systems
 /// in External services, the rest below the rows; each in the first free slot, never on a
 /// context box or another element.
@@ -252,6 +278,7 @@ pub fn place_new(b: &Board, ids: &[String], ctx: &Context) -> Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::screens::tests::{screen, with};
     use crate::snap::tests::board;
     use ig_design::{LinkKind, MarkKind, validate};
 
@@ -267,6 +294,48 @@ mod tests {
     }
     fn base() -> Board {
         board(vec![el("fn-a", "a"), el("fn-b", "b")])
+    }
+
+    #[test]
+    fn a_restored_copy_merges_over_its_own_base_and_keeps_later_work() {
+        let ctx = crate::engine::tests::ctx();
+        let d0 = base();
+        let mut kept = d0.clone();
+        kept.design.elements.retain(|e| e.id != "fn-b"); // the user's own removal
+        kept.design.elements.push(el("fn-u", "u"));
+        kept.design.elements[0].name = "A".into();
+        // meanwhile Claude added fn-c on disk; the board opens on the disk
+        let mut disk = d0.clone();
+        disk.design.elements.push(el("fn-c", "c"));
+        let mut e = crate::Engine::new(ctx.clone(), disk.clone());
+        assert!(e.external_from(kept.clone(), Some(d0)).changed);
+        assert_eq!(ids(e.board()), ["fn-a", "fn-c", "fn-u"]);
+        assert_eq!(e.board().design.elements[0].name, "A");
+        assert_eq!(
+            ids(e.merge_base()),
+            ["fn-a", "fn-b", "fn-c"],
+            "the base stays the disk"
+        );
+        // an old copy (no base): additions and changes only, nothing removed
+        let mut e = crate::Engine::new(ctx, disk);
+        e.external_from(kept, None);
+        assert_eq!(ids(e.board()), ["fn-a", "fn-b", "fn-c", "fn-u"]);
+        assert_eq!(e.board().design.elements[0].name, "A");
+    }
+
+    #[test]
+    fn only_in_keeps_what_both_have() {
+        let mut like = with(vec![screen("s", 0, &[("p-a", 0, 0)])]);
+        like.design.elements.push(el("fn-a", "x"));
+        let mut b = with(vec![
+            screen("s", 9, &[("p-a", 0, 0), ("p-b", 0, 0)]),
+            screen("t", 0, &[]),
+        ]);
+        b.design = base().design;
+        let o = only_in(&b, &like);
+        assert_eq!(ids(&o), ["fn-a"]);
+        assert_eq!(o.screens.keys().collect::<Vec<_>>(), ["s"]);
+        assert_eq!((o.screens["s"].x, o.screens["s"].elements.len()), (9, 1));
     }
 
     #[test]

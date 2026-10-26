@@ -80,6 +80,9 @@ export interface BoardEngine {
   /** One history step; `error` set (and nothing changed) when invalid. */
   ops(opsJson: string, step: Step): EngineOut;
   external(diskJson: string, turn: string | null): EngineOut;
+  /** A recovery copy merged in over `base`, the board on disk when it was kept (null: an older
+   *  copy, adding and changing only); the merge base stays the disk. One outside step. */
+  externalFrom(keptJson: string, base: string | null): EngineOut;
   setCheck(targetsJson: string): void;
   dismiss(id: string | null): void;
   highlighted(): string[];

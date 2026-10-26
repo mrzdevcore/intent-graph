@@ -535,7 +535,7 @@ fn real_adapter_load() {
             rx,
         );
         r2.s.load(&id).await.unwrap();
-        nap(1500).await.unwrap();
+        nap(1500).await;
         for e in r2.rx.try_iter() {
             match e {
                 AgentEvent::MessageChunk { role, content, .. } => {

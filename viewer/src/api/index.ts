@@ -190,6 +190,8 @@ export interface BoardStatus {
   blocking: number;
 }
 
+export interface Kept { name: string; text: string; at: number }
+
 /** Desktop app only: features and their design files. */
 export interface DesignApi {
   features(): Promise<Feature[]>;
@@ -198,11 +200,12 @@ export interface DesignApi {
   /** Rejects "conflict" when the file changed on disk since it was last read or written here. */
   write(slug: string, d: Design): Promise<void>;
   check(slug: string, d: Design, seq?: number): Promise<DesignCheck>;
-  /** Keeps board text that could not be written as plans/<slug>/design.unsaved.json. */
+  /** Keeps board text that could not be written as plans/<slug>/design.unsaved.json, or the
+   *  next free design.unsaved.<n>.json: a kept copy is never overwritten. */
   keepUnsaved(slug: string, text: string): Promise<void>;
-  /** The kept text and when it was written (ms), if any. */
-  unsaved(slug: string): Promise<{ text: string; at: number } | null>;
-  discardUnsaved(slug: string): Promise<void>;
+  /** Every kept copy: its file name, text and when it was written (ms). */
+  unsaved(slug: string): Promise<Kept[]>;
+  discardUnsaved(slug: string, name: string): Promise<void>;
   /** The feature's plan.md, checked without recording it. */
   planStatus(slug: string): Promise<BoardStatus>;
   /** A design file changed outside the app. Returns the unsubscribe. */
