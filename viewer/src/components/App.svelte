@@ -34,6 +34,7 @@
   import { focusIds } from "../model/focus";
   import { ancestors, findNode, index, topMember, type Group } from "../model/graph";
   import { beforeAfter, nodeNamed } from "../model/code";
+  import Chat from "./chat/Chat.svelte";
   import CodeView from "./CodeView.svelte";
   import Files from "./Files.svelte";
   import Graph from "./Graph.svelte";
@@ -323,6 +324,16 @@
     }
   }
 
+  /** The chat (desktop app only), docked on the right; "Chat" in the header hides it. */
+  let chatOpen = $state(true);
+  const chatApi = untrack(() => (api.agent && api.trustInventory && api.trustProject ? api : null));
+
+  /** What "Attach selection" and "Plan this" take: the selected node, else the file in the code view. */
+  const selection = $derived(
+    side.kind === "node" && ix.byId[side.id] ? { ids: [side.id], files: ix.byId[side.id].file ? [ix.byId[side.id].file] : [] }
+    : code && !code.merge ? { ids: [], files: [code.path] }
+    : null);
+
   const crumbs = $derived(mode === "architecture" ? [ix.root, ...ancestors(ix, scope)] : []);
 
   const sideActions = {
@@ -376,8 +387,9 @@
   <!-- svelte-ignore a11y_invalid_attribute -->
   <span id="crumbs" class="crumbs">{#each crumbs as t, i}{i ? " › " : ""}{#if t === scope}<strong>{i ? t.label : "All"}</strong>{:else}<a href="#" onclick={(e) => { e.preventDefault(); setScope(t); side = { kind: "group", id: t.id }; }}>{i ? t.label : "All"}</a>{/if}{/each}</span>
   <span id="hint" class="counts">{hint}</span>
+  {#if chatApi}<button id="chat-toggle" class="toggle" aria-pressed={chatOpen ? "true" : "false"} onclick={() => (chatOpen = !chatOpen)}>Chat</button>{/if}
 </header>
-<main>
+<main class:with-chat={chatApi && chatOpen}>
   <div id="tree" aria-label="Files" role="navigation">
     <Tree bind:this={tree} {ix} {mode} {screenIds} onselect={onTreeSelect} onfolder={onTreeFolder} onfocus={focusOn} />
     {#if api.fileTree}<Files list={api.fileTree.bind(api)} path={selectedFile} version={D} onselect={onFile} />{/if}
@@ -389,6 +401,13 @@
   <div id="side" role="complementary">
     <SidePanel {ix} view={side} {mode} {focusId} {focusDepth} {journey} {uiOnly} {notes} on={sideActions} />
   </div>
+  {#if chatApi}
+    <div id="chat" hidden={!chatOpen}>
+      <Chat agent={chatApi.agent!} trustInventory={chatApi.trustInventory!} trustProject={chatApi.trustProject!}
+        openUrl={chatApi.openUrl ? (u) => chatApi.openUrl!(u).catch((e: unknown) => (hint = msg(e))) : undefined}
+        root={D.root} {selection} onopendiff={(path, before, after) => (code = { path, merge: { before, after } })} />
+    </div>
+  {/if}
 </main>
 {#if menu}
   <div class="ctx-menu" role="menu" style="left:{menu.x}px;top:{menu.y}px">

@@ -1,5 +1,6 @@
 <!-- Read-only CodeMirror: one file (line numbers, folding, `line` scrolled into view, a click on a word
-     reports it) or, with `merge`, a node's before and after side by side. -->
+     reports it) or, with `merge`, a node's before and after side by side. `inline`: a small block
+     (the chat's diff cards) instead of the panel over the graph. -->
 <script lang="ts">
   import { foldGutter, syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
   import { MergeView } from "@codemirror/merge";
@@ -7,7 +8,7 @@
   import { EditorView, lineNumbers } from "@codemirror/view";
   import { languageFor } from "../model/code";
 
-  let { path, text = "", merge, line, onword, onclose }: {
+  let { path, text = "", merge, line, onword, onclose, inline = false }: {
     /** Decides the language; for a merge, the node's file. */
     path: string;
     text?: string;
@@ -16,7 +17,8 @@
     line?: number;
     /** A click on a word, with its 1-based line. */
     onword?: (word: string, line: number) => void;
-    onclose: () => void;
+    onclose?: () => void;
+    inline?: boolean;
   } = $props();
 
   let host: HTMLElement;
@@ -73,7 +75,7 @@
   });
 </script>
 
-<section id="ig-code" aria-label={merge ? "Before and after" : "Source: " + path}>
-  <header><strong>{path}</strong>{merge ? " · before → after" : ""}<button onclick={onclose}>Close</button></header>
+<section id={inline ? undefined : "ig-code"} class:code-inline={inline} aria-label={merge ? "Before and after: " + path : "Source: " + path}>
+  {#if !inline}<header><strong>{path}</strong>{merge ? " · before → after" : ""}{#if onclose}<button onclick={onclose}>Close</button>{/if}</header>{/if}
   <div class="host" bind:this={host}></div>
 </section>

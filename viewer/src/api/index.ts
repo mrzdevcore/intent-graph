@@ -54,6 +54,16 @@ export interface PermissionOption {
   kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
 }
 
+/** One session setting (ACP `configOptions`), e.g. `mode` or `model`; set it to one of `options`' values. */
+export interface ConfigOption {
+  id: string;
+  name: string;
+  category?: string;
+  type: string;
+  currentValue: string;
+  options: { value: string; name: string; description?: string }[];
+}
+
 /** The desktop app's `agent-event`s (crates/ig-desktop/src/events.rs). */
 export type AgentEvent =
   | { type: "MessageChunk"; sessionId: string; role: "agent" | "thought" | "user"; content: { type: string; text?: string } }
@@ -64,6 +74,10 @@ export type AgentEvent =
   | { type: "Commands"; sessionId: string; commands: { name: string; description: string }[] }
   | { type: "Plan"; sessionId: string; entries: unknown }
   | { type: "Permission"; requestId: number; sessionId: string; toolCall: ToolCallInfo; options: PermissionOption[] }
+  /** `AskUserQuestion`: a form `schema` (`properties.question_<n>` with `oneOf` or `items.anyOf` options). Answer with `reply`. */
+  | { type: "Question"; requestId: number; sessionId: string; message: string; schema: unknown }
+  /** The session's `configOptions` (mode, model, ...); change one with `setConfig`. */
+  | { type: "Config"; sessionId: string; options: ConfigOption[] }
   /** Not logged in: show "Run `claude` and `/login` in a terminal, then retry". */
   | { type: "Auth"; needed: boolean; label: string | null }
   /** The adapter exited: keep the transcript, offer `agentRestart`. */
@@ -80,6 +94,10 @@ export interface AgentApi {
   cancel(): Promise<void>;
   /** Answers a `Permission` event, exactly once. */
   answer(requestId: number, optionId: string): Promise<void>;
+  /** Answers a `Question` event once: `{field: label | labels}`, or null to skip it. */
+  reply(requestId: number, content: Record<string, string | string[]> | null): Promise<void>;
+  /** Sets a `ConfigOption` (mode, model, ...); a `Config` event follows. */
+  setConfig(configId: string, value: string): Promise<void>;
   /** The adapter's sessions here and the feature → session id map. */
   list(): Promise<{ sessions: { sessionId: string; title?: string; updatedAt?: string }[]; features: Record<string, string> }>;
   load(sessionId: string): Promise<void>;
@@ -108,6 +126,8 @@ export interface IgApi {
   trustProject?(hash: string): Promise<void>;
   /** Desktop app only: the agent. */
   agent?: AgentApi;
+  /** Desktop app only: opens an http(s) link in the system browser. */
+  openUrl?(url: string): Promise<void>;
   /** Present when the backend supports plan notes (serve, desktop). */
   notes?: NotesApi;
 }

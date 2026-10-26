@@ -3,6 +3,7 @@
   --bg: #fbfbfa; --panel: #ffffff; --fg: #1d1d1b; --muted: #6b6b66; --line: #e3e2de;
   --added: #2f9e44; --changed: #d98a00; --removed: #d6336c; --unchanged: #9a9a94;
   --error: #c92a2a; --warning: #d98a00; --note: #4c6ef5; --code: #f4f3ef; --accent: #3b5bdb;
+  --brand: #E8A317; /* Haira gold: the owl's eyes, the chat's accent */
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
