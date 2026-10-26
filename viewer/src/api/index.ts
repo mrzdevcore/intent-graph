@@ -158,6 +158,8 @@ export interface Design {
 export type DesignCheck = {
   ok: boolean;
   ms: number;
+  /** The `seq` the caller sent, handed back: drop a response that is not the latest. */
+  seq?: number | null;
   volume: PlanVolume;
   findings: (Omit<ViewFinding, "pinned"> & { target: string | null })[];
 };
@@ -169,7 +171,7 @@ export interface DesignApi {
   read(slug: string): Promise<Design>;
   /** Rejects "conflict" when the file changed on disk since it was last read or written here. */
   write(slug: string, d: Design): Promise<void>;
-  check(slug: string, d: Design): Promise<DesignCheck>;
+  check(slug: string, d: Design, seq?: number): Promise<DesignCheck>;
   /** A design file changed outside the app. Returns the unsubscribe. */
   onChanged(cb: (slug: string) => void): () => void;
 }

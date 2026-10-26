@@ -157,6 +157,22 @@ mod tests {
     }
 
     #[test]
+    fn unknown_edge_end_message_keeps_its_shape() {
+        let text = "```ig-plan\nnodes:\n  - id: src/a.ts#f\n    status: new\nedges:\n  - from: src/a.ts#f\n    to: src/z.ts\n    kind: calls\n```\n";
+        let p = parse("p.md", text).unwrap();
+        let (_, _, f) = merge(&Graph::empty(), &p);
+        let m = f
+            .iter()
+            .find(|x| x.rule_id == "plan/unknown-edge-end")
+            .unwrap();
+        // ig-app's design check matches this prefix to find the link.
+        assert_eq!(
+            m.message,
+            "edge src/a.ts#f calls src/z.ts: src/z.ts is neither in the graph nor planned"
+        );
+    }
+
+    #[test]
     fn omitted_parses_and_defaults_to_empty() {
         let p = parse(
             "p.md",

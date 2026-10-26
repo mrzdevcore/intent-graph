@@ -18,7 +18,35 @@ pub struct Known(pub Mutex<HashMap<String, Vec<u8>>>);
 /// The code graph the live checks compare designs with: built on the first check, dropped when
 /// the code changes.
 #[derive(Default)]
-pub struct HeadCache(pub Mutex<Option<Arc<ig_app::plan::Head>>>);
+/// The number counts clears: a load that started before one never fills the cache.
+pub struct HeadCache(pub Mutex<(u64, Option<Arc<ig_app::plan::Head>>)>);
+
+impl HeadCache {
+    pub fn clear(&self) {
+        let mut g = self.0.lock().unwrap();
+        *g = (g.0 + 1, None);
+    }
+
+    /// The cached head, or `load`'s, cached unless a clear came in between.
+    fn get(
+        &self,
+        load: impl FnOnce() -> Result<ig_app::plan::Head, String>,
+    ) -> Result<Arc<ig_app::plan::Head>, String> {
+        let (gen_, cached) = {
+            let g = self.0.lock().unwrap();
+            (g.0, g.1.clone())
+        };
+        if let Some(h) = cached {
+            return Ok(h);
+        }
+        let h = Arc::new(load()?);
+        let mut g = self.0.lock().unwrap();
+        if g.0 == gen_ {
+            g.1 = Some(h.clone());
+        }
+        Ok(h)
+    }
+}
 
 fn conflict() -> String {
     "conflict".into()
@@ -77,21 +105,14 @@ pub fn check_for(
     cache: &HeadCache,
     slug: &str,
     d: &Design,
+    seq: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     if !app::valid_slug(slug) {
         return Err(format!("bad feature name {slug:?}"));
     }
     let t = std::time::Instant::now();
     let w = Wired::new(root);
-    let cached = cache.0.lock().unwrap().clone();
-    let head = match cached {
-        Some(h) => h,
-        None => {
-            let h = Arc::new(ig_app::plan::Head::load(&w.env()).map_err(|e| e.to_string())?);
-            *cache.0.lock().unwrap() = Some(h.clone());
-            h
-        }
-    };
+    let head = cache.get(|| ig_app::plan::Head::load(&w.env()).map_err(|e| e.to_string()))?;
     let screens: Vec<String> = w
         .files()
         .glob(&[format!("plans/{slug}/screens/*.json")])
@@ -106,6 +127,8 @@ pub fn check_for(
         .collect();
     let mut v =
         app::check(&head, d, &screens, &app::design_path(slug)).map_err(|e| e.to_string())?;
+    // Handed back as given, so the caller can drop a response that is no longer the latest.
+    v["seq"] = seq.into();
     v["ms"] = (t.elapsed().as_millis() as u64).into();
     Ok(v)
 }
@@ -199,9 +222,10 @@ pub async fn check_design(
     project: tauri::State<'_, crate::commands::Project>,
     slug: String,
     design: Design,
+    seq: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let root = root_of(&project)?;
-    blocking(move || check_for(&root, &app.state::<HeadCache>(), &slug, &design)).await
+    blocking(move || check_for(&root, &app.state::<HeadCache>(), &slug, &design, seq)).await
 }
 
 #[cfg(test)]
@@ -246,7 +270,7 @@ mod tests {
         )
         .unwrap();
         let c = HeadCache::default();
-        let v = check_for(&root, &c, "f", &d).unwrap();
+        let v = check_for(&root, &c, "f", &d, Some(7)).unwrap();
         let rules: Vec<_> = v["findings"]
             .as_array()
             .unwrap()
@@ -254,9 +278,25 @@ mod tests {
             .map(|f| f["ruleId"].as_str().unwrap())
             .collect();
         assert!(rules.contains(&"design/bridge-screen-missing"), "{rules:?}");
-        assert!(v["ms"].is_u64() && c.0.lock().unwrap().is_some());
-        assert!(check_for(&root, &c, "../x", &d).is_err());
+        assert!(v["ms"].is_u64() && c.0.lock().unwrap().1.is_some());
+        assert_eq!(v["seq"], 7);
+        assert!(check_for(&root, &c, "../x", &d, None).is_err());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_load_that_a_clear_overtook_is_not_cached() {
+        let c = HeadCache::default();
+        let load = || {
+            c.clear(); // the code changed while the graph was being built
+            Ok(ig_app::plan::Head {
+                cfg: ig_core::config::Config::default(),
+                graph: ig_core::model::Graph::empty(),
+                packages: vec![],
+            })
+        };
+        assert!(c.get(load).is_ok());
+        assert!(c.0.lock().unwrap().1.is_none());
     }
 
     #[cfg(unix)]

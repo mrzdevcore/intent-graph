@@ -248,11 +248,9 @@ pub fn check(head: &Head, d: &Design, screens: &[String], path: &str) -> Result<
         }
     }
     let ids: HashSet<&str> = d.elements.iter().map(|e| e.id.as_str()).collect();
-    let mut targets: HashMap<String, String> = HashMap::new();
     for b in &d.bridges {
         let key = b.key();
         if !ids.contains(b.to.as_str()) && !have.contains(b.to.as_str()) {
-            targets.insert(key.clone(), key.clone());
             extra(
                 "design/bridge-target-missing",
                 Severity::Error,
@@ -489,6 +487,16 @@ mod tests {
             finding(&v, "design/bridge-screen-missing")["severity"],
             "warning"
         );
+    }
+
+    #[test]
+    fn design_check_targets_a_duplicate_by_element_id() {
+        let h = head(&[("ig.yaml", CFG)]);
+        let d = dsn(
+            r#""elements":[{"id":"fn-a","kind":"function","name":"n","file":"core/n.ts"},{"id":"fn-b","kind":"function","name":"n","file":"core/n.ts"}]"#,
+        );
+        let v = check(&h, &d, &[], "d.json").unwrap();
+        assert_eq!(finding(&v, "design/duplicate")["target"], "fn-b");
     }
 
     #[test]
