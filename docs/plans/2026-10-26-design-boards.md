@@ -8,6 +8,8 @@
 
 When the boards are clear, the user clicks **Plan**, then **Apply**. `ig plan check` holds the plan to the design.
 
+First, independent of the boards: Claude answers "how does X work?" directly on the graph (Task 0).
+
 **Architecture:**
 - **Files:** a feature lives in `plans/<slug>/`:
   - `design.json`: architecture plus bridge links;
@@ -29,6 +31,8 @@ When the boards are clear, the user clicks **Plan**, then **Apply**. `ig plan ch
   - links are stored in `design.json` as `bridges`;
   - the call chain for a screen element is the existing `callChain()` over the view data plus the design, with planned elements dashed;
   - the skills read screens and links as requirements.
+
+- **Answers on the graph** (Task 0): the `ig_show` MCP tool validates the ids, then writes `.ig/show.json`. The app (through the watcher) and `ig serve` (through SSE) highlight the answer in gold and number its steps. This follows the `ig focus` and `design_edit` precedent.
 
 **Tech Stack:**
 - Rust 2024 (ig-core, ig-app, ig-wire, ig-desktop on Tauri 2.12.5, and ig's MCP server).
@@ -122,6 +126,20 @@ The spec leaves these to the builder, unless a line says the decision was the us
     - **The chain:** `callChain()` over `withDesign(viewData, design)`, so planned elements are dashed and changed ones marked. Depth control defaults to 6, per the design.
     - **The requirement sentence:** generated deterministically, for example "The Export CSV button on Patient list triggers GET /api/patients/export. Its Export options screen has loading and error states. Note: stream CSV." It is shown to the user and sent to Claude.
 
+16. **Answers shown in the graph** (the user's requirement, 2026-10-26; the mechanism is the coordinator's ruling). Task 0 builds it.
+    - **The tool:** `ig_show` in `ig mcp`. It is named like `ig_focus` and `ig_notes`; rename it `show` if you prefer.
+      - **Input:** `{title, nodes, edges?, steps?, mode?}`.
+      - **Validation:** every id is checked against the graph; an unknown id is an error with suggestions.
+      - **Output:** `.ig/show.json`, written atomically (`.ig/*` is gitignored). Under `ig serve` it also posts `/api/show`.
+    - **The tool's result:** says where the answer is shown: `app`, `serve` or `none`. `none` means no viewer: then the skill also answers with a Mermaid diagram.
+    - **App detection:** the desktop sets `IG_APP=1` on the adapter process, so `ig mcp` knows it runs inside the app.
+    - **The viewer:**
+      - switches mode, highlights the answer in gold and dims the rest;
+      - numbers the steps, with a list overlay;
+      - shows the banner "Shown by Claude: <title>" with Clear and Back.
+    - **"Show in graph" chips:** derived from `ig_show` tool cards in the transcript, so no new store is needed. The last 20 per session.
+    - **Embedded `ig view`:** ignores shows.
+
 ## Global Constraints
 
 - **Ownership:**
@@ -166,6 +184,9 @@ The spec leaves these to the builder, unless a line says the decision was the us
 
 ## Review Focus
 
+0. **A show whose nodes vanish after a rebuild:** a file renamed or a branch switched.
+   - **Expected:** the show re-applies with the missing ids dropped, and the banner notes "N items are no longer in the graph". It never throws. A show never writes any file other than `.ig/show.json`.
+   - **Covered by:** Task 0.
 1. **A design or screen file changed outside the app while it is open:** a git checkout, conflict markers, invalid JSON, or `version: 2`.
    - **Expected:**
      - a valid change merges in as one undo step;
@@ -191,6 +212,11 @@ The spec leaves these to the builder, unless a line says the decision was the us
 
 ## File Structure
 
+- **Task 0 files:**
+  - `crates/ig-app/src/show.rs`: `Show` and `validate`;
+  - `crates/ig/src/mcp.rs` and `crates/ig/src/serve.rs`: `ig_show` and `/api/show`;
+  - `viewer/src/model/show.ts`: `applyShow`;
+  - `viewer/src/components/ShowBanner.svelte`.
 - **`crates/ig-core/src/design/`:**
   - `mod.rs`: design.json types, `parse`, `to_text`, ids and `new_id`;
   - `plan.rs`: `to_plan`, `gaps` and `extras`;
@@ -228,6 +254,102 @@ The spec leaves these to the builder, unless a line says the decision was the us
 - **Viewer tests:** `viewer/test/{design,screens,board,merge,boardStore,outbox,ready,bridge}.test.ts`.
 
 ---
+
+### Task 0: Answers shown in the graph (`ig_show`), independent of the boards
+
+**Files:**
+- Create:
+  - `crates/ig-app/src/show.rs`
+  - `viewer/src/model/show.ts`
+  - `viewer/src/components/ShowBanner.svelte`
+  - `viewer/test/show.test.ts`
+- Modify:
+  - `crates/ig-app/src/lib.rs`
+  - `crates/ig/src/mcp.rs` (the tool) and `crates/ig/src/mcp/tests.rs`
+  - `crates/ig/src/serve.rs` (`POST /api/show`, which broadcasts `show`) and `crates/ig/src/serve/tests.rs`
+  - `crates/ig-wire/src/lib.rs` (`Changed`)
+  - `crates/ig-desktop/src/main.rs` (the `show` event) and `crates/ig-desktop/src/session.rs` (`.env("IG_APP", "1")` on the adapter)
+  - `viewer/src/api/{index,http,tauri}.ts` (`on("show")`)
+  - `viewer/src/components/App.svelte` and `viewer/src/components/Graph.svelte` (the gold and dimmed classes, step badges)
+  - `viewer/src/components/chat/ToolCard.svelte` (the "Show in graph" chip)
+  - `crates/ig/assets/skills/explore.md` and the skills golden test
+
+**Interfaces:**
+- Produces:
+
+```rust
+// ig-app show.rs
+#[derive(Serialize, Deserialize)] #[serde(deny_unknown_fields)]
+pub struct Show { pub version: u32 /* 1 */, pub seq: u64, pub title: String, pub nodes: Vec<String>,
+    #[serde(default)] pub edges: Vec<(String, String)>, #[serde(default)] pub steps: Vec<ShowStep>, #[serde(default)] pub mode: ShowMode }
+pub struct ShowStep { pub target: String /* node id or "from|to" */, pub text: String }
+pub enum ShowMode { #[default] Focus, Architecture, Chain }
+pub fn validate(g: &Graph, input: &Value, seq: u64) -> anyhow::Result<Show>;
+  // edges accept [from,to] pairs or "from|kind|to" keys, stored as pairs and checked to exist in g (any kind);
+  // unknown id -> Err("unknown id X; did you mean a, b, c?") from model::suggest (at most 3);
+  // at most 60 nodes and 40 steps; empty nodes -> Err
+pub const SHOW: &str = ".ig/show.json";
+```
+
+- **The `ig_show` tool:**
+  - **Behaviour:**
+    1. Build the graph (`head_graph`) and `validate`, with `seq` = the previous file's `seq + 1`.
+    2. Write `SHOW` atomically: pretty, canonical, with a trailing newline.
+    3. If `serve::discover(root)` finds a server, `POST /api/show` with the show.
+  - **Result:** `"shown in app"` when `IG_APP=1`, else `"shown in ig serve"` when a server took it, else `"no viewer is open; answer with a diagram too"`.
+- **The watcher:** `ig_wire::watch` passes `Changed { full: bool, show: bool }`. `show` is true when `.ig/show.json` changed; that file is checked before the `.ig` ignore rule. Task 2 adds `designs` to the same struct. The desktop reads the file and emits `show` with its JSON.
+- **The viewer:**
+
+```ts
+export interface Show { seq: number; title: string; nodes: string[]; edges: [string, string][]; steps: { target: string; text: string }[]; mode: "focus" | "architecture" | "chain" }
+export function applyShow(ix: Index, s: Show): { mode: Mode; nodes: Set<string>; edges: Set<string> /* "from|to" */; steps: { n: number; target: string; text: string }[]; missing: string[] };
+export interface ShowState { current: Show | null; previous: { mode: Mode; selection: string[]; scope: string | null; focus: string[] } | null }
+export function showReducer(st: ShowState, a: { t: "show"; s: Show; view: ShowState["previous"] } | { t: "clear" } | { t: "back" }): { state: ShowState; restore: ShowState["previous"] | null };
+```
+
+  - **The mode:** `focus` opens Focus on the nodes; `architecture` opens Architecture at the nodes' common scope; `chain` opens the call chain from `nodes[0]`.
+  - **Highlight:** the nodes and edges get a gold class, and everything else a dim class.
+  - **Steps:** numbered badges on their targets, with a step list overlay (per the approved design). Clicking a step selects the node, and a second click opens the code.
+  - **The banner** reads "Shown by Claude: <title>":
+    - **Clear** removes the highlight and keeps the current mode;
+    - **Back** restores `previous` (mode, selection, scope, focus);
+    - when ids are missing, it says "N items are no longer in the graph".
+  - **After a rebuild:** `applyShow` re-runs on the new index.
+- **The chat chip:** a tool card whose title is `ig_show` (or `mcp__…__ig_show`) and whose raw input parses as a `Show` gets "Show in graph". It re-applies that input locally, through the same reducer.
+- **Skill text** (`explore.md`, step 3):
+  - **When:** for "how does X work / how is X connected", call `ig_show` with the path or subgraph and its ordered steps, plus an answer of at most 10 lines.
+  - **The diagram fallback:** draw Mermaid only when `ig_show` says no viewer is open.
+  - **Writes:** `ig_show` writes only `.ig/show.json`.
+
+  The read-only line becomes "The only things you may write are `.ig/focus.json` (through `ig focus`) and `.ig/show.json` (through `ig_show`)."
+
+- [ ] **Step 1: Write the failing tests.**
+  - ig-app `show`:
+    - `unknown_id_errors_with_suggestions`: `"src/a.ts#fo"` gives an Err containing "did you mean src/a.ts#foo";
+    - `edge_pairs_and_keys_are_accepted_and_must_exist`: `["a","b"]` and `"a|calls|b"` are both stored as `("a","b")`; a missing edge gives an Err;
+    - `limits_and_empty_nodes_are_refused`;
+    - `valid_show_round_trips`.
+  - MCP `ig_show`:
+    - `writes_show_json_canonically_and_nothing_else`: in a temp project, only `.ig/show.json` is new afterwards; `git status --porcelain` shows nothing outside `.ig/`; `seq` increments on a second call;
+    - `unknown_id_is_a_tool_error_and_writes_nothing`.
+  - serve: `post_show_broadcasts_a_show_event`: an SSE client receives `event: show` with the same JSON. A request without the token is rejected, as `/api/focus` is.
+  - ig-wire: `watch_reports_show_changes_despite_the_ig_ignore`: writing `.ig/show.json` gives `Changed{full:false, show:true}`, while `.ig/other` gives no callback.
+  - Vitest `show`:
+    - `applyShow highlights nodes and edges and orders steps`: steps are numbered 1..n in input order;
+    - `missing ids are dropped and listed`;
+    - `show then clear keeps the mode; show then back restores the previous mode and selection`;
+    - `a second show keeps the first previous view` (Back goes to the view before the first show, not to the first show);
+    - `the chip parses ig_show tool input`.
+  - The skills content test finds `ig_show` in explore.md.
+- [ ] **Step 2: Run** `cargo test -p ig-app show::`, `cargo test -p ig mcp serve`, `cargo test -p ig-wire` and `cd viewer && bun run test -- show`. Expected: FAIL.
+- [ ] **Step 3: Implement.** Reuse the `ig_focus` and `/api/focus` code paths for discover, the token and broadcast.
+- [ ] **Step 4: Verify.**
+  - **Gates:** all of them.
+  - **By hand in the app, on a scratch copy of the monorepo fixture:** ask "how does the export reach the database?". Claude calls `ig_show`, and the graph switches with the answer in gold and numbered steps. Clear works; Back restores the view; the chat chip re-shows it.
+  - **The same in `ig serve`** in a browser.
+  - **Rebuild:** rename a shown file; after the rebuild, the banner reports the missing items.
+  - **Screenshots:** window-only.
+- [ ] **Step 5: Commit** `ig_show: Claude answers on the graph (app and ig serve)`.
 
 ### Task 1: design.json in ig-core
 
@@ -335,8 +457,7 @@ pub fn read(files: &dyn Files, slug: &str) -> crate::Result<Design>;
 pub fn write(files: &dyn Files, slug: &str, d: &Design, expect: Option<&[u8]>) -> crate::Result<bool>; // false: disk differs from expect, nothing written
 ```
 
-- **ig-wire `watch(root, on_change: impl FnMut(Changed))`:**
-  - `Changed { full: bool, designs: BTreeSet<String> }`;
+- **ig-wire `watch`:** extends Task 0's `Changed` to `Changed { full: bool, show: bool, designs: BTreeSet<String> }`;
   - `full` is false when only `*.notes.*`, `plans/*/notes.md`, `plans/*/design.json`, `plans/*/screens/*.json` or `plans/*/assets/*` changed;
   - `designs` holds those slugs.
   - `ig serve` uses `c.full`.
@@ -368,7 +489,7 @@ export interface DesignApi {
     - the bytes are unchanged.
   - `bad_slugs_are_refused`: `../x`, `A` and `""` are refused.
   - `notes_path_for_folder_plans` covers both layouts.
-  - ig-wire `watch_classifies_design_screen_and_asset_changes`: writes to `plans/a/design.json` and `plans/a/screens/s.json` give `Changed{full:false, designs:{"a"}}`.
+  - ig-wire `watch_classifies_design_screen_and_asset_changes`: writes to `plans/a/design.json` and `plans/a/screens/s.json` give `Changed{full:false, show:false, designs:{"a"}}`.
   - Vitest `tauri design api invokes the commands`.
 - [ ] **Step 2: Run** `cargo test -p ig-app design:: notes::`, `cargo test -p ig-wire` and `cd viewer && bun run test -- api`. Expected: FAIL.
 - [ ] **Step 3: Implement.** Commands resolve the open `Project` like `view_data` does and run in `spawn_blocking`.
@@ -1101,6 +1222,7 @@ export function pickerItems(D: ViewData, d: Design, q: string): { id: string; la
 
   | Spec requirement | Task |
   | --- | --- |
+  | Answers shown in the graph (2026-10-26) | 0 |
   | The board: docked chat on both boards, Plan, Apply, readiness, note questions and chips, edit cards | 1, 7, 8, 11 |
   | Architecture context faded and locked, scope | 5 |
   | Architecture palette, placement, typed links, marks | 1, 4, 5 |
@@ -1123,5 +1245,5 @@ export function pickerItems(D: ViewData, d: Design, q: string): { id: string; la
   - `Board`, `Action`, `History<T>`, `mergeBoard`, `BoardStore`, `Outbox`, `boardDelta`, `meaning`, `readiness`, `applyState`, `PlanStatus`, `BoardEdit` and `DesignCheck` are each defined once (Tasks 4, 5, 7 and 8) and used with the same names later.
   - Rust: `Design`, `Screen`, `Piece`, `Bridge`, `Op`, `apply_ops`, `Head`, `check_plan`, `design::check`, `Feature` and `Changed`.
   - `AgentApi` and `ChatState` use the shipped names.
-- **Review Focus:** each of the 5 items has a test in its owning task: Tasks 2 and 5 (item 1), 3 (2), 3 (3), 9 (4), and 4 and 12 (5).
+- **Review Focus:** each item has a test in its owning task: Task 0 (item 0), Tasks 2 and 5 (1), 3 (2), 3 (3), 9 (4), and 4 and 12 (5).
 - **Proportion:** the plan is longer than the spec, because it covers four delivery steps. Code blocks are signatures and test vectors only.
