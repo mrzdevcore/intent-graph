@@ -9,6 +9,12 @@ import { tauri } from "./tauri";
 
 export type NotesApi = Client;
 
+/** One child of a project directory; `path` is relative to the project root. */
+export interface FileEntry {
+  path: string;
+  kind: "file" | "dir";
+}
+
 export interface IgApi {
   /** The plan options apply to the desktop app; `ig serve` picks its own. */
   viewData(opts?: { plan?: string; noPlan?: boolean }): Promise<ViewData>;
@@ -16,6 +22,8 @@ export interface IgApi {
   onRebuild(cb: () => void): () => void;
   /** `ig serve` events: a note changed, or `ig focus` asked for nodes. */
   on?(event: "note" | "focus", cb: (data: unknown) => void): () => void;
+  /** Desktop app only: the children of `dir` (the root when omitted), directories first. The Files panel needs it. */
+  fileTree?(dir?: string): Promise<FileEntry[]>;
   /** Present when the backend supports plan notes (serve, desktop). */
   notes?: NotesApi;
 }
