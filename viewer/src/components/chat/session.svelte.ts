@@ -1,13 +1,16 @@
 // The chat's session, shared by the chat panel and the board (one session per feature): the
-// trust gate, the session start, load and restart, and the turns. The trust card, the setup
-// screen and a running turn hold a prompt back; it goes once afterwards, or shows as not sent.
+// trust gate, the session start, load and restart, and the turns. The board's prompt waits
+// behind the trust card or the setup screen (held: shown on the card) and goes once afterwards;
+// anything else that starts or loads a session, a second prompt, or an error drops it, visibly
+// ("Not sent: …"). A running turn holds every prompt back until it ends.
 
 import type { AgentApi, TrustState } from "../../api";
+import type { Outbox } from "../../board/outbox";
 import { chatReducer, initialChat, type ChatAction } from "../../model/chat";
 
 const msg = (e: unknown) => String((e as Error)?.message ?? e);
 
-interface Waiting { feature: string; text: string; onsent?: () => void }
+export interface Held { feature: string; text: string }
 
 export class ChatSession {
   s = $state.raw(initialChat);
@@ -27,8 +30,13 @@ export class ChatSession {
   /** The board's selected sticky notes, sent along with the next message as data. */
   chips = $state.raw<{ id: string; text: string }[]>([]);
 
-  private waiting: Waiting | null = null;
+  /** The board's prompt waiting for the trust card or the setup screen. */
+  held = $state.raw<Held | null>(null);
+  /** Board edits per feature: they wait for the feature's session and survive the board closing. */
+  outboxes = new Map<string, Outbox>();
+
   private idle: (() => void)[] = [];
+  private starting: Promise<void> | null = null;
 
   constructor(private agent: AgentApi, private trustInventory: () => Promise<TrustState>,
     private trustProject: (hash: string) => Promise<void>) {}
@@ -41,8 +49,31 @@ export class ChatSession {
 
   dispatch = (a: ChatAction) => {
     this.s = chatReducer(this.s, a);
+    // a turn's end, a failure, a reset or a stop: the waiting prompts go (or see the session gone)
     if (!this.s.running) this.idle.splice(0).forEach((f) => f());
+    this.sync();
   };
+
+  /** Each feature's outbox: sends only in its feature's session, never during a turn. */
+  sync() {
+    const f = this.feature;
+    for (const [slug, o] of this.outboxes) {
+      o.setRunning(this.s.running);
+      o.setLive(f === slug);
+    }
+  }
+
+  private setFeatures(f: Record<string, string>) {
+    this.features = f;
+    this.sync();
+  }
+
+  /** The held prompt dropped, visibly. */
+  private drop() {
+    const w = this.held;
+    this.held = null;
+    if (w) this.dispatch({ type: "Notice", text: "Not sent: " + w.text });
+  }
 
   /** The agent's events; returns the unsubscribe. */
   listen(): () => void {
@@ -58,8 +89,14 @@ export class ChatSession {
 
   /** `run` (a start, load or restart) behind the trust gate, one at a time. A held prompt goes
    *  once the session is on. */
-  async session(run: () => Promise<string | void>, fresh = true) {
-    if (this.busy) return;
+  session(run: () => Promise<string | void>, fresh = true): Promise<void> {
+    if (this.busy) return Promise.resolve();
+    const p = this.open(run, fresh);
+    this.starting = p.finally(() => (this.starting = null));
+    return p;
+  }
+
+  private async open(run: () => Promise<string | void>, fresh: boolean) {
     this.busy = true;
     this.error = "";
     try {
@@ -71,49 +108,81 @@ export class ChatSession {
     } catch (e) {
       const m = msg(e);
       if (m.startsWith("not trusted")) await this.trusted();
-      else if (!this.s.setup) this.error = m;
+      else if (!this.s.setup) {
+        this.error = m;
+        this.drop(); // the setup screen keeps it (Retry, Install); any other error does not
+      }
     } finally {
       this.busy = false;
     }
     // the held prompt: sent now if this is its feature's session, else that session comes first
-    const w = this.waiting;
+    const w = this.held;
     if (w && this.s.sessionId) {
-      this.waiting = null;
-      void this.ask(w.feature, w.text, w.onsent);
+      this.held = null;
+      void this.ask(w.feature, w.text);
     }
   }
 
-  /** A new session; for the held prompt's feature when one waits. */
-  start = (feature?: string) => {
-    const f = feature ?? this.waiting?.feature;
+  private begin(f?: string) {
     return this.session(async () => {
       const id = await this.agent.start(f);
-      if (f) this.features = { ...this.features, [f]: id };
+      if (f) this.setFeatures({ ...this.features, [f]: id });
       return id;
     });
-  };
+  }
 
-  restart = () => this.session(() => this.agent.restart(), false);
+  /** `run` with the held prompt dropped unless `keep` (said once the new transcript is up). */
+  private async instead(keep: boolean, run: () => Promise<void>) {
+    const lost = this.held && !keep ? this.held : null;
+    if (lost) this.held = null;
+    await run();
+    if (lost) this.dispatch({ type: "Notice", text: "Not sent: " + lost.text });
+  }
 
-  load(id: string) {
+  /** A new session (the user's). A held prompt for another feature is dropped. */
+  start = (feature?: string) => this.instead(feature === this.held?.feature, () => this.begin(feature));
+
+  /** The setup screen's Retry and Install, and the trust card: the held prompt's feature. */
+  retry = () => this.begin(this.held?.feature);
+
+  restart = () => this.instead(false, () => this.session(() => this.agent.restart(), false));
+
+  private loadRun(id: string) {
     return this.session(async () => {
       await this.agent.load(id);
       return id;
     });
   }
 
+  /** Another session (the user's pick). A held prompt for another feature is dropped. */
+  load(id: string) {
+    return this.instead(!!this.held && this.features[this.held.feature] === id, () => this.loadRun(id));
+  }
+
   refreshList() {
     this.agent.list().then((l) => {
       this.sessions = l.sessions ?? [];
-      this.features = { ...this.features, ...(l.features ?? {}) };
+      this.setFeatures({ ...this.features, ...(l.features ?? {}) });
     }, () => {});
+  }
+
+  /** The board opened `feature`: its session comes up when the chat has nothing else going
+   *  (no session, or a fresh one with no feature and an empty transcript). */
+  async adopt(feature: string) {
+    await this.starting;
+    const idle = !this.s.sessionId || (!this.feature && !this.s.items.length && !this.s.running);
+    if (!idle || this.held || this.trust || this.busy) return;
+    const l = await this.agent.list().catch(() => null);
+    if (l) this.setFeatures({ ...this.features, ...(l.features ?? {}) });
+    const id = this.features[feature];
+    if (id && id !== this.s.sessionId && !this.busy && !this.held) await this.loadRun(id);
   }
 
   async onTrust(hash: string) {
     try {
       await this.trustProject(hash); // the native confirm is Rust's
       this.declined = false;
-      await this.start();
+      await this.retry();
     } catch (e) {
       this.error = msg(e);
       await this.trusted();
@@ -123,9 +192,7 @@ export class ChatSession {
   /** The trust card's Cancel: a held prompt is shown as not sent. */
   decline() {
     this.declined = true;
-    const w = this.waiting;
-    this.waiting = null;
-    if (w) this.dispatch({ type: "Notice", text: "Not sent: " + w.text });
+    this.drop();
   }
 
   async install() {
@@ -134,7 +201,7 @@ export class ChatSession {
     try {
       await this.agent.install();
       this.busy = this.installing = false;
-      await this.start();
+      await this.retry();
     } catch (e) {
       this.error = msg(e).startsWith("not installed") ? "" : msg(e); // declined in the native dialog
       this.busy = this.installing = false;
@@ -164,24 +231,30 @@ export class ChatSession {
   }
 
   /** The board: `text` in the feature's session (loaded or started first), after any running
-   *  turn. Behind the trust card or the setup screen it waits and goes once afterwards.
-   *  `onsent`: just before it goes. */
-  async ask(feature: string, text: string, onsent?: () => void): Promise<void> {
-    const w = { feature, text, onsent };
+   *  turn. Behind the trust card or the setup screen it is held and goes once afterwards; a
+   *  second prompt replaces it. */
+  async ask(feature: string, text: string): Promise<void> {
+    if (this.held) this.drop();
     if (this.feature !== feature) {
       const known = this.features[feature];
-      this.waiting = w;
-      // `session` sends it once the session is on (after this start, or the one in flight)
-      await (known ? this.load(known) : this.start(feature));
+      this.held = { feature, text };
+      // `open` sends it once the session is on (after this start, or the one in flight)
+      await (known ? this.loadRun(known) : this.begin(feature));
       return;
     }
-    await this.run(w);
+    await this.post(text);
   }
 
-  private async run(w: Waiting) {
+  /** `text` in the current session once its turn ends; dropped, visibly, when the session
+   *  went away (a stop, another session) in the meantime. */
+  async post(text: string): Promise<void> {
+    const sid = this.s.sessionId;
     while (this.s.running) await new Promise<void>((r) => this.idle.push(r));
-    w.onsent?.();
-    await this.send(w.text);
+    if (!sid || this.s.sessionId !== sid || this.s.stopped) {
+      this.dispatch({ type: "Notice", text: "Not sent: " + text });
+      return;
+    }
+    await this.send(text);
   }
 
   /** Sends an answer; the card closes when it went through, or when the agent no longer waits for it. */

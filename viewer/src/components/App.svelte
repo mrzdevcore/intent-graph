@@ -440,6 +440,10 @@
   const chatApi = untrack(() => (api.agent && api.trustInventory && api.trustProject ? api : null));
   /** One session for the chat panel and the board. */
   const chat = chatApi ? new ChatSession(chatApi.agent!, chatApi.trustInventory!.bind(chatApi), chatApi.trustProject!.bind(chatApi)) : null;
+  // a held prompt (Plan, Apply behind the trust card or setup) opens a collapsed chat
+  $effect(() => {
+    if (chat?.held) chatOpen = true;
+  });
 
   /** What "Attach selection" and "Plan this" take: the selected node, else the file in the code view. */
   const selection = $derived(

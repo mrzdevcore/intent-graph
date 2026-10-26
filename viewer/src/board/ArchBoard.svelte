@@ -108,7 +108,7 @@
     external: (d, t) => {
       const o = board?.run((e) => e.external(d, t)) ?? NOOP;
       // Claude's own edit (or one from outside) with nothing queued: not news for Claude
-      if (o.changed && live && outbox && !outbox.pending) rebase();
+      if (o.changed && outbox && !outbox.pending) rebase();
       return o;
     },
     setCheck: (t) => void board?.run((e) => e.setCheck(t)),
@@ -128,10 +128,8 @@
     remember(next);
     selection = [];
     planStatus = null;
-    outbox?.dispose();
-    const c = chat;
-    outbox = c && engine ? new Outbox(next, (t) => ((queued = 0), c.ask(next, t)), () => !!planStatus?.exists,
-      (a, b) => engine!.delta(a, b), realClock) : null;
+    if (outbox) outbox.onchange = () => {};
+    outbox = null;
     const s = new BoardStore(api, adapter, next, realClock, {
       context: () => context(scope),
       nodes: () => ix.D.nodes,
@@ -144,8 +142,9 @@
     // the context follows the file's scope, which is only known once it is read
     await s.load();
     if (store !== s) return;
-    rebase();
+    attach(next);
     void refreshStatus();
+    void chat?.adopt(next);
     const u = await api.unsaved(next).catch((e: unknown) => (console.error(e), null));
     if (store === s) kept = u;
     if (around && around.n !== usedAround) {
@@ -185,23 +184,47 @@
   let planStatus = $state.raw<BoardStatus | null>(null);
   let items = $state.raw<A11yItem[]>([]);
   let outbox: Outbox | null = null;
-  /** Change lines waiting for the quiet period or the turn's end. */
+  /** Change lines waiting for the quiet period, the turn's end or the feature's session. */
   let queued = $state(0);
   /** The chat's session is this feature's: board edits reach Claude. */
   const live = $derived(!!chat && !!slug && chat.feature === slug);
 
-  /** A user edit, after the store's follow-ups (a placed element's file). */
+  /** The feature's outbox, kept by the chat session: edits queued before the board closed (or
+   *  before the feature had a session) are still there; the delta comes from this engine now. */
+  function attach(s: string) {
+    const c = chat, e = engine;
+    if (!c || !e) return;
+    let o = c.outboxes.get(s);
+    if (!o) {
+      // a microtask later: the send never runs inside the session's own dispatch
+      o = new Outbox(s, (t) => Promise.resolve().then(() => c.post(t)), () => false, () => [], realClock);
+      c.outboxes.set(s, o);
+    }
+    const box = o;
+    o.hasPlan = () => !!planStatus?.exists;
+    o.delta = (a, b) => e.delta(a, b);
+    o.onchange = () => (outbox === box ? (queued = box.pending) : undefined);
+    outbox = o;
+    if (!o.pending) rebase();
+    queued = o.pending;
+    c.sync();
+  }
+
+  /** A user edit, after the store's follow-ups (a placed element's file); queued whether or
+   *  not the chat is in the feature's session (only the send waits for that). */
   function queue() {
-    if (!live || !outbox || !engine) return;
-    outbox.push(engine.board());
-    queued = outbox.pending;
+    if (outbox && engine) outbox.push(engine.board());
   }
 
   /** What Claude knows now: the board as it is, nothing queued. */
   function rebase() {
-    if (!engine || !outbox) return;
-    outbox.baseline(engine.board());
-    queued = 0;
+    if (engine && outbox) outbox.baseline(engine.board());
+  }
+
+  /** "open <feature>'s session to send". */
+  function openSession() {
+    const id = slug && chat?.features[slug];
+    if (id && !chat!.s.running) void chat!.load(id);
   }
 
   async function refreshStatus() {
@@ -215,12 +238,14 @@
     }
   }
 
-  /** Claude reads the design file: written first; what it reads is the new baseline. */
+  /** Claude reads the design file: written first, and what it reads is the new baseline (no
+   *  separate update for edits made before Plan). */
   async function plan() {
     const s = slug, st = store;
     if (!s || !st || !chat) return;
     await st.flush();
-    await chat.ask(s, planPrompt(s), () => store === st && rebase());
+    if (store === st) rebase();
+    await chat.ask(s, planPrompt(s));
   }
 
   async function applyPlan() {
@@ -230,19 +255,10 @@
     await chat.ask(s, applyPrompt(s));
   }
 
-  // the session becomes (or stops being) the feature's: start from the board as it is
-  $effect(() => {
-    void live;
-    untrack(rebase);
-  });
-  // never during a turn; at its end the queued edits go, and the plan may have changed
+  // a turn's end: the plan may have changed (the outboxes follow the session by themselves)
   $effect(() => {
     const r = live && !!chat?.s.running;
-    untrack(() => {
-      outbox?.setRunning(r);
-      queued = outbox?.pending ?? 0;
-      if (!r) void refreshStatus();
-    });
+    if (!r) untrack(() => void refreshStatus());
   });
   // the selected sticky notes go along with the next chat message
   $effect(() => {
@@ -315,7 +331,10 @@
     return api.onChanged((changed) => changed === s && store?.slug === s && void store.external());
   });
 
-  $effect(() => () => outbox?.dispose());
+  // the board closes: the outbox stays with the session (its edits still go), unhooked from here
+  $effect(() => () => {
+    if (outbox) outbox.onchange = () => {};
+  });
 
   // App quit: the window waits for the last edit to be written
   $effect(() => beforeClose?.(async () => {
@@ -486,7 +505,10 @@
     {#if chat}
       <div class="actions" aria-label="Plan and apply">
         <span class="ready" class:clear={readyLine.clear} role="status">{readyLine.text}</span>
-        {#if queued}<span class="muted">Chat · {queued} {queued === 1 ? "note" : "notes"} queued</span>{/if}
+        {#if queued && live}<span class="muted">Chat · {queued} {queued === 1 ? "note" : "notes"} queued</span>
+        {:else if queued && slug && chat.features[slug]}<button class="link" disabled={chat.s.running} onclick={openSession}>Chat · {queued}
+          {queued === 1 ? "edit" : "edits"} queued — open {slug}'s session to send</button>
+        {:else if queued}<span class="muted" title="Plan starts the feature's session with the design as it is">Chat · {queued} {queued === 1 ? "edit" : "edits"} queued</span>{/if}
         <span class="spacer"></span>
         {#if applyable.reason}<span class="muted">{applyable.reason}</span>{/if}
         <button disabled={!store || !applyable.enabled} title={applyable.reason ?? "Build the plan: /ig:apply"} onclick={applyPlan}>Apply</button>
@@ -533,6 +555,7 @@
   .ready { color: var(--warning); }
   .ready::before { content: "● "; }
   .ready.clear { color: var(--added); }
+  .actions .link { border: 0; background: none; padding: 0; color: var(--accent-text); font: inherit; cursor: pointer; }
   .plan { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
   .plan kbd { position: static; font-size: 11px; margin-left: 4px; }
 </style>

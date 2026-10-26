@@ -92,6 +92,27 @@ test("pending counts queued changes; a baseline clears them", () => {
   expect(o.pending).toBe(0);
 });
 
+test("edits made outside the feature's session wait for it, then go at once", () => {
+  const { o, c, sent } = setup();
+  o.setLive(false);
+  o.push(B(["a"]));
+  c.tick(10000);
+  expect(sent).toEqual([]);
+  expect(o.pending).toBe(1);
+  o.setLive(true);
+  expect(sent).toEqual([updateMessage("patient-export", ["added a"], false)]);
+  expect(o.pending).toBe(0);
+});
+
+test("going live mid-quiet-period sends at once, and only once", () => {
+  const { o, c, sent } = setup();
+  o.setLive(false);
+  o.push(B(["a"]));
+  o.setLive(true);
+  c.tick(5000);
+  expect(sent.length).toBe(1);
+});
+
 test("the prompts", () => {
   expect(planPrompt("patient-export")).toBe("/ig:plan plans/patient-export/design.json");
   expect(applyPrompt("patient-export")).toBe("/ig:apply plans/patient-export/plan.md");

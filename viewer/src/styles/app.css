@@ -161,6 +161,7 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat .screen { padding: 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 #ig-chat .screen h2 { font-size: 14px; margin: 0 0 8px; }
 #ig-chat .screen.stopped { border: 1px solid var(--error); border-radius: 8px; }
+#ig-chat .held { margin: 12px 12px 0; padding: 6px 8px; border: 1px dashed var(--accent); border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; }
 #ig-chat .muted { color: var(--muted); }
 #ig-chat .composer { border-top: 1px solid var(--line); padding: 8px 12px; position: relative; }
 #ig-chat .composer textarea { width: 100%; resize: vertical; padding: 6px 8px; }
