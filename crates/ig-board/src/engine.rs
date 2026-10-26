@@ -168,7 +168,7 @@ impl Engine {
             .filter(|e| e.x.is_none() || e.y.is_none())
             .map(|e| e.id.clone())
             .collect();
-        let next = place_new(&next, &unplaced, &self.ctx.lanes);
+        let next = place_new(&next, &unplaced, &self.ctx);
         match step {
             Step::Agent(t) => self.history.agent(next, &t),
             Step::Amend => self.history.amend(next),

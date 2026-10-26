@@ -187,14 +187,7 @@ pub(crate) fn build(e: &Engine, view: [f32; 4]) -> Scene {
         }
         _ => {}
     }
-    let spans = (e.ctx.boxes.iter().map(|c| (c.x, c.x + c.w)))
-        .chain(els.iter().map(|(_, r)| (r[0], r[0] + r[2])));
-    let (left, right) = spans.fold((f32::MAX, f32::MIN), |(l, r), (a, b)| (l.min(a), r.max(b)));
-    let (left, right) = if left > right {
-        (0.0, 0.0)
-    } else {
-        (left, right)
-    };
+    let (left, right) = span(e);
     let lanes: Vec<Rect> = e
         .ctx
         .lanes
@@ -210,6 +203,36 @@ pub(crate) fn build(e: &Engine, view: [f32; 4]) -> Scene {
 }
 
 /// Labels of what the last viewport shows.
+/// The board's horizontal extent: context boxes and placed elements (lanes run across it).
+fn span(e: &Engine) -> (f32, f32) {
+    let els = (e.board().design.elements.iter()).filter_map(|x| e.shown_rect(x));
+    let spans =
+        (e.ctx.boxes.iter().map(|c| (c.x, c.x + c.w))).chain(els.map(|r| (r[0], r[0] + r[2])));
+    let (left, right) = spans.fold((f32::MAX, f32::MIN), |(l, r), (a, b)| (l.min(a), r.max(b)));
+    if left > right {
+        (0.0, 0.0)
+    } else {
+        (left, right)
+    }
+}
+
+/// Each lane's name at its left edge, at the top of the lane.
+fn lane_labels(e: &Engine) -> impl Iterator<Item = Label> + '_ {
+    let left = span(e).0 - 40.0;
+    e.ctx.lanes.iter().map(move |l| Label {
+        id: format!("lane:{}", l.row),
+        text: l.name.clone(),
+        r: [
+            left,
+            l.top,
+            l.name.chars().count() as f32 * 7.0 + 16.0,
+            18.0,
+        ],
+        faded: true,
+        title: None,
+    })
+}
+
 pub(crate) fn labels(e: &Engine) -> Vec<Label> {
     let seen = e.camera.visible(e.view[2], e.view[3]);
     let title = |id: &str| e.checks.get(id).map(|c| c.1.clone());
@@ -234,7 +257,9 @@ pub(crate) fn labels(e: &Engine) -> Vec<Label> {
             title: title(&x.id),
         })
     });
-    ctx.chain(els).filter(|l| meets(l.r, seen)).collect()
+    (lane_labels(e).chain(ctx).chain(els))
+        .filter(|l| meets(l.r, seen))
+        .collect()
 }
 
 pub(crate) fn a11y(e: &Engine) -> Vec<A11yItem> {

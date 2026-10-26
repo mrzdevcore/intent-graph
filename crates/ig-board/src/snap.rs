@@ -44,6 +44,33 @@ pub(crate) fn rect_of(e: &Element) -> Option<[f32; 4]> {
     ])
 }
 
+/// What a new box must not land on: the context boxes and the placed elements (frames hold
+/// others, so they don't count).
+pub(crate) fn taken(ctx: &crate::Context, b: &Board) -> Vec<[f32; 4]> {
+    let ctx = ctx.boxes.iter().map(|c| [c.x, c.y, c.w, c.h]);
+    let els = (b.design.elements.iter())
+        .filter(|e| e.kind != ElementKind::Frame)
+        .filter_map(rect_of);
+    ctx.chain(els).collect()
+}
+
+/// The nearest x to `x`, on the grid along the row (right first), where a `w`×`h` box at `y`
+/// keeps a grid step clear of every box in `taken`.
+pub(crate) fn free_x(taken: &[[f32; 4]], x: i32, y: i32, w: i32, h: i32) -> i32 {
+    let g = GRID as f32;
+    let hits = |x: i32| {
+        let (x, y, w, h) = (x as f32, y as f32, w as f32, h as f32);
+        (taken.iter()).any(|t| {
+            x < t[0] + t[2] + g && t[0] < x + w + g && y < t[1] + t[3] + g && t[1] < y + h + g
+        })
+    };
+    // ponytail: linear scan of every box per step; an index if boards pass a few thousand boxes
+    (0..4000)
+        .flat_map(|k| [x + k * GRID, x - k * GRID])
+        .find(|&x| !hits(x))
+        .unwrap_or(x)
+}
+
 /// Moves by `(dx, dy)`, snapped to the grid; layer elements take the row's layer, and only
 /// systems may land in External services (others stay put). Unplaced or unknown ids are skipped.
 pub fn move_ops(b: &Board, ids: &[String], dx: f32, dy: f32, lanes: &[Lane]) -> Vec<Op> {

@@ -173,6 +173,15 @@ fn checks_reach_scene_labels_and_a11y() {
 }
 
 #[test]
+fn lanes_get_their_names_at_the_left_edge() {
+    let e = engine();
+    let l = e.labels();
+    let api = l.iter().find(|l| l.id == "lane:0").expect("a lane label");
+    assert_eq!((api.text.as_str(), api.r[0], api.r[1]), ("api", -32.0, 0.0));
+    assert!(l.iter().any(|l| l.text == "External services"));
+}
+
+#[test]
 fn a11y_tells_open_questions_from_answered_ones() {
     let mut a = el("note-1", ElementKind::Note);
     a.question = true;
@@ -265,7 +274,7 @@ fn labels_are_culled_by_the_viewport() {
     let mut e = engine();
     e.scene([0.0, 0.0, 300.0, 200.0]);
     let ids: Vec<String> = e.labels().into_iter().map(|l| l.id).collect();
-    assert_eq!(ids, ["fn-a", "fn-b"]);
+    assert_eq!(ids, ["lane:0", "lane:1", "fn-a", "fn-b"]);
 }
 
 #[test]
