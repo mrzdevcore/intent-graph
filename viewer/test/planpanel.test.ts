@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { flushSync, mount, unmount } from "svelte";
 import { expect, test } from "vitest";
+import { registerBoard } from "../src/model/boardselect";
 import PlanPanel from "../src/components/PlanPanel.svelte";
 import type { ViewData } from "../src/data";
 
@@ -18,5 +19,13 @@ test("plan versus design: three lists with counts, each id selects", () => {
   for (const h of ["Not in the plan (1)", "Left out (1)", "Added by the agent (2)", "fn-b later"]) expect(t).toContain(h);
   el.querySelector<HTMLButtonElement>(".design-list button")!.click();
   expect(picked).toEqual(["fn-a"]);
+  // with a board open the id selects there instead
+  const onBoard: string[][] = [];
+  const off = registerBoard((ids) => onBoard.push(ids));
+  el.querySelector<HTMLButtonElement>(".design-list button")!.click();
+  expect([onBoard, picked]).toEqual([[["fn-a"]], ["fn-a"]]);
+  off();
+  el.querySelector<HTMLButtonElement>(".design-list button")!.click();
+  expect(picked).toEqual(["fn-a", "fn-a"]);
   unmount(c);
 });

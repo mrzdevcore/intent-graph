@@ -1,6 +1,7 @@
 <!-- The plan being applied or checked: its title, steps, volume, findings and notes, collapsible. -->
 <script lang="ts">
   import type { Note, ViewData } from "../data";
+  import { selectOnBoard } from "../model/boardselect";
   import { noteLine } from "../model/notes";
   import { findingItem } from "./shared.svelte";
 
@@ -46,7 +47,7 @@
       ] as l}
         <h2>{l.title} ({l.n})</h2>
         {#if l.rows.length}
-          <ul class="design-list">{#each l.rows as r}<li><button class="loc" onclick={() => focus(r.id)}>{r.id}</button>{r.why ? " " + r.why : ""}</li>{/each}</ul>
+          <ul class="design-list">{#each l.rows as r}<li><button class="loc" onclick={() => selectOnBoard(r.id) || focus(r.id)}>{r.id}</button>{r.why ? " " + r.why : ""}</li>{/each}</ul>
         {:else}<p class="loc">None.</p>{/if}
       {/each}
     {/if}

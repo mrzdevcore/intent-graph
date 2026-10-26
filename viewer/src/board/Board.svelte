@@ -5,6 +5,7 @@
      The frame loop runs only while something changed. -->
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
+  import { registerBoard } from "../model/boardselect";
   import type { A11yItem, BoardEngine, Camera, EngineInput, EngineOut, Label } from "./engine";
   import { loadEngine, loadFailed, palette, release, type Importer } from "./host";
   import Labels from "./Labels.svelte";
@@ -226,6 +227,7 @@
 
   onMount(() => {
     void start();
+    const unregister = registerBoard((ids) => ids.forEach(select));
     // the wheel must not scroll the page, so it is not passive
     const wheel = (e: WheelEvent) => {
       if (!engine) return;
@@ -239,6 +241,7 @@
     const theme = () => (act((e) => e.palette(palette(host))), schedule());
     dark.addEventListener?.("change", theme);
     return () => {
+      unregister();
       host.removeEventListener("wheel", wheel);
       dark.removeEventListener?.("change", theme);
     };

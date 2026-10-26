@@ -481,4 +481,37 @@ mod tests {
         assert!(flag("src/__tests__/b.ts").iter().all(|t| *t));
         assert!(flag("src/a.ts").iter().all(|t| !*t));
     }
+
+    #[test]
+    fn a_folder_plan_with_a_design_carries_the_design_section() {
+        let design = r#"{"version":1,"title":"D","scope":{"kind":"layer","name":"x"},"elements":[{"id":"mod-a","kind":"module","name":"a","file":"core/z.ts"},{"id":"mod-b","kind":"module","name":"b","file":"core/y.ts"}]}"#;
+        let files = MemFiles::with(&[
+            ("ig.yaml", "layers:\n  core: ['core/**']\n"),
+            ("core/a.ts", "fn a\n"),
+            ("plans/f/design.json", design),
+        ]);
+        let (runner, fe) = (FakeRunner::default(), Fake::default());
+        let e = env(&files, None, &runner, &fe);
+        let text =
+            "# F\n\n```ig-plan\nnodes: []\nomitted:\n  - id: mod-b\n    reason: later\n```\n";
+        let plan = Some(ShownPlan {
+            path: "plans/f/plan.md".into(),
+            applying: false,
+            read: Ok(("plans/f/plan.md".into(), text.into())),
+        });
+        let d = json(&e, &Opts::default(), plan).unwrap();
+        let p = &d["plan"];
+        assert_eq!(p["design"]["gaps"], 1);
+        assert_eq!(
+            p["design"]["omitted"][0],
+            json!({"id": "mod-b", "reason": "later"})
+        );
+        assert!(p["design"]["added"].is_array());
+        let gap = p["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["ruleId"] == "plan/design-gap");
+        assert_eq!(gap.unwrap()["nodeId"], "mod-a");
+    }
 }
