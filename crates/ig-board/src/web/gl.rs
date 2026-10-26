@@ -2,7 +2,7 @@
 //! and the kept bitmaps after a lost context comes back.
 
 use super::programs::*;
-use crate::{Camera, Line, Paint, Rect, Scene, Severity};
+use crate::{Camera, Paint, Rect, Scene, Severity};
 use ig_design::{ElementKind, LinkKind, MarkKind};
 use js_sys::Float32Array;
 use std::collections::HashMap;
@@ -20,7 +20,11 @@ pub type Palette = HashMap<String, Rgba>;
 struct Prog {
     p: WebGlProgram,
     vao: WebGlVertexArrayObject,
+    corners: WebGlBuffer,
+    /// Instance data, grown by doubling and refilled with `bufferSubData`.
     buf: WebGlBuffer,
+    /// `buf`'s size in floats.
+    cap: usize,
     cam: Option<WebGlUniformLocation>,
     view: Option<WebGlUniformLocation>,
 }
@@ -32,6 +36,24 @@ pub struct Renderer {
     quads: Prog,
     quad_rect: Option<WebGlUniformLocation>,
     textures: HashMap<String, WebGlTexture>,
+    /// Instance data of the batch being drawn: kept, so frames don't allocate.
+    scratch: Vec<f32>,
+}
+
+/// Unmounting (or a new `attach`) gives the GPU memory back at once, not at GC time.
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        let gl = &self.gl;
+        for p in [&self.rects, &self.lines, &self.quads] {
+            gl.delete_program(Some(&p.p));
+            gl.delete_vertex_array(Some(&p.vao));
+            gl.delete_buffer(Some(&p.corners));
+            gl.delete_buffer(Some(&p.buf));
+        }
+        for t in self.textures.values() {
+            gl.delete_texture(Some(t));
+        }
+    }
 }
 
 const CORNERS: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
@@ -74,7 +96,9 @@ fn prog(
     Ok(Prog {
         p,
         vao,
+        corners,
         buf,
+        cap: 0,
         cam,
         view,
     })
@@ -85,6 +109,12 @@ fn with(c: Rgba, a: f32) -> Rgba {
 }
 
 const NONE: Rgba = [0.0; 4];
+
+#[derive(Clone, Copy)]
+enum Batch {
+    Rects,
+    Lines,
+}
 
 impl Renderer {
     pub fn new(gl: G) -> Result<Self, String> {
@@ -111,6 +141,7 @@ impl Renderer {
             quads,
             quad_rect,
             textures: HashMap::new(),
+            scratch: Vec::new(),
         })
     }
 
@@ -143,23 +174,35 @@ impl Renderer {
         self.gl.bind_vertex_array(Some(&p.vao));
     }
 
-    fn instances(&self, p: &Prog, cam: Camera, size: (f32, f32), data: &[f32], floats: i32) {
-        if data.is_empty() {
+    /// Uploads `self.scratch` into `p`'s buffer and draws it, `floats` per instance.
+    fn instances(&mut self, which: Batch, cam: Camera, size: (f32, f32), floats: usize) {
+        if self.scratch.is_empty() {
             return;
         }
+        let p = match which {
+            Batch::Rects => &mut self.rects,
+            Batch::Lines => &mut self.lines,
+        };
+        let gl = &self.gl;
+        gl.bind_buffer(G::ARRAY_BUFFER, Some(&p.buf));
+        if self.scratch.len() > p.cap {
+            p.cap = self.scratch.len().next_power_of_two();
+            gl.buffer_data_with_i32(G::ARRAY_BUFFER, (p.cap * 4) as i32, G::DYNAMIC_DRAW);
+        }
+        // SAFETY: the view is used at once; nothing allocates (and so moves wasm memory) between.
+        let view = unsafe { Float32Array::view(&self.scratch) };
+        gl.buffer_sub_data_with_i32_and_array_buffer_view(G::ARRAY_BUFFER, 0, &view);
+        let p = match which {
+            Batch::Rects => &self.rects,
+            Batch::Lines => &self.lines,
+        };
         self.uniforms(p, cam, size);
-        self.gl.bind_buffer(G::ARRAY_BUFFER, Some(&p.buf));
-        self.gl.buffer_data_with_array_buffer_view(
-            G::ARRAY_BUFFER,
-            &Float32Array::from(data),
-            G::DYNAMIC_DRAW,
-        );
-        let n = data.len() as i32 / floats;
+        let n = (self.scratch.len() / floats) as i32;
         self.gl.draw_arrays_instanced(G::TRIANGLE_STRIP, 0, 4, n);
     }
 
     /// `size` is the canvas in CSS px, `dpr` its device pixel ratio.
-    pub fn draw(&self, s: &Scene, cam: Camera, size: (f32, f32), dpr: f32, pal: &Palette) {
+    pub fn draw(&mut self, s: &Scene, cam: Camera, size: (f32, f32), dpr: f32, pal: &Palette) {
         let gl = &self.gl;
         gl.viewport(0, 0, (size.0 * dpr) as i32, (size.1 * dpr) as i32);
         gl.clear_color(0.0, 0.0, 0.0, 0.0);
@@ -171,8 +214,8 @@ impl Renderer {
         let split = (s.rects.iter())
             .position(|r| matches!(r.paint, Paint::Element(k) if k != ElementKind::Frame))
             .unwrap_or(s.rects.len());
-        let rects = |rs: &[Rect]| -> Vec<f32> {
-            let mut v = Vec::with_capacity(rs.len() * RECT_FLOATS as usize);
+        let rects = |v: &mut Vec<f32>, rs: &[Rect]| {
+            v.clear();
             for r in rs {
                 let (fill, stroke, radius, border) = rect_style(r.paint, &c);
                 v.extend_from_slice(&r.r);
@@ -180,35 +223,22 @@ impl Renderer {
                 v.extend_from_slice(&stroke);
                 v.extend_from_slice(&[radius, border]);
             }
-            v
         };
-        let lines = |ls: &[Line]| -> Vec<f32> {
-            let mut v = Vec::with_capacity(ls.len() * LINE_FLOATS as usize);
-            for l in ls {
-                let (color, width, dash) = line_style(l.paint, &c);
-                v.extend_from_slice(&[l.a[0], l.a[1], l.b[0], l.b[1]]);
-                v.extend_from_slice(&color);
-                v.extend_from_slice(&[width, dash]);
-            }
-            v
-        };
-        self.instances(
-            &self.rects,
-            cam,
-            size,
-            &rects(&s.rects[..split]),
-            RECT_FLOATS,
-        );
-        self.instances(&self.lines, cam, size, &lines(&s.lines), LINE_FLOATS);
-        self.instances(
-            &self.rects,
-            cam,
-            size,
-            &rects(&s.rects[split..]),
-            RECT_FLOATS,
-        );
+        rects(&mut self.scratch, &s.rects[..split]);
+        self.instances(Batch::Rects, cam, size, RECT_FLOATS as usize);
+        self.scratch.clear();
+        for l in &s.lines {
+            let (color, width, dash) = line_style(l.paint, &c);
+            self.scratch
+                .extend_from_slice(&[l.a[0], l.a[1], l.b[0], l.b[1]]);
+            self.scratch.extend_from_slice(&color);
+            self.scratch.extend_from_slice(&[width, dash]);
+        }
+        self.instances(Batch::Lines, cam, size, LINE_FLOATS as usize);
+        rects(&mut self.scratch, &s.rects[split..]);
+        self.instances(Batch::Rects, cam, size, RECT_FLOATS as usize);
         self.quads(&[], cam, size);
-        gl.bind_vertex_array(None);
+        self.gl.bind_vertex_array(None);
     }
 
     /// Images (Task 14 fills the scene's quads): one draw per texture.
