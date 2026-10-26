@@ -5,7 +5,7 @@
 import type { Design, DesignElement, Screen } from "../api";
 import type { ViewData, ViewEdge, ViewNode } from "../data";
 import { callChain, type CallChain } from "../model/callchain";
-import { index } from "../model/graph";
+import { index, type Index } from "../model/graph";
 
 /** The feature's board: its design and its screens by id. */
 export interface Board {
@@ -19,14 +19,38 @@ const STATES = ["loading", "error", "empty"];
 const label = (e: DesignElement) => (e.kind === "route" && e.method && e.path ? `${e.method} ${e.path}` : e.name);
 const drawn = (e: DesignElement) => e.kind !== "note" && e.kind !== "frame";
 
-/** The graph with the design in it: elements as planned nodes (in their layer's lane), links as
- *  planned edges, nodes marked changed as changed. */
-export function withDesign(D: ViewData, b: Board): ViewData {
+/** The code-graph id an element stands for (ig-core's `graph_id`), when it says enough. */
+function graphId(e: DesignElement): string | null {
+  const f = e.file || null;
+  if (e.kind === "system") return "system:" + e.name;
+  if (!f) return null;
+  if (e.kind === "module") return f;
+  if (e.kind === "function") return `${f}#${e.name}`;
+  return e.kind === "route" && e.method && e.path ? `${f}#${e.method} ${e.path}` : null;
+}
+
+/** Elements whose code already exists: element id -> its graph id. */
+function aliases(D: ViewData, d: Design): Map<string, string> {
+  const ids = new Set(D.nodes.map((n) => n.id));
+  const m = new Map<string, string>();
+  d.elements.filter(drawn).forEach((e) => {
+    const g = graphId(e);
+    if (g && ids.has(g)) m.set(e.id, g);
+  });
+  return m;
+}
+
+/** The graph with the design in it: elements as planned nodes (in their layer's lane) unless
+ *  their code exists (then links go to the real node), links as planned edges, nodes marked
+ *  changed as changed. */
+export function withDesign(D: ViewData, d: Design): ViewData {
+  const real = aliases(D, d);
+  const end = (x: string) => real.get(x) ?? x;
   const lanes = new Map<string, number>();
   D.nodes.forEach((n) => n.layer && n.lane != null && !lanes.has(n.layer) && lanes.set(n.layer, n.lane));
-  const changed = new Set(b.design.marks.filter((m) => m.mark === "changed").map((m) => m.node));
+  const changed = new Set(d.marks.filter((m) => m.mark === "changed").map((m) => m.node));
   const nodes: ViewNode[] = D.nodes.map((n) => (changed.has(n.id) ? { ...n, status: "changed" } : n));
-  for (const e of b.design.elements.filter(drawn)) {
+  for (const e of d.elements.filter((e) => drawn(e) && !real.has(e.id))) {
     const layer = e.layer ?? null;
     nodes.push({
       id: e.id, kind: e.kind, name: label(e), file: e.kind === "system" ? "" : e.file || e.id, line: 0, endLine: 0,
@@ -34,23 +58,28 @@ export function withDesign(D: ViewData, b: Board): ViewData {
       lane: layer ? (lanes.get(layer) ?? null) : null, planned: true,
     });
   }
-  const edges: ViewEdge[] = D.edges.concat(b.design.links.map((l) => ({
-    from: l.from, to: l.to, kind: l.kind, confidence: "certain", status: "added", line: 0, violation: false, planned: true,
+  const edges: ViewEdge[] = D.edges.concat(d.links.map((l) => ({
+    from: end(l.from), to: end(l.to), kind: l.kind, confidence: "certain", status: "added", line: 0, violation: false, planned: true,
   })));
   return { ...D, nodes, edges };
 }
 
-/** The piece's screen first, then the call chain from its bridge's target; null when the piece
- *  has no bridge or its target is in neither the graph nor the design. */
-export function bridgeChain(D: ViewData, b: Board, from: string, depth = 6): CallChain | null {
-  const to = b.design.bridges.find((x) => x.from === from)?.to;
-  const ix = index(withDesign(D, b));
+/** The index of `withDesign`, where an element whose code exists also names its real node. */
+export function designIndex(D: ViewData, d: Design): Index {
+  const ix = index(withDesign(D, d));
+  aliases(D, d).forEach((g, e) => (ix.byId[e] = ix.byId[g]));
+  return ix;
+}
+
+/** The piece's screen (`title`) first, then the call chain from its bridge's target; null when
+ *  the piece has no bridge or its target is in neither the graph nor the design. */
+export function bridgeChain(ix: Index, d: Design, from: string, title: string, depth = 6): CallChain | null {
+  const to = d.bridges.find((x) => x.from === from)?.to;
   const t = to ? ix.byId[to] : undefined;
   if (!t) return null;
   const c = callChain(ix, t.id, { depth });
-  const sid = from.split("/")[0];
   return {
-    lifelines: [{ key: "screen:" + sid, label: b.screens[sid]?.title ?? sid }, ...c.lifelines],
+    lifelines: [{ key: "screen:" + from.split("/")[0], label: title }, ...c.lifelines],
     steps: [
       { n: 1, from: 0, to: 1, label: t.name, target: t.id, kind: "calls", file: t.file, line: t.line,
         ...(t.planned ? { planned: true } : {}), ...(t.status === "changed" ? { changed: true } : {}) },
@@ -58,6 +87,31 @@ export function bridgeChain(D: ViewData, b: Board, from: string, depth = 6): Cal
     ],
     truncated: c.truncated,
   };
+}
+
+/** What the chain depends on: the design without its geometry. */
+const meaning = (d: Design) => JSON.stringify([d.elements.map(({ x, y, w, h, ...e }) => e), d.links, d.marks, d.bridges]);
+
+/** Bridge chains, the design's index built again only when the graph or the design's meaning
+ *  changes (not on a move, a screen edit or a hover). */
+export class Bridges {
+  /** How many times the index was built. */
+  builds = 0;
+  private D: ViewData | null = null;
+  private key = "";
+  private ix: Index | null = null;
+  private chains = new Map<string, CallChain | null>();
+
+  chain(D: ViewData, d: Design, from: string, title: string): CallChain | null {
+    const key = meaning(d);
+    if (D !== this.D || key !== this.key || !this.ix) {
+      (this.D = D), (this.key = key), (this.ix = designIndex(D, d)), this.builds++;
+      this.chains.clear();
+    }
+    const k = from + "\n" + title;
+    if (!this.chains.has(k)) this.chains.set(k, bridgeChain(this.ix, d, from, title));
+    return this.chains.get(k) ?? null;
+  }
 }
 
 /** A bridge end in words: an element's label, a route, `name in file`, a system or a file. */
@@ -100,10 +154,14 @@ export function requirement(b: Board, from: string): string {
   return out.join(" ");
 }
 
-/** Link targets for the K picker, the design's elements first; at most 20. */
+/** Link targets for the picker: names starting with the query first, then the design's
+ *  elements before the graph's; at most 20. */
 export function pickerItems(D: ViewData, b: Board, q: string): { id: string; label: string; kind: string }[] {
   const k = q.trim().toLowerCase();
-  const items = b.design.elements.filter(drawn).map((e) => ({ id: e.id, label: label(e), kind: e.kind as string }))
-    .concat(D.nodes.filter((n) => !n.test && !n.planned).map((n) => ({ id: n.id, label: n.name, kind: n.kind })));
-  return items.filter((i) => !k || i.label.toLowerCase().includes(k) || i.id.toLowerCase().includes(k)).slice(0, 20);
+  const items = b.design.elements.filter(drawn).map((e) => ({ id: e.id, name: e.name, label: label(e), kind: e.kind as string }))
+    .concat(D.nodes.filter((n) => !n.test && !n.planned).map((n) => ({ id: n.id, name: n.name, label: n.name, kind: n.kind })));
+  const prefix = (i: { name: string; label: string }) => !!k && (i.name.toLowerCase().startsWith(k) || i.label.toLowerCase().startsWith(k));
+  return items.filter((i) => !k || i.label.toLowerCase().includes(k) || i.id.toLowerCase().includes(k))
+    .sort((a, b) => Number(prefix(b)) - Number(prefix(a))).slice(0, 20)
+    .map(({ id, label, kind }) => ({ id, label, kind }));
 }

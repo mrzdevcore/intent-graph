@@ -172,11 +172,6 @@ impl Engine {
     /// A read-only board: pan, zoom and fit; in pick mode the hovered element or context box
     /// is the selection and a click picks it.
     fn view_input(&mut self, i: Input, pick: bool) -> Out {
-        let at = |e: &Self, x, y| {
-            (e.target(x, y))
-                .filter(|t| matches!(t, Target::El(_) | Target::Ctx(_)))
-                .map(|t| t.id().to_string())
-        };
         match i {
             Input::Down {
                 x, y, button: 1, ..
@@ -185,14 +180,14 @@ impl Engine {
                 self.out()
             }
             Input::Down { x, y, .. } if pick => Out {
-                picked: at(self, x, y),
+                picked: self.hit(x, y),
                 ..self.out()
             },
             Input::Move { x, y, .. } if matches!(self.gesture, Gesture::Pan { .. }) => {
                 self.drag_to(x, y)
             }
             Input::Move { x, y, .. } if pick => {
-                let hover: Vec<String> = at(self, x, y).into_iter().collect();
+                let hover: Vec<String> = self.hit(x, y).into_iter().collect();
                 let o = Out {
                     redraw: hover != self.selection,
                     ..self.out()

@@ -177,6 +177,8 @@
   let hover = $state<string | null>(null);
   let screens = $state<ReturnType<typeof ScreensBoard>>();
   let canvasEl = $state<HTMLDivElement>();
+  /** Link mode: the architecture is docked over the canvas's right half. */
+  let docked = $state(false);
 
   function onout(o: EngineOut, e: BoardEngine) {
     if (o.dropped && canvasEl) {
@@ -474,7 +476,7 @@
     {/each}
   </div>{/if}
 
-  <div class="canvas" inert={readOnly} bind:this={canvasEl}>
+  <div class="canvas" class:docked inert={readOnly} bind:this={canvasEl}>
     <Board bind:this={board} source={() => ({ board: BLANK, context: '{"lanes":[],"boxes":[],"edges":[]}' })} {importer} onready={ready} {onout} {reasons}
       onbeforefree={beforeFree} hand={surface === "screens"} onhover={(h) => (hover = h)} />
     {#if kept}
@@ -492,7 +494,7 @@
   </div>
 
   <ScreensBoard bind:this={screens} active={surface === "screens"} {slug} {store} api={screensApi} engine={() => engine} {act} {tool} {selection} {version}
-    onpick={pickTool} {ix} context={contextJson} {hover} {openCode} />
+    onpick={pickTool} {ix} context={contextJson} {hover} {openCode} canvas={() => canvasEl} ondock={(d) => (docked = d)} />
   {#if surface === "architecture"}<Inspector {ix} {doc} {selection} {boxes} {reasons} {ops} cmd={CMD} />{/if}
 
   <div class="foot">
@@ -515,7 +517,7 @@
 
 <style>
   .arch { position: absolute; inset: 0; z-index: 2; display: grid; grid-template-columns: 48px 1fr 260px;
-    grid-template-rows: auto 1fr auto; background: var(--bg); color: var(--fg); }
+    grid-template-rows: auto 1fr auto auto; background: var(--bg); color: var(--fg); }
   .bar { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line);
     background: var(--panel); font-size: 13px; }
   .spacer { flex: 1; }
@@ -526,6 +528,7 @@
   .icon[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   kbd { position: absolute; right: 2px; bottom: 0; font-size: 9px; color: inherit; opacity: 0.7; font-family: inherit; }
   .canvas { grid-row: 2; grid-column: 2; position: relative; min-width: 0; min-height: 0; }
+  .canvas.docked { margin-right: 50%; }
   .tabs { display: flex; gap: 2px; } .tabs [aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
   .kept { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; gap: 8px;
     align-items: center; padding: 6px 10px; font-size: 13px; background: var(--panel); border: 1px solid var(--warning);
@@ -533,7 +536,7 @@
   .empty { position: absolute; inset: 0; background: var(--bg); padding: 15vh 16px 0; color: var(--muted); }
   .empty p { max-width: 34em; margin: 0 auto; }
   .muted { color: var(--muted); }
-  .foot { grid-column: 1 / -1; }
+  .foot { grid-row: 4; grid-column: 1 / -1; }
   .actions { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--line);
     background: var(--panel); font-size: 13px; }
   .ready { color: var(--warning); }
