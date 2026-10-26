@@ -36,9 +36,11 @@ pub fn read_file_for(root: &Path, path: &str) -> Result<FileText, String> {
     if !abs.starts_with(&root) {
         return Err(format!("{path}: outside the project"));
     }
-    let len = std::fs::metadata(&abs)
-        .map_err(|e| format!("{path}: {e}"))?
-        .len();
+    let meta = std::fs::metadata(&abs).map_err(|e| format!("{path}: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("{path}: not a regular file"));
+    }
+    let len = meta.len();
     if len > MAX_BYTES {
         return Err(format!("{path}: too large to show ({len} bytes, max 2 MB)"));
     }
@@ -89,6 +91,12 @@ mod tests {
         let root = d.join("proj");
         std::fs::write(root.join("bin"), [0xff, 0xfe, 0x00]).unwrap();
         assert!(read_file_for(&root, "bin").unwrap_err().contains("UTF-8"));
+        std::fs::create_dir(root.join("dir")).unwrap();
+        assert!(
+            read_file_for(&root, "dir")
+                .unwrap_err()
+                .contains("regular file")
+        );
         std::fs::write(root.join("big"), vec![b'a'; 2 * 1024 * 1024 + 1]).unwrap();
         assert!(
             read_file_for(&root, "big")
