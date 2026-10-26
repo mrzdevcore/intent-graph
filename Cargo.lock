@@ -818,12 +818,9 @@ dependencies = [
  "ig-lang-ts",
  "lexopt",
  "notify",
- "rayon",
  "regex",
  "serde",
  "serde_json",
- "serde_yaml_ng",
- "sha1",
  "tiny_http",
  "ureq",
 ]
