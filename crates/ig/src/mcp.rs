@@ -1,12 +1,13 @@
 //! `ig mcp`: hand-rolled MCP server (JSON-RPC 2.0 over stdio, one message per line).
 
 use crate::model::{Graph, TOOL_VERSION};
-use crate::{Wired, serve};
+use crate::serve;
 use ig_app::check;
 use ig_app::notes::{self, Note};
 use ig_core::{intents, workspace};
+use ig_wire::Wired;
 use serde_json::{Value, json};
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -420,52 +421,7 @@ fn relay_once(
     Ok(())
 }
 
-pub fn query(g: &Graph, id: &str, dir: &str, depth: usize) -> Value {
-    if !g.nodes.iter().any(|n| n.id == id) {
-        return json!({"error": format!("unknown node {id}"), "suggestions": suggest(g, id)});
-    }
-    let mut seen: BTreeSet<&str> = BTreeSet::from([id]);
-    let mut edges = HashSet::new();
-    let mut q = VecDeque::from([(id, 0usize)]);
-    while let Some((cur, d)) = q.pop_front() {
-        if d == depth {
-            continue;
-        }
-        for (i, e) in g.edges.iter().enumerate() {
-            let next = if (dir == "out" || dir == "both") && e.from == cur {
-                Some(e.to.as_str())
-            } else if (dir == "in" || dir == "both") && e.to == cur {
-                Some(e.from.as_str())
-            } else {
-                None
-            };
-            if let Some(n) = next {
-                edges.insert(i);
-                if seen.insert(n) {
-                    q.push_back((n, d + 1));
-                }
-            }
-        }
-    }
-    let nodes: Vec<Value> = g
-        .nodes
-        .iter()
-        .filter(|n| seen.contains(n.id.as_str()))
-        .map(|n| json!({"id": n.id, "kind": n.kind, "file": n.file, "line": n.range.start_line, "intents": n.intents}))
-        .collect();
-    let mut es: Vec<usize> = edges.into_iter().collect();
-    es.sort();
-    let edges: Vec<Value> = es
-        .iter()
-        .map(|i| {
-            let e = &g.edges[*i];
-            json!({"from": e.from, "to": e.to, "kind": e.kind, "confidence": e.confidence})
-        })
-        .collect();
-    json!({"id": id, "nodes": nodes, "edges": edges})
-}
-
-pub use ig_core::model::suggest;
+pub use ig_app::query::query;
 
 #[cfg(test)]
 mod tests;

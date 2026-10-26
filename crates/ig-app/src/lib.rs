@@ -7,12 +7,17 @@ pub mod brief;
 pub mod build;
 pub mod check;
 pub mod config;
+mod error;
 pub mod lanes;
 pub mod notes;
 pub mod plan;
+pub mod query;
 pub mod review;
 pub mod setup;
 pub mod view_data;
+
+pub(crate) use error::bail;
+pub use error::{Error, Result};
 
 use ig_core::config::Config;
 use ig_core::ports::{CheckerRunner, Files, LanguageFrontend, Progress, Vcs};
@@ -53,7 +58,7 @@ pub fn graph(
     files: &dyn Files,
     config: &Config,
     commit: Option<String>,
-) -> anyhow::Result<build::Built> {
+) -> Result<build::Built> {
     let mut built = build::build_graph(env.frontends, files, config)?;
     built.graph.commit = commit;
     Ok(built)
@@ -61,3 +66,10 @@ pub fn graph(
 
 #[cfg(test)]
 pub(crate) mod testing;
+
+#[cfg(test)]
+#[test]
+fn env_is_send_and_sync() {
+    fn assert<T: Send + Sync>() {}
+    assert::<Env<'static>>();
+}

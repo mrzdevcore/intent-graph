@@ -104,7 +104,7 @@ pub fn build(
     // The app compiled `tests` before calling the frontend: it is valid here.
     let tests = workspace::globset(&config.tests).unwrap_or_else(|_| GlobSet::empty());
     let flattened = crate::tsconfig::Flattened::new();
-    let mut tsconfig_errors = vec![];
+    let mut tsconfig_warnings = vec![];
     let resolvers: Vec<Resolver> = ws
         .packages
         .iter()
@@ -116,17 +116,13 @@ pub fn build(
                 return Resolver::new(resolver_options(None));
             };
             let (flat, warnings) = flattened.flatten(i, &ts, ws);
-            for (file, message) in warnings {
-                let file =
-                    workspace::rel(&ws.root, &file).unwrap_or_else(|| file.display().to_string());
-                tsconfig_errors.push(ParseError { file, message });
-            }
+            tsconfig_warnings.extend(warnings);
             Resolver::new(resolver_options(flat))
         })
         .collect();
     let file_set: HashSet<&str> = ws.files.iter().map(|f| f.path.as_str()).collect();
     let compiled = patterns::compile(&config.patterns);
-    let mut parse_errors = tsconfig_errors;
+    let mut parse_errors = crate::tsconfig::parse_errors(tsconfig_warnings, &ws.root);
 
     // Pass 1.
     let mut facts: Vec<FileFacts> = files

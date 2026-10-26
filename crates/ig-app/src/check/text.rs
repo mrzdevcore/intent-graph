@@ -4,6 +4,7 @@ use super::CheckResult;
 use ig_core::config::Severity;
 use ig_core::diff::Status;
 use ig_core::model::{Finding, Graph, Node};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
 pub fn summary_text(r: &CheckResult) -> String {
@@ -86,15 +87,31 @@ pub fn agent_text(r: &CheckResult, block_on: Severity) -> String {
     s
 }
 
-pub fn diff_text(r: &CheckResult, base: Option<&Graph>) -> String {
-    let mut by_file: BTreeMap<&str, Vec<(Status, &str, &str)>> = BTreeMap::new();
-    let lookup: HashMap<&str, &Node> = r
-        .graph
+/// Head and base nodes by id: a removed node is only in the base graph.
+fn lookup<'a>(r: &'a CheckResult, base: Option<&'a Graph>) -> HashMap<&'a str, &'a Node> {
+    r.graph
         .nodes
         .iter()
         .chain(base.map(|b| b.nodes.iter()).into_iter().flatten())
         .map(|n| (n.id.as_str(), n))
-        .collect();
+        .collect()
+}
+
+/// `ig diff --json`: the changed nodes, `{id, status, file, kind, name}` each.
+pub fn diff_json(r: &CheckResult, base: Option<&Graph>) -> Vec<Value> {
+    let lookup = lookup(r, base);
+    r.changes
+        .iter()
+        .filter_map(|(id, s)| {
+            let n = lookup.get(id.as_str())?;
+            Some(json!({"id": id, "status": s, "file": n.file, "kind": n.kind, "name": n.name}))
+        })
+        .collect()
+}
+
+pub fn diff_text(r: &CheckResult, base: Option<&Graph>) -> String {
+    let mut by_file: BTreeMap<&str, Vec<(Status, &str, &str)>> = BTreeMap::new();
+    let lookup = lookup(r, base);
     for (id, s) in &r.changes {
         if let Some(n) = lookup.get(id.as_str()) {
             by_file

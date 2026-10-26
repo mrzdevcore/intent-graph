@@ -205,8 +205,11 @@ pub fn data(env: &Env, run: &Run, opts: &Opts) -> Value {
             let mut v = json!({
                 "id": n.id, "kind": n.kind, "name": n.name, "file": n.file, "line": n.range.start_line,
                 "endLine": n.range.end_line, "parent": n.parent, "status": s, "complexity": n.metrics.complexity,
-                "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file), "lane": lane_of(n), "test": test_files.is_match(&n.file),
+                "loc": n.metrics.loc, "intents": n.intents, "module": n.is_module(), "layer": layers.of(&n.file), "lane": lane_of(n),
             });
+            if n.kind == "test" || test_files.is_match(&n.file) {
+                v["test"] = json!(true);
+            }
             if n.kind == "system" {
                 let none = vec![];
                 let pkgs = bp.systems.iter().find(|(s, _)| *s == n.name).map_or(&none, |(_, p)| p);
@@ -335,7 +338,7 @@ pub struct ShownPlan {
 }
 
 /// `check::run` with `plan` overlaid. A plan that fails to load becomes a notice.
-pub fn run_with_plan(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> anyhow::Result<Run> {
+pub fn run_with_plan(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> crate::Result<Run> {
     let mut run = check::run(env, opts)?;
     let Some(ShownPlan {
         path,
@@ -368,7 +371,7 @@ pub fn run_with_plan(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> anyhow:
 }
 
 /// `ig view --json`: the data the page is built from.
-pub fn json(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> anyhow::Result<Value> {
+pub fn json(env: &Env, opts: &Opts, plan: Option<ShownPlan>) -> crate::Result<Value> {
     let run = run_with_plan(env, opts, plan)?;
     Ok(data(env, &run, opts))
 }
@@ -449,5 +452,30 @@ mod tests {
         );
         files.write_atomic(FOCUS, br#"["src/a.ts"]"#).unwrap();
         assert_eq!(json(&e, &o, None).unwrap()["focus"], json!(["src/a.ts"]));
+    }
+
+    #[test]
+    fn test_files_are_flagged() {
+        let files = MemFiles::with(&[
+            ("src/a.ts", "fn f\n"),
+            ("src/a.spec.ts", "fn g\n"),
+            ("src/__tests__/b.ts", "fn h\n"),
+        ]);
+        let (runner, fe) = (FakeRunner::default(), Fake::default());
+        let e = env(&files, None, &runner, &fe);
+        let d = json(&e, &Opts::default(), None).unwrap();
+        let flag = |file: &str| {
+            let ns: Vec<_> = d["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|n| n["file"] == file)
+                .collect();
+            assert!(!ns.is_empty(), "{file}");
+            ns.iter().map(|n| n["test"] == true).collect::<Vec<_>>()
+        };
+        assert!(flag("src/a.spec.ts").iter().all(|t| *t));
+        assert!(flag("src/__tests__/b.ts").iter().all(|t| *t));
+        assert!(flag("src/a.ts").iter().all(|t| !*t));
     }
 }

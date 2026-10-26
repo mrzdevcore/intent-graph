@@ -1,9 +1,9 @@
 //! The viewer data and page over the fixtures.
 
 use super::{PLAN, check_run, env, plan_check, scratch};
-use crate::Wired;
 use ig_app::check::Opts;
 use ig_app::view_data::{self, FOCUS, Picked};
+use ig_wire::Wired;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -12,7 +12,11 @@ fn pick_plan(dir: &Path, explicit: Option<&Path>, no_plan: bool) -> Picked {
 }
 
 fn json(dir: &Path, opts: &Opts, p: &Picked) -> anyhow::Result<Value> {
-    view_data::json(&env(dir), opts, crate::shown_plan(dir, p))
+    Ok(view_data::json(
+        &env(dir),
+        opts,
+        ig_wire::shown_plan(dir, p),
+    )?)
 }
 
 fn write(dir: &Path, opts: &Opts, p: &Picked) -> anyhow::Result<PathBuf> {

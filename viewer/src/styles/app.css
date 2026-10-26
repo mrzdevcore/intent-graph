@@ -1,4 +1,4 @@
-/* Layout and components. Light DOM: the components render into the page, so these apply. */
+/* Layout and components: global, unscoped styles the Svelte components render against. */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -8,20 +8,23 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; display: flex; align-i
 .status.block { color: var(--error); } .status.ok { color: var(--added); }
 .modes { display: flex; gap: 4px; }
 .modes button, header .toggle { font: inherit; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
-header .toggle[aria-pressed="true"], .modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+header .toggle[aria-pressed="true"], .modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .counts { color: var(--muted); }
+#hint { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-h { margin: 8px 12px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; flex: 1; min-height: 0; }
+main.with-chat { grid-template-columns: 240px minmax(0, 1fr) 300px 400px; }
 #tree { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #tree-filter { font: inherit; font-size: 13px; margin: 10px 10px 4px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
 #tree > label { margin: 0 12px 6px; }
 #tree-body { overflow: auto; flex: 1; padding-bottom: 12px; font-size: 13px; }
 .row { display: flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
 .row:hover { background: var(--code); }
-.row.sel { background: var(--accent); color: #fff; }
+.row.sel { background: var(--accent); color: var(--on-accent); }
 .row .caret { width: 12px; flex: none; color: var(--muted); text-align: center; }
 .row .name { overflow: hidden; text-overflow: ellipsis; }
 .row .kind { font-size: 10px; color: var(--muted); flex: none; }
-.row.sel .kind, .row.sel .caret { color: #fff; }
+.row.sel .kind, .row.sel .caret { color: var(--on-accent); }
 .row .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .dot.added { background: var(--added); } .dot.changed { background: var(--changed); } .dot.removed { background: var(--removed); }
 .row .nf { margin-left: auto; font-size: 11px; color: var(--error); flex: none; }
@@ -67,20 +70,97 @@ pre { background: var(--code); padding: 8px; border-radius: 6px; overflow: auto;
 details > summary { cursor: pointer; } details > summary h2 { display: inline; }
 #side ol { margin: 0 0 6px; padding-left: 20px; }
 code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-all; }
-a { color: var(--accent); }
+a { color: var(--accent-text); }
 @media (max-width: 760px) {
   body { display: block; height: auto; }
   main { grid-template-columns: minmax(0, 1fr); grid-template-rows: 35vh 55vh auto; }
   #tree { border-right: 0; border-bottom: 1px solid var(--line); }
   #search { width: 100%; }
   #side { border-left: 0; border-top: 1px solid var(--line); }
+  main.with-chat { grid-template-columns: minmax(0, 1fr); grid-template-rows: 35vh 55vh auto 70vh; }
   header { padding: 10px 16px; }
 }
-ig-app { display: contents; }
-ig-graph, ig-side-panel { display: block; }
-ig-plan-panel { display: block; }
+#app { display: contents; }
 .ctx-menu { position: fixed; z-index: 20; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
   border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.3); padding: 4px; }
 .ctx-menu button { font: inherit; text-align: left; padding: 4px 14px; border: 0; background: none; color: var(--fg); cursor: pointer; border-radius: 4px; }
 .ctx-menu button:hover { background: var(--code); }
 ul.notes li.done { color: var(--muted); }
+#ig-files { border-top: 1px solid var(--line); display: flex; flex-direction: column; flex: 0 0 40%; min-height: 0; }
+#files-filter { font: inherit; font-size: 13px; margin: 8px 10px 4px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+#files-body { overflow: auto; flex: 1; padding-bottom: 12px; font-size: 13px; outline: none; }
+#files-body:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+#center { position: relative; display: grid; min-width: 0; min-height: 0; }
+#ig-code { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg); }
+#ig-code > header { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+#ig-code > header button { margin-left: auto; }
+#ig-code .host { flex: 1; min-height: 0; overflow: auto; }
+#ig-code .cm-mergeView { height: 100%; overflow: auto; }
+
+/* The chat panel (desktop app). */
+#chat { border-left: 1px solid var(--line); background: var(--panel); min-width: 0; min-height: 0; display: flex; }
+#chat[hidden] { display: none; }
+#ig-chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; font-size: 13px; }
+#ig-chat button { font: inherit; padding: 3px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+#ig-chat button:disabled { opacity: .5; cursor: default; }
+#ig-chat button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+#ig-chat button:focus-visible, #ig-chat select:focus-visible, #ig-chat textarea:focus-visible, #ig-chat .card:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+#ig-chat select, #ig-chat textarea, #ig-chat input { font: inherit; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+#ig-chat .chat-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: nowrap; }
+#ig-chat .chat-head .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ig-chat .chat-head select { max-width: 55%; }
+#ig-chat .usage { display: flex; gap: 8px; align-items: center; color: var(--muted); }
+#ig-chat .usage meter { width: 60px; accent-color: var(--accent); }
+#ig-chat .transcript { flex: 1; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+#ig-chat .empty { margin: auto 0; text-align: center; }
+#ig-chat .msg.user { align-self: flex-end; max-width: 90%; background: var(--code); border-radius: 10px; padding: 6px 10px; white-space: pre-wrap; }
+#ig-chat .msg.thought { color: var(--muted); font-style: italic; }
+#ig-chat .msg.error { color: var(--error); padding: 4px 12px; }
+#ig-chat .md :first-child { margin-top: 0; } #ig-chat .md :last-child { margin-bottom: 0; }
+#ig-chat .md pre, #ig-chat pre { background: var(--code); padding: 6px 8px; border-radius: 6px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+#ig-chat .md .node-link { all: unset; color: var(--accent); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; overflow-wrap: anywhere; }
+#ig-chat .md .node-link:hover { text-decoration-style: solid; } #ig-chat .md .node-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#ig-chat code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+#ig-chat .card { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--bg); }
+#ig-chat .card.open { border-left: 3px solid var(--accent); }
+#ig-chat .card .row, #ig-chat .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+#ig-chat .card .reject { color: var(--error); }
+#ig-chat .card button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#ig-chat .qtitle { margin-top: 6px; font-weight: 600; }
+#ig-chat .other { width: 100%; margin-top: 6px; padding: 3px 8px; }
+#ig-chat .tool summary { cursor: pointer; display: flex; gap: 8px; align-items: center; }
+#ig-chat .tool .ttitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ig-chat .tool .loc { color: var(--muted); font-size: 12px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ig-chat .tool.group > .card { margin-top: 6px; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 4px 0 0; }
+#ig-chat .chip { font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
+#ig-chat .chip.completed { color: var(--added); border-color: var(--added); }
+#ig-chat .chip.failed { color: var(--error); border-color: var(--error); }
+#ig-chat .chip.in_progress { color: var(--accent); border-color: var(--accent); }
+#ig-chat .diff .row button { margin-left: auto; }
+#ig-chat .code-inline { height: 220px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 6px; margin-top: 6px; overflow: hidden; }
+#ig-chat .code-inline .host { flex: 1; min-height: 0; overflow: auto; }
+#ig-chat .screen { padding: 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+#ig-chat .screen h2 { font-size: 14px; margin: 0 0 8px; }
+#ig-chat .screen.stopped { border: 1px solid var(--error); border-radius: 8px; }
+#ig-chat .muted { color: var(--muted); }
+#ig-chat .composer { border-top: 1px solid var(--line); padding: 8px 12px; position: relative; }
+#ig-chat .composer textarea { width: 100%; resize: vertical; padding: 6px 8px; }
+#ig-chat .composer .row { flex-wrap: nowrap; margin: 0 0 4px; }
+#ig-chat .composer .row.context { gap: 2px; font-size: 12px; }
+#ig-chat .composer .row.footer { margin: 6px 0 0; }
+#ig-chat .composer .row .primary { margin-left: auto; flex: none; }
+#ig-chat .controls { display: flex; gap: 4px; align-items: center; min-width: 0; flex: 1; }
+#ig-chat .chip-select.grow { flex: 1 1 auto; max-width: none; }
+#ig-chat .chip-select, #ig-chat .chip-toggle { font-size: 12px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); min-width: 0; max-width: 130px; text-overflow: ellipsis; }
+#ig-chat .chip-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#ig-chat .more { position: relative; }
+#ig-chat .more .menu { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 5; display: flex; flex-direction: column; gap: 6px; padding: 8px; min-width: 200px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.3); }
+#ig-chat .more .menu label { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: var(--muted); }
+#ig-chat .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; align-items: center; }
+#ig-chat .chip-ctx { background: var(--code); border-radius: 6px; padding: 0 6px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+#ig-chat button.link { border: 0; background: none; color: var(--accent-text); padding: 0 4px; }
+#ig-chat .complete { position: absolute; bottom: 100%; left: 12px; right: 12px; margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.2); max-height: 240px; overflow: auto; }
+#ig-chat .complete button { width: 100%; text-align: left; border: 0; background: none; padding: 3px 6px; }
+#ig-chat .complete li[aria-selected="true"] button { background: var(--code); }
+#ig-chat #ig-trust { overflow: auto; border-bottom: 1px solid var(--line); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; user-select: none; -webkit-user-select: none; }
