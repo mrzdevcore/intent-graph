@@ -6,7 +6,7 @@ use std::time::Duration;
 use tauri::async_runtime::{block_on, spawn};
 
 /// The newest `fake_agent-<hash>` next to this test binary (both in target/<profile>/deps).
-fn fake_agent() -> PathBuf {
+pub(crate) fn fake_agent() -> PathBuf {
     let deps = std::env::current_exe()
         .unwrap()
         .parent()
@@ -40,9 +40,15 @@ impl Rig {
         let sink: Sink = Arc::new(move |e| {
             let _ = tx.lock().unwrap().send(e);
         });
-        let s = Session::spawn(&fake_agent(), &["--serve"], &root, sink)
-            .await
-            .unwrap();
+        let rec = root.join("rec.log");
+        let s = Session::spawn(
+            &fake_agent(),
+            &["--serve", rec.to_str().unwrap()],
+            &root,
+            sink,
+        )
+        .await
+        .unwrap();
         Rig {
             root,
             s: Arc::new(s),
@@ -178,9 +184,12 @@ fn a_closed_window_rejects_what_is_pending() {
         r.s.start(None).await.unwrap();
         let _turn = r.prompt_in_background("perm");
         let (id, _) = r.permission();
-        r.s.reject_pending();
-        assert_eq!(r.tool_end(), ("a".into(), "failed".into(), "reject".into()));
+        // As on a closed window: the reject reaches the adapter before it is killed.
+        wait(r.s.stop().unwrap(), 5000).await;
+        let rec = std::fs::read_to_string(r.root.join("rec.log")).unwrap();
+        assert_eq!(rec, "spawn\nanswer reject\n");
         assert!(r.s.answer(id, "allow-once").is_err());
+        assert!(r.s.stop().is_none(), "stopped once");
     });
 }
 

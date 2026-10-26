@@ -20,7 +20,9 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use tauri::async_runtime::JoinHandle;
 
 pub type Sink = Arc<dyn Fn(AgentEvent) + Send + Sync>;
 
@@ -39,6 +41,8 @@ struct AuthStatus(Value);
 const TAIL_LINES: usize = 5;
 const TAIL_CHARS: usize = 200;
 const SESSIONS: &str = ".ig/sessions.json";
+/// How long a stop lets the queued messages reach the adapter before the kill.
+const FLUSH_MS: u64 = 300;
 
 pub struct Session {
     conn: ConnectionTo<Agent>,
@@ -47,6 +51,22 @@ pub struct Session {
     pending: Arc<Pending>,
     /// Sent or dropped (`stop`, or the session dropped): the process is killed, no `Stopped` is sent.
     quit: Mutex<Option<oneshot::Sender<()>>>,
+    /// The task that owns the process: done once it is reaped.
+    task: Mutex<Option<JoinHandle<()>>>,
+    /// False once the adapter went away by itself.
+    alive: Arc<AtomicBool>,
+}
+
+/// A future that is ready after `ms` (the app's tokio has no timers).
+pub fn nap(ms: u64) -> JoinHandle<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::thread::sleep(std::time::Duration::from_millis(ms))
+    })
+}
+
+/// Waits for `task`, at most `ms`.
+pub async fn wait(task: JoinHandle<()>, ms: u64) {
+    let _ = select(task, nap(ms)).await;
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -153,17 +173,17 @@ impl Session {
 
         let (quit, quit_rx) = oneshot::channel::<()>();
         let p = pending.clone();
-        tauri::async_runtime::spawn(async move {
+        let alive = Arc::new(AtomicBool::new(true));
+        let a = alive.clone();
+        let task = tauri::async_runtime::spawn(async move {
             match select(Box::pin(conn), quit_rx).await {
                 Either::Left(_) => {
                     // The adapter went away by itself: report it with its last words.
+                    a.store(false, Ordering::SeqCst);
                     p.clear();
                     let status = child.status().await;
                     // ponytail: a grandchild holding stderr open would stall the tail: 0.5 s cap.
-                    let nap = tauri::async_runtime::spawn_blocking(|| {
-                        std::thread::sleep(std::time::Duration::from_millis(500))
-                    });
-                    let _ = select(stderr_done, nap).await;
+                    wait(stderr_done, 500).await;
                     let reason = match status {
                         Ok(s) => format!("the agent stopped ({s})"),
                         Err(e) => format!("the agent stopped: {e}"),
@@ -174,7 +194,9 @@ impl Session {
                         stderr: (!lines.is_empty()).then(|| lines.join("\n")),
                     });
                 }
-                Either::Right(_) => {
+                Either::Right((_, conn)) => {
+                    // Let the connection write what is queued (the rejects `stop` sent) first.
+                    let _ = select(conn, nap(FLUSH_MS)).await;
                     let _ = child.kill();
                     let _ = child.status().await;
                 }
@@ -197,6 +219,8 @@ impl Session {
             id: Mutex::new(None),
             pending,
             quit: Mutex::new(Some(quit)),
+            task: Mutex::new(Some(task)),
+            alive,
         })
     }
 
@@ -250,7 +274,9 @@ impl Session {
             if workspace::rel(&self.root, &abs).is_none() {
                 return Err(format!("{a}: outside the project"));
             }
-            let uri = format!("file://{}", abs.display());
+            let uri = url::Url::from_file_path(&abs)
+                .map_err(|_| format!("{a}: not a file path"))?
+                .to_string();
             blocks.push(ContentBlock::ResourceLink(ResourceLink::new(
                 a.clone(),
                 uri,
@@ -282,16 +308,18 @@ impl Session {
         self.pending.answer(request_id, option_id)
     }
 
-    /// The window is closing: every open permission request is answered `reject`.
-    pub fn reject_pending(&self) {
-        self.pending.reject_all();
+    /// False once the adapter went away by itself (crashed): start a new one.
+    pub fn alive(&self) -> bool {
+        self.alive.load(Ordering::SeqCst)
     }
 
     /// Stops the adapter on purpose (window closed, project switched, restart): open permission
-    /// requests are rejected first, and a turn still running fails.
-    pub fn stop(&self) {
-        self.reject_pending();
+    /// requests are answered `reject` and reach the adapter before the kill; a running turn fails.
+    /// The task to wait on (once) until the process is gone.
+    pub fn stop(&self) -> Option<JoinHandle<()>> {
+        self.pending.reject_all();
         self.quit.lock().unwrap().take();
+        self.task.lock().unwrap().take()
     }
 
     /// The adapter's sessions for this project (`session/list`) and the feature map.
@@ -310,4 +338,4 @@ impl Session {
 
 #[cfg(test)]
 #[path = "session_tests.rs"]
-mod tests;
+pub(crate) mod tests;

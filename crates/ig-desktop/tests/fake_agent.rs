@@ -3,9 +3,21 @@
 //! the real adapter's message shapes (ACP spike, adapter 0.95.0); each prompt text picks a script:
 //! `stream`, `perm` (one permission request), `two` (two at once), `hang` (until cancelled),
 //! `crash` (exits mid-turn), `auth` (not logged in), `meta` (echoes session/new's `_meta`).
+//! `--serve <file>` also appends what happened to `<file>`: `spawn`, then `answer <optionId>`s.
 
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
+
+fn record(line: &str) {
+    if let Some(f) = std::env::args().nth(2) {
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(f)
+            .unwrap();
+        writeln!(f, "{line}").unwrap();
+    }
+}
 
 struct Agent {
     lines: std::io::Lines<std::io::StdinLock<'static>>,
@@ -76,6 +88,7 @@ impl Agent {
                 .as_str()
                 .unwrap_or("cancelled")
                 .to_string();
+            record(&format!("answer {answer}"));
             let status = if answer.starts_with("allow") {
                 "completed"
             } else {
@@ -135,6 +148,7 @@ fn main() {
     if std::env::args().nth(1).as_deref() != Some("--serve") {
         return;
     }
+    record("spawn");
     let mut a = Agent {
         lines: std::io::stdin().lock().lines(),
         next_id: 0,
