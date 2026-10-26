@@ -462,7 +462,7 @@ function fakeScreens(list: Screen[]) {
   return { api, writes, removed, refuse: (why: string | null) => (refuse = why) };
 }
 
-function screensSetup(list: Screen[]) {
+function screensSetup(list: Screen[], hooks: Partial<StoreHooks> = {}) {
   const c = fakeClock(), e = fakeEngine(), a = fakeApi(), sc = fakeScreens(list);
   let screens: Record<string, string> = Object.fromEntries(list.map((s) => [s.id, JSON.stringify(s, null, 2)]));
   const images: string[] = [];
@@ -470,12 +470,13 @@ function screensSetup(list: Screen[]) {
     ...e.engine,
     screens: () => screens,
     setImage: (name) => void images.push(name),
+    dropImage: (name) => void e.calls.push(["dropImage", [name]]),
     importImage: (name) => {
       e.calls.push(["importImage", [name]]);
       return OUT({ changed: true });
     },
   };
-  const store = new BoardStore(a.api, engine, "export", c.clock, { context: () => "{}", nodes: () => NODES }, sc.api,
+  const store = new BoardStore(a.api, engine, "export", c.clock, { context: () => "{}", nodes: () => NODES, ...hooks }, sc.api,
     async () => ({ width: 2, height: 1 }) as ImageBitmap);
   return { ...c, ...e, ...a, sc, store, images, setScreens: (s: Record<string, string>) => (screens = s) };
 }
@@ -516,4 +517,33 @@ test("refused image leaves the board unchanged", async () => {
   expect(s.store.imageError).toBeNull();
   expect(s.images).toEqual(["0123456789ab.png"]);
   expect(s.of("importImage")).toEqual([["0123456789ab.png"]]);
+});
+
+test("a texture is read once, read again when its file changes, and given back when no screen shows it", async () => {
+  const bg = (asset: string) => ({ ...screen("login"), background: { asset, x: 0, y: 0, w: 400, h: 300 } });
+  const s = screensSetup([bg("0123456789ab.png")]);
+  await s.store.load();
+  await settle();
+  expect(s.images).toEqual(["0123456789ab.png"]);
+  await s.store.loadImages(); // asset-changed for something else: idempotent
+  expect(s.images).toHaveLength(1);
+  await s.store.loadImages("0123456789ab.png"); // its file changed
+  expect(s.of("dropImage")).toEqual([["0123456789ab.png"]]);
+  expect(s.images).toEqual(["0123456789ab.png", "0123456789ab.png"]);
+  // replaced by another image: the old texture goes
+  s.setScreens({ login: JSON.stringify(bg("ba9876543210.png")) });
+  s.store.onOut(OUT({ changed: true }));
+  await settle();
+  expect(s.of("dropImage")).toEqual([["0123456789ab.png"], ["0123456789ab.png"]]);
+  expect(s.images.at(-1)).toBe("ba9876543210.png");
+});
+
+test("Claude's screen edit gives the outbox the whole board on disk, never the user's edits", async () => {
+  const merged: string[] = [];
+  const s = screensSetup([screen("login")], { turns: () => [{ id: "t1", start: 0, end: null }], agentMerged: (d) => void merged.push(d) });
+  await s.store.load();
+  await s.store.externalScreens();
+  expect(s.of("external")).toEqual([[{ screens: [screen("login")] }, "t1"]]);
+  expect(merged.map((m) => JSON.parse(m))).toEqual([{ design: design(), screens: [screen("login")] }]);
+  expect(JSON.parse(s.store.text())).toEqual({ design: design(), screens: [screen("login")] });
 });

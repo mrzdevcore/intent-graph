@@ -40,6 +40,7 @@ export interface RawEngine {
   labels(): string;
   a11y(): string;
   setImage(asset: string, bitmap: ImageBitmap): void;
+  dropImage(asset: string): void;
   free(): void;
 }
 export interface Pkg {
@@ -112,6 +113,7 @@ export function wrap(raw: RawEngine, pkg: Pkg, onFail: (reason: string) => void)
     labels: () => g(() => JSON.parse(raw.labels()) as Label[]),
     a11y: () => g(() => JSON.parse(raw.a11y()) as A11yItem[]),
     setImage: (a, b) => g(() => raw.setImage(a, b)),
+    dropImage: (a) => g(() => raw.dropImage(a)),
     free: () => raw.free(),
   };
 }

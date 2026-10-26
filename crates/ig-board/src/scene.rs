@@ -70,7 +70,7 @@ pub struct Scene {
     pub ink: Vec<[f32; 2]>,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
 pub struct Label {
     pub id: String,
     pub text: String,
@@ -81,6 +81,12 @@ pub struct Label {
     pub title: Option<String>,
     /// On a screen's paper: dark ink in both themes.
     pub paper: bool,
+    /// A screen's name: drawn unscaled above its frame, readable at any zoom.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub name: bool,
+    /// The screen's state (a variant's), shown as a chip after its name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chip: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -251,7 +257,7 @@ fn lane_labels(e: &Engine) -> impl Iterator<Item = Label> + '_ {
         ],
         faded: true,
         title: None,
-        paper: false,
+        ..Default::default()
     })
 }
 
@@ -269,7 +275,7 @@ pub(crate) fn labels(e: &Engine) -> Vec<Label> {
             r: [c.x, c.y, c.w, c.h],
             faded: true,
             title: title(&c.id),
-            paper: false,
+            ..Default::default()
         });
     let els = e.board().design.elements.iter().filter_map(|x| {
         Some(Label {
@@ -278,7 +284,7 @@ pub(crate) fn labels(e: &Engine) -> Vec<Label> {
             r: e.shown_rect(x)?,
             faded: false,
             title: title(&x.id),
-            paper: false,
+            ..Default::default()
         })
     });
     (lane_labels(e).chain(ctx).chain(els))

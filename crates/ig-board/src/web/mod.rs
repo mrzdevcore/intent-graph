@@ -204,15 +204,6 @@ fn blank() -> Board {
     }
 }
 
-fn board_of(text: &str) -> Result<Board, String> {
-    parse(text)
-        .map(|design| Board {
-            design,
-            screens: Default::default(),
-        })
-        .map_err(|e| e.to_string())
-}
-
 #[wasm_bindgen]
 pub struct BoardEngine {
     engine: Engine,
@@ -401,10 +392,11 @@ impl BoardEngine {
         }
     }
 
-    /// What changed from `prev` to `next` (design.json texts) as lines for Claude; a
+    /// What changed from `prev` to `next` (board texts: see `Part`) as lines for Claude; a
     /// geometry-only change gives none (`ig_board::delta`).
     pub fn delta(&self, prev: &str, next: &str) -> Result<String, String> {
-        Ok(json!(crate::delta(&board_of(prev)?, &board_of(next)?)).to_string())
+        let b = |t: &str| part(t).map(|p| over(&blank(), p));
+        Ok(json!(crate::delta(&b(prev)?, &b(next)?)).to_string())
     }
 
     /// `[[id, "error" | "warning" | "note", reason], …]`
@@ -516,6 +508,20 @@ impl BoardEngine {
         self.bitmaps.insert(asset.into(), bitmap);
         self.dirty = true;
         Ok(())
+    }
+
+    /// The image is gone (no screen shows it, or its file changed): its texture is freed and
+    /// its bitmap closed; it draws as a placeholder until set again.
+    #[wasm_bindgen(js_name = dropImage)]
+    pub fn drop_image(&mut self, asset: &str) {
+        if let Some(r) = self.renderer.as_mut() {
+            r.drop_image(asset);
+        }
+        if let Some(b) = self.bitmaps.remove(asset) {
+            b.close();
+        }
+        self.engine.drop_image(asset);
+        self.dirty = true;
     }
 }
 

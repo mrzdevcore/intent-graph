@@ -29,8 +29,8 @@ impl Rough {
         self.seed = self.seed.wrapping_add(1);
         Some(Options {
             seed: Some(self.seed),
-            roughness: Some(0.8),
-            bowing: Some(1.0),
+            roughness: Some(1.5),
+            bowing: Some(2.0),
             ..Options::default()
         })
     }

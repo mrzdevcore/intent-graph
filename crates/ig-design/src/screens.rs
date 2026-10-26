@@ -372,6 +372,22 @@ pub fn new_piece_id(s: &Screen, kind: PieceKind, label: &str) -> String {
         .unwrap()
 }
 
+/// Sizes are 1 to 20,000 px (an arrow's may run back: -20,000 to 20,000); positions within
+/// ±1,000,000 px.
+const MAX_SIZE: i32 = 20_000;
+const MAX_POS: i32 = 1_000_000;
+
+fn geometry(what: &str, [x, y, w, h]: [i32; 4], back: bool) -> Result<(), DesignError> {
+    let lo = if back { -MAX_SIZE } else { 1 };
+    if !(lo..=MAX_SIZE).contains(&w) || !(lo..=MAX_SIZE).contains(&h) {
+        return invalid(format!("{what}: size is {lo} to {MAX_SIZE} px"));
+    }
+    if x.abs() > MAX_POS || y.abs() > MAX_POS {
+        return invalid(format!("{what}: position is within {MAX_POS} px"));
+    }
+    Ok(())
+}
+
 fn cap(what: &str, s: &str, max: usize) -> Result<(), DesignError> {
     if s.len() > max {
         return invalid(format!("{what} is longer than {max} bytes"));
@@ -402,6 +418,19 @@ pub(crate) fn caps(
         if s.navs.len() > MAX_NAVS && o.is_none_or(|o| s.navs.len() > o.navs.len()) {
             return invalid(format!("{sid}: more than {MAX_NAVS} navs"));
         }
+        let at = |s: &Screen| [s.x, s.y, s.w, s.h];
+        if o.is_none_or(|o| at(o) != at(s)) {
+            geometry(sid, at(s), false)?;
+        }
+        if let Some(b) = &s.background
+            && o.is_none_or(|o| o.background.as_ref() != Some(b))
+        {
+            geometry(
+                &format!("{sid}: the background"),
+                [b.x, b.y, b.w, b.h],
+                false,
+            )?;
+        }
         if o.is_none_or(|o| o.title != s.title) {
             cap(&format!("{sid}: the title"), &s.title, MAX_NAME)?;
         }
@@ -425,6 +454,11 @@ pub(crate) fn caps(
             .filter(|p| o.is_none_or(|o| !o.elements.contains(p)))
         {
             let w = |f: &str| format!("{sid}/{}: {f}", p.id);
+            let back = p.kind == PieceKind::Arrow;
+            let old = o.and_then(|o| o.elements.iter().find(|q| q.id == p.id));
+            if old.is_none_or(|q| [q.x, q.y, q.w, q.h] != [p.x, p.y, p.w, p.h]) {
+                geometry(&format!("{sid}/{}", p.id), [p.x, p.y, p.w, p.h], back)?;
+            }
             cap(&w("the id"), &p.id, MAX_ID)?;
             cap(&w("the label"), &p.label, MAX_NAME)?;
             let q = &p.props;

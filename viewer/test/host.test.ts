@@ -122,6 +122,24 @@ test("labels layer uses the camera transform", () => {
   expect(small.querySelector(".labels")!.classList.contains("tiny")).toBe(true); // under 6 px on screen
 });
 
+test("screen names and state chips stay readable at 20 %, piece labels hide", () => {
+  const labels: Label[] = [
+    { id: "export", text: "Export patients", r: [1000, 972, 1280, 24], faded: false, title: null, name: true },
+    { id: "export-loading", text: "Export patients", r: [1000, 1852, 1280, 24], faded: false, title: null, name: true, chip: "LOADING" },
+    { id: "export/btn-go", text: "Go", r: [1100, 1100, 120, 40], faded: false, title: null, paper: true },
+  ];
+  const el = show(Labels, { camera: { x: 0, y: 900, zoom: 0.2 }, labels, hand: true });
+  const names = [...el.querySelectorAll(".names .name")] as HTMLElement[];
+  expect(names.map((n) => n.textContent)).toEqual(["Export patients", "Export patientsLOADING"]);
+  // unscaled, placed from the camera: 12 px text over the frame's top edge, the frame's width wide
+  expect([names[0].style.left, names[0].style.top, names[0].style.width]).toEqual(["200px", "1.2px", "256px"]);
+  expect(names[1].querySelector(".chip")!.textContent).toBe("LOADING");
+  expect(el.querySelector(".names")!.closest(".tiny")).toBeNull();
+  // the piece label is in the scaled layer, hidden under 6 px
+  expect(el.querySelector(".labels.tiny .label")!.textContent).toBe("Go");
+  expect(el.querySelector(".labels .name")).toBeNull();
+});
+
 /** A board whose Enter asks to rename fn-a. */
 async function editing() {
   const f = fake({ input: (ev: string) => (JSON.parse(ev).key === "Enter" ? OUT({ edit: { id: "fn-a", rect: [8, 8, 80, 40], text: "A" } }) : OUT()) });
