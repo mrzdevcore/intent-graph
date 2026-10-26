@@ -13,6 +13,15 @@
   ];
 
   const LINKS_KEY = "ig.links";
+  const TESTS_KEY = "ig.tests";
+
+  function readTests(): boolean {
+    try {
+      return localStorage.getItem(TESTS_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
 
   function readLinks(): boolean {
     try {
@@ -32,6 +41,7 @@
   import { blueprint, journeyName, unitOf } from "../model/blueprint";
   import { changedIds, exact } from "../model/changed";
   import { focusIds } from "../model/focus";
+  import { withTests } from "../model/tests";
   import { ancestors, findNode, index, topMember, type Group } from "../model/graph";
   import { beforeAfter, nodeNamed } from "../model/code";
   import Chat from "./chat/Chat.svelte";
@@ -46,8 +56,10 @@
 
   // Rebuilds swap the data in place; everything below follows `D`.
   let data = $state.raw(untrack(() => first));
+  let tests = $state(readTests());
   const D = $derived(data);
-  const ix = $derived(index(D));
+  /** What the graph and tree see: without test files unless the Tests toggle is on. */
+  const ix = $derived(index(withTests(D, tests)));
   /** Extra start nodes from `D.focus`; cleared when the user focuses on one node. */
   let focusRoots: string[] = untrack(() => (D.focus ?? []).filter((id) => ix.byId[id]));
   let mode = $state<Mode>(untrack(() => (focusRoots.length ? "focus" : D.mode)));
@@ -219,6 +231,18 @@
     }
   }
 
+  function toggleTests(on = !tests) {
+    tests = on;
+    try {
+      localStorage.setItem(TESTS_KEY, tests ? "1" : "0");
+    } catch {
+      // storage blocked: the choice lasts for this page only
+    }
+    scope = ix.groups[scope.id] ?? ix.root; // ix is new: re-find the scope in it
+    if (side.kind === "node" && !ix.byId[side.id]) side = { kind: "overview" };
+    draw();
+  }
+
   function setScope(t: Group | undefined) {
     scope = t || ix.root;
     mode = "architecture";
@@ -226,6 +250,7 @@
   }
 
   function focusOn(id: string) {
+    if (!ix.byId[id] && D.nodes.some((n) => n.id === id && n.test)) toggleTests(true); // a finding on a test
     if (!ix.byId[id]) return;
     focusId = id;
     focusRoots = [];
@@ -381,8 +406,10 @@
   </div>
   <button id="links" class="toggle" aria-pressed={links ? "true" : "false"} title="Show or hide the links (the selected node's stay)"
     onclick={toggleLinks}>Links</button>
+  <button id="tests" class="toggle" aria-pressed={tests ? "true" : "false"} title="Show or hide test and spec files"
+    onclick={() => toggleTests()}>Tests</button>
   <input id="search" type="search" placeholder="Find a node…" aria-label="Find a node" list="ids" autocomplete="off" onkeydown={onSearch}>
-  <datalist id="ids">{#each D.nodes.filter((n) => n.kind !== "test") as n}<option value={n.id}></option>{/each}</datalist>
+  <datalist id="ids">{#each D.nodes.filter((n) => n.kind !== "test" && (tests || !n.test)) as n}<option value={n.id}></option>{/each}</datalist>
   <span id="counts" class="counts">{D.counts.added} added · {D.counts.changed} changed · {D.counts.removed} removed</span>
   <!-- svelte-ignore a11y_invalid_attribute -->
   <span id="crumbs" class="crumbs">{#each crumbs as t, i}{i ? " › " : ""}{#if t === scope}<strong>{i ? t.label : "All"}</strong>{:else}<a href="#" onclick={(e) => { e.preventDefault(); setScope(t); side = { kind: "group", id: t.id }; }}>{i ? t.label : "All"}</a>{/if}{/each}</span>
