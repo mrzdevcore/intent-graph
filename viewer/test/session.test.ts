@@ -160,3 +160,27 @@ test("each turn is recorded with its feature, start and end (the board's agent s
   await c.send("again");
   expect(c.turns.map((t) => [t.id, t.feature, t.end !== null])).toEqual([["turn-1", "export", true], ["turn-2", "export", true]]);
 });
+
+test("a turn's design_edit results become one card per feature at its end, board open or not; Undo says when nothing was left", () => {
+  const f = fake({ trusted: true });
+  const c = new ChatSession(f.agent, f.inv, f.trust);
+  const call = (id: string, touched: object, status = "completed") => c.dispatch({ type: "ToolCall", sessionId: "s", call: {
+    toolCallId: id, title: "mcp__ig__design_edit", status: status as "completed", rawInput: { slug: "export", ops: [] },
+    rawOutput: [{ type: "text", text: `edited plans/export/design.json\ntouched: ${JSON.stringify(touched)}\ncheck: ok` }] } });
+  c.dispatch({ type: "Sent", text: "add an audit log" });
+  call("1", { elements: ["fn-audit"], links: [], bridges: [] });
+  call("2", { elements: ["fn-audit"], links: ["fn-a|calls|fn-audit"], bridges: [] });
+  call("3", { elements: ["fn-x"], links: [], bridges: [] }, "failed");
+  expect(c.s.items.some((i) => i.kind === "board-edit")).toBe(false);
+  c.dispatch({ type: "TurnEnded", stopReason: "end_turn" });
+  const cards = c.s.items.filter((i) => i.kind === "board-edit");
+  expect(cards).toEqual([{ kind: "board-edit", feature: "export", step: "turn-1", ids: ["fn-audit", "fn-a|calls|fn-audit"],
+    elements: 1, links: 1, undo: null }]);
+  let reverted = false;
+  c.board = { feature: "export", show: () => {}, undo: () => reverted };
+  c.undoEdit("turn-1");
+  expect(c.s.items.find((i) => i.kind === "board-edit")).toMatchObject({ undo: "stale" });
+  reverted = true;
+  c.undoEdit("turn-1");
+  expect(c.s.items.find((i) => i.kind === "board-edit")).toMatchObject({ undo: "done" });
+});

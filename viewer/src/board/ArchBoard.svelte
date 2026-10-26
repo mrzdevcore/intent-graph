@@ -139,7 +139,6 @@
       },
       turns: () => chat?.turns.filter((t) => t.feature === next) ?? [],
       agentMerged: (d) => engine && outbox?.agent(d, engine.board()),
-      edited: (e) => chat?.dispatch({ type: "BoardEdit", feature: next, ...e }),
     });
     store = s;
     // the context follows the file's scope, which is only known once it is read
@@ -233,10 +232,10 @@
       show: (ids) => (board?.run((e) => e.select(ids)), board?.key("2", 1)),
       undo: (step) => {
         const o = board?.run((e) => e.revert(step));
-        if (!o) return;
+        if (!o?.changed) return false;
         store?.onOut(o);
-        if (o.changed) queue();
-        c.dispatch({ type: "BoardUndone", step });
+        queue();
+        return true;
       },
     };
     return () => c.board?.feature === f && (c.board = null);

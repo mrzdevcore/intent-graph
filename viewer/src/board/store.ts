@@ -43,14 +43,6 @@ export const realClock: Clock = {
   },
 };
 
-/** Claude's edits of one turn: the chat's "Edited the board" card. `step` is the turn (Undo
- *  reverts it); `ids` are element ids, link keys and the like. */
-export interface BoardEdit { step: string; ids: string[]; elements: number; links: number }
-
-export function boardEdit(step: string, ids: string[]): BoardEdit {
-  return { step, ids, elements: ids.filter((i) => /^[a-z][a-z0-9-]*$/.test(i)).length, links: ids.filter((i) => i.includes("|")).length };
-}
-
 export type StoreEngine = Pick<BoardEngine, "load" | "ops" | "external" | "setCheck" | "board" | "saved">;
 export interface StoreHooks {
   /** The Context JSON for `engine.load`. */
@@ -63,8 +55,6 @@ export interface StoreHooks {
   changed?(): void;
   /** Claude's edit was merged: `disk` is the file it wrote (the outbox's new baseline). */
   agentMerged?(disk: string): void;
-  /** A turn's edits, once the turn and its grace time are over. */
-  edited?(e: BoardEdit): void;
 }
 
 /** Tauri's invoke rejects with a plain string. */
@@ -109,8 +99,6 @@ export class BoardStore {
   private rerun = false;
   /** The last placed element and the file proposed for it: its first rename re-proposes. */
   private proposed: { id: string; name: string; file: string } | null = null;
-  /** By agent turn: what its merges touched, until the turn's card goes out. */
-  private edits = new Map<string, Set<string>>();
 
   constructor(private api: DesignApi, private engine: StoreEngine, readonly slug: string,
     private clock: Clock = realClock, private hooks: StoreHooks = { context: () => "{}", nodes: () => [] }) {
@@ -238,35 +226,10 @@ export class BoardStore {
       const turn = agentStep(this.clock.now(), this.hooks.turns?.() ?? []);
       const o = this.engine.external(text, turn);
       this.onOut(o);
-      if (turn) {
-        this.hooks.agentMerged?.(text);
-        if (o.changed) this.noteEdit(turn, o.touched ?? []);
-      }
+      if (turn) this.hooks.agentMerged?.(text);
     }
     this.notify();
     return true;
-  }
-
-  private noteEdit(turn: string, ids: string[]) {
-    let set = this.edits.get(turn);
-    if (!set) {
-      this.edits.set(turn, (set = new Set()));
-      this.clock.after(AGENT_GRACE_MS, () => this.endEdit(turn));
-    }
-    ids.forEach((i) => set.add(i));
-  }
-
-  /** The turn's card, once no more of its edits can arrive. */
-  private endEdit(turn: string) {
-    if (this.closed) return;
-    const t = this.hooks.turns?.().find((x) => x.id === turn);
-    if (t && (t.end === null || this.clock.now() <= t.end + AGENT_GRACE_MS)) {
-      this.clock.after(AGENT_GRACE_MS, () => this.endEdit(turn));
-      return;
-    }
-    const ids = [...(this.edits.get(turn) ?? [])];
-    this.edits.delete(turn);
-    if (ids.length) this.hooks.edited?.(boardEdit(turn, ids));
   }
 
   /** Stops the timers (the owner flushes first). */
