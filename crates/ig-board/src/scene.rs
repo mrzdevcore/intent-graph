@@ -75,6 +75,9 @@ pub struct A11yItem {
     pub selected: bool,
     pub highlighted: bool,
     pub problem: Option<String>,
+    /// A sticky note marked as a question, and its answer (open while there is none).
+    pub question: bool,
+    pub answer: Option<String>,
 }
 
 fn meets(a: [f32; 4], b: [f32; 4]) -> bool {
@@ -243,10 +246,16 @@ pub(crate) fn a11y(e: &Engine) -> Vec<A11yItem> {
         kind: kind.into(),
         text,
         id,
+        question: false,
+        answer: None,
     };
     let els = d.elements.iter().map(|x| {
         let kind = serde_json::to_value(x.kind).unwrap();
-        item(x.id.clone(), kind.as_str().unwrap(), x.name.clone())
+        A11yItem {
+            question: x.question,
+            answer: x.answer.clone().filter(|a| !a.trim().is_empty()),
+            ..item(x.id.clone(), kind.as_str().unwrap(), x.name.clone())
+        }
     });
     let links = d.links.iter().map(|l| {
         let text = format!("{} {} {}", l.from, l.kind.as_str(), l.to);

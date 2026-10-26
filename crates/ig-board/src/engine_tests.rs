@@ -169,6 +169,20 @@ fn checks_reach_scene_labels_and_a11y() {
     let a = e.a11y();
     assert_eq!(a[0].problem.as_deref(), Some("forbidden"));
     assert_eq!(a[2].text, "fn-a calls fn-b");
+    assert!(!a[0].question && a[0].answer.is_none());
+}
+
+#[test]
+fn a11y_tells_open_questions_from_answered_ones() {
+    let mut a = el("note-1", ElementKind::Note);
+    a.question = true;
+    a.answer = Some("  ".into());
+    let mut b = el("note-2", ElementKind::Note);
+    b.question = true;
+    b.answer = Some("yes".into());
+    let a11y = Engine::new(ctx(), board(vec![a, b])).a11y();
+    assert_eq!((a11y[0].question, a11y[0].answer.as_deref()), (true, None));
+    assert_eq!(a11y[1].answer.as_deref(), Some("yes"));
 }
 
 #[test]

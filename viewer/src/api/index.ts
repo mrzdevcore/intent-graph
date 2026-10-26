@@ -184,6 +184,12 @@ export type DesignCheck = {
   findings: (Omit<ViewFinding, "pinned"> & { target: string | null })[];
 };
 
+/** plans/<slug>/plan.md: there, and its `ig plan check` error count (crates/ig-desktop/src/design.rs). */
+export interface BoardStatus {
+  exists: boolean;
+  blocking: number;
+}
+
 /** Desktop app only: features and their design files. */
 export interface DesignApi {
   features(): Promise<Feature[]>;
@@ -197,6 +203,8 @@ export interface DesignApi {
   /** The kept text and when it was written (ms), if any. */
   unsaved(slug: string): Promise<{ text: string; at: number } | null>;
   discardUnsaved(slug: string): Promise<void>;
+  /** The feature's plan.md, checked without recording it. */
+  planStatus(slug: string): Promise<BoardStatus>;
   /** A design file changed outside the app. Returns the unsubscribe. */
   onChanged(cb: (slug: string) => void): () => void;
 }

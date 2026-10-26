@@ -24,6 +24,7 @@ export interface RawEngine {
   undo(): string;
   redo(): string;
   board(): string;
+  delta(prev: string, next: string): string;
   saved(written: string): void;
   palette(json: string): void;
   resize(w: number, h: number, dpr: number): void;
@@ -89,6 +90,7 @@ export function wrap(raw: RawEngine, pkg: Pkg, onFail: (reason: string) => void)
     undo: () => g(() => out(raw.undo())),
     redo: () => g(() => out(raw.redo())),
     board: () => g(() => raw.board()),
+    delta: (a, b) => g(() => JSON.parse(raw.delta(a, b)) as string[]),
     saved: (w) => g(() => raw.saved(w)),
     palette: (p) => g(() => raw.palette(JSON.stringify(p))),
     resize: (w, h, dpr) => g(() => raw.resize(w, h, dpr)),

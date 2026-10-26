@@ -1,20 +1,26 @@
 <!-- The Design view's architecture board: the feature switcher and scope picker, the tool rail,
-     the engine's board over the faded real system, the inspector, and the checks bar. The store
-     autosaves to plans/<slug>/design.json and re-checks on every change of meaning. -->
+     the engine's board over the faded real system, the inspector, the action bar (readiness,
+     Plan, Apply) and the checks bar. The store autosaves to plans/<slug>/design.json and
+     re-checks on every change of meaning. While the chat's session is the feature's, the
+     outbox tells Claude what the user changed on the board. -->
 <script lang="ts">
   import { untrack } from "svelte";
   import { Box, Cloud, Frame, Maximize, MousePointer2, Redo2, Route, SquareFunction, Spline, StickyNote, Undo2 } from "lucide-static";
-  import type { Design, DesignApi, DesignScope, LinkKind, MarkKind } from "../api";
+  import type { BoardStatus, Design, DesignApi, DesignScope, LinkKind, MarkKind } from "../api";
+  import type { ChatSession } from "../components/chat/session.svelte";
+  import { openQuestions } from "../model/chat";
   import type { Group, Index } from "../model/graph";
   import Board from "./Board.svelte";
   import Checks from "./Checks.svelte";
   import Features from "./Features.svelte";
   import { buildContext, scopeGroup } from "./context";
-  import type { BoardEngine, EngineOut, Tool } from "./engine";
+  import type { A11yItem, BoardEngine, EngineOut, Tool } from "./engine";
   import type { Importer } from "./host";
   import { BoardStore, realClock, targets, type StoreEngine } from "./store";
+  import { Outbox, applyPrompt, planPrompt } from "./outbox";
+  import { applyState, noteChips, openNotes, readiness } from "./ready";
 
-  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer }: {
+  let { ix, api, graphScope, around = null, initial = null, beforeClose, importer, chat = null }: {
     ix: Index;
     api: DesignApi;
     /** The Graph's Architecture scope: offered as a "folder" scope. */
@@ -27,6 +33,8 @@
     beforeClose?: (cb: () => Promise<void>) => () => void;
     /** Tests: a fake engine. */
     importer?: Importer;
+    /** The chat's session (desktop app): Plan, Apply and the board updates go through it. */
+    chat?: ChatSession | null;
   } = $props();
 
   const scopeKey = (s: DesignScope) => JSON.stringify(s);
@@ -83,6 +91,7 @@
   function readDoc() {
     try {
       doc = engine ? (JSON.parse(engine.board()) as Design) : null;
+      items = engine?.a11y() ?? [];
     } catch {
       doc = null;
     }
@@ -96,7 +105,12 @@
       board?.fit();
     },
     ops: (o, s) => board?.run((e) => e.ops(o, s)) ?? NOOP,
-    external: (d, t) => board?.run((e) => e.external(d, t)) ?? NOOP,
+    external: (d, t) => {
+      const o = board?.run((e) => e.external(d, t)) ?? NOOP;
+      // Claude's own edit (or one from outside) with nothing queued: not news for Claude
+      if (o.changed && live && outbox && !outbox.pending) rebase();
+      return o;
+    },
     setCheck: (t) => void board?.run((e) => e.setCheck(t)),
     board: () => engine!.board(),
     saved: (w) => engine!.saved(w),
@@ -113,6 +127,11 @@
     slug = next;
     remember(next);
     selection = [];
+    planStatus = null;
+    outbox?.dispose();
+    const c = chat;
+    outbox = c && engine ? new Outbox(next, (t) => ((queued = 0), c.ask(next, t)), () => !!planStatus?.exists,
+      (a, b) => engine!.delta(a, b), realClock) : null;
     const s = new BoardStore(api, adapter, next, realClock, {
       context: () => context(scope),
       nodes: () => ix.D.nodes,
@@ -125,6 +144,8 @@
     // the context follows the file's scope, which is only known once it is read
     await s.load();
     if (store !== s) return;
+    rebase();
+    void refreshStatus();
     const u = await api.unsaved(next).catch((e: unknown) => (console.error(e), null));
     if (store === s) kept = u;
     if (around && around.n !== usedAround) {
@@ -150,12 +171,96 @@
     tool = e.tool();
     store?.onOut(o);
     if (!o.changed) readDoc();
+    else queue();
   }
 
   /** One user step through the engine; the store saves and checks it. */
   function ops(list: object[]) {
     const o = board?.run((e) => e.ops(JSON.stringify(list), "user"));
     if (o) store?.onOut(o);
+    if (o?.changed) queue();
+  }
+
+  // Plan, Apply and the board updates to Claude.
+  let planStatus = $state.raw<BoardStatus | null>(null);
+  let items = $state.raw<A11yItem[]>([]);
+  let outbox: Outbox | null = null;
+  /** Change lines waiting for the quiet period or the turn's end. */
+  let queued = $state(0);
+  /** The chat's session is this feature's: board edits reach Claude. */
+  const live = $derived(!!chat && !!slug && chat.feature === slug);
+
+  /** A user edit, after the store's follow-ups (a placed element's file). */
+  function queue() {
+    if (!live || !outbox || !engine) return;
+    outbox.push(engine.board());
+    queued = outbox.pending;
+  }
+
+  /** What Claude knows now: the board as it is, nothing queued. */
+  function rebase() {
+    if (!engine || !outbox) return;
+    outbox.baseline(engine.board());
+    queued = 0;
+  }
+
+  async function refreshStatus() {
+    const s = slug;
+    if (!s) return;
+    try {
+      const st = await api.planStatus(s);
+      if (slug === s) planStatus = st;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  /** Claude reads the design file: written first; what it reads is the new baseline. */
+  async function plan() {
+    const s = slug, st = store;
+    if (!s || !st || !chat) return;
+    await st.flush();
+    await chat.ask(s, planPrompt(s), () => store === st && rebase());
+  }
+
+  async function applyPlan() {
+    const s = slug, st = store;
+    if (!s || !st || !chat || !applyState(planStatus).enabled) return;
+    await st.flush();
+    await chat.ask(s, applyPrompt(s));
+  }
+
+  // the session becomes (or stops being) the feature's: start from the board as it is
+  $effect(() => {
+    void live;
+    untrack(rebase);
+  });
+  // never during a turn; at its end the queued edits go, and the plan may have changed
+  $effect(() => {
+    const r = live && !!chat?.s.running;
+    untrack(() => {
+      outbox?.setRunning(r);
+      queued = outbox?.pending ?? 0;
+      if (!r) void refreshStatus();
+    });
+  });
+  // the selected sticky notes go along with the next chat message
+  $effect(() => {
+    const sel = selection;
+    untrack(() => chat && (chat.chips = noteChips(items, sel)));
+    return () => chat && (chat.chips = []);
+  });
+  const readyLine = $derived.by(() => {
+    void version;
+    return readiness(chat ? openQuestions(chat.s) : 0, openNotes(items), store?.check ?? null);
+  });
+  const applyable = $derived(applyState(planStatus));
+
+  function onkey(e: KeyboardEvent) {
+    const t = e.target as HTMLElement | null;
+    if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || t?.closest("input, textarea, select, [contenteditable]")) return;
+    e.preventDefault();
+    void plan();
   }
 
   function pickTool(t: Tool) {
@@ -186,7 +291,10 @@
   });
   $effect(() => {
     void ix;
-    untrack(() => store?.recheck());
+    untrack(() => {
+      store?.recheck();
+      void refreshStatus();
+    });
   });
 
   /** The last "Design around this" applied (a store that loads later applies a newer one). */
@@ -206,6 +314,8 @@
     if (!s) return;
     return api.onChanged((changed) => changed === s && store?.slug === s && void store.external());
   });
+
+  $effect(() => () => outbox?.dispose());
 
   // App quit: the window waits for the last edit to be written
   $effect(() => beforeClose?.(async () => {
@@ -282,6 +392,8 @@
   const update = (id: string, set: Record<string, unknown>) => ops([{ op: "update", id, set }]);
   const setMark = (node: string, m: MarkKind | null) => ops([{ op: "mark", node, mark: m }]);
 </script>
+
+<svelte:window onkeydown={onkey} />
 
 <div class="arch">
   <div class="bar">
@@ -371,6 +483,16 @@
   </aside>
 
   <div class="foot">
+    {#if chat}
+      <div class="actions" aria-label="Plan and apply">
+        <span class="ready" class:clear={readyLine.clear} role="status">{readyLine.text}</span>
+        {#if queued}<span class="muted">Chat · {queued} {queued === 1 ? "note" : "notes"} queued</span>{/if}
+        <span class="spacer"></span>
+        {#if applyable.reason}<span class="muted">{applyable.reason}</span>{/if}
+        <button disabled={!store || !applyable.enabled} title={applyable.reason ?? "Build the plan: /ig:apply"} onclick={applyPlan}>Apply</button>
+        <button class="plan" disabled={!store} title="Plan from this design ({CMD}+Enter)" onclick={plan}>Plan <kbd>{isMac ? "⌘↵" : "Ctrl+↵"}</kbd></button>
+      </div>
+    {/if}
     <Checks check={store?.check ?? null} error={checkError} status={status.text} failed={status.failed} />
   </div>
 </div>
@@ -406,4 +528,11 @@
   .muted { color: var(--muted); }
   .problem { color: var(--error); }
   .foot { grid-column: 1 / -1; }
+  .actions { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--line);
+    background: var(--panel); font-size: 13px; }
+  .ready { color: var(--warning); }
+  .ready::before { content: "● "; }
+  .ready.clear { color: var(--added); }
+  .plan { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .plan kbd { position: static; font-size: 11px; margin-left: 4px; }
 </style>

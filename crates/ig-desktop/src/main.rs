@@ -200,6 +200,7 @@ fn main() {
             design::features,
             design::create_feature,
             design::read_design,
+            design::plan_status,
             design::write_design,
             design::check_design,
             design::keep_unsaved,
