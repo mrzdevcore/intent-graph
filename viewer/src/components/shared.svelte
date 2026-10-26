@@ -1,5 +1,6 @@
 <!-- Bits the panels share: editor links, finding rows and copy buttons. -->
 <script module lang="ts">
+  import CopyButton from "./CopyButton.svelte";
   import type { ViewData, ViewFinding } from "../data";
 
   export { editorLink, findingItem, copyButton };
@@ -10,14 +11,6 @@
     const target = D.editor.split("{file}").join(abs).split("{line}").join(String(line || 1));
     const m = /^([a-z][a-z0-9+.-]*):/i.exec(target);
     return { target, link: !!m && ["javascript", "data", "vbscript"].indexOf(m[1].toLowerCase()) < 0 };
-  }
-
-  function copy(ev: Event, text: string) {
-    const b = ev.currentTarget as HTMLButtonElement;
-    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(
-      () => (b.textContent = "Copied"),
-      () => window.prompt("Copy:", text),
-    );
   }
 </script>
 
@@ -36,5 +29,5 @@
 {/snippet}
 
 {#snippet copyButton(label: string, text: string)}
-  <button onclick={(e) => copy(e, text)}>{label}</button>
+  <CopyButton {label} {text} />
 {/snippet}
