@@ -68,8 +68,12 @@ const isStr = (x: unknown): x is string => typeof x === "string";
 
 /** A chat tool card's input as a show, when the tool is `ig_show` (or `mcp__…__ig_show`). */
 export function showFromTool(call: { title?: string; rawInput?: unknown }): Show | null {
-  if (!call.title || !/^(ig_show|mcp__.*__ig_show)$/.test(call.title)) return null;
-  const r = call.rawInput as Record<string, unknown> | null;
+  return call.title && /^(ig_show|mcp__.*__ig_show)$/.test(call.title) ? parseShow(call.rawInput) : null;
+}
+
+/** A show from the host or a tool input: needs a title and nodes; missing edges and steps are []. */
+export function parseShow(raw: unknown): Show | null {
+  const r = raw as Record<string, unknown> | null;
   if (!r || typeof r !== "object" || !isStr(r.title) || !Array.isArray(r.nodes) || !r.nodes.length || !r.nodes.every(isStr)) return null;
   const edges: [string, string][] = [];
   for (const e of Array.isArray(r.edges) ? r.edges : []) {

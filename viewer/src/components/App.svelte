@@ -44,7 +44,7 @@
   import { withTests } from "../model/tests";
   import { ancestors, findNode, index, topMember, type Group } from "../model/graph";
   import { beforeAfter, nodeNamed } from "../model/code";
-  import { applyShow, commonScope, showReducer, type Show, type ShowState } from "../model/show";
+  import { applyShow, commonScope, parseShow, showReducer, type Show, type ShowState } from "../model/show";
   import ShowBanner from "./ShowBanner.svelte";
   import Chat from "./chat/Chat.svelte";
   import { nodeMatcher } from "../model/markdown";
@@ -128,7 +128,10 @@
       }),
       api.on?.("note", () => refreshNotes()),
       api.on?.("focus", (ids) => focusAll(ids as string[])),
-      api.on?.("show", (s) => Array.isArray((s as Show)?.nodes) && showAnswer(s as Show)),
+      api.on?.("show", (raw) => {
+        const s = parseShow(raw);
+        if (s) showAnswer(s);
+      }),
     ];
     return () => offs.forEach((off) => off?.());
   });

@@ -11,6 +11,17 @@ pub const SHOW: &str = ".ig/show.json";
 
 const MAX_NODES: usize = 60;
 const MAX_STEPS: usize = 40;
+const MAX_TITLE: usize = 200;
+const MAX_TEXT: usize = 500;
+const MAX_ID: usize = 512;
+
+fn short(what: &str, s: &str, max: usize) -> Result<()> {
+    let n = s.chars().count();
+    if n > max {
+        bail!("{what} is {n} characters: at most {max}");
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,6 +71,7 @@ struct Input {
 }
 
 fn known(g: &Graph, id: &str) -> Result<()> {
+    short("an id", id, MAX_ID)?;
     if g.nodes.iter().any(|n| n.id == id) {
         return Ok(());
     }
@@ -91,6 +103,10 @@ pub fn validate(g: &Graph, input: &Value, seq: u64) -> Result<Show> {
     }
     if i.steps.len() > MAX_STEPS {
         bail!("{} steps: at most {MAX_STEPS}", i.steps.len());
+    }
+    short("title", &i.title, MAX_TITLE)?;
+    for s in &i.steps {
+        short("a step's text", &s.text, MAX_TEXT)?;
     }
     for n in &i.nodes {
         known(g, n)?;
@@ -197,6 +213,24 @@ mod tests {
         assert!(e.unwrap_err().to_string().contains("at most 40"));
         let ok: Vec<&str> = vec!["a"; 60];
         assert!(validate(&g(), &json!({"title": "t", "nodes": ok}), 1).is_ok());
+    }
+
+    #[test]
+    fn long_title_step_text_and_ids_are_refused() {
+        let t = |v: Value| validate(&g(), &v, 1).unwrap_err().to_string();
+        let long = |n: usize| "x".repeat(n);
+        assert!(
+            t(json!({"title": long(201), "nodes": ["a"]}))
+                .contains("title is 201 characters: at most 200")
+        );
+        let steps = json!([{"target": "a", "text": long(501)}]);
+        assert!(t(json!({"title": "t", "nodes": ["a"], "steps": steps})).contains("at most 500"));
+        assert!(
+            t(json!({"title": "t", "nodes": [long(513)]}))
+                .contains("an id is 513 characters: at most 512")
+        );
+        let ok = json!({"title": long(200), "nodes": ["a"], "steps": [{"target": "a", "text": long(500)}]});
+        assert!(validate(&g(), &ok, 1).is_ok());
     }
 
     #[test]

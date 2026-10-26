@@ -132,3 +132,18 @@ test("agent controls: mode and model as chips, fast mode as a toggle, the rest i
   expect([fastOn(c.fast!), fastNext(c.fast!)]).toEqual([false, "on"]);
   expect(fastOn({ ...c.fast!, currentValue: "on" })).toBe(true);
 });
+
+test("a tool card without input takes the permission request's input; an empty update keeps it", () => {
+  const input = { title: "t", nodes: ["a"] };
+  const s = play([
+    { type: "ToolCall", sessionId: "s", call: { toolCallId: "x", title: "mcp__plugin_ig_ig__ig_show", rawInput: {} } },
+    { type: "Permission", requestId: 1, sessionId: "s", toolCall: { toolCallId: "x", rawInput: input }, options: [] },
+    { type: "ToolCallUpdate", sessionId: "s", update: { toolCallId: "x", rawInput: {}, status: "completed" } },
+  ]);
+  const tool = s.items.find((i) => i.kind === "tool");
+  expect(tool?.kind === "tool" && tool.call.rawInput).toEqual(input);
+});
+
+test("the setup card says Installing only while an install runs", () => {
+  expect(chat).toContain('{installing ? "Installing…" : "Install"}');
+});

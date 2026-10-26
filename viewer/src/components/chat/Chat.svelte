@@ -102,16 +102,19 @@
     }
   }
 
+  /** Only while `agent.install` runs: "Installing…" (`busy` also covers starting a session). */
+  let installing = $state(false);
+
   async function install() {
-    busy = true;
+    busy = installing = true;
     error = "";
     try {
       await agent.install();
-      busy = false;
+      busy = installing = false;
       start();
     } catch (e) {
       error = msg(e).startsWith("not installed") ? "" : msg(e); // declined in the native dialog
-      busy = false;
+      busy = installing = false;
     }
   }
 
@@ -209,7 +212,7 @@
       <h2>Set up the agent</h2>
       <pre>{s.setup.instructions}</pre>
       <div class="row">
-        {#if s.setup.installable}<button class="primary" disabled={busy} onclick={install}>{busy ? "Installing…" : "Install"}</button>{/if}
+        {#if s.setup.installable}<button class="primary" disabled={busy} onclick={install}>{installing ? "Installing…" : "Install"}</button>{/if}
         <button disabled={busy} onclick={() => start()}>Retry</button>
       </div>
     </div>
