@@ -138,6 +138,11 @@ pub enum Op {
         to: String,
         label: String,
     },
+    Unnav {
+        screen: String,
+        from: String,
+        to: String,
+    },
 }
 
 impl Op {
@@ -152,6 +157,7 @@ impl Op {
                 | ScreenMove { .. }
                 | ScreenRemove { .. }
                 | Nav { .. }
+                | Unnav { .. }
         )
     }
 }

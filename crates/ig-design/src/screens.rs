@@ -11,6 +11,10 @@ use std::collections::BTreeMap;
 pub const MAX_POINTS: usize = 2000;
 /// Entries in an options/columns/tabs list.
 const MAX_LIST: usize = 200;
+/// Pieces per screen, navs per screen, screens per feature: checked when an edit adds to them.
+pub const MAX_PIECES: usize = 2000;
+pub const MAX_NAVS: usize = 500;
+pub const MAX_SCREENS: usize = 200;
 /// Screen ids are file names: the slug length.
 const MAX_SCREEN_ID: usize = 64;
 
@@ -391,6 +395,12 @@ pub(crate) fn caps(
         let o = old.get(sid);
         if o.is_some_and(|o| o == s) {
             continue;
+        }
+        if s.elements.len() > MAX_PIECES && o.is_none_or(|o| s.elements.len() > o.elements.len()) {
+            return invalid(format!("{sid}: more than {MAX_PIECES} elements"));
+        }
+        if s.navs.len() > MAX_NAVS && o.is_none_or(|o| s.navs.len() > o.navs.len()) {
+            return invalid(format!("{sid}: more than {MAX_NAVS} navs"));
         }
         if o.is_none_or(|o| o.title != s.title) {
             cap(&format!("{sid}: the title"), &s.title, MAX_NAME)?;

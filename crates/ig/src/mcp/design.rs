@@ -1,5 +1,5 @@
-//! `design_edit`: `ig_design::apply` on the design and screen files' bytes, each written only
-//! over those same bytes, then the live design check.
+//! `design_edit`: `ig_design::apply` on the design and screen files' bytes, written by
+//! `screens::commit` only over those same bytes, then the live design check.
 
 use super::*;
 use ig_app::design as app;
@@ -28,7 +28,7 @@ pub(super) fn edit(root: &Path, args: &Value) -> anyhow::Result<(String, Option<
     let with_screens = ops.iter().any(Op::is_screen);
     let w = Wired::new(root);
     // ponytail: read-compare-write without a lock; add a .ig lock file if a conflict is ever seen.
-    'try_again: for _ in 0..2 {
+    for _ in 0..2 {
         let (design, bytes) = app::read_raw(w.files(), slug)?;
         let old = if with_screens {
             screens::read_all(w.files(), slug)?
@@ -43,28 +43,8 @@ pub(super) fn edit(root: &Path, args: &Value) -> anyhow::Result<(String, Option<
         if next == board {
             return Ok((format!("no change: {path} already says so"), None));
         }
-        let changed: Vec<&String> = t
-            .screens
-            .iter()
-            .filter(|id| next.screens.get(*id) != board.screens.get(*id))
-            .collect();
-        // all the files are checked before the first is written
-        for id in &changed {
-            let now = w.files().read_bytes(&screens::screen_path(slug, id));
-            if now.as_deref() != old.get(*id).map(|o| o.1.as_slice()) {
-                continue 'try_again;
-            }
-        }
-        if next.design != design && !app::write(w.files(), slug, &next.design, Some(&bytes))? {
+        if !screens::commit(w.files(), slug, &design, &bytes, &old, &next, &t.screens)? {
             continue;
-        }
-        for id in &changed {
-            let was = old.get(*id).map(|o| o.1.as_slice());
-            match next.screens.get(*id) {
-                Some(s) if !screens::write(w.files(), slug, s, was)? => continue 'try_again,
-                Some(_) => {}
-                None => screens::remove(w.files(), slug, id)?,
-            }
         }
         let touched = json!({"elements": t.elements, "links": t.links, "bridges": t.bridges, "screens": t.screens});
         // the files are written: a check that fails is reported, never as a failed edit

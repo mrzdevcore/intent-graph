@@ -93,6 +93,69 @@ pub fn remove(files: &dyn Files, slug: &str, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Writes an edit's files in this order: new or changed screens, design.json, screen removals.
+/// Every write is compare-and-swap against the bytes the edit was made on. Ok(false): something
+/// changed before the first write, nothing was written, the caller may retry. Once a file is
+/// written an error is final (the edit is never applied again) and lists what was written.
+pub fn commit(
+    files: &dyn Files,
+    slug: &str,
+    design: &design::Design,
+    design_bytes: &[u8],
+    old: &BTreeMap<String, (Screen, Vec<u8>)>,
+    next: &design::Board,
+    touched: &[String],
+) -> Result<bool> {
+    let changed: Vec<&String> = touched
+        .iter()
+        .filter(|id| next.screens.get(*id) != old.get(*id).map(|o| &o.0))
+        .collect();
+    let was = |id: &str| old.get(id).map(|o| o.1.as_slice());
+    let dpath = crate::design::design_path(slug);
+    let stale = |path: &str, bytes: Option<&[u8]>| files.read_bytes(path).as_deref() != bytes;
+    if stale(&dpath, Some(design_bytes))
+        || changed
+            .iter()
+            .any(|id| stale(&screen_path(slug, id), was(id)))
+    {
+        return Ok(false);
+    }
+    let mut wrote: Vec<String> = vec![];
+    let lost = |wrote: &[String], path: &str| -> Result<bool> {
+        if wrote.is_empty() {
+            return Ok(false);
+        }
+        bail!(
+            "design_edit: partial: wrote [{}]; {path} changed meanwhile, re-read and retry",
+            wrote.join(", ")
+        )
+    };
+    for id in &changed {
+        if let Some(s) = next.screens.get(*id) {
+            let path = screen_path(slug, id);
+            if !write(files, slug, s, was(id))? {
+                return lost(&wrote, &path);
+            }
+            wrote.push(path);
+        }
+    }
+    if next.design != *design {
+        if !crate::design::write(files, slug, &next.design, Some(design_bytes))? {
+            return lost(&wrote, &dpath);
+        }
+        wrote.push(dpath);
+    }
+    for id in changed.iter().filter(|id| !next.screens.contains_key(**id)) {
+        let path = screen_path(slug, id);
+        if stale(&path, was(id)) {
+            return lost(&wrote, &path);
+        }
+        remove(files, slug, id)?;
+        wrote.push(path);
+    }
+    Ok(true)
+}
+
 /// The extension of what `bytes` is by its signature (never by a name): PNG or JPEG.
 fn sniff(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
@@ -130,10 +193,14 @@ pub fn read_asset(files: &dyn Files, slug: &str, name: &str) -> Result<Vec<u8>> 
     if !is_asset_name(name) {
         bail!("bad asset name {name:?}");
     }
-    match files.read_bytes(&asset_path(slug, name)) {
-        Some(b) => Ok(b),
-        None => bail!("{name}: not found"),
+    let Some(b) = files.read_bytes(&asset_path(slug, name)) else {
+        bail!("{name}: not found");
+    };
+    // what is on disk is checked again: it may have been replaced since it was stored
+    if b.len() > MAX_ASSET || sniff(&b) != name.rsplit('.').next() {
+        bail!("{name}: {REFUSED}");
     }
+    Ok(b)
 }
 
 #[cfg(test)]
@@ -217,6 +284,98 @@ mod tests {
         let s = design::parse_screen(&screen("home", "")).unwrap();
         assert!(write(&f, "a", &s, Some(b"<<<<")).is_err());
         assert_eq!(f.read_bytes(&screen_path("a", "home")).unwrap(), b"<<<<");
+    }
+
+    /// Runs `hook` just before the first write to `at`: another writer sneaking in.
+    struct Racy {
+        inner: MemFiles,
+        at: String,
+        hook: std::sync::Mutex<Option<(String, Vec<u8>)>>,
+    }
+    impl Files for Racy {
+        fn read_bytes(&self, p: &str) -> Option<Vec<u8>> {
+            self.inner.read_bytes(p)
+        }
+        fn write_atomic(
+            &self,
+            p: &str,
+            b: &[u8],
+        ) -> std::result::Result<(), ig_core::ports::PortError> {
+            if p == self.at
+                && let Some((v, bytes)) = self.hook.lock().unwrap().take()
+            {
+                self.inner.write_atomic(&v, &bytes)?;
+            }
+            self.inner.write_atomic(p, b)
+        }
+        fn remove(&self, p: &str) -> std::result::Result<(), ig_core::ports::PortError> {
+            self.inner.remove(p)
+        }
+        fn exists(&self, p: &str) -> bool {
+            self.inner.exists(p)
+        }
+        fn glob(
+            &self,
+            p: &[String],
+        ) -> std::result::Result<Vec<String>, ig_core::ports::PortError> {
+            self.inner.glob(p)
+        }
+        fn at(&self, r: &std::path::Path) -> Box<dyn Files> {
+            self.inner.at(r)
+        }
+        fn discover(
+            &self,
+            c: &ig_core::config::Config,
+        ) -> std::result::Result<ig_core::workspace::WorkspaceInfo, ig_core::ports::PortError>
+        {
+            self.inner.discover(c)
+        }
+    }
+
+    fn titled(id: &str, title: &str) -> String {
+        screen(id, "").replace("\"T\"", &format!("\"{title}\""))
+    }
+
+    const DESIGN: &str = r#"{"version":1,"title":"A","scope":{"kind":"layer","name":"x"}}"#;
+
+    #[test]
+    fn commit_stops_for_good_after_a_partial_write() {
+        let f = Racy {
+            inner: MemFiles::with(&[("plans/a/design.json", DESIGN)]),
+            at: "plans/a/design.json".into(),
+            hook: Default::default(),
+        };
+        put(&f.inner, "a", &screen("a", ""));
+        put(&f.inner, "b", &screen("b", ""));
+        let (d, dbytes) = crate::design::read_raw(&f, "a").unwrap();
+        let old = read_all(&f, "a").unwrap();
+        let mut next = design::Board {
+            design: d.clone(),
+            screens: old.iter().map(|(k, v)| (k.clone(), v.0.clone())).collect(),
+        };
+        next.design.title = "New".into();
+        next.screens.get_mut("a").unwrap().title = "A2".into();
+        next.screens.remove("b");
+        let t = ["a".to_string(), "b".to_string()];
+        // before any write: stale -> Ok(false), nothing written
+        put(&f.inner, "b", &titled("b", "U"));
+        assert!(!commit(&f, "a", &d, &dbytes, &old, &next, &t).unwrap());
+        assert_eq!(
+            f.read_bytes("plans/a/design.json").unwrap(),
+            DESIGN.as_bytes()
+        );
+        // b changes right when design.json is written: a and design are done, b is not removed
+        let old = read_all(&f, "a").unwrap();
+        let theirs = titled("b", "V").into_bytes();
+        *f.hook.lock().unwrap() = Some((screen_path("a", "b"), theirs.clone()));
+        let e = commit(&f, "a", &d, &dbytes, &old, &next, &t)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.starts_with("design_edit: partial: wrote [plans/a/screens/a.json, plans/a/design.json]; plans/a/screens/b.json changed meanwhile"),
+            "{e}"
+        );
+        assert_eq!(f.read_bytes(&screen_path("a", "b")).unwrap(), theirs);
     }
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
