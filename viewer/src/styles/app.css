@@ -120,6 +120,8 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat .msg.error { color: var(--error); padding: 4px 12px; }
 #ig-chat .md :first-child { margin-top: 0; } #ig-chat .md :last-child { margin-bottom: 0; }
 #ig-chat .md pre, #ig-chat pre { background: var(--code); padding: 6px 8px; border-radius: 6px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+#ig-chat .md .node-link { all: unset; color: var(--accent); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; overflow-wrap: anywhere; }
+#ig-chat .md .node-link:hover { text-decoration-style: solid; } #ig-chat .md .node-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 #ig-chat code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 #ig-chat .card { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--bg); }
 #ig-chat .card.open { border-left: 3px solid var(--accent); }

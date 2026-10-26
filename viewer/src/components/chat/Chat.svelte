@@ -12,7 +12,7 @@
   import QuestionCard from "./QuestionCard.svelte";
   import ToolCard from "./ToolCard.svelte";
 
-  let { agent, trustInventory, trustProject, openUrl, root, selection, onopendiff }: {
+  let { agent, trustInventory, trustProject, openUrl, root, selection, onopendiff, match, onnode }: {
     agent: AgentApi;
     trustInventory: () => Promise<TrustState>;
     trustProject: (hash: string) => Promise<void>;
@@ -20,6 +20,9 @@
     root: string;
     selection: Selection | null;
     onopendiff: (path: string, before: string, after: string) => void;
+    /** Graph refs in replies: text → node id; `onnode` shows it in the graph. */
+    match?: (text: string, code?: boolean) => string | null;
+    onnode?: (id: string) => void;
   } = $props();
 
   let s = $state.raw(initialChat);
@@ -257,7 +260,7 @@
       {:else if item.kind === "text"}
         <div class="msg {item.role}">
           {#if item.role === "user"}<div class="plain">{item.text}</div>
-          {:else}<Markdown text={item.text} {openUrl} />{/if}
+          {:else}<Markdown text={item.text} {openUrl} {match} {onnode} />{/if}
         </div>
       {:else if item.kind === "tool"}
         <ToolCard call={item.call} {root} {onopendiff} />
