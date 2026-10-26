@@ -9,6 +9,7 @@ use ig_core::ports::{LanguageFrontend, Vcs};
 use ig_fs::FsFiles;
 use ig_git::GitVcs;
 use ig_lang_ts::TsFrontend;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -100,12 +101,25 @@ pub fn ignored(root: &Path, p: &Path) -> bool {
     })
 }
 
-/// What changed in one quiet period: `full` when anything but plan notes (`*.notes.*`) did,
-/// `show` when `.ig/show.json` did (an agent's `ig_show`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// What changed in one quiet period: `full` when anything but plan notes (`*.notes.*`) and the
+/// files of a feature folder (all but its `plan.md`) did, `show` when `.ig/show.json` did (an
+/// agent's `ig_show`), `designs` the slugs of the feature folders touched.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Changed {
     pub full: bool,
     pub show: bool,
+    pub designs: BTreeSet<String>,
+}
+
+/// The feature whose design file (design.json, notes, screens, assets, or a temp file of an
+/// atomic write) `rel` is; its `plan.md` is not one.
+fn design_slug(rel: &Path) -> Option<String> {
+    let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_str()).collect();
+    match parts[..] {
+        [Some("plans"), Some(s), Some(f)] if f != "plan.md" => Some(s.into()),
+        [Some("plans"), Some(s), Some(_), ..] if parts.len() > 3 => Some(s.into()),
+        _ => None,
+    }
 }
 
 /// Watches `root` and, after 300 ms of quiet, calls `on_change`. Ignored paths never count, except
@@ -132,9 +146,13 @@ pub fn watch(
                         c.show = true;
                     } else if !ignored(&root, p) {
                         any = true;
-                        c.full |= !p
-                            .file_name()
-                            .is_some_and(|f| f.to_string_lossy().contains(".notes."));
+                        if let Some(slug) = design_slug(p.strip_prefix(&root).unwrap_or(p)) {
+                            c.designs.insert(slug);
+                        } else {
+                            c.full |= !p
+                                .file_name()
+                                .is_some_and(|f| f.to_string_lossy().contains(".notes."));
+                        }
                     }
                 }
             };
@@ -173,7 +191,7 @@ mod tests {
             rx.recv_timeout(Duration::from_secs(5)),
             Ok(Changed {
                 full: true,
-                show: false
+                ..Changed::default()
             })
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -200,10 +218,34 @@ mod tests {
         assert_eq!(
             rx.recv_timeout(Duration::from_secs(5)),
             Ok(Changed {
-                full: false,
-                show: true
+                show: true,
+                ..Changed::default()
             })
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn watch_classifies_design_screen_and_asset_changes() {
+        let dir = std::env::temp_dir().join(format!("ig-wire-design-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("plans/a/screens")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _w = watch(&dir, move |c| {
+            let _ = tx.send(c);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        std::fs::write(dir.join("plans/a/design.json"), "{}").unwrap();
+        std::fs::write(dir.join("plans/a/screens/s.json"), "{}").unwrap();
+        let want = Changed {
+            designs: BTreeSet::from(["a".to_string()]),
+            ..Changed::default()
+        };
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(want));
+        std::fs::write(dir.join("plans/a/plan.md"), "# A").unwrap();
+        assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().full);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

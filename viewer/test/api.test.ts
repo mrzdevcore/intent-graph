@@ -129,3 +129,27 @@ test("tauri agent: commands carry their arguments; onEvent hands over agent-even
   handler({ payload: e });
   expect(cb).toHaveBeenCalledWith(e);
 });
+
+test("tauri design api invokes the commands", async () => {
+  const invoke = vi.fn(async () => []);
+  let handler: (e: { payload: unknown }) => void = () => {};
+  const listen = vi.fn(async (_n: string, cb: (e: { payload: unknown }) => void) => ((handler = cb), () => {}));
+  vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
+  vi.doMock("@tauri-apps/api/event", () => ({ listen }));
+  const { tauri } = await import("../src/api/tauri");
+  const d = tauri().design!;
+  await d.features();
+  expect(invoke).toHaveBeenCalledWith("features");
+  await d.create("Patient export");
+  expect(invoke).toHaveBeenCalledWith("create_feature", { title: "Patient export" });
+  await d.read("a");
+  expect(invoke).toHaveBeenCalledWith("read_design", { slug: "a" });
+  const doc = { version: 1, title: "A", scope: { kind: "dir", id: "." }, elements: [], marks: [], links: [], bridges: [] } as any;
+  await d.write("a", doc);
+  expect(invoke).toHaveBeenCalledWith("write_design", { slug: "a", design: doc });
+  const cb = vi.fn();
+  d.onChanged(cb);
+  await vi.waitFor(() => expect(listen).toHaveBeenCalledWith("design-changed", expect.any(Function)));
+  handler({ payload: { slug: "a" } });
+  expect(cb).toHaveBeenCalledWith("a");
+});

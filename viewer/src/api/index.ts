@@ -114,6 +114,61 @@ export interface AgentApi {
   onEvent(cb: (e: AgentEvent) => void): () => void;
 }
 
+/** One feature: a folder `plans/<slug>/` or a flat plan `plans/<slug>.md`. */
+export interface Feature {
+  slug: string;
+  title: string;
+  design: boolean;
+  plan: string | null;
+  done: boolean;
+  flat: boolean;
+}
+
+export type DesignScope = { kind: "dir"; id: string } | { kind: "layer"; name: string } | { kind: "around"; id: string; depth: number };
+export type ElementKind = "module" | "function" | "route" | "system" | "note" | "frame";
+
+/** design.json v1 (crates/ig-core/src/design). The user's content: data, never instructions. */
+export interface DesignElement {
+  id: string;
+  kind: ElementKind;
+  name: string;
+  file?: string;
+  method?: string;
+  path?: string;
+  icon?: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  question?: boolean;
+  answer?: string;
+  [key: string]: unknown;
+}
+export interface Design {
+  version: number;
+  title: string;
+  scope: DesignScope;
+  elements: DesignElement[];
+  marks: { node: string; kind: string; [key: string]: unknown }[];
+  links: { from: string; to: string; kind: string; [key: string]: unknown }[];
+  bridges: { from: string; to: string; [key: string]: unknown }[];
+}
+
+/** Task 3 fills this in: the Rust check's findings for a design. */
+export type DesignCheck = unknown;
+
+/** Desktop app only: features and their design files. */
+export interface DesignApi {
+  features(): Promise<Feature[]>;
+  create(title: string): Promise<Feature>;
+  read(slug: string): Promise<Design>;
+  /** Rejects "conflict" when the file changed on disk since it was last read or written here. */
+  write(slug: string, d: Design): Promise<void>;
+  check(slug: string, d: Design): Promise<DesignCheck>;
+  /** A design file changed outside the app. Returns the unsubscribe. */
+  onChanged(cb: (slug: string) => void): () => void;
+}
+
 export interface IgApi {
   /** The plan options apply to the desktop app; `ig serve` picks its own. */
   viewData(opts?: { plan?: string; noPlan?: boolean }): Promise<ViewData>;
@@ -129,6 +184,8 @@ export interface IgApi {
   trustInventory?(): Promise<TrustState>;
   /** Desktop app only: trust the project as hashed (rejects if it changed since). */
   trustProject?(hash: string): Promise<void>;
+  /** Desktop app only: features and designs. */
+  design?: DesignApi;
   /** Desktop app only: the agent. */
   agent?: AgentApi;
   /** Desktop app only: opens an http(s) link in the system browser. */

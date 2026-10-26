@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ViewData } from "../data";
-import type { AgentEvent, FileEntry, FileText, IgApi, TrustState } from "./index";
+import type { AgentEvent, Design, Feature, FileEntry, FileText, IgApi, TrustState } from "./index";
 
 /** listen() is async: an unsubscribe that comes before it resolves must still unlisten. */
 function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
@@ -28,6 +28,15 @@ export function tauri(): IgApi {
     onRebuild: (cb) => subscribe("rebuild", () => cb()),
     // Only `show` is emitted (crates/ig-desktop/src/main.rs).
     on: (event, cb) => subscribe(event, cb),
+    design: {
+      features: () => invoke<Feature[]>("features"),
+      create: (title) => invoke<Feature>("create_feature", { title }),
+      read: (slug) => invoke<Design>("read_design", { slug }),
+      write: (slug, design) => invoke<void>("write_design", { slug, design }),
+      // Task 3 adds the command.
+      check: (slug, design) => invoke("check_design", { slug, design }),
+      onChanged: (cb) => subscribe<{ slug: string }>("design-changed", (e) => cb(e.slug)),
+    },
     agent: {
       start: (feature) => invoke<string>("agent_start", { feature }),
       prompt: (text, attachments) => invoke<string>("agent_prompt", { text, attachments: attachments ?? [] }),
