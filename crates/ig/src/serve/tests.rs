@@ -194,3 +194,37 @@ fn posts_need_the_token_and_a_local_origin_and_a_note_reaches_the_file_and_the_s
         200
     );
 }
+
+#[test]
+fn post_show_broadcasts_a_show_event() {
+    let (_dir, info) = start("show");
+    let rx = events(&info);
+    let show = json!({"version": 1, "seq": 3, "title": "t", "nodes": [COMMENT], "edges": [], "steps": [], "mode": "focus"});
+    assert_eq!(post(&info, "/api/show", &show, None, None).0, 403);
+    assert_eq!(
+        post(
+            &info,
+            "/api/show",
+            &json!({"nodes": 1}),
+            Some(&info.token),
+            None
+        )
+        .0,
+        400
+    );
+    assert_eq!(
+        post(&info, "/api/show", &show, Some(&info.token), None).0,
+        200
+    );
+    let end = Instant::now() + Duration::from_secs(10);
+    loop {
+        let line = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        if line == "event: show" {
+            let data = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            let v: Value = serde_json::from_str(data.strip_prefix("data: ").unwrap()).unwrap();
+            assert_eq!(v, show);
+            break;
+        }
+        assert!(Instant::now() < end, "no show event");
+    }
+}

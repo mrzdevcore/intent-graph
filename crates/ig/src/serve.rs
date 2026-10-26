@@ -1,5 +1,5 @@
 //! `ig serve`: the live viewer on 127.0.0.1:<port>, a JSON API for the viewer and `ig mcp`, and a
-//! server-sent event stream (`rebuild`, `note`, `focus`). Every POST needs the run's token.
+//! server-sent event stream (`rebuild`, `note`, `focus`, `show`). Every POST needs the run's token.
 
 use crate::CWD;
 use crate::model::Graph;
@@ -233,6 +233,14 @@ impl Server {
                 }
                 _ => respond(req, 400, &json!({"error": "expected {\"ids\": [..]}"})),
             },
+            // From `ig_show`, which checked the ids: only the shape is checked here.
+            (true, "/api/show") => match serde_json::from_str::<ig_app::show::Show>(&body) {
+                Ok(show) => {
+                    self.broadcast("show", &json!(show));
+                    respond(req, 200, &json!({}))
+                }
+                Err(e) => respond(req, 400, &json!({"error": format!("expected a show: {e}")})),
+            },
             (true, u) if u.starts_with("/api/notes/") => {
                 let id = &u["/api/notes/".len()..];
                 let Ok(v) = serde_json::from_str::<Value>(&body)
@@ -418,8 +426,8 @@ pub fn run(
     // A change to notes only re-reads them; anything else rebuilds.
     let watcher = {
         let s = s.clone();
-        ig_wire::watch(root, move |full| {
-            if !full {
+        ig_wire::watch(root, move |c| {
+            if !c.full {
                 return s.sync_notes();
             }
             match rebuild(&s.root, &s.token) {

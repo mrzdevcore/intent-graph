@@ -100,11 +100,19 @@ pub fn ignored(root: &Path, p: &Path) -> bool {
     })
 }
 
-/// Watches `root` and, after 300 ms of quiet, calls `on_change(full)`: `full` is false when only
-/// plan notes (`*.notes.*`) changed. Ignored paths never count. Stops when the watcher is dropped.
+/// What changed in one quiet period: `full` when anything but plan notes (`*.notes.*`) did,
+/// `show` when `.ig/show.json` did (an agent's `ig_show`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Changed {
+    pub full: bool,
+    pub show: bool,
+}
+
+/// Watches `root` and, after 300 ms of quiet, calls `on_change`. Ignored paths never count, except
+/// `.ig/show.json`. Stops when the watcher is dropped.
 pub fn watch(
     root: &Path,
-    mut on_change: impl FnMut(bool) + Send + 'static,
+    mut on_change: impl FnMut(Changed) + Send + 'static,
 ) -> notify::Result<RecommendedWatcher> {
     use notify::Watcher;
     let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
@@ -113,19 +121,21 @@ pub fn watch(
     })?;
     watcher.watch(root, notify::RecursiveMode::Recursive)?;
     let root = root.to_path_buf();
+    let show = root.join(ig_app::show::SHOW);
     std::thread::spawn(move || {
         while let Ok(e) = rx.recv() {
-            let (mut any, mut full) = (false, false);
+            let (mut any, mut c) = (false, Changed::default());
             let mut see = |e: notify::Result<notify::Event>| {
-                for p in e
-                    .iter()
-                    .flat_map(|e| &e.paths)
-                    .filter(|p| !ignored(&root, p))
-                {
-                    any = true;
-                    full |= !p
-                        .file_name()
-                        .is_some_and(|f| f.to_string_lossy().contains(".notes."));
+                for p in e.iter().flat_map(|e| &e.paths) {
+                    if *p == show {
+                        any = true;
+                        c.show = true;
+                    } else if !ignored(&root, p) {
+                        any = true;
+                        c.full |= !p
+                            .file_name()
+                            .is_some_and(|f| f.to_string_lossy().contains(".notes."));
+                    }
                 }
             };
             see(e);
@@ -133,7 +143,7 @@ pub fn watch(
                 see(e);
             }
             if any {
-                on_change(full);
+                on_change(c);
             }
         }
     });
@@ -151,15 +161,49 @@ mod tests {
         std::fs::create_dir_all(dir.join(".ig")).unwrap();
         let dir = dir.canonicalize().unwrap();
         let (tx, rx) = mpsc::channel();
-        let _w = watch(&dir, move |full| {
-            let _ = tx.send(full);
+        let _w = watch(&dir, move |c| {
+            let _ = tx.send(c);
         })
         .unwrap();
         std::thread::sleep(Duration::from_millis(200));
         std::fs::write(dir.join(".ig/view.html"), "x").unwrap();
         assert!(rx.recv_timeout(Duration::from_secs(2)).is_err(), ".ig");
         std::fs::write(dir.join("a.ts"), "export const a = 1;").unwrap();
-        assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(true));
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)),
+            Ok(Changed {
+                full: true,
+                show: false
+            })
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn watch_reports_show_changes_despite_the_ig_ignore() {
+        let dir = std::env::temp_dir().join(format!("ig-wire-show-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".ig")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _w = watch(&dir, move |c| {
+            let _ = tx.send(c);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        std::fs::write(dir.join(".ig/other"), "x").unwrap();
+        assert!(
+            rx.recv_timeout(Duration::from_secs(2)).is_err(),
+            ".ig/other"
+        );
+        std::fs::write(dir.join(".ig/show.json"), "{}").unwrap();
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)),
+            Ok(Changed {
+                full: false,
+                show: true
+            })
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

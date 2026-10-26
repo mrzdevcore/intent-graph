@@ -12,8 +12,9 @@
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
   import ToolCard from "./ToolCard.svelte";
+  import type { Show } from "../../model/show";
 
-  let { agent, trustInventory, trustProject, openUrl, root, selection, onopendiff, match, onnode }: {
+  let { agent, trustInventory, trustProject, openUrl, root, selection, onopendiff, match, onnode, onshow }: {
     agent: AgentApi;
     trustInventory: () => Promise<TrustState>;
     trustProject: (hash: string) => Promise<void>;
@@ -24,6 +25,8 @@
     /** Graph refs in replies: text → node id; `onnode` shows it in the graph. */
     match?: (text: string, code?: boolean) => string | null;
     onnode?: (id: string) => void;
+    /** An `ig_show` card's "Show in graph". */
+    onshow?: (s: Show) => void;
   } = $props();
 
   let s = $state.raw(initialChat);
@@ -226,7 +229,7 @@
       {#if item.kind === "group"}
         <details class="card tool group">
           <summary><span class="ttitle">{item.label}</span><span class="chip {item.status}">{item.status.replace("_", " ")}</span></summary>
-          {#each item.calls as call (call.toolCallId)}<ToolCard {call} {root} {onopendiff} />{/each}
+          {#each item.calls as call (call.toolCallId)}<ToolCard {call} {root} {onopendiff} {onshow} />{/each}
         </details>
       {:else if item.kind === "text"}
         <div class="msg {item.role}">
@@ -234,7 +237,7 @@
           {:else}<Markdown text={item.text} {openUrl} {match} {onnode} />{/if}
         </div>
       {:else if item.kind === "tool"}
-        <ToolCard call={item.call} {root} {onopendiff} />
+        <ToolCard call={item.call} {root} {onopendiff} {onshow} />
       {:else if item.kind === "permission"}
         <PermissionCard toolCall={item.toolCall} options={item.options} answered={item.answered} onanswer={(o) => answer(item.requestId, o)} />
       {:else if item.kind === "question"}

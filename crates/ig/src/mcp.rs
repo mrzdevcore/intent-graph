@@ -55,6 +55,25 @@ fn tools() -> Value {
             "inputSchema": {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "string"}}}, "required": ["ids"]}
         },
         {
+            "name": "ig_show",
+            "description": "Show an answer in the ig viewer (the ig app or ig serve): the nodes and edges of a path or subgraph, highlighted, with ordered steps. Every id is checked against the graph. Writes only .ig/show.json.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "What is shown, like 'How the export reaches the database'"},
+                    "nodes": {"type": "array", "items": {"type": "string"}, "maxItems": 60, "description": "Node ids; the first starts a chain"},
+                    "edges": {"type": "array", "items": {"anyOf": [
+                        {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2},
+                        {"type": "string", "description": "from|kind|to"}]}},
+                    "steps": {"type": "array", "maxItems": 40, "items": {"type": "object", "properties": {
+                        "target": {"type": "string", "description": "A node id, or from|to for an edge"},
+                        "text": {"type": "string"}}, "required": ["target", "text"]}},
+                    "mode": {"type": "string", "enum": ["focus", "architecture", "chain"]}
+                },
+                "required": ["title", "nodes"]
+            }
+        },
+        {
             "name": "ig_wait_notes",
             "description": "Block until the user adds a new plan note in the ig viewer (or timeout_s passes, at most 1800), then return it.",
             "inputSchema": {"type": "object", "properties": {"timeout_s": {"type": "integer", "minimum": 1, "maximum": 1800}}}
@@ -217,6 +236,26 @@ fn call(
                 ids.ok_or_else(|| anyhow::anyhow!("ig_focus: ids (node ids) are required"))?;
             api(root, "/api/focus", Some(&json!({ "ids": ids })))?;
             Ok((format!("focused the viewer on {} node(s)", ids.len()), None))
+        }
+        "ig_show" => {
+            let path = root.join(ig_app::show::SHOW);
+            let seq = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                .and_then(|v| v["seq"].as_u64())
+                .unwrap_or(0);
+            let show = ig_app::show::validate(&head_graph(root)?, args, seq + 1)?;
+            std::fs::create_dir_all(root.join(".ig"))?;
+            ig_fs::write_atomic(&path, ig_app::show::canonical(&show).as_bytes())?;
+            let served = api(root, "/api/show", Some(&json!(show))).is_ok();
+            let text = if std::env::var("IG_APP").as_deref() == Ok("1") {
+                "shown in app"
+            } else if served {
+                "shown in ig serve"
+            } else {
+                "no viewer is open; answer with a diagram too"
+            };
+            Ok((text.into(), None))
         }
         "ig_wait_notes" => {
             let timeout = args["timeout_s"]

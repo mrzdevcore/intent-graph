@@ -3,12 +3,15 @@
 <script lang="ts">
   import type { ToolCallInfo } from "../../api";
   import { shortCommand } from "../../model/chat";
+  import { showFromTool, type Show } from "../../model/show";
   import CodeView from "../CodeView.svelte";
 
-  let { call, root, onopendiff }: {
+  let { call, root, onopendiff, onshow }: {
     call: ToolCallInfo;
     root: string;
     onopendiff: (path: string, before: string, after: string) => void;
+    /** "Show in graph" on an `ig_show` card: its input, shown again. */
+    onshow?: (s: Show) => void;
   } = $props();
 
   type Diff = { type: "diff"; path: string; oldText?: string | null; newText: string };
@@ -18,12 +21,14 @@
   const content = $derived((call.content ?? []) as (Diff | Text)[]);
   const loc = $derived((call.locations ?? [])[0] as { path: string; line?: number } | undefined);
   const status = $derived(call.status ?? "pending");
+  const show = $derived(onshow ? showFromTool(call) : null);
 </script>
 
 <details class="card tool">
   <summary>
     <span class="ttitle" title={call.title}>{call.title ? shortCommand(call.title, root) : (call.kind ?? "Tool")}</span>
     <span class="chip {status}">{status.replace("_", " ")}</span>
+    {#if show}<button class="chip" title="Show this answer in the graph again" onclick={(e) => { e.preventDefault(); onshow!(show); }}>Show in graph</button>{/if}
     {#if loc}<span class="loc">{rel(loc.path)}{loc.line ? ":" + loc.line : ""}</span>{/if}
   </summary>
   {#each content as c}

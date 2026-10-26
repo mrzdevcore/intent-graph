@@ -16,6 +16,7 @@
     const [muted, line, err, accent, panel] = ["--muted", "--line", "--error", "--accent", "--panel"].map(css);
     const fg = css("--fg");
     const accentText = css("--accent-text");
+    const brand = css("--brand");
     const statusColor = (n: cytoscape.NodeSingular) => color[n.data("status")] || color.unchanged;
     const s = [
       { selector: "node", style: {
@@ -73,6 +74,11 @@
         "shape": "ellipse", "width": 22, "height": 22, "background-color": accent, "color": "#161615", "label": "+", "text-valign": "center",
         "text-margin-y": 0, "font-size": 16, "font-weight": 700, "min-zoomed-font-size": 3 } },
       { selector: "edge.nolink", style: { "display": "none" } },
+      // An answer shown by Claude (`ig_show`): gold on top, the rest dimmed; step numbers on edges.
+      { selector: ".dimmed", style: { "opacity": 0.15 } },
+      { selector: "node.shown", style: { "border-width": 4, "border-color": brand, "border-style": "solid", "color": accentText, "z-index": 9 } },
+      { selector: "edge.shown", style: { "line-color": brand, "target-arrow-color": brand, "opacity": 1, "width": 3, "z-index": 9 } },
+      { selector: "edge[step]", style: { "label": "data(step)", "color": accentText, "font-size": 12, "font-weight": 700, "min-zoomed-font-size": 4 } },
     ];
     return s as unknown as cytoscape.Stylesheet[];
   }
@@ -199,12 +205,43 @@
     layout.run();
   }
 
+  /** A node's label: step badges, its name, then note pins. */
+  function relabel(n: cytoscape.NodeSingular) {
+    if (n.data("base") === undefined) n.data("base", n.data("label") ?? "");
+    const [st, p] = [n.data("steps"), n.data("pins")];
+    n.data({ label: (st ? st + "  " : "") + n.data("base") + (p ? "  ◉ " + p : "") });
+  }
+
+  /** ①, ②, … for step numbers (plain "(n)" past 20). */
+  const badge = (ns: number[]) => ns.map((k) => (k <= 20 ? String.fromCodePoint(0x245f + k) : "(" + k + ")")).join("");
+
   /** Shows note pins (ids after the label) and ghosts (open moves) on the drawn nodes. */
   export function decorate(pins: Record<string, string[]>, ghosts: Set<string>) {
     cy.nodes().forEach((n) => {
-      if (n.data("base") === undefined) n.data("base", n.data("label") ?? "");
       const p = pins[n.id()];
-      n.data({ label: p ? n.data("base") + "  ◉ " + p.join(" ") : n.data("base"), pinned: !!p, ghost: ghosts.has(n.id()) });
+      n.data({ pins: p ? p.join(" ") : undefined, pinned: !!p, ghost: ghosts.has(n.id()) });
+      relabel(n);
+    });
+  }
+
+  /** Gold on the drawn `nodes` and `edges` ("source|target"), the rest dimmed, step badges on
+   *  their targets (node ids or edge keys); null clears it. */
+  export function highlight(h: { nodes: Set<string>; edges: Set<string>; steps: Record<string, number[]> } | null) {
+    cy.batch(() => {
+      cy.elements().removeClass("shown dimmed");
+      cy.nodes().forEach((n) => {
+        n.data({ steps: h && h.steps[n.id()] ? badge(h.steps[n.id()]) : undefined });
+        relabel(n);
+      });
+      cy.edges().forEach((e) => {
+        const k = e.data("source") + "|" + e.data("target");
+        e.data({ step: h && h.steps[k] ? badge(h.steps[k]) : undefined });
+        e.toggleClass("shown", !!h && h.edges.has(k));
+      });
+      if (!h) return;
+      const shown = cy.nodes().filter((n) => h.nodes.has(n.id()));
+      shown.addClass("shown");
+      cy.elements().not(shown).not(shown.ancestors()).not(cy.edges(".shown")).addClass("dimmed");
     });
   }
 

@@ -116,8 +116,8 @@ export interface IgApi {
   viewData(opts?: { plan?: string; noPlan?: boolean }): Promise<ViewData>;
   /** The data changed: call `viewData` again. Returns the unsubscribe. */
   onRebuild(cb: () => void): () => void;
-  /** `ig serve` events: a note changed, or `ig focus` asked for nodes. */
-  on?(event: "note" | "focus", cb: (data: unknown) => void): () => void;
+  /** Host events: a note changed, `ig focus` asked for nodes (`ig serve`), or the agent's `ig_show` (`ig serve`, desktop app). */
+  on?(event: "note" | "focus" | "show", cb: (data: unknown) => void): () => void;
   /** Desktop app only: the children of `dir` (the root when omitted), directories first. The Files panel needs it. */
   fileTree?(dir?: string): Promise<FileEntry[]>;
   /** Desktop app only: the text of a project file (relative path), read-only. Turns on the code view. */
