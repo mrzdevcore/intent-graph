@@ -95,6 +95,7 @@
     {#if c.declined}
       <div class="screen"><p>The agent stays off until you trust this project.</p><button onclick={() => (c.declined = false)}>Review again</button></div>
     {:else}
+      {#if c.held}<p class="held">After you trust: <code>{c.held.text}</code></p>{/if}
       <Trust state={c.trust} ontrust={(h) => c.onTrust(h)} oncancel={() => c.decline()} />
     {/if}
   {:else if s.setup}
@@ -103,7 +104,7 @@
       <pre>{s.setup.instructions}</pre>
       <div class="row">
         {#if s.setup.installable}<button class="primary" disabled={c.busy} onclick={() => c.install()}>{c.installing ? "Installing…" : "Install"}</button>{/if}
-        <button disabled={c.busy} onclick={() => c.start()}>Retry</button>
+        <button disabled={c.busy} onclick={() => c.retry()}>Retry</button>
       </div>
     </div>
   {:else if s.login}

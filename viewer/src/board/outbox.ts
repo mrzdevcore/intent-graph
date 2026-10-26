@@ -14,45 +14,63 @@ export function updateMessage(slug: string, lines: string[], hasPlan: boolean): 
     : "Take these changes into account in our discussion.");
 }
 
+/** One feature's board edits on their way to Claude. They go only in the feature's session
+ *  (`setLive`), never during a turn, and stay queued (never dropped) until then. */
 export class Outbox {
   /** Change lines waiting to go ("Chat · N notes queued"). */
   pending = 0;
+  /** `pending` changed (the board's label). */
+  onchange: () => void = () => {};
   private base: string | null = null;
   private latest: string | null = null;
+  private lines: string[] = [];
   private running = false;
+  private live = true;
   private cancel: (() => void) | null = null;
-  /** The quiet period passed during a turn: send at its end. */
+  /** The quiet period passed (or the session came back): send as soon as allowed. */
   private due = false;
 
-  constructor(private slug: string, private send: (text: string) => Promise<void>, private hasPlan: () => boolean,
-    private delta: (prev: string, next: string) => string[], private clock: Clock, private quietMs = 2000) {}
+  /** `hasPlan` and `delta` are rebound when the board opens again (a new engine). */
+  constructor(private slug: string, private send: (text: string) => Promise<void>, public hasPlan: () => boolean,
+    public delta: (prev: string, next: string) => string[], private clock: Clock, private quietMs = 2000) {}
 
-  /** What Claude knows now (Plan read the file, or Claude's own edit came in): nothing pending. */
+  /** What Claude knows now (Plan reads the file, or Claude's own edit came in): nothing queued. */
   baseline(boardJson: string): void {
     this.base = boardJson;
     this.latest = null;
+    this.lines = [];
     this.pending = 0;
     this.due = false;
     this.stop();
+    this.onchange();
   }
 
   /** The board after a user edit. */
   push(boardJson: string): void {
     if (this.base === null) return this.baseline(boardJson);
     this.latest = boardJson;
-    this.pending = this.delta(this.base, boardJson).length;
+    this.lines = this.delta(this.base, boardJson);
+    this.pending = this.lines.length;
     this.stop();
     this.due = false;
     if (this.pending) this.cancel = this.clock.after(this.quietMs, () => {
       this.cancel = null;
-      if (this.running) this.due = true;
-      else this.flush();
+      this.due = true;
+      this.go();
     });
+    this.onchange();
   }
 
   setRunning(r: boolean): void {
     this.running = r;
-    if (!r && this.due) this.flush();
+    this.go();
+  }
+
+  /** The chat's session is (or stops being) this feature's: queued edits go once it is. */
+  setLive(l: boolean): void {
+    if (l && !this.live && this.pending) this.due = true;
+    this.live = l;
+    this.go();
   }
 
   dispose(): void {
@@ -64,11 +82,13 @@ export class Outbox {
     this.cancel = null;
   }
 
+  private go() {
+    if (this.due && this.live && !this.running) this.flush();
+  }
+
   private flush() {
-    this.due = false;
-    const next = this.latest;
-    if (this.base === null || next === null) return;
-    const lines = this.delta(this.base, next);
+    const lines = this.lines, next = this.latest;
+    if (next === null) return void (this.due = false);
     this.baseline(next);
     if (lines.length) void this.send(updateMessage(this.slug, lines, this.hasPlan())).catch((e: unknown) => console.error(e));
   }
