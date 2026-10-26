@@ -448,6 +448,16 @@ Exit codes: 0 ok, 1 blocking findings, 2 usage or error (`ig: <message>` on stde
 - The base graph is cached per commit and config key.
 - No incremental head cache until benchmarks show it's needed.
 
+## Desktop app
+
+`crates/ig-desktop` (Tauri 2) is a driving adapter: it reuses the viewer and the `ig` crates and adds a chat panel. It is built locally with `make app` (`ig.app` on macOS, unsigned) and is not distributed until Anthropic confirms in writing that it may be.
+
+- **Agent:** it talks ACP to `@agentclientprotocol/claude-agent-acp@0.95.0`, installed on demand into the app's own data dir. Login belongs to the Claude CLI; ig never reads, stores or forwards credentials.
+- **Trust gate:** the adapter has none, so ig asks first. Per project (keyed by canonical path plus a hash of the files below) it lists the hooks in `.claude/settings*.json`, the permission settings, `AGENTS.md`/`CLAUDE.md`, the MCP servers in `.mcp.json` and the ig plugin. No session starts without a stored decision, and any change to those files asks again.
+- **Settings policy:** sessions load project and local settings plus the ig plugin, passed explicitly. User settings and the user's own skills do not load.
+- **Permissions:** each request is answered once; switching to a bypass mode needs a confirm; a closed window rejects pending requests.
+- **Tests toggle:** test and spec files (from the `tests` globs) are hidden by default in all graph modes.
+
 ## Crates *(all calls)*
 
 | Purpose | Crates |
