@@ -49,13 +49,15 @@ export function linkNodes(el: HTMLElement, match: (text: string, code?: boolean)
   const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   const texts: Text[] = [];
   while (walk.nextNode()) if (!walk.currentNode.parentElement?.closest("pre, code, a, button")) texts.push(walk.currentNode as Text);
+  /** A word's node, if its trimmed core (3+ characters) matches. */
+  const hit = (core: string) => (core.length > 2 ? match(core) : null);
   for (const t of texts) {
-    const parts = (t.data).split(/(\s+)/);
-    if (!parts.some((w) => w.length > 2 && match(trim(w)))) continue;
+    const parts = t.data.split(/(\s+)/);
+    if (!parts.some((w) => hit(trim(w)))) continue;
     const frag = document.createDocumentFragment();
     for (const w of parts) {
       const core = trim(w);
-      const id = core && match(core);
+      const id = hit(core);
       if (!id) {
         frag.append(w);
         continue;

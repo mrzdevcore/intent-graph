@@ -149,7 +149,8 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat .composer .row.context { gap: 2px; font-size: 12px; }
 #ig-chat .composer .row.footer { margin: 6px 0 0; }
 #ig-chat .composer .row .primary { margin-left: auto; flex: none; }
-#ig-chat .controls { display: flex; gap: 4px; align-items: center; min-width: 0; }
+#ig-chat .controls { display: flex; gap: 4px; align-items: center; min-width: 0; flex: 1; }
+#ig-chat .chip-select.grow { flex: 1 1 auto; max-width: none; }
 #ig-chat .chip-select, #ig-chat .chip-toggle { font-size: 12px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); min-width: 0; max-width: 130px; text-overflow: ellipsis; }
 #ig-chat .chip-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 #ig-chat .more { position: relative; }
