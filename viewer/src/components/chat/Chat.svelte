@@ -4,7 +4,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { AgentApi, TrustState } from "../../api";
-  import { chatReducer, initialChat, type ChatAction } from "../../model/chat";
+  import { chatReducer, groupTools, initialChat, type ChatAction } from "../../model/chat";
   import Trust from "../Trust.svelte";
   import Composer, { type Selection } from "./Composer.svelte";
   import Markdown from "./Markdown.svelte";
@@ -185,6 +185,8 @@
 </script>
 
 <section id="ig-chat" aria-label="Agent chat">
+  <!-- Read out, never selected or copied with the messages. -->
+  <div class="sr-only" aria-live="polite">{s.live}</div>
   <header class="chat-head">
     <strong class="title">{s.title ?? "Agent"}</strong>
     <select aria-label="Session" value={s.sessionId ?? ""} disabled={busy || !!trust} onchange={(e) => load(e.currentTarget.value)}>
@@ -246,8 +248,13 @@
     {#if !trust && !s.setup && !s.login && !s.items.length}
       <p class="muted empty">{busy ? "Starting the agent…" : "Ask the agent about this project, or select a node and press Plan this."}</p>
     {/if}
-    {#each s.items as item}
-      {#if item.kind === "text"}
+    {#each groupTools(s.items) as item}
+      {#if item.kind === "group"}
+        <details class="card tool group">
+          <summary><span class="ttitle">{item.label}</span><span class="chip {item.status}">{item.status.replace("_", " ")}</span></summary>
+          {#each item.calls as call (call.toolCallId)}<ToolCard {call} {root} {onopendiff} />{/each}
+        </details>
+      {:else if item.kind === "text"}
         <div class="msg {item.role}">
           {#if item.role === "user"}<div class="plain">{item.text}</div>
           {:else}<Markdown text={item.text} {openUrl} />{/if}
@@ -270,7 +277,6 @@
       </div>
     {/if}
   </div>
-  <div class="sr-only" aria-live="polite">{s.live}</div>
   {#if error}<div class="msg error" role="alert">{error}</div>{/if}
 
   {#if !trust}

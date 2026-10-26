@@ -131,6 +131,7 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat .tool summary { cursor: pointer; display: flex; gap: 8px; align-items: center; }
 #ig-chat .tool .ttitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ig-chat .tool .loc { color: var(--muted); font-size: 12px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ig-chat .tool.group > .card { margin-top: 6px; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 4px 0 0; }
 #ig-chat .chip { font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
 #ig-chat .chip.completed { color: var(--added); border-color: var(--added); }
 #ig-chat .chip.failed { color: var(--error); border-color: var(--error); }
@@ -153,4 +154,4 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat .complete button { width: 100%; text-align: left; border: 0; background: none; padding: 3px 6px; }
 #ig-chat .complete li[aria-selected="true"] button { background: var(--code); }
 #ig-chat #ig-trust { overflow: auto; border-bottom: 1px solid var(--line); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; user-select: none; -webkit-user-select: none; }

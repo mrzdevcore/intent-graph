@@ -1,7 +1,8 @@
 // The chat reducer over the fake agent's recorded `tour` (crates/ig-desktop record_chat_fixture).
 import { expect, test } from "vitest";
-import type { AgentEvent } from "../src/api";
-import { chatReducer, completions, initialChat, type ChatAction, type ChatState } from "../src/model/chat";
+import type { AgentEvent, ToolCallInfo } from "../src/api";
+import { chatReducer, completions, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
+import chat from "../src/components/chat/Chat.svelte?raw";
 import events from "./fixtures/agent-events.json";
 
 const recorded = events as AgentEvent[];
@@ -86,4 +87,34 @@ test("the live region gets the turn's whole reply at its end, never replayed his
   expect(s.live).toBe("");
   s = chatReducer(s, { type: "TurnEnded", stopReason: "end_turn" });
   expect(s.live).toBe("Hello");
+});
+
+test("the live region is not part of the copyable transcript", () => {
+  // Before the header, outside the transcript: a selection of the messages never reaches it.
+  expect(chat.indexOf('aria-live="polite"')).toBeLessThan(chat.indexOf('<header class="chat-head">'));
+  expect(chat).toContain('<div class="sr-only" aria-live="polite">'); // .sr-only: user-select none (app.css)
+});
+
+test("consecutive tool calls of one kind group, each keeping its status", () => {
+  type St = ToolCallInfo["status"];
+  const call = (id: string, kind: string, status: St = "completed"): Item => ({ kind: "tool", call: { toolCallId: id, kind, status } });
+  const rows = groupTools([
+    call("a", "execute"), call("b", "execute", "failed"), call("c", "execute"),
+    call("d", "read"),
+    { kind: "text", role: "agent", text: "x" },
+    call("e", "read"), call("f", "read", "in_progress"),
+  ]);
+  expect(rows.map((r) => (r.kind === "group" ? r.label : r.kind))).toEqual(["Ran 3 commands", "tool", "text", "Read 2 files"]);
+  const [g, , , h] = rows as Extract<(typeof rows)[number], { kind: "group" }>[];
+  expect(g.calls.map((c) => c.status)).toEqual(["completed", "failed", "completed"]);
+  expect([g.status, h.status]).toEqual(["failed", "in_progress"]);
+});
+
+test("commands drop a leading cd to the project root and show the root as .", () => {
+  const root = "/Users/me/p/front";
+  expect(shortCommand("cd /Users/me/p/front && grep -rn home /Users/me/p/front/core", root)).toBe("grep -rn home ./core");
+  expect(shortCommand('cd "/Users/me/p/front" && ls', root)).toBe("ls");
+  expect(shortCommand("ls /Users/me/p/front", root)).toBe("ls .");
+  expect(shortCommand("ls /Users/me/p/frontend", root)).toBe("ls /Users/me/p/frontend");
+  expect(shortCommand("cd /Users/me/p/front/core && ls", root)).toBe("cd ./core && ls");
 });

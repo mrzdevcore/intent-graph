@@ -185,3 +185,47 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
       return { ...s, sessionId: a.sessionId, stopped: null, login: false, setup: null };
   }
 }
+
+/** A transcript row: an item, or consecutive tool calls of one kind in one card. */
+export type Row = Item | { kind: "group"; label: string; status: string; calls: ToolCallInfo[] };
+
+const KINDS: Record<string, [string, string]> = {
+  execute: ["Ran", "commands"], read: ["Read", "files"], edit: ["Edited", "files"],
+  search: ["Ran", "searches"], fetch: ["Fetched", "pages"], delete: ["Deleted", "files"], move: ["Moved", "files"],
+};
+
+/** The worst status first: failed, then still running, else completed. */
+function groupStatus(calls: ToolCallInfo[]): string {
+  const st = calls.map((c) => c.status ?? "pending");
+  return st.includes("failed") ? "failed" : st.find((x) => x !== "completed") ?? "completed";
+}
+
+export function groupTools(items: Item[]): Row[] {
+  const out: Row[] = [];
+  for (let i = 0; i < items.length; ) {
+    const it = items[i];
+    const kind = it.kind === "tool" ? it.call.kind : undefined;
+    let j = i + 1;
+    while (kind && j < items.length && items[j].kind === "tool" && (items[j] as { call: ToolCallInfo }).call.kind === kind) j++;
+    if (j - i < 2) {
+      out.push(it);
+      i++;
+      continue;
+    }
+    const calls = items.slice(i, j).map((x) => (x as { call: ToolCallInfo }).call);
+    const [verb, noun] = KINDS[kind!] ?? ["", kind + " calls"];
+    out.push({ kind: "group", label: `${verb} ${calls.length} ${noun}`.trim(), status: groupStatus(calls), calls });
+    i = j;
+  }
+  return out;
+}
+
+/** A command without a leading `cd <root> &&`, the root itself shown as `.`. */
+export function shortCommand(title: string, root: string): string {
+  const r = root.replace(/\/$/, "");
+  if (!r) return title;
+  const esc = r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return title
+    .replace(new RegExp(`^cd (["']?)${esc}\\1 && `), "")
+    .replace(new RegExp(`${esc}(?=[/\\s"';|&)]|$)`, "g"), ".");
+}
