@@ -2,7 +2,8 @@ import { expect, test, vi } from "vitest";
 import type { Design, DesignApi, DesignCheck } from "../src/api";
 import type { ViewNode } from "../src/data";
 import type { EngineOut } from "../src/board/engine";
-import { agentStep, BoardStore, save, type Clock, type StoreEngine } from "../src/board/store";
+import { Outbox } from "../src/board/outbox";
+import { agentStep, BoardStore, save, type BoardEdit, type Clock, type StoreEngine, type StoreHooks } from "../src/board/store";
 
 test("agentStep groups arrivals up to 1 s after the turn ends", () => {
   const turns = [{ id: "t1", start: 100, end: 500 }, { id: "t2", start: 5000, end: null }];
@@ -122,9 +123,10 @@ function fakeApi(disk: () => Design | Error = () => design()) {
 
 const NODES: ViewNode[] = [{ id: "server/api/a.ts", file: "server/api/a.ts", module: true, layer: "api" } as ViewNode];
 
-function setup(opts: { disk?: () => Design | Error; board?: Design; turns?: () => { id: string; start: number; end: number | null }[] } = {}) {
+function setup(opts: { disk?: () => Design | Error; board?: Design; turns?: () => { id: string; start: number; end: number | null }[];
+  hooks?: Partial<StoreHooks> } = {}) {
   const c = fakeClock(), e = fakeEngine(opts.board), a = fakeApi(opts.disk);
-  const store = new BoardStore(a.api, e.engine, "export", c.clock, { context: () => "{}", nodes: () => NODES, turns: opts.turns });
+  const store = new BoardStore(a.api, e.engine, "export", c.clock, { context: () => "{}", nodes: () => NODES, turns: opts.turns, ...opts.hooks });
   return { ...c, ...e, ...a, store };
 }
 
@@ -382,4 +384,74 @@ test("restore merges the recovery copy as one outside step and deletes it; disca
   await s.store.discard();
   expect(s.discarded()).toBe(2);
   expect(s.of("external")).toHaveLength(1);
+});
+
+const fn = (id: string) => ({ id, kind: "function" as const, name: id });
+
+/** An agent merge in the fake engine: the board becomes the disk, `touched` as given. */
+function agentMerges(s: ReturnType<typeof setup>, touched: string[][]) {
+  let n = 0;
+  s.engine.external = (disk, turn) => {
+    s.calls.push(["external", [JSON.parse(disk), turn]]);
+    s.setBoard(JSON.parse(disk) as Design);
+    return OUT({ changed: true, meaning: true, touched: touched[n++] ?? [] });
+  };
+}
+
+test("one agent turn is one undo step", async () => {
+  const turns = [{ id: "t1", start: 0, end: null as number | null }];
+  const s = setup({ turns: () => turns });
+  await s.store.load();
+  for (const at of [100, 900]) {
+    s.at(at);
+    await s.store.external();
+  }
+  turns[0].end = 1000;
+  s.at(1900); // late, within the grace: still the turn's step
+  await s.store.external();
+  expect(s.of("external").map((c) => c[1])).toEqual(["t1", "t1", "t1"]);
+});
+
+test("a turn emits one BoardEdit with the counts", async () => {
+  const turns = [{ id: "t1", start: 0, end: null as number | null }];
+  const edits: BoardEdit[] = [];
+  const s = setup({ turns: () => turns, hooks: { edited: (e) => void edits.push(e) } });
+  agentMerges(s, [["fn-a"], ["fn-a", "fn-a|calls|fn-b", "fn-c"]]);
+  await s.store.load();
+  await s.store.external();
+  await s.advance(500);
+  await s.store.external();
+  await s.advance(3000);
+  expect(edits).toEqual([]); // nothing while the turn runs
+  turns[0].end = 3500;
+  await s.advance(5000);
+  expect(edits).toEqual([{ step: "t1", ids: ["fn-a", "fn-a|calls|fn-b", "fn-c"], elements: 2, links: 1 }]);
+});
+
+test("agent merges re-check and do not echo to the outbox", async () => {
+  const sent: string[] = [];
+  const ids = (t: string) => (JSON.parse(t) as Design).elements.map((e) => e.id);
+  const delta = (a: string, b: string) => ids(b).filter((i) => !ids(a).includes(i)).map((i) => "added " + i);
+  let disk = design([fn("fn-a")]);
+  let box: Outbox | null = null;
+  const s = setup({ disk: () => disk, board: disk, turns: () => [{ id: "t1", start: 0, end: null }],
+    hooks: { agentMerged: (d) => box!.agent(d, s.engine.board()) } });
+  box = new Outbox("export", async (t) => void sent.push(t), () => false, delta, s.clock);
+  agentMerges(s, [["fn-c"]]);
+  await s.store.load();
+  s.checks[0].d.resolve(result(s.checks[0].seq));
+  await settle();
+  box.baseline(s.engine.board());
+  s.setBoard(design([fn("fn-a"), fn("fn-u")])); // the user's edit, saved, then Claude reads the file
+  box.push(s.engine.board());
+  disk = design([fn("fn-a"), fn("fn-u"), fn("fn-c")]);
+  await s.store.external();
+  expect(s.checks).toHaveLength(2);
+  s.setBoard(design([fn("fn-a"), fn("fn-u"), fn("fn-c"), fn("fn-v")])); // the user goes on
+  box.push(s.engine.board());
+  await s.advance(2000);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toContain("added fn-u");
+  expect(sent[0]).toContain("added fn-v");
+  expect(sent[0]).not.toContain("fn-c");
 });

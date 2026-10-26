@@ -21,6 +21,7 @@ export interface RawEngine {
   dismiss(id?: string | null): void;
   highlighted(): string;
   select(ids: string): void;
+  revert(turn: string): string;
   undo(): string;
   redo(): string;
   board(): string;
@@ -87,6 +88,7 @@ export function wrap(raw: RawEngine, pkg: Pkg, onFail: (reason: string) => void)
     dismiss: (id) => g(() => raw.dismiss(id)),
     highlighted: () => g(() => JSON.parse(raw.highlighted()) as string[]),
     select: (ids) => g(() => raw.select(JSON.stringify(ids))),
+    revert: (t) => g(() => out(raw.revert(t))),
     undo: () => g(() => out(raw.undo())),
     redo: () => g(() => out(raw.redo())),
     board: () => g(() => raw.board()),

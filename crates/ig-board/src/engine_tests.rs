@@ -230,8 +230,8 @@ fn hit_with_zoom_and_pan() {
 }
 
 #[test]
-fn undo_redo_and_external_during_a_drag_drop_the_drag() {
-    for interrupt in 0..3 {
+fn undo_and_redo_during_a_drag_drop_the_drag() {
+    for interrupt in 0..2 {
         let mut e = engine();
         e.ops(
             &[Op::Move {
@@ -255,8 +255,7 @@ fn undo_redo_and_external_during_a_drag_drop_the_drag() {
         });
         match interrupt {
             0 => _ = e.undo(),
-            1 => _ = e.redo(),
-            _ => _ = e.external(renamed(e.board(), "fn-b", "B"), Some("t1")),
+            _ => _ = e.redo(),
         }
         let s = e.scene([0.0, 0.0, 800.0, 600.0]);
         assert!(!s.rects.iter().any(|r| r.r[0] == 48.0), "no stale offset");
@@ -439,4 +438,89 @@ fn new_elements_are_dashed_context_and_overlays_are_not() {
     }
     assert!(!crate::scene::dashed(Paint::Element(ElementKind::Note)));
     assert!(!crate::scene::dashed(Paint::Context));
+}
+
+fn mv(id: &str, x: i32, y: i32) -> Op {
+    Op::Move {
+        id: id.into(),
+        x,
+        y,
+    }
+}
+
+#[test]
+fn revert_of_an_older_agent_step_keeps_a_later_user_edit() {
+    let mut e = engine();
+    let mut d1 = renamed(e.board(), "fn-b", "B");
+    let mut n = el("fn-n", ElementKind::Function);
+    n.y = Some(200);
+    d1.design.elements.push(n);
+    e.external(d1.clone(), Some("t1"));
+    e.ops(&[mv("fn-a", 8, 104)], Step::User);
+    let mut d2 = e.board().clone(); // t2 read the file with the user's move saved
+    let mut m = el("fn-m", ElementKind::Function);
+    m.y = Some(300);
+    d2.design.elements.push(m);
+    e.saved(e.board().clone());
+    e.external(d2, Some("t2"));
+    let o = e.revert("t1");
+    assert!(o.changed);
+    let b = &e.board().design;
+    assert!(
+        b.elements.iter().all(|x| x.id != "fn-n"),
+        "the agent's add is gone"
+    );
+    assert_eq!(b.elements[1].name, "b", "its rename is undone");
+    assert_eq!(b.elements[0].y, Some(104), "the user's later move stays");
+    assert!(
+        b.elements.iter().any(|x| x.id == "fn-m"),
+        "a later turn stays"
+    );
+    assert_eq!(e.highlighted(), ["fn-m"], "only t2's highlight stays");
+    e.undo();
+    assert_eq!(
+        e.board().design.elements.len(),
+        4,
+        "the revert is one undo step"
+    );
+    assert!(!e.revert("t9").changed, "an unknown turn changes nothing");
+}
+
+#[test]
+fn concurrent_user_and_agent_edits_on_different_elements_both_survive() {
+    let mut e = engine();
+    let disk = renamed(e.board(), "fn-b", "B"); // the agent read the file before the user's move
+    e.ops(&[mv("fn-a", 8, 104)], Step::User);
+    let o = e.external(disk, Some("t1"));
+    assert_eq!(o.touched, ["fn-b"]);
+    let b = &e.board().design;
+    assert_eq!(
+        (b.elements[0].y, b.elements[1].name.as_str()),
+        (Some(104), "B")
+    );
+}
+
+#[test]
+fn the_users_in_flight_drag_wins() {
+    let mut e = engine();
+    e.input(crate::Input::Down {
+        x: 20.0,
+        y: 20.0,
+        button: 0,
+        mods: 0,
+    });
+    e.input(crate::Input::Move {
+        x: 60.0,
+        y: 20.0,
+        mods: 0,
+    });
+    let disk = apply(e.board(), &[mv("fn-a", 8, 304)]).unwrap().0;
+    e.external(renamed(&disk, "fn-a", "A"), Some("t1"));
+    e.input(crate::Input::Up {
+        x: 60.0,
+        y: 20.0,
+        mods: 0,
+    });
+    let a = &e.board().design.elements[0];
+    assert_eq!((a.x, a.y, a.name.as_str()), (Some(48), Some(8), "A"));
 }

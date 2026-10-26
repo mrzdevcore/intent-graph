@@ -84,6 +84,14 @@ impl History {
         Some(&self.entries[self.at].0)
     }
 
+    /// `(before, after)` of each step of agent turn `turn` up to the current board, oldest first.
+    pub fn turn_steps(&self, turn: &str) -> Vec<(Board, Board)> {
+        (1..=self.at)
+            .filter(|&i| matches!(&self.entries[i].1, Step::Agent(t) if t == turn))
+            .map(|i| (self.entries[i - 1].0.clone(), self.entries[i].0.clone()))
+            .collect()
+    }
+
     /// The step that made the current board.
     pub fn top_step(&self) -> &Step {
         &self.entries[self.at].1

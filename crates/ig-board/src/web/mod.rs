@@ -100,13 +100,14 @@ fn out_json(o: &Out) -> String {
         "placed": o.placed.as_ref().map(|(id, layer)| json!({"id": id, "layer": layer})),
         "cursor": o.cursor,
         "error": o.error,
+        "touched": o.touched,
     })
     .to_string()
 }
 
 fn error_json(e: impl ToString) -> String {
     json!({"redraw": false, "changed": false, "meaning": false, "selection": [], "edit": null,
-           "placed": null, "cursor": "default", "error": e.to_string()})
+           "placed": null, "cursor": "default", "error": e.to_string(), "touched": []})
     .to_string()
 }
 
@@ -280,6 +281,11 @@ impl BoardEngine {
         self.engine.select(ids);
         self.dirty = true;
         Ok(())
+    }
+
+    /// Takes back agent turn `turn` as one user step; later edits stay.
+    pub fn revert(&mut self, turn: &str) -> String {
+        self.after(|e| e.revert(turn))
     }
 
     pub fn undo(&mut self) -> String {

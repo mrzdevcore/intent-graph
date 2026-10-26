@@ -451,6 +451,10 @@ impl Engine {
                 o.edit = (self.selected_elements().first()).and_then(|id| self.edit(id));
                 o
             }
+            (false, "escape") if shift => {
+                self.dismiss(None);
+                self.redraw()
+            }
             (false, "escape") => {
                 if self.gesture != Gesture::Idle {
                     self.gesture = Gesture::Idle;
@@ -462,21 +466,28 @@ impl Engine {
                 self.redraw()
             }
             (false, "!") | (false, "1") if shift => {
-                self.fit();
+                self.fit(false);
+                self.redraw()
+            }
+            (false, "@") | (false, "2") if shift => {
+                self.fit(true);
                 self.redraw()
             }
             _ => self.out(), // Cmd/Ctrl+Enter (Plan) is the host's
         }
     }
 
-    fn fit(&mut self) {
-        let rects = (self
-            .board()
-            .design
-            .elements
-            .iter()
-            .filter_map(|e| self.shown_rect(e)))
-        .chain(self.ctx.boxes.iter().map(|c| [c.x, c.y, c.w, c.h]));
+    /// Fits the view to the board and its context, or (`selected`) to the selected elements.
+    fn fit(&mut self, selected: bool) {
+        let sel = |id: &String| !selected || self.selection.contains(id);
+        let rects = (self.board().design.elements.iter())
+            .filter(|e| sel(&e.id))
+            .filter_map(|e| self.shown_rect(e))
+            .chain(
+                (self.ctx.boxes.iter())
+                    .filter(|c| sel(&c.id))
+                    .map(|c| [c.x, c.y, c.w, c.h]),
+            );
         let b = rects.fold(None, |a: Option<[f32; 4]>, r| {
             let [x0, y0, x1, y1] = a.unwrap_or([r[0], r[1], r[0] + r[2], r[1] + r[3]]);
             Some([

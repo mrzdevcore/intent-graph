@@ -191,7 +191,7 @@
   function owned(e: KeyboardEvent): boolean {
     const cmd = e.metaKey || e.ctrlKey;
     if (cmd) return /^[zcvda0]$/i.test(e.key);
-    return /^(Arrow|Backspace$|Delete$|Enter$|Escape$|[a-z!]$)/i.test(e.key) || (e.shiftKey && e.key === "1");
+    return /^(Arrow|Backspace$|Delete$|Enter$|Escape$|[a-z!]$)/i.test(e.key) || (e.shiftKey && /^[12!@]$/.test(e.key));
   }
 
   function onkeydown(e: KeyboardEvent) {

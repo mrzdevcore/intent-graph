@@ -141,6 +141,7 @@ ul.notes li.done { color: var(--muted); }
 #ig-chat code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 #ig-chat .card { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--bg); }
 #ig-chat .card.open { border-left: 3px solid var(--accent); }
+#ig-chat .card.board-edit { border-left: 3px solid var(--note); }
 #ig-chat .card .row, #ig-chat .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 #ig-chat .card .reject { color: var(--error); }
 #ig-chat .card button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }

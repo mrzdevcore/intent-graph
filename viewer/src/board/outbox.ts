@@ -24,6 +24,8 @@ export class Outbox {
   private base: string | null = null;
   private latest: string | null = null;
   private lines: string[] = [];
+  /** The user's lines from before Claude's last edit: still news for Claude. */
+  private held: string[] = [];
   /** The feature's plan state when its board last pushed (another feature's board may show now). */
   private planned = false;
   private running = false;
@@ -42,10 +44,20 @@ export class Outbox {
     this.base = boardJson;
     this.latest = null;
     this.lines = [];
+    this.held = [];
     this.pending = 0;
     this.due = false;
     this.stop();
     this.onchange();
+  }
+
+  /** Claude's own edit came in: Claude knows the file it wrote (`disk`), so only the user's
+   *  edits stay queued, never Claude's back to Claude. */
+  agent(disk: string, board: string): void {
+    if (this.base === null) return this.baseline(board);
+    this.held = this.lines;
+    this.base = disk;
+    this.push(board);
   }
 
   /** The board after a user edit. */
@@ -53,7 +65,7 @@ export class Outbox {
     if (this.base === null) return this.baseline(boardJson);
     this.latest = boardJson;
     this.planned = this.hasPlan();
-    this.lines = this.delta(this.base, boardJson);
+    this.lines = [...new Set([...this.held, ...this.delta(this.base, boardJson)])];
     this.pending = this.lines.length;
     this.stop();
     this.due = false;

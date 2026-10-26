@@ -6,11 +6,15 @@
 
 import type { AgentApi, TrustState } from "../../api";
 import type { Outbox } from "../../board/outbox";
+import type { AgentTurn } from "../../board/store";
 import { chatReducer, initialChat, type ChatAction } from "../../model/chat";
 
 const msg = (e: unknown) => String((e as Error)?.message ?? e);
 
 export interface Held { feature: string; text: string }
+
+/** The open board's side of the "Edited the board" card. */
+export interface BoardLink { feature: string; show(ids: string[]): void; undo(step: string): void }
 
 export class ChatSession {
   s = $state.raw(initialChat);
@@ -34,8 +38,13 @@ export class ChatSession {
   held = $state.raw<Held | null>(null);
   /** Board edits per feature: they wait for the feature's session and survive the board closing. */
   outboxes = new Map<string, Outbox>();
+  /** Claude's turns, by the feature whose session ran them: the board groups a turn's edits. */
+  turns: (AgentTurn & { feature?: string })[] = [];
+  /** The open board, while there is one: the edit cards' Show and Undo. */
+  board = $state.raw<BoardLink | null>(null);
 
   private idle: (() => void)[] = [];
+  private turnN = 0;
   private starting: Promise<void> | null = null;
 
   constructor(private agent: AgentApi, private trustInventory: () => Promise<TrustState>,
@@ -48,7 +57,11 @@ export class ChatSession {
   }
 
   dispatch = (a: ChatAction) => {
+    const was = this.s.running;
     this.s = chatReducer(this.s, a);
+    if (!was && this.s.running) this.turns = [...this.turns.slice(-20), { id: `turn-${++this.turnN}`, start: Date.now(), end: null, feature: this.feature }];
+    const last = this.turns.at(-1);
+    if (was && !this.s.running && last && last.end === null) last.end = Date.now();
     // a turn's end, a failure, a reset or a stop: the waiting prompts go (or see the session gone)
     if (!this.s.running) this.idle.splice(0).forEach((f) => f());
     this.sync();
