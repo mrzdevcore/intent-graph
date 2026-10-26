@@ -24,13 +24,16 @@ export class Outbox {
   private base: string | null = null;
   private latest: string | null = null;
   private lines: string[] = [];
+  /** The feature's plan state when its board last pushed (another feature's board may show now). */
+  private planned = false;
   private running = false;
   private live = true;
   private cancel: (() => void) | null = null;
   /** The quiet period passed (or the session came back): send as soon as allowed. */
   private due = false;
 
-  /** `hasPlan` and `delta` are rebound when the board opens again (a new engine). */
+  /** `hasPlan` (read at each push, from the board showing this feature) and `delta` are
+   *  rebound when the board opens it again (a new engine). */
   constructor(private slug: string, private send: (text: string) => Promise<void>, public hasPlan: () => boolean,
     public delta: (prev: string, next: string) => string[], private clock: Clock, private quietMs = 2000) {}
 
@@ -49,6 +52,7 @@ export class Outbox {
   push(boardJson: string): void {
     if (this.base === null) return this.baseline(boardJson);
     this.latest = boardJson;
+    this.planned = this.hasPlan();
     this.lines = this.delta(this.base, boardJson);
     this.pending = this.lines.length;
     this.stop();
@@ -90,6 +94,6 @@ export class Outbox {
     const lines = this.lines, next = this.latest;
     if (next === null) return void (this.due = false);
     this.baseline(next);
-    if (lines.length) void this.send(updateMessage(this.slug, lines, this.hasPlan())).catch((e: unknown) => console.error(e));
+    if (lines.length) void this.send(updateMessage(this.slug, lines, this.planned)).catch((e: unknown) => console.error(e));
   }
 }
