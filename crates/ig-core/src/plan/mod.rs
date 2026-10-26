@@ -50,8 +50,17 @@ pub struct PlanEdge {
     pub kind: String,
 }
 
+/// A design element, link or bridge the user agreed to leave out of the plan.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Omitted {
+    pub id: String,
+    pub reason: String,
+}
+
 #[derive(Default, Deserialize)]
 struct Block {
+    #[serde(default)]
+    omitted: Vec<Omitted>,
     #[serde(default)]
     nodes: Vec<PlanNode>,
     #[serde(default)]
@@ -69,6 +78,7 @@ pub struct Plan {
     pub nodes: Vec<PlanNode>,
     pub edges: Vec<PlanEdge>,
     pub systems: Vec<String>,
+    pub omitted: Vec<Omitted>,
 }
 
 pub fn parse(path: &str, text: &str) -> Result<Plan, PlanError> {
@@ -119,6 +129,7 @@ pub fn parse(path: &str, text: &str) -> Result<Plan, PlanError> {
         nodes: block.nodes,
         edges: block.edges,
         systems: block.systems,
+        omitted: block.omitted,
     })
 }
 
@@ -143,5 +154,31 @@ mod tests {
         assert!(added.contains("src/a.ts") && added.contains("src/a.ts#f"));
         let rules: Vec<&str> = f.iter().map(|x| x.rule_id.as_str()).collect();
         assert_eq!(rules, ["plan/unknown-node", "plan/unknown-edge-end"]);
+    }
+
+    #[test]
+    fn omitted_parses_and_defaults_to_empty() {
+        let p = parse(
+            "p.md",
+            "```ig-plan
+```
+",
+        )
+        .unwrap();
+        assert!(p.omitted.is_empty());
+        let t = "```ig-plan
+omitted:
+  - id: fn-a
+    reason: later
+```
+";
+        let p = parse("p.md", t).unwrap();
+        assert_eq!(
+            p.omitted,
+            [Omitted {
+                id: "fn-a".into(),
+                reason: "later".into()
+            }]
+        );
     }
 }
