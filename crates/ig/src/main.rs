@@ -8,7 +8,7 @@ mod tests;
 
 use anyhow::{Result, bail};
 use cli::{USAGE, parse_args};
-use ig_app::view_data;
+use ig_app::map::view;
 // `crate::model` for the modules (and their tests) that name model types.
 use ig_core::model;
 use ig_wire::Wired;
@@ -30,10 +30,14 @@ fn real_main() -> Result<u8> {
     let env = w.env();
     match a.cmd.as_str() {
         "view" => {
+            let v = view::run(&env)?;
+            for n in &v.notices {
+                eprintln!("ig: {n}");
+            }
             if a.json {
-                println!("{}", serde_json::to_string_pretty(&view_data::json(&env)?)?);
+                println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
-                let path = render::write(&w)?;
+                let path = render::write(&w, &v)?;
                 if !a.no_open {
                     render::open(&path);
                 }

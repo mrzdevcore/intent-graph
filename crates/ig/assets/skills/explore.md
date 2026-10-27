@@ -7,11 +7,11 @@ description: Explain how part of this codebase fits together using the ig depend
 
 Read-only: never edit files. The only thing you may write is `.ig/show.json` (through `ig_show`).
 
-1. Find candidate node ids. Run `ig view --json` and search `nodes[]` (`id`, `name`, `file`) for the name;
-   `edges[]` (`from`, `to`, `kind`) holds the dependencies.
-   Ids are `file` for a module, `file#Name` for a member, `file#METHOD /path` for a route.
-2. Walk the graph in `edges[]`: who depends on a node (`to` is it), what it depends on (`from` is it),
-   one or two hops. Then read the code at the node's `file` and `line`.
+1. Find candidate ids. Run `ig view --json` and search `boxes[]` (`id`, `title`, `level`, `madeOf`)
+   for the name; `arrows[]` (`from`, `to`, `kind`, `label`) holds the dependencies between boxes.
+   Code-level boxes (`level` `code`) carry graph node ids: `file#Name` for a function or class.
+2. Walk `arrows[]`: who depends on a box (`to` is it), what it depends on (`from` is it), one or two
+   hops, down through `parent`. Then read the code in the box's `madeOf` files.
 3. For "how does X work" or "how is X connected", call the `ig_show` tool with the path or subgraph
    (`nodes`, `edges` as `[from, to]` or `"from|kind|to"`), its ordered `steps` (`target`: a node id
    or `from|to`, `text`: one line) and a `title`; `mode` is `focus`, `architecture` or `chain`.

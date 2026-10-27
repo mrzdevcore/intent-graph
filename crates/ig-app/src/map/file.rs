@@ -2,6 +2,7 @@
 //! committed and shared, so it is written deterministically (keys and boxes sorted) and every
 //! read of it, or of an agent's annotations, is validated.
 
+use super::layers::{Mark, sort_marks};
 use super::{BoxKind, Level, MapArrow, Pattern};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use ig_core::ports::Files;
@@ -135,30 +136,6 @@ impl MapBox {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MarkState {
-    Ok,
-    Warn,
-    Bad,
-    Down,
-}
-
-/// A layer's word on a box or an arrow (filled by the rules and risks layers).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Mark {
-    pub layer: String,
-    pub target: String,
-    pub state: MarkState,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub badge: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub value: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub note: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MapFile {
@@ -205,11 +182,12 @@ pub fn load(files: &dyn Files) -> (Option<MapFile>, Vec<String>) {
     }
 }
 
-/// Writes the map with keys sorted and boxes and arrows sorted by id.
+/// Writes the map with keys sorted, boxes and arrows sorted by id, marks by layer, target, badge.
 pub fn save(files: &dyn Files, m: &MapFile) -> crate::Result<()> {
     let mut m = m.clone();
     m.boxes.sort_by(|a, b| a.id.cmp(&b.id));
     m.arrows.sort_by(|a, b| a.id.cmp(&b.id));
+    sort_marks(&mut m.marks);
     let mut v = serde_json::to_value(&m)?;
     sort_keys(&mut v);
     let mut text = serde_json::to_string_pretty(&v)?;
@@ -425,7 +403,7 @@ fn is_unread(b: &MapBox, parent: &str) -> bool {
 }
 
 /// The slots a box can take inside a parent drawn with `p`.
-fn slots(p: Option<&Pattern>) -> Vec<&str> {
+pub(crate) fn slots(p: Option<&Pattern>) -> Vec<&str> {
     match p {
         Some(Pattern::Onion) => vec!["domain", "application", "infrastructure"],
         Some(Pattern::Hexagonal) => vec!["core", "ports", "adapters"],
@@ -515,6 +493,7 @@ pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
 }
 
 mod refresh;
+pub(crate) use refresh::fresh;
 pub use refresh::refresh;
 
 #[cfg(test)]

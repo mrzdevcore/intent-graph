@@ -1,7 +1,7 @@
 //! The project the app shows, the `view_data` command, and the recent-projects list.
 
 use crate::bounded::Gate;
-use ig_app::view_data;
+use ig_app::map::view;
 use ig_wire::Wired;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,8 @@ pub fn is_project(root: &Path) -> bool {
 /// The viewer's data for `root`, like `ig view --json`.
 pub fn view_data_for(root: &Path) -> Result<Value, String> {
     let w = Wired::new(root);
-    view_data::json(&w.env()).map_err(|e| format!("{e:#}"))
+    let v = view::run(&w.env()).map_err(|e| format!("{e:#}"))?;
+    serde_json::to_value(v).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -169,10 +170,10 @@ mod tests {
     }
 
     #[test]
-    fn view_data_for_the_monorepo_has_nodes() {
+    fn view_data_for_the_monorepo_has_boxes() {
         let dir = scratch("view");
         let v = view_data_for(&dir).unwrap();
-        assert!(v["nodes"].as_array().is_some_and(|n| !n.is_empty()), "{v}");
+        assert!(v["boxes"].as_array().is_some_and(|n| !n.is_empty()), "{v}");
     }
 
     #[test]
