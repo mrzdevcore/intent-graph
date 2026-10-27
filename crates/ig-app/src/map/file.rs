@@ -2,7 +2,7 @@
 //! committed and shared, so it is written deterministically (keys and boxes sorted) and every
 //! read of it, or of an agent's annotations, is validated.
 
-use super::{BoxKind, FactBox, Level, MapArrow, Pattern};
+use super::{BoxKind, Level, MapArrow, Pattern};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use ig_core::ports::Files;
 use serde::{Deserialize, Serialize};
@@ -26,9 +26,10 @@ const PINNABLE: &[&str] = &[
     "madeOf",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
+    #[default]
     Ig,
     Agent,
     Person,
@@ -81,6 +82,10 @@ fn no(b: &bool) -> bool {
     !b
 }
 
+fn is_ig(s: &Source) -> bool {
+    *s == Source::Ig
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MapBox {
@@ -89,6 +94,9 @@ pub struct MapBox {
     pub parent: Option<String>,
     pub level: Level,
     pub made_of: Vec<String>,
+    /// Who drew the box's borders: an agent's or a person's grouping survives a refresh.
+    #[serde(skip_serializing_if = "is_ig", default)]
+    pub made_of_source: Source,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub package: Option<String>,
     pub files: u32,
@@ -223,98 +231,6 @@ fn sort_keys(v: &mut serde_json::Value) {
     }
 }
 
-/// The new facts with the old file's reading kept: annotated and pinned fields survive, new
-/// boxes need reading, gone boxes are dropped unless pinned (then kept as stale).
-pub fn refresh(old: Option<&MapFile>, facts: &[FactBox], arrows: Vec<MapArrow>) -> MapFile {
-    let olds: BTreeMap<&str, &MapBox> = old
-        .map(|m| m.boxes.iter().map(|b| (b.id.as_str(), b)).collect())
-        .unwrap_or_default();
-    let mut boxes: Vec<MapBox> = facts
-        .iter()
-        .map(|f| {
-            let new = MapBox {
-                id: f.id.clone(),
-                parent: f.parent.clone(),
-                level: f.level,
-                made_of: f.made_of.clone(),
-                package: f.package.clone(),
-                files: f.files,
-                kind: Field::ig(f.guess.kind),
-                title: Field::ig(f.guess.title.clone()),
-                tech: None,
-                description: None,
-                logo: None,
-                badges: None,
-                pattern: f.guess.pattern.clone().map(Field::ig),
-                slot: f.guess.slot.clone().map(Field::ig),
-                service_name: None,
-                pinned: vec![],
-                needs_reading: true,
-                stale: false,
-                nodes: f.nodes.clone(),
-            };
-            match olds.get(f.id.as_str()) {
-                Some(o) => keep(o, new),
-                None => new,
-            }
-        })
-        .collect();
-    let fresh: std::collections::HashSet<&str> = facts.iter().map(|f| f.id.as_str()).collect();
-    boxes.extend(
-        olds.values()
-            .filter(|o| !fresh.contains(o.id.as_str()) && !o.pinned.is_empty())
-            .map(|o| MapBox {
-                stale: true,
-                ..(*o).clone()
-            }),
-    );
-    boxes.sort_by(|a, b| a.id.cmp(&b.id));
-    let mut arrows = arrows;
-    arrows.sort_by(|a, b| a.id.cmp(&b.id));
-    MapFile {
-        version: 1,
-        boxes,
-        arrows,
-        marks: vec![],
-    }
-}
-
-/// `new` (ig's facts and guess) with `old`'s non-ig and pinned fields.
-fn keep(old: &MapBox, new: MapBox) -> MapBox {
-    // the old field when pinned or not ig's own guess, else the new one
-    fn pick<T: Clone>(
-        pinned: bool,
-        old: &Option<Field<T>>,
-        new: Option<Field<T>>,
-    ) -> Option<Field<T>> {
-        match old {
-            Some(o) if pinned || o.source != Source::Ig => Some(o.clone()),
-            None if pinned => None,
-            _ => new,
-        }
-    }
-    let p = |f: &str| old.pins(f);
-    MapBox {
-        made_of: if p("madeOf") {
-            old.made_of.clone()
-        } else {
-            new.made_of
-        },
-        kind: pick(p("kind"), &Some(old.kind.clone()), Some(new.kind)).unwrap(),
-        title: pick(p("title"), &Some(old.title.clone()), Some(new.title)).unwrap(),
-        tech: pick(p("tech"), &old.tech, new.tech),
-        description: pick(p("description"), &old.description, new.description),
-        logo: pick(p("logo"), &old.logo, new.logo),
-        badges: pick(p("badges"), &old.badges, new.badges),
-        pattern: pick(p("pattern"), &old.pattern, new.pattern),
-        slot: pick(p("slot"), &old.slot, new.slot),
-        service_name: old.service_name.clone(),
-        pinned: old.pinned.clone(),
-        needs_reading: old.needs_reading,
-        ..new
-    }
-}
-
 /// Applies a JSON array of `Annotation`s as the agent's reading. Pinned fields are skipped;
 /// each annotated box no longer needs reading. Returns the count of fields set, or every
 /// problem found (the map is then unchanged).
@@ -433,6 +349,7 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
                 parent: Some(parent.into()),
                 level: Level::Component,
                 made_of: vec![],
+                made_of_source: Source::Agent,
                 package: package.clone(),
                 files: 0,
                 kind: Field::agent(BoxKind::Group, a.confidence),
@@ -451,6 +368,7 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
             });
             if !b.pins("madeOf") {
                 b.made_of = a.made_of.clone().unwrap_or_default();
+                b.made_of_source = Source::Agent;
                 n += 1;
             }
             let set = globs(&b.made_of).ok();
@@ -579,6 +497,9 @@ pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
     }
     if errs.is_empty() { Ok(()) } else { Err(errs) }
 }
+
+mod refresh;
+pub use refresh::refresh;
 
 #[cfg(test)]
 mod tests;
