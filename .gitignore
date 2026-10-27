@@ -1,6 +1,6 @@
 /target
 .ig/*
-!.ig/baseline.json
+!.ig/map.json
 /viewer/node_modules
 /viewer/dist
 /viewer/dev-data.json

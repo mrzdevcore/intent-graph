@@ -202,18 +202,26 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
 }
 
 fn gitignore(text: &str) -> String {
-    if text
-        .lines()
-        .any(|l| matches!(l.trim(), ".ig" | ".ig/" | "/.ig" | "/.ig/"))
-    {
+    const LINES: &str = ".ig/*\n!.ig/map.json";
+    let has = |l: &str| text.lines().any(|x| x.trim() == l);
+    if has(".ig/*") && has("!.ig/map.json") {
         return text.to_string();
     }
-    let sep = if text.is_empty() || text.ends_with('\n') {
-        ""
-    } else {
-        "\n"
-    };
-    format!("{text}{sep}.ig/\n")
+    // `.ig/*` alone, or a line ignoring all of `.ig`: replaced in place by both lines.
+    let mut done = false;
+    let mut out: Vec<&str> = vec![];
+    for l in text.lines() {
+        if !done && matches!(l.trim(), ".ig" | ".ig/" | "/.ig" | "/.ig/" | ".ig/*") {
+            out.push(LINES);
+            done = true;
+        } else {
+            out.push(l);
+        }
+    }
+    if !done {
+        out.push(LINES);
+    }
+    format!("{}\n", out.join("\n"))
 }
 
 #[cfg(test)]
@@ -221,10 +229,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gitignore_adds_ig_once() {
-        assert_eq!(gitignore("node_modules"), "node_modules\n.ig/\n");
-        let once = gitignore("target\n");
-        assert_eq!(gitignore(&once), once);
+    fn gitignore_keeps_map() {
+        assert_eq!(
+            gitignore("node_modules"),
+            "node_modules\n.ig/*\n!.ig/map.json\n"
+        );
+        assert_eq!(gitignore(".ig/\n"), ".ig/*\n!.ig/map.json\n");
+        assert_eq!(gitignore("a\n/.ig\nb\n"), "a\n.ig/*\n!.ig/map.json\nb\n");
+        for t in ["node_modules", ".ig/\n", "target\n"] {
+            let once = gitignore(t);
+            assert_eq!(gitignore(&once), once);
+        }
     }
 
     #[test]

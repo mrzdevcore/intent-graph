@@ -3,6 +3,7 @@
 
 pub mod arrows;
 pub mod facts;
+pub mod file;
 
 pub use arrows::{ArrowKind, MapArrow, arrows};
 pub use facts::{BoxKind, FactBox, Guess, Level, Pattern, facts};
