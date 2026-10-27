@@ -314,3 +314,55 @@ fn refresh_keeps_agent_grouping() {
     }
     assert_eq!(validate(&new), Ok(()));
 }
+
+#[test]
+fn unread_never_breaks_validation() {
+    let (mut ws, mut g, cfg) = crate::map::shop::load();
+    let add = |ws: &mut ig_core::workspace::WorkspaceInfo,
+               g: &mut ig_core::model::Graph,
+               path: String| {
+        ws.files.push(SourceFile {
+            path: path.clone(),
+            package: 0,
+        });
+        let mut n = g.nodes.iter().find(|n| n.is_module()).unwrap().clone();
+        n.id = path.clone();
+        n.file = path;
+        g.nodes.push(n);
+    };
+    for i in 0..12 {
+        add(&mut ws, &mut g, format!("apps/api/src/extra{i}/x.ts"));
+    }
+    let boxes = facts(&ws, &g, &cfg);
+    let mut m = refresh(None, &boxes, vec![]);
+    // the agent takes ig's 12 components as they are
+    let notes: Vec<serde_json::Value> = m
+        .boxes
+        .iter()
+        .filter(|b| b.parent.as_deref() == Some("api"))
+        .map(|b| serde_json::json!({"id": b.id, "madeOf": b.made_of}))
+        .collect();
+    assert_eq!(notes.len(), 12);
+    annotate(&mut m, &serde_json::Value::from(notes).to_string()).unwrap();
+
+    add(&mut ws, &mut g, "apps/api/src/brandnew/y.ts".into());
+    let boxes = facts(&ws, &g, &cfg);
+    let new = refresh(Some(&m), &boxes, vec![]);
+    assert!(get(&new, "api/unread").needs_reading);
+    let kids = new
+        .boxes
+        .iter()
+        .filter(|b| b.parent.as_deref() == Some("api"))
+        .count();
+    assert_eq!(kids, 13);
+    assert_eq!(validate(&new), Ok(()));
+    let files = MemFiles::default();
+    save(&files, &new).unwrap();
+    let (back, notices) = load(&files);
+    assert!(notices.is_empty(), "{notices:?}");
+    assert_eq!(back.unwrap().boxes.len(), new.boxes.len());
+    // a 13th box of another kind is still refused
+    let mut bad = new.clone();
+    get_mut(&mut bad, "api/unread").kind = Field::ig(BoxKind::Usecase);
+    assert!(validate(&bad).unwrap_err()[0].contains("13 children"));
+}

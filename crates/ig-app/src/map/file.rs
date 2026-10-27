@@ -447,7 +447,11 @@ pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
                 "id `{id}` is not a slug (a-z, 0-9, -; components container/slug)"
             ));
         }
-        if let Some(p) = &b.parent {
+        // refresh's leftovers box never counts, so a refresh cannot make the map unloadable
+        let unread = |p: &str| {
+            *id == format!("{p}/unread") && b.kind.value == BoxKind::Group && b.needs_reading
+        };
+        if let Some(p) = b.parent.as_deref().filter(|p| !unread(p)) {
             *children.entry(p).or_default() += 1;
         }
         let long = |what: &str, s: &str, max: usize, errs: &mut Vec<String>| {
