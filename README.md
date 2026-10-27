@@ -61,7 +61,7 @@ The **Design** button (desktop app only) opens boards for a feature, with the ch
 - **Claude edits the boards:** ask in the docked chat. Claude changes the boards through `design_edit`; its changes glow gold, show in an edit card with **Show** and **Undo**, and are one undo step per turn. Your own edits are sent to Claude as short messages (adding or linking, not moving).
 - **Plan, then Apply:** **Plan** (Cmd/Ctrl+Enter) starts `/ig:plan` from the design. The plan must build every element, link and bridge, or list it under `omitted` with a reason; otherwise `ig plan check` reports `plan/design-gap`. **Apply** is enabled when the plan checks clean and runs `/ig:apply`, and the reviewer gets the screens and links. Mockups are context, never code: the UI uses your project's own components, and a missing one becomes a question.
 - **Keyboard and screen readers:** the board has a hidden element list: Up and Down select, Enter renames, Delete removes, and Claude's edits are announced.
-- **Graph view:** the Graph runs on WebGL (sigma.js) and highlights what Claude shows with `ig_show`.
+- **Graph view:** the Graph (Cytoscape) highlights what Claude shows with `ig_show`.
 
 Dev hooks, for screenshots without clicking (set before launching the app): `IG_DESIGN=<slug>` opens Design on that feature, `IG_THEME=light|dark`, `IG_SURFACE=screens`, `IG_LINK=1` opens link mode. They are debug aids, not settings.
 
