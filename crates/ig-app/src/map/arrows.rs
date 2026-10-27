@@ -19,7 +19,7 @@ pub enum ArrowKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MapArrow {
     /// `"{from}->{to}"`.
     pub id: String,

@@ -239,6 +239,13 @@ pub fn annotate(map: &mut MapFile, json: &str) -> Result<usize, Vec<String>> {
         serde_json::from_str(json).map_err(|e| vec![format!("annotations: {e}")])?;
     let mut m = map.clone();
     let mut errs = vec![];
+    for a in notes.iter().filter(|a| a.id.ends_with("/unread")) {
+        errs.push(format!(
+            "`{}` holds the files no component claims; regroup them into real components with \
+             madeOf instead of annotating it",
+            a.id
+        ));
+    }
     let mut n = regroup(&mut m, &notes, &mut errs);
     for a in notes {
         let Some(b) = m.boxes.iter_mut().find(|b| b.id == a.id) else {
@@ -412,6 +419,11 @@ fn is_slug(s: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
+/// `b` is refresh's box of `parent`'s files no component claims.
+fn is_unread(b: &MapBox, parent: &str) -> bool {
+    b.id.strip_prefix(parent) == Some("/unread") && b.kind.value == BoxKind::Group
+}
+
 /// The slots a box can take inside a parent drawn with `p`.
 fn slots(p: Option<&Pattern>) -> Vec<&str> {
     match p {
@@ -447,11 +459,10 @@ pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
                 "id `{id}` is not a slug (a-z, 0-9, -; components container/slug)"
             ));
         }
-        // refresh's leftovers box never counts, so a refresh cannot make the map unloadable
-        let unread = |p: &str| {
-            *id == format!("{p}/unread") && b.kind.value == BoxKind::Group && b.needs_reading
-        };
-        if let Some(p) = b.parent.as_deref().filter(|p| !unread(p)) {
+        // refresh's leftovers box and stale boxes never count, so a refresh cannot make the
+        // map unloadable
+        let counts = |p: &str| !b.stale && !is_unread(b, p);
+        if let Some(p) = b.parent.as_deref().filter(|p| counts(p)) {
             *children.entry(p).or_default() += 1;
         }
         let long = |what: &str, s: &str, max: usize, errs: &mut Vec<String>| {
@@ -481,7 +492,8 @@ pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
                 errs.push(format!("`{id}`: glob `{g}`: {e}"));
             }
         }
-        if let Some(s) = &b.slot {
+        // a stale box's parent may be gone or drawn otherwise now
+        if let Some(s) = b.slot.as_ref().filter(|_| !b.stale) {
             let parent = b.parent.as_deref().and_then(|p| by_id.get(p));
             let ok = slots(parent.and_then(|p| p.pattern.as_ref()).map(|f| &f.value));
             if !ok.contains(&s.value.as_str()) {

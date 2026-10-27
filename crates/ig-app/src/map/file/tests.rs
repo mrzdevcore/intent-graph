@@ -1,5 +1,5 @@
 use super::*;
-use crate::map::facts;
+use crate::map::{FactBox, facts};
 use ig_core::testing::MemFiles;
 use ig_core::workspace::SourceFile;
 
@@ -14,11 +14,56 @@ fn get_mut<'a>(m: &'a mut MapFile, id: &str) -> &'a mut MapBox {
     m.boxes.iter_mut().find(|b| b.id == id).unwrap()
 }
 
+/// `refresh`, checking the invariant every refresh keeps: its map is valid (else the next
+/// `load` would drop the whole file, pins and all).
+fn refreshed(old: Option<&MapFile>, facts: &[FactBox], arrows: Vec<MapArrow>) -> MapFile {
+    let m = refresh(old, facts, arrows);
+    assert_eq!(validate(&m), Ok(()));
+    m
+}
+
+/// `path` added to the api package, as a source file and a module node.
+fn add(ws: &mut ig_core::workspace::WorkspaceInfo, g: &mut ig_core::model::Graph, path: &str) {
+    ws.files.push(SourceFile {
+        path: path.into(),
+        package: 0,
+    });
+    let mut n = g.nodes.iter().find(|n| n.is_module()).unwrap().clone();
+    n.id = path.into();
+    n.file = path.into();
+    g.nodes.push(n);
+}
+
+/// The shop with 12 more api folders (so api has 12 components), and its map after the agent
+/// took those 12 components as they are.
+fn twelve() -> (
+    ig_core::workspace::WorkspaceInfo,
+    ig_core::model::Graph,
+    ig_core::config::Config,
+    MapFile,
+) {
+    let (mut ws, mut g, cfg) = crate::map::shop::load();
+    for i in 0..12 {
+        add(&mut ws, &mut g, &format!("apps/api/src/extra{i}/x.ts"));
+    }
+    let boxes = facts(&ws, &g, &cfg);
+    let mut m = refreshed(None, &boxes, vec![]);
+    let notes: Vec<serde_json::Value> = m
+        .boxes
+        .iter()
+        .filter(|b| b.parent.as_deref() == Some("api"))
+        .map(|b| serde_json::json!({"id": b.id, "madeOf": b.made_of}))
+        .collect();
+    assert_eq!(notes.len(), 12);
+    annotate(&mut m, &serde_json::Value::from(notes).to_string()).unwrap();
+    (ws, g, cfg, m)
+}
+
 /// ig's own map of the shop, with the refund slot pinned by a person to `domain`.
 fn shop() -> MapFile {
     let (ws, g, cfg) = crate::map::shop::load();
     let boxes = facts(&ws, &g, &cfg);
-    let mut m = refresh(None, &boxes, crate::map::arrows(&boxes, &g));
+    let mut m = refreshed(None, &boxes, crate::map::arrows(&boxes, &g));
     let refund = get_mut(&mut m, "api/application-refund");
     refund.slot = Some(Field::person("domain".to_string()));
     refund.pinned = vec!["slot".into()];
@@ -52,7 +97,7 @@ fn refresh_keeps_annotations() {
         package: 0,
     });
     let boxes = facts(&ws, &g, &cfg);
-    let new = refresh(Some(&old), &boxes, crate::map::arrows(&boxes, &g));
+    let new = refreshed(Some(&old), &boxes, crate::map::arrows(&boxes, &g));
 
     let checkout = get(&new, "api/application-checkout");
     assert_eq!(
@@ -79,7 +124,7 @@ fn refresh_drops_gone_boxes_without_pins() {
     old.boxes.push(gone);
     let (ws, g, cfg) = crate::map::shop::load();
     let boxes = facts(&ws, &g, &cfg);
-    let new = refresh(Some(&old), &boxes, vec![]);
+    let new = refreshed(Some(&old), &boxes, vec![]);
     assert!(new.boxes.iter().all(|b| b.id != "api/gone"));
 }
 
@@ -279,7 +324,7 @@ fn refresh_keeps_agent_grouping() {
     module.file = billing.into();
     g.nodes.push(module);
     let boxes = facts(&ws, &g, &cfg);
-    let new = refresh(Some(&old), &boxes, crate::map::arrows(&boxes, &g));
+    let new = refreshed(Some(&old), &boxes, crate::map::arrows(&boxes, &g));
 
     let orders = get(&new, "api/orders");
     assert_eq!(orders.made_of_source, Source::Agent);
@@ -317,37 +362,10 @@ fn refresh_keeps_agent_grouping() {
 
 #[test]
 fn unread_never_breaks_validation() {
-    let (mut ws, mut g, cfg) = crate::map::shop::load();
-    let add = |ws: &mut ig_core::workspace::WorkspaceInfo,
-               g: &mut ig_core::model::Graph,
-               path: String| {
-        ws.files.push(SourceFile {
-            path: path.clone(),
-            package: 0,
-        });
-        let mut n = g.nodes.iter().find(|n| n.is_module()).unwrap().clone();
-        n.id = path.clone();
-        n.file = path;
-        g.nodes.push(n);
-    };
-    for i in 0..12 {
-        add(&mut ws, &mut g, format!("apps/api/src/extra{i}/x.ts"));
-    }
+    let (mut ws, mut g, cfg, m) = twelve();
+    add(&mut ws, &mut g, "apps/api/src/brandnew/y.ts");
     let boxes = facts(&ws, &g, &cfg);
-    let mut m = refresh(None, &boxes, vec![]);
-    // the agent takes ig's 12 components as they are
-    let notes: Vec<serde_json::Value> = m
-        .boxes
-        .iter()
-        .filter(|b| b.parent.as_deref() == Some("api"))
-        .map(|b| serde_json::json!({"id": b.id, "madeOf": b.made_of}))
-        .collect();
-    assert_eq!(notes.len(), 12);
-    annotate(&mut m, &serde_json::Value::from(notes).to_string()).unwrap();
-
-    add(&mut ws, &mut g, "apps/api/src/brandnew/y.ts".into());
-    let boxes = facts(&ws, &g, &cfg);
-    let new = refresh(Some(&m), &boxes, vec![]);
+    let new = refreshed(Some(&m), &boxes, vec![]);
     assert!(get(&new, "api/unread").needs_reading);
     let kids = new
         .boxes
@@ -355,7 +373,6 @@ fn unread_never_breaks_validation() {
         .filter(|b| b.parent.as_deref() == Some("api"))
         .count();
     assert_eq!(kids, 13);
-    assert_eq!(validate(&new), Ok(()));
     let files = MemFiles::default();
     save(&files, &new).unwrap();
     let (back, notices) = load(&files);
@@ -365,4 +382,123 @@ fn unread_never_breaks_validation() {
     let mut bad = new.clone();
     get_mut(&mut bad, "api/unread").kind = Field::ig(BoxKind::Usecase);
     assert!(validate(&bad).unwrap_err()[0].contains("13 children"));
+}
+
+#[test]
+fn stale_pinned_box_is_not_a_thirteenth_child() {
+    let (ws, g, cfg, mut m) = twelve();
+    let mut legacy = get(&m, "api/routers").clone();
+    legacy.id = "api/legacy".into();
+    legacy.made_of = vec!["apps/api/src/legacy/**".into()];
+    legacy.pinned = vec!["title".into()];
+    m.boxes.push(legacy);
+    // also with ig's own grouping of api
+    for b in m.boxes.iter_mut() {
+        b.made_of_source = Source::Ig;
+    }
+    let boxes = facts(&ws, &g, &cfg);
+    let new = refreshed(Some(&m), &boxes, vec![]);
+    assert!(get(&new, "api/legacy").stale);
+}
+
+#[test]
+fn pinned_slot_gives_way_when_the_pattern_no_longer_has_it() {
+    let mut old = shop();
+    get_mut(&mut old, "api").pattern = Some(Field::agent(Pattern::Hexagonal, None));
+    let (ws, g, cfg) = crate::map::shop::load();
+    let boxes = facts(&ws, &g, &cfg);
+    let new = refreshed(Some(&old), &boxes, vec![]);
+    let refund = get(&new, "api/application-refund");
+    assert_eq!(refund.slot, None);
+    assert!(!refund.pinned.contains(&"slot".to_string()));
+    // a pin the pattern still allows is kept (onion: refund pinned to domain)
+    let new = refreshed(Some(&shop()), &boxes, vec![]);
+    assert_eq!(
+        get(&new, "api/application-refund")
+            .slot
+            .as_ref()
+            .unwrap()
+            .value,
+        "domain"
+    );
+}
+
+#[test]
+fn stale_component_outlives_its_container() {
+    let mut old = shop();
+    let mut gone = get(&old, "api").clone();
+    gone.id = "gone".into();
+    old.boxes.push(gone);
+    let mut kid = get(&old, "api/application-refund").clone();
+    kid.id = "gone/x".into();
+    kid.parent = Some("gone".into());
+    old.boxes.push(kid);
+    let (ws, g, cfg) = crate::map::shop::load();
+    let boxes = facts(&ws, &g, &cfg);
+    let new = refreshed(Some(&old), &boxes, vec![]);
+    assert!(new.boxes.iter().all(|b| b.id != "gone"));
+    assert!(get(&new, "gone/x").stale);
+}
+
+#[test]
+fn pinned_unread_takes_new_leftovers() {
+    let (mut ws, mut g, cfg, m) = twelve();
+    add(&mut ws, &mut g, "apps/api/src/brandnew/y.ts");
+    let boxes = facts(&ws, &g, &cfg);
+    let mut m = refreshed(Some(&m), &boxes, vec![]);
+    let unread = get_mut(&mut m, "api/unread");
+    unread.title = Field::person("To sort".into());
+    unread.pinned = vec!["title".into()];
+    add(&mut ws, &mut g, "apps/api/src/brandnew2/z.ts");
+    let boxes = facts(&ws, &g, &cfg);
+    let new = refreshed(Some(&m), &boxes, vec![]);
+    let unread: Vec<&MapBox> = new.boxes.iter().filter(|b| b.id == "api/unread").collect();
+    assert_eq!(unread.len(), 1);
+    assert_eq!(unread[0].title.value, "To sort");
+    assert_eq!(unread[0].files, 2);
+    assert!(unread[0].needs_reading);
+}
+
+#[test]
+fn unread_cannot_be_annotated() {
+    let (mut ws, mut g, cfg, m) = twelve();
+    add(&mut ws, &mut g, "apps/api/src/brandnew/y.ts");
+    let boxes = facts(&ws, &g, &cfg);
+    let mut m = refreshed(Some(&m), &boxes, vec![]);
+    let before = m.clone();
+    let e = annotate(&mut m, r#"[{"id": "api/unread", "title": "Misc"}]"#).unwrap_err();
+    assert!(e.iter().any(|e| e.contains("regroup")), "{e:?}");
+    assert_eq!(m, before);
+    // an annotated unread box (by hand) still does not count as a 13th child
+    get_mut(&mut m, "api/unread").needs_reading = false;
+    assert_eq!(validate(&m), Ok(()));
+}
+
+#[test]
+fn unknown_keys_in_arrows_and_patterns_are_rejected() {
+    let (ws, g, cfg) = crate::map::shop::load();
+    let boxes = facts(&ws, &g, &cfg);
+    let m = refreshed(None, &boxes, crate::map::arrows(&boxes, &g));
+    assert!(!m.arrows.is_empty());
+    let mut v = serde_json::to_value(&m).unwrap();
+    v["arrows"][0]["color"] = "red".into();
+    let files = MemFiles::with(&[(MAP, v.to_string().as_str())]);
+    assert!(load(&files).0.is_none());
+    let mut v = serde_json::to_value(&m).unwrap();
+    let api = v["boxes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|b| b["id"] == "api")
+        .unwrap();
+    api["pattern"]["value"]["rings"] = 3.into();
+    let files = MemFiles::with(&[(MAP, v.to_string().as_str())]);
+    assert!(load(&files).0.is_none());
+    let mut m = m;
+    let e = annotate(
+        &mut m,
+        r#"[{"id": "api", "pattern": {"kind": "onion", "rings": 3}}]"#,
+    )
+    .unwrap_err();
+    assert!(e.iter().any(|e| e.contains("rings")), "{e:?}");
 }
