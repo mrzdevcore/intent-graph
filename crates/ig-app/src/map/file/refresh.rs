@@ -1,6 +1,6 @@
 //! `refresh`: the new facts with the old file's reading kept.
 
-use super::{Field, MapBox, MapFile, Source, globs};
+use super::{Field, MapBox, MapFile, Source, globs, slots};
 use crate::map::{BoxKind, FactBox, Level, MapArrow};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -53,6 +53,7 @@ pub fn refresh(old: Option<&MapFile>, facts: &[FactBox], arrows: Vec<MapArrow>) 
                 ..(*o).clone()
             }),
     );
+    fit_slots(&mut boxes, facts);
     boxes.sort_by(|a, b| a.id.cmp(&b.id));
     let mut arrows = arrows;
     arrows.sort_by(|a, b| a.id.cmp(&b.id));
@@ -61,6 +62,35 @@ pub fn refresh(old: Option<&MapFile>, facts: &[FactBox], arrows: Vec<MapArrow>) 
         boxes,
         arrows,
         marks: vec![],
+    }
+}
+
+/// A slot (pinned or not) the parent's pattern no longer has goes back to ig's guess, or to
+/// none when the pattern has no room for that either; a pin stands whenever it is still valid.
+fn fit_slots(boxes: &mut [MapBox], facts: &[FactBox]) {
+    let patterns: BTreeMap<String, Option<crate::map::Pattern>> = boxes
+        .iter()
+        .map(|b| (b.id.clone(), b.pattern.as_ref().map(|p| p.value.clone())))
+        .collect();
+    for b in boxes.iter_mut().filter(|b| !b.stale) {
+        let pattern = b
+            .parent
+            .as_ref()
+            .and_then(|p| patterns.get(p))
+            .cloned()
+            .flatten();
+        let ok = slots(pattern.as_ref());
+        if b.slot
+            .as_ref()
+            .is_some_and(|s| !ok.contains(&s.value.as_str()))
+        {
+            let guess = facts
+                .iter()
+                .find(|f| f.id == b.id)
+                .and_then(|f| f.guess.slot.clone());
+            b.slot = guess.filter(|g| ok.contains(&g.as_str())).map(Field::ig);
+            b.pinned.retain(|p| p != "slot");
+        }
     }
 }
 
@@ -129,7 +159,16 @@ fn drawn_components(
             (!b.stale || !b.pinned.is_empty()).then_some(b)
         })
         .collect();
-    if !rest.is_empty() {
+    if let Some(u) = out.iter_mut().find(|b| b.id == unread)
+        && !rest.is_empty()
+    {
+        // a person kept the unread box: it takes the new leftovers too
+        u.nodes.extend(rest);
+        u.made_of = folder_globs(&u.nodes, all);
+        u.files = u.nodes.len() as u32;
+        u.stale = false;
+        u.needs_reading = true;
+    } else if !rest.is_empty() {
         let container = facts.iter().find(|f| f.id == c);
         out.push(MapBox {
             id: unread,
