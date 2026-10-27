@@ -3,6 +3,7 @@
 pub mod build;
 pub mod config;
 mod error;
+pub mod map;
 pub mod setup;
 pub mod show;
 pub mod view_data;

@@ -1,0 +1,10 @@
+patterns:
+  - kind: route
+    match: "router.$METHOD($PATH, $$$)"
+    where: { METHOD: [get, post] }
+    id: "{METHOD} {PATH}"
+blueprint:
+  http: { calls: [request] }
+  systems:
+    Postgres: ["@prisma/client"]
+    Stripe: ["stripe"]

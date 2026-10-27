@@ -112,6 +112,7 @@ pub fn build_graph(
             Some(x) => {
                 x.namespace |= e.namespace;
                 x.reexport |= e.reexport;
+                x.in_loop |= e.in_loop;
                 if e.resolved() {
                     x.confidence = e.confidence.clone();
                 }
@@ -172,6 +173,7 @@ fn blueprint_links(
         line,
         namespace: false,
         reexport: false,
+        in_loop: false,
     };
     if !bp.http_calls.is_empty() {
         // Route node names are "METHOD /path" (or just "/path" for any method).
@@ -327,6 +329,7 @@ mod tests {
             line,
             namespace: false,
             reexport: false,
+            in_loop: false,
         }
     }
 

@@ -131,3 +131,19 @@ fn callees() {
     has(r#"a.ts#A.m calls Member { class: "a.ts#A", name: "o", skip_self: true }"#);
     has(r#"a.ts#A extends Free("B")"#);
 }
+
+#[test]
+fn marks_calls_in_loops() {
+    let f = run(
+        "a.ts",
+        "for (const x of xs) save(x); xs.map(y => load(y)); once();\n",
+    );
+    let in_loop = |name: &str| {
+        f.refs
+            .iter()
+            .find(|r| matches!(&r.callee, Callee::Free(n) | Callee::Guess(n) if n == name))
+            .unwrap_or_else(|| panic!("no ref to {name}"))
+            .in_loop
+    };
+    assert!(in_loop("save") && in_loop("load") && !in_loop("once"));
+}

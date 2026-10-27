@@ -64,3 +64,8 @@ fn monorepo() {
 fn cycle() {
     fixture("cycle");
 }
+
+#[test]
+fn shop() {
+    fixture("shop");
+}
