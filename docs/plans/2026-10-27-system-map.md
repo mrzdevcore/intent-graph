@@ -91,7 +91,7 @@ reference, including colors, sizes and fonts.
 
 **Interfaces:**
 - **Produces:**
-  - CLI commands: `ig view`, `ig mcp`, `ig init`, `ig plugin export <dir>`. Task 11 adds `ig`, `ig <folder>`, `ig app`, `ig setup`, `ig map` and `ig check`.
+  - CLI commands: `ig view`, `ig mcp`, `ig init`, `ig plugin export <dir>`. Task 11 adds `ig`, `ig <folder>`, `ig setup`, `ig map` and `ig check`.
   - MCP tools: `ig_state` and `ig_show` (unchanged).
   - `Config` keeps: `layers`, `rules`, `ignore`, `tests`, `embedded`, `auto_imports`, `patterns`,
     `blueprint.systems`, `blueprint.http_calls`, `blueprint.http_prefix`, `blueprint.route_kind`.
@@ -505,9 +505,11 @@ reference, including colors, sizes and fonts.
     attention" from the rules and risks marks, connections, "made of", `service.name`, and the
     buttons Zoom in, Open in editor (existing editor link) and links.
   - The layers panel holds toggles for rules, risks and each file layer.
-  - The top of the map shows a banner when `reading == "fallback"`: "This is ig's plain map. Run
-    /ig:setup to have Claude read the architecture." In the app, its button sends `/ig:setup` to
-    the chat session. In `ig view`, it shows the command.
+  - When `reading == "fallback"`, one line on the map reads "Let Claude read the
+    architecture?" with a button. In the app, the click sends `/ig:setup` to the chat session.
+    It never runs automatically. In `ig view`, the line shows `ig setup` instead.
+  - The app has no modes, tabs or side panels: the map, the details card on selection, the
+    layers toggles and the chat.
   - A progress bar shows on the map while a `progress` event is live: the step text plus done/total
     (indeterminate when there is no total). Graph builds report "Analysing N files" through the
     same event.
@@ -528,7 +530,7 @@ reference, including colors, sizes and fonts.
   Take an app-window screenshot (`screencapture -l <id>`).
 - [ ] **Step 5: Commit** `Map viewer: the canvas, zoom, details, layers, Read the architecture`.
 
-### Task 11: The terminal: `ig`, `ig .`, `ig setup`, `ig map`, `ig check`
+### Task 11: The terminal: `ig .`, `ig setup`, `ig map`, `ig check`
 
 **Files:**
 - Modify: `crates/ig/src/{main.rs,cli.rs}`.
@@ -538,8 +540,8 @@ reference, including colors, sizes and fonts.
 **Interfaces:**
 - **Consumes:** `map_view` (Task 6), `ig_init`.
 - **Produces:**
-  - **`ig`, `ig <folder>` (`ig .`) and `ig app [folder]`** open the desktop app on the folder
-    (default: the current one).
+  - **`ig` and `ig <folder>` (`ig .`)** open the desktop app on the folder (default: the current
+    one). There is no `ig app` command.
     - A first argument that is a subcommand name is the subcommand. To open a folder with such a
       name, use `ig ./map`.
     - A first argument that is neither a subcommand nor an existing folder prints the usage and
