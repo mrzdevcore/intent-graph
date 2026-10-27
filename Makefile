@@ -1,4 +1,4 @@
-.PHONY: viewer viewer-app board-wasm board-test build install test app app-dev
+.PHONY: viewer viewer-app build install test app app-dev
 
 # The viewer first (viewer/dist/index.html), then the binary that embeds it.
 viewer:
@@ -14,22 +14,8 @@ test: viewer
 	cd viewer && bun run test
 	cargo test --workspace
 
-# The board engine (crates/ig-board) as wasm, for the desktop app only: viewer/src/board/pkg.
-# wasm-bindgen-cli is installed pinned into target/tools; the rustup target is never installed here.
-WASM_BINDGEN = target/tools/bin/wasm-bindgen
-board-wasm:
-	@rustup target list --installed | grep -qx wasm32-unknown-unknown || { echo "missing the wasm32 target: run rustup target add wasm32-unknown-unknown"; exit 1; }
-	@test "$$($(WASM_BINDGEN) --version 2>/dev/null)" = "wasm-bindgen 0.2.129" || cargo install wasm-bindgen-cli --version =0.2.129 --locked --force --root target/tools
-	cargo build -p ig-board --target wasm32-unknown-unknown --release
-	cargo clippy -p ig-board --target wasm32-unknown-unknown -- -D warnings
-	$(WASM_BINDGEN) --target web --out-dir viewer/src/board/pkg "$${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/ig_board.wasm"
-
-# The wasm smoke test (skipped by `make test` when pkg/ is absent).
-board-test: board-wasm
-	cd viewer && bun run test -- wasm.smoke
-
-# The app's frontend: viewer/dist-app/, multi-file, with the lazy board chunk and its .wasm.
-viewer-app: board-wasm
+# The app's frontend: viewer/dist-app/, multi-file.
+viewer-app:
 	cd viewer && bun install --frozen-lockfile && bun run build:app
 
 # The desktop app (crates/ig-desktop), with the Tauri CLI from the viewer's devDependencies.

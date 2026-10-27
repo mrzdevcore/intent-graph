@@ -6,24 +6,12 @@
 use crate::Env;
 use ig_core::config::Config;
 use ig_core::model::{Edge, Metrics, Node, Range, sha1_hex};
-use ig_core::ports::{
-    CheckerRunner, FileFacts, Files, FrontendOutput, LanguageFrontend, PortError, Vcs,
-};
+use ig_core::ports::{FileFacts, Files, FrontendOutput, LanguageFrontend, PortError, Vcs};
 use ig_core::workspace::{SourceFile, WorkspaceInfo};
 use std::path::Path;
 
 #[derive(Default)]
-pub struct Fake {
-    inputs: Vec<String>,
-}
-
-impl Fake {
-    pub fn with_inputs(inputs: &[&str]) -> Fake {
-        Fake {
-            inputs: inputs.iter().map(|s| s.to_string()).collect(),
-        }
-    }
-}
+pub struct Fake;
 
 fn node(id: &str, kind: &str, file: &str, lines: (u32, u32), hash: &str) -> Node {
     Node {
@@ -104,26 +92,17 @@ impl LanguageFrontend for Fake {
     ) -> Result<(), PortError> {
         Ok(())
     }
-    fn cache_inputs(&self, _: &Path, _: &Config) -> Vec<String> {
-        self.inputs.clone()
-    }
 }
 
 fn quiet(_: &str) {}
 
 /// An `Env` rooted at "." over fakes; `fe` is leaked (tests only).
-pub fn env<'a>(
-    files: &'a dyn Files,
-    vcs: Option<&'a dyn Vcs>,
-    runner: &'a dyn CheckerRunner,
-    fe: &'a Fake,
-) -> Env<'a> {
+pub fn env<'a>(files: &'a dyn Files, vcs: Option<&'a dyn Vcs>, fe: &'a Fake) -> Env<'a> {
     let fes: &'a [&'a dyn LanguageFrontend] = Box::leak(Box::new([fe as &dyn LanguageFrontend]));
     Env {
         root: Path::new("."),
         files,
         vcs,
-        runner,
         frontends: fes,
         progress: &quiet,
         notice: &quiet,

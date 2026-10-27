@@ -1,12 +1,8 @@
 //! The project the app shows, the `view_data` command, and the recent-projects list.
 
-use crate::bounded::{FileList, Gate};
-use crate::file_tree::{Entry, children, list_all};
-use crate::read_file::{FileText, read_file_for};
-use ig_app::check::Opts;
+use crate::bounded::Gate;
 use ig_app::view_data;
-use ig_core::workspace;
-use ig_wire::{Wired, shown_plan};
+use ig_wire::Wired;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -20,75 +16,22 @@ pub fn is_project(root: &Path) -> bool {
     root.join("ig.yaml").is_file() || Wired::new(root).vcs().is_some()
 }
 
-/// The viewer's data for `root`, like `ig view --json`: checkers skipped, the plan picked as
-/// `ig view` does. `plan` is relative to the root and must stay inside it.
-pub fn view_data_for(root: &Path, plan: Option<&str>, no_plan: bool) -> Result<Value, String> {
-    let plan = match plan {
-        Some(p) => {
-            let abs = root
-                .join(p)
-                .canonicalize()
-                .map_err(|e| format!("plan {p}: {e}"))?;
-            if workspace::rel(root, &abs).is_none() {
-                return Err(format!("plan {p}: outside the project"));
-            }
-            Some(abs)
-        }
-        None => None,
-    };
+/// The viewer's data for `root`, like `ig view --json`.
+pub fn view_data_for(root: &Path) -> Result<Value, String> {
     let w = Wired::new(root);
-    let env = w.env();
-    let picked = view_data::pick_plan(&env, plan.as_deref(), no_plan);
-    let opts = Opts {
-        skip_checkers: true,
-        ..Opts::default()
-    };
-    view_data::json(&env, &opts, shown_plan(root, &picked)).map_err(|e| format!("{e:#}"))
+    view_data::json(&w.env()).map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
 pub async fn view_data(
     project: tauri::State<'_, Project>,
     gate: tauri::State<'_, Gate>,
-    plan: Option<String>,
-    no_plan: bool,
 ) -> Result<Value, String> {
     let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
     let Some(root) = root else {
         return Err("no project open: Project > Open… (⌘O)".into());
     };
-    gate.run(move || view_data_for(&root, plan.as_deref(), no_plan))
-        .await?
-}
-
-/// The children of `dir` (None: the project root); see `file_tree::file_tree_for`.
-#[tauri::command]
-pub async fn file_tree(
-    project: tauri::State<'_, Project>,
-    gate: tauri::State<'_, Gate>,
-    list: tauri::State<'_, FileList>,
-    dir: Option<String>,
-) -> Result<Vec<Entry>, String> {
-    let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
-    let Some(root) = root else {
-        return Err("no project open: Project > Open… (⌘O)".into());
-    };
-    let all = list.get(move || list_all(&root)).await?;
-    gate.run(move || children(&all, dir.as_deref())).await
-}
-
-/// One text file of the project; see `read_file::read_file_for`.
-#[tauri::command]
-pub async fn read_file(
-    project: tauri::State<'_, Project>,
-    gate: tauri::State<'_, Gate>,
-    path: String,
-) -> Result<FileText, String> {
-    let root = project.0.lock().unwrap().as_ref().map(|(r, _)| r.clone());
-    let Some(root) = root else {
-        return Err("no project open: Project > Open… (⌘O)".into());
-    };
-    gate.run(move || read_file_for(&root, &path)).await?
+    gate.run(move || view_data_for(&root)).await?
 }
 
 /// What a session in the open project would run, and whether the user already trusted exactly that.
@@ -228,9 +171,8 @@ mod tests {
     #[test]
     fn view_data_for_the_monorepo_has_nodes() {
         let dir = scratch("view");
-        let v = view_data_for(&dir, None, false).unwrap();
+        let v = view_data_for(&dir).unwrap();
         assert!(v["nodes"].as_array().is_some_and(|n| !n.is_empty()), "{v}");
-        assert!(view_data_for(&dir, Some(".."), false).is_err());
     }
 
     #[test]

@@ -1,5 +1,4 @@
-//! Unreadable `ig.yaml` and `.ig/baseline.json` are errors, never read as missing (which would
-//! drop the rules, or let `ig except` overwrite the baseline).
+//! An unreadable `ig.yaml` is an error, never read as missing (which would drop the rules).
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
@@ -34,31 +33,15 @@ fn ig(root: &Path, args: &[&str]) -> (i32, String) {
 }
 
 #[test]
-fn unreadable_config_fails_the_check() {
+fn unreadable_config_fails_the_view() {
     let dir = scratch("config");
     let cfg = dir.join("ig.yaml");
     std::fs::write(&cfg, "rules: []\n").unwrap();
     if lock(&cfg) {
-        let (code, err) = ig(&dir, &["check"]);
+        let (code, err) = ig(&dir, &["view", "--json"]);
         assert_eq!(code, 2, "{err}");
         assert!(err.contains("ig: ig.yaml: cannot be read"), "{err}");
     }
     std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn except_keeps_an_unreadable_baseline() {
-    let dir = scratch("baseline");
-    let b = dir.join(".ig/baseline.json");
-    let before = b"[\"keep-me\"]\n";
-    std::fs::write(&b, before).unwrap();
-    if lock(&b) {
-        let (code, err) = ig(&dir, &["except", "fp", "--reason", "x"]);
-        assert_eq!(code, 2, "{err}");
-        assert!(err.contains("baseline.json: cannot be read"), "{err}");
-    }
-    std::fs::set_permissions(&b, std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert_eq!(std::fs::read(&b).unwrap(), before);
     let _ = std::fs::remove_dir_all(&dir);
 }

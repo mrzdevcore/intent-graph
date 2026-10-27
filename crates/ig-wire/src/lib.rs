@@ -1,10 +1,7 @@
 //! The composition root shared by the driving adapters (`ig` and `ig-desktop`): the real adapters
-//! plugged into `ig_app::Env`, the plan helpers, and the debounced watcher behind live rebuilds.
+//! plugged into `ig_app::Env`, and the debounced watcher behind live rebuilds.
 
-use anyhow::{Context, Result};
 use ig_app::Env;
-use ig_app::view_data::{Picked, ShownPlan};
-use ig_checkers::ProcessRunner;
 use ig_core::ports::{LanguageFrontend, Vcs};
 use ig_fs::FsFiles;
 use ig_git::GitVcs;
@@ -26,7 +23,7 @@ fn progress(msg: &str) {
     }
 }
 
-/// A check's notices: always on stderr.
+/// Notices: always on stderr.
 fn notice(msg: &str) {
     eprintln!("ig: {msg}");
 }
@@ -62,41 +59,10 @@ impl Wired {
             root: &self.files.root,
             files: &self.files,
             vcs: self.vcs.as_ref().map(|v| v as &dyn Vcs),
-            runner: &ProcessRunner,
             frontends: FRONTENDS,
             progress: &progress,
             notice: &notice,
         }
-    }
-}
-
-/// The plan at `path` (relative to the working directory): its root-relative path and text.
-pub fn read_plan(root: &Path, path: &Path) -> Result<(String, String)> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
-    let rel = path
-        .canonicalize()
-        .ok()
-        .and_then(|p| ig_core::workspace::rel(root, &p))
-        .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"));
-    Ok((rel, text))
-}
-
-/// The picked plan, read.
-pub fn shown_plan(root: &Path, (plan, applying): &Picked) -> Option<ShownPlan> {
-    plan.as_ref().map(|p| ShownPlan {
-        path: p.clone(),
-        applying: *applying,
-        read: read_plan(root, p),
-    })
-}
-
-/// Design files need a real `plans/` folder: a symlinked one is refused (the app and `design_edit`).
-pub fn real_plans(root: &Path) -> std::result::Result<(), String> {
-    match std::fs::symlink_metadata(root.join("plans")) {
-        Ok(m) if m.file_type().is_symlink() => {
-            Err("plans/ is a symlink; design files need a real plans folder".into())
-        }
-        _ => Ok(()),
     }
 }
 
@@ -194,51 +160,12 @@ fn check_chunk(
     })
 }
 
-/// What changed in one quiet period: `full` when anything but plan notes (`*.notes.*`) and the
-/// files of a feature folder (all but its `plan.md`) did, `show` when `.ig/show.json` did (an
-/// agent's `ig_show`), `designs` the slugs of the feature folders touched.
+/// What changed in one quiet period: `full` when a source-ish file did, `show` when
+/// `.ig/show.json` did (an agent's `ig_show`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Changed {
     pub full: bool,
     pub show: bool,
-    pub designs: BTreeSet<String>,
-    /// (slug, screen id) of the screen files touched; a screen file is `<id>.json`.
-    pub screens: BTreeSet<(String, String)>,
-    /// (slug, name) of the image files touched.
-    pub assets: BTreeSet<(String, String)>,
-}
-
-/// `plans/<slug>/screens/<id>.json` -> (slug, id); `plans/<slug>/assets/<name>` -> (slug, name).
-fn design_file(rel: &Path) -> Option<(bool, String, String)> {
-    let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_str()).collect();
-    match parts[..] {
-        [Some("plans"), Some(s), Some("screens"), Some(f)] => {
-            Some((true, s.into(), f.strip_suffix(".json")?.into()))
-        }
-        [Some("plans"), Some(s), Some("assets"), Some(f)] if !f.contains(".tmp-") => {
-            Some((false, s.into(), f.into()))
-        }
-        _ => None,
-    }
-}
-
-/// The feature whose design file (design.json, notes, screens, assets, or a temp file of an
-/// atomic write) `rel` is; its `plan.md` is not one.
-fn design_slug(rel: &Path) -> Option<String> {
-    let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_str()).collect();
-    match parts[..] {
-        [Some("plans"), Some(s), Some(f)]
-            if f == "design.json"
-                || f == "notes.md"
-                || f.starts_with("design.tmp-")
-                || f.starts_with("design.unsaved.")
-                || f.starts_with("notes.tmp-") =>
-        {
-            Some(s.into())
-        }
-        [Some("plans"), Some(s), Some("screens" | "assets"), _, ..] => Some(s.into()),
-        _ => None,
-    }
 }
 
 /// Watches `root` and, after 300 ms of quiet, calls `on_change`. Ignored paths never count, except
@@ -265,23 +192,7 @@ pub fn watch(
                         any = true;
                         c.show = true;
                     } else if !ignored(&root, p) {
-                        let rel = p.strip_prefix(&root).unwrap_or(p);
-                        if let Some(slug) = design_slug(rel) {
-                            any = true;
-                            c.designs.insert(slug);
-                            match design_file(rel) {
-                                Some((true, s, id)) => c.screens.insert((s, id)),
-                                Some((false, s, name)) => c.assets.insert((s, name)),
-                                None => false,
-                            };
-                        } else if !rel
-                            .file_name()
-                            .is_some_and(|f| f.to_string_lossy().contains(".notes."))
-                        {
-                            maybe.insert(rel.to_path_buf());
-                        } else {
-                            any = true;
-                        }
+                        maybe.insert(p.strip_prefix(&root).unwrap_or(p).to_path_buf());
                     }
                 }
             };
@@ -428,64 +339,6 @@ mod tests {
                 ..Changed::default()
             })
         );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_recovery_copy_is_a_design_file() {
-        for f in [
-            "design.unsaved.json",
-            "design.unsaved.tmp-42",
-            "design.unsaved.2.json",
-            "design.unsaved.2.tmp-42",
-        ] {
-            assert_eq!(
-                design_slug(Path::new(&format!("plans/a/{f}"))),
-                Some("a".into())
-            );
-        }
-    }
-
-    #[test]
-    fn screen_and_asset_files_are_named() {
-        let f = |p: &str| design_file(Path::new(p));
-        assert_eq!(
-            f("plans/a/screens/x.json"),
-            Some((true, "a".into(), "x".into()))
-        );
-        assert_eq!(
-            f("plans/a/assets/0123456789ab.png"),
-            Some((false, "a".into(), "0123456789ab.png".into()))
-        );
-        assert_eq!(f("plans/a/screens/x.tmp-1"), None);
-        assert_eq!(f("plans/a/assets/0123456789ab.tmp-1"), None);
-        assert_eq!(f("plans/a/design.json"), None);
-    }
-
-    #[test]
-    fn watch_classifies_design_screen_and_asset_changes() {
-        let dir = std::env::temp_dir().join(format!("ig-wire-design-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("plans/a/screens")).unwrap();
-        let dir = dir.canonicalize().unwrap();
-        let (tx, rx) = mpsc::channel();
-        let _w = watch(&dir, move |c| {
-            let _ = tx.send(c);
-        })
-        .unwrap();
-        std::thread::sleep(Duration::from_millis(200));
-        std::fs::write(dir.join("plans/a/design.json"), "{}").unwrap();
-        std::fs::write(dir.join("plans/a/screens/s.json"), "{}").unwrap();
-        let want = Changed {
-            designs: BTreeSet::from(["a".to_string()]),
-            screens: BTreeSet::from([("a".to_string(), "s".to_string())]),
-            ..Changed::default()
-        };
-        assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(want));
-        std::fs::write(dir.join("plans/a/plan.md"), "# A").unwrap();
-        assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().full);
-        std::fs::write(dir.join("plans/a/y.md"), "# Y").unwrap();
-        assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().full);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

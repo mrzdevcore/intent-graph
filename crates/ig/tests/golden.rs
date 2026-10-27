@@ -1,9 +1,8 @@
-//! Golden tests: each fixture is copied outside git, `ig check --all --json` and `ig review --json` run on it,
-//! and the graph, findings and review are compared with `tests/golden/`. `UPDATE_GOLDEN=1` rewrites them.
+//! Golden tests: each fixture is copied outside git, its graph is built and the arch rules run on
+//! it, and the graph and findings are compared with `tests/golden/`. `UPDATE_GOLDEN=1` rewrites them.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
@@ -15,23 +14,6 @@ fn copy_dir(from: &Path, to: &Path) {
             std::fs::copy(&p, to.join(e.file_name())).unwrap();
         }
     }
-}
-
-fn run(root: &Path, args: &[&str]) -> Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_ig"))
-        .args(args)
-        .arg("--root")
-        .arg(root)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.code().unwrap() < 2,
-        "ig {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    // stderr is a pipe here: no progress lines.
-    assert!(!String::from_utf8_lossy(&out.stderr).contains("building graph"));
-    serde_json::from_slice(&out.stdout).unwrap()
 }
 
 fn golden(name: &str, actual: &Value) {
@@ -58,14 +40,17 @@ fn fixture(name: &str) {
     let dir = std::env::temp_dir().join(format!("ig-golden-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     copy_dir(&src, &dir);
-    let mut check = run(&dir, &["check", "--all", "--json"]);
-    let mut graph = check["graph"].take();
+    let w = ig_wire::Wired::new(&dir);
+    let env = w.env();
+    let config = ig_app::config::load(env.files).unwrap();
+    let built = ig_app::graph(&env, env.files, &config, None).unwrap();
+    let findings = ig_core::rules::arch(&built.graph, &config, &built.workspace.packages);
+    let mut graph = serde_json::to_value(&built.graph).unwrap();
     graph["toolVersion"] = Value::Null;
     golden(&format!("{name}.graph.json"), &graph);
-    golden(&format!("{name}.findings.json"), &check["findings"]);
     golden(
-        &format!("{name}.review.json"),
-        &run(&dir, &["review", "--json"]),
+        &format!("{name}.findings.json"),
+        &serde_json::to_value(findings).unwrap(),
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -78,47 +63,4 @@ fn monorepo() {
 #[test]
 fn cycle() {
     fixture("cycle");
-}
-
-#[test]
-fn query_cli() {
-    let dir = std::env::temp_dir().join(format!("ig-query-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    copy_dir(
-        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/monorepo"),
-        &dir,
-    );
-    let v = run(
-        &dir,
-        &[
-            "query",
-            "packages/core/src/repo.ts#Repo",
-            "--in",
-            "--depth",
-            "1",
-            "--json",
-        ],
-    );
-    assert!(
-        v["nodes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|n| n["id"] == "apps/web/src/main.tsx")
-    );
-    let v = run(&dir, &["query", "Rep", "--json"]);
-    assert!(!v["suggestions"].as_array().unwrap().is_empty());
-    let st = Command::new(env!("CARGO_BIN_EXE_ig"))
-        .args(["focus", "a", "b", "--root"])
-        .arg(&dir)
-        .status()
-        .unwrap();
-    assert!(st.success());
-    assert_eq!(
-        std::fs::read_to_string(dir.join(".ig/focus.json"))
-            .unwrap()
-            .matches('"')
-            .count(),
-        4
-    );
 }

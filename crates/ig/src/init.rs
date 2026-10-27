@@ -1,10 +1,8 @@
 //! `ig init`: scaffolding. Never overwrites anything.
 
 use anyhow::Result;
-use ig_app::check;
 use ig_core::config::Config;
 use ig_core::workspace::{self, WorkspaceInfo};
-use ig_wire::Wired;
 use regex::Regex;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -14,20 +12,8 @@ const AGENTS_MARKER: &str = "<!-- ig:agents -->";
 const AGENTS_SNIPPET: &str = "<!-- ig:agents -->
 ## ig (intent-graph)
 
-- Run `ig check --agent` before finishing; fix every blocking finding.
-- Tag code that implements an intent from `intents.md` with `// @intent ID-1`, and its tests too.
-- Add new intents to `intents.md` as `- ID-1: one line`.
-- Use /ig:setup ($ig-setup in Codex) to set up ig.yaml; /ig:plan and /ig:apply for features.
+- Use /ig:setup ($ig-setup in Codex) to set up ig.yaml, /ig:explore to answer questions about the code.
 ";
-
-const HOOK: &str = r#"{
-  "hooks": {
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "ig hook claude", "timeout": 300 }] }
-    ]
-  }
-}
-"#;
 
 fn layer_name(s: &str) -> String {
     let base = s.rsplit('/').next().unwrap_or(s);
@@ -91,7 +77,7 @@ fn create(root: &Path, path: &Path, content: &str, created: &mut Vec<String>) ->
     Ok(true)
 }
 
-/// `agents`: the coding agents to set up (the ig skills each, and the Stop hook for Claude).
+/// `agents`: the coding agents to set up (the ig skills each).
 pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
     let mut created = vec![];
 
@@ -156,36 +142,18 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
              # Forbidden layer dependencies, e.g.:\n\
              #   - forbid: \"core -> ui\"\n\
              rules: []\n\
-             complexity:\n  max: 15\n  maxIncrease: 5\n\
              embedded: {embedded}\n\
              # ignore: [\"**/generated/**\"]\n\
              # patterns:\n\
              #   - kind: route\n\
              #     match: \"app.$METHOD($PATH, $$$)\"\n\
              #     where: {{ METHOD: [get, post, put, delete] }}\n\
-             #     id: \"{{METHOD}} {{PATH}}\"\n\
-             # checkers:\n\
-             #   - name: eslint\n\
-             #     run: \"npx eslint -f @microsoft/eslint-formatter-sarif .\"\n\
-             # blockOn: error\n"
+             #     id: \"{{METHOD}} {{PATH}}\"\n"
         );
         Config::parse(&text)?;
         create(root, &cfg_path, &text, &mut created)?;
     }
 
-    create(
-        root,
-        &root.join("intents.md"),
-        "# Intents\n\nOne intent per line, referenced from code with `// @intent ID-1`.\n\n<!-- - APP-1: Users can sign in with email -->\n",
-        &mut created,
-    )?;
-
-    if agents.iter().any(|a| a.name == "claude") {
-        let settings = root.join(".claude/settings.json");
-        if !create(root, &settings, HOOK, &mut created)? {
-            println!("ig: .claude/settings.json exists; add this Stop hook to it:\n{HOOK}");
-        }
-    }
     for a in agents {
         for p in crate::skills::install(root, a)? {
             created.push(
@@ -211,13 +179,6 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
         created.push("AGENTS.md (snippet)".into());
     }
 
-    create(
-        root,
-        &root.join("rules.md"),
-        "# Rules\n\nRules no tool can check. One per heading, with a stable id.\n\n<!-- ## R-EXAMPLE: Components stay presentational; logic lives in composables -->\n",
-        &mut created,
-    )?;
-
     let gi = root.join(".gitignore");
     let text = std::fs::read_to_string(&gi).unwrap_or_default();
     let new = gitignore(&text);
@@ -226,47 +187,14 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
         created.push(".gitignore entries".into());
     }
 
-    if !root.join(".ig/baseline.json").exists() {
-        let w = Wired::new(root);
-        let run = check::run(
-            &w.env(),
-            &check::Opts {
-                all: true,
-                ..Default::default()
-            },
-        )?;
-        let fps = run
-            .result
-            .findings
-            .iter()
-            .filter(|f| f.rule_id != "ig/checker-error" && f.rule_id != "ig/parse-error")
-            .map(|f| f.fingerprint.clone());
-        ig_app::baseline::write(&w.env(), fps)?;
-        created.push(format!(
-            ".ig/baseline.json ({} findings)",
-            run.result.findings.len()
-        ));
-    }
     for c in &created {
         println!("created {c}");
     }
     if created.is_empty() {
         println!("ig init: nothing to do");
     }
-    let next: Vec<String> = agents
-        .iter()
-        .map(|a| {
-            format!(
-                "`ig setup {}` (or {} inside {})",
-                a.name,
-                crate::skills::invoke(a, "setup"),
-                a.name
-            )
-        })
-        .collect();
     println!(
-        "\nNext: let your coding agent populate ig.yaml: {}.",
-        next.join(", ")
+        "\nNext: let your coding agent populate ig.yaml with /ig:setup (Claude) or $ig-setup (Codex)."
     );
     if agents.iter().any(|a| a.name == "claude") {
         println!(
@@ -277,26 +205,18 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
 }
 
 fn gitignore(text: &str) -> String {
-    let mut lines: Vec<String> = vec![];
-    let mut done = false;
-    for l in text.lines() {
-        let t = l.trim();
-        if t == ".ig" || t == ".ig/" || t == "/.ig" || t == "/.ig/" {
-            if !done {
-                lines.push(".ig/*".into());
-                lines.push("!.ig/baseline.json".into());
-                done = true;
-            }
-            continue;
-        }
-        lines.push(l.to_string());
+    if text
+        .lines()
+        .any(|l| matches!(l.trim(), ".ig" | ".ig/" | "/.ig" | "/.ig/"))
+    {
+        return text.to_string();
     }
-    for entry in [".ig/*", "!.ig/baseline.json"] {
-        if !lines.iter().any(|l| l.trim() == entry) {
-            lines.push(entry.into());
-        }
-    }
-    lines.join("\n") + "\n"
+    let sep = if text.is_empty() || text.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    format!("{text}{sep}.ig/\n")
 }
 
 #[cfg(test)]
@@ -304,11 +224,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gitignore_rewrites_and_is_idempotent() {
-        assert_eq!(
-            gitignore("node_modules\n.ig/\n"),
-            "node_modules\n.ig/*\n!.ig/baseline.json\n"
-        );
+    fn gitignore_adds_ig_once() {
+        assert_eq!(gitignore("node_modules"), "node_modules\n.ig/\n");
         let once = gitignore("target\n");
         assert_eq!(gitignore(&once), once);
     }
@@ -318,7 +235,6 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ig-init-test-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("src/core")).unwrap();
         std::fs::write(dir.join("src/core/a.ts"), "export const a = () => 1;\n").unwrap();
-        std::fs::write(dir.join("intents.md"), "mine\n").unwrap();
         run(
             &dir,
             &[
@@ -332,10 +248,6 @@ mod tests {
                 .is_file()
         );
         assert!(dir.join(".agents/skills/ig-setup/SKILL.md").is_file());
-        assert_eq!(
-            std::fs::read_to_string(dir.join("intents.md")).unwrap(),
-            "mine\n"
-        );
         let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap();
         assert!(cfg.contains("core: [\"src/core/**\"]"));
         std::fs::write(dir.join("ig.yaml"), "rules: []\n").unwrap();

@@ -4,18 +4,13 @@
 mod agent;
 mod bounded;
 mod commands;
-mod design;
 mod events;
 mod exit;
-mod file_tree;
 mod permissions;
 mod plugin;
-mod read_file;
-mod screens;
 mod session;
 mod shell_path;
 mod trust;
-mod unsaved;
 
 use commands::Project;
 use std::path::{Path, PathBuf};
@@ -67,18 +62,8 @@ fn open(app: &AppHandle, root: &Path) {
     let emitter = app.clone();
     let show = root.join(ig_app::show::SHOW);
     let mut bad: Option<String> = None;
-    let watched = root.clone();
     let watcher = ig_wire::watch(&root, move |c| {
-        // A design file changed on disk, unless the app wrote exactly that itself.
-        if !c.designs.is_empty() {
-            design::emit_changed(&emitter, &watched, &c.designs);
-            screens::emit_changed(&emitter, &watched, &c.screens, &c.assets);
-            emitter.state::<bounded::FileList>().clear();
-        }
-        // Notes alone change nothing the app shows yet.
         if c.full {
-            emitter.state::<design::HeadCache>().clear();
-            emitter.state::<bounded::FileList>().clear();
             let _ = emitter.emit("rebuild", ());
         }
         // The agent's `ig_show`, already checked against the graph; a removed file shows nothing,
@@ -110,9 +95,6 @@ fn open(app: &AppHandle, root: &Path) {
             return;
         }
     };
-    app.state::<design::Known>().0.lock().unwrap().clear();
-    app.state::<design::HeadCache>().clear();
-    app.state::<bounded::FileList>().clear();
     // Another project: its agent, if any, stops (open permission requests are rejected).
     let _ = agent::shutdown(app);
     *app.state::<Project>().0.lock().unwrap() = Some((root.clone(), watcher));
@@ -133,9 +115,7 @@ fn open(app: &AppHandle, root: &Path) {
             .to_string_lossy();
         let _ = w.set_title(&format!("ig — {name}"));
         // A fresh page for the new project (and one that failed for want of a project). Dev hook
-        // for screenshots without input: IG_DESIGN=<slug> opens the Design view on that feature,
-        // IG_THEME=light|dark fixes the theme, IG_SURFACE=screens shows its screens, IG_LINK=1
-        // opens link mode on the first linked (else first) piece.
+        // for screenshots without input: IG_THEME=light|dark fixes the theme.
         match dev_url(&w) {
             Some(u) => {
                 let _ = w.navigate(u);
@@ -148,25 +128,11 @@ fn open(app: &AppHandle, root: &Path) {
 }
 
 fn dev_url(w: &tauri::WebviewWindow) -> Option<tauri::Url> {
-    let var = |k: &str| {
-        std::env::var(k)
-            .ok()
-            .filter(|v| ig_app::design::valid_slug(v))
-    };
-    let q: Vec<String> = [
-        ("design", var("IG_DESIGN")),
-        ("theme", var("IG_THEME")),
-        ("surface", var("IG_SURFACE")),
-        ("link", var("IG_LINK")),
-    ]
-    .into_iter()
-    .filter_map(|(k, v)| v.map(|v| format!("{k}={v}")))
-    .collect();
-    if q.is_empty() {
-        return None;
-    }
+    let theme = std::env::var("IG_THEME")
+        .ok()
+        .filter(|v| matches!(v.as_str(), "light" | "dark"))?;
     let mut u = w.url().ok()?;
-    u.set_query(Some(&q.join("&")));
+    u.set_query(Some(&format!("theme={theme}")));
     Some(u)
 }
 
@@ -195,31 +161,12 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Project::default())
         .manage(agent::Agent::default())
-        .manage(design::Known::default())
-        .manage(design::HeadCache::default())
-        .manage(bounded::FileList::default())
         .manage(bounded::Gate::default())
         .manage(exit::ExitGate::default())
         .invoke_handler(tauri::generate_handler![
             commands::view_data,
-            commands::file_tree,
-            commands::read_file,
             commands::trust_inventory,
             commands::trust_project,
-            design::features,
-            design::create_feature,
-            design::read_design,
-            design::plan_status,
-            design::write_design,
-            design::check_design,
-            unsaved::keep_unsaved,
-            unsaved::read_unsaved,
-            unsaved::discard_unsaved,
-            screens::list_screens,
-            screens::write_screen,
-            screens::remove_screen,
-            screens::put_asset,
-            screens::read_asset,
             agent::agent_start,
             agent::agent_prompt,
             agent::agent_load,
