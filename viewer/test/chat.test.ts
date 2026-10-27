@@ -1,7 +1,7 @@
 // The chat reducer over the fake agent's recorded `tour` (crates/ig-desktop record_chat_fixture).
 import { expect, test } from "vitest";
 import type { AgentEvent, ToolCallInfo } from "../src/api";
-import { chatReducer, completions, editCounts, openQuestions, controls, fastNext, fastOn, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
+import { chatReducer, completions, openQuestions, controls, fastNext, fastOn, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
 import chat from "../src/components/chat/Chat.svelte?raw";
 import events from "./fixtures/agent-events.json";
 
@@ -154,15 +154,4 @@ test("openQuestions counts only unanswered question items", () => {
   const s = play([{ type: "Sent", text: "hi" }, q(1), q(2), perm, { type: "Answered", requestId: 1, answer: "a" }]);
   expect(openQuestions(s)).toBe(1);
   expect(openQuestions(play([{ type: "TurnEnded", stopReason: "end_turn" }], s))).toBe(0);
-});
-
-test("a board edit card is announced; its Undo marks it undone, or stale when nothing changed", () => {
-  let s = chatReducer(initialChat, { type: "BoardEdit", feature: "export", step: "turn-1", ids: ["fn-a", "fn-a|calls|fn-b"], elements: 1, links: 1 });
-  expect(s.live).toBe("Claude edited the board: 1 element, 1 link");
-  expect(s.items[0]).toMatchObject({ kind: "board-edit", undo: null });
-  expect(chatReducer(s, { type: "BoardUndo", step: "turn-1", ok: false }).items[0]).toMatchObject({ undo: "stale" });
-  s = chatReducer(s, { type: "BoardUndo", step: "turn-1", ok: true });
-  expect(s.items[0]).toMatchObject({ undo: "done" });
-  expect(editCounts({ elements: 2, links: 0 })).toBe("2 elements");
-  expect(editCounts({ elements: 2, links: 0 }, true)).toBe("2 elements, 0 links");
 });

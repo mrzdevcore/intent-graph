@@ -2,8 +2,6 @@
 import { expect, test } from "vitest";
 import type { AgentApi, TrustState } from "../src/api";
 import { ChatSession } from "../src/components/chat/session.svelte";
-import { Outbox, planPrompt } from "../src/board/outbox";
-import { realClock } from "../src/board/store";
 
 /** A fake agent: records starts, loads and prompts; a prompt resolves at once. */
 function fake(opts: { trusted?: boolean; failStart?: string; setup?: boolean } = {}) {
@@ -32,7 +30,7 @@ const notices = (c: ChatSession) => c.s.items.flatMap((i) => (i.kind === "error"
 test("plan on an untrusted project sends once after trust", async () => {
   const f = fake();
   const c = new ChatSession(f.agent, f.inv, f.trust);
-  await c.ask("patient-export", planPrompt("patient-export"));
+  await c.ask("patient-export", "/ig:plan plans/patient-export/design.json");
   expect(c.trust).not.toBeNull();
   expect(c.held?.text).toBe("/ig:plan plans/patient-export/design.json"); // the trust card shows it
   expect(f.calls).toEqual([]);
@@ -49,7 +47,7 @@ test("plan on an untrusted project sends once after trust", async () => {
 test("a declined trust card shows the prompt as not sent", async () => {
   const f = fake();
   const c = new ChatSession(f.agent, f.inv, f.trust);
-  await c.ask("f", planPrompt("f"));
+  await c.ask("f", "/ig:plan plans/f/design.json");
   c.decline();
   expect(notices(c)).toEqual(["Not sent: /ig:plan plans/f/design.json"]);
   await c.onTrust("h");
@@ -121,23 +119,6 @@ test("a prompt during a running turn waits for its end; a stop drops it", async 
   expect(notices(c)).toContain("Not sent: third");
 });
 
-test("board edits wait for the feature's session, then go", async () => {
-  const f = fake({ trusted: true });
-  const c = new ChatSession(f.agent, f.inv, f.trust);
-  const sent: string[] = [];
-  const o = new Outbox("f", async (t) => void sent.push(t), () => false, (_a, b) => (b === "1" ? ["added a"] : []), realClock);
-  c.outboxes.set("f", o);
-  o.baseline("0");
-  await c.start(); // a session without a feature
-  o.push("1");
-  expect(o.pending).toBe(1);
-  c.dispatch({ type: "Started", sessionId: "s1" });
-  expect(sent).toEqual([]);
-  c.features = { f: "s1" };
-  c.dispatch({ type: "Info", sessionId: "s1", title: null }); // any event syncs the outboxes
-  expect(sent.length).toBe(1);
-});
-
 test("opening the board loads the feature's session when the chat has nothing going", async () => {
   const f = fake({ trusted: true });
   f.agent.list = async () => ({ sessions: [], features: { f: "s9" } });
@@ -150,37 +131,4 @@ test("opening the board loads the feature's session when the chat has nothing go
   c.dispatch({ type: "TurnEnded", stopReason: "end_turn" });
   await c.adopt("g"); // a conversation is going: left alone
   expect(f.calls.length).toBe(2);
-});
-
-test("each turn is recorded with its feature, start and end (the board's agent steps)", async () => {
-  const f = fake({ trusted: true });
-  const c = new ChatSession(f.agent, f.inv, f.trust);
-  await c.ask("export", "hi");
-  await tick();
-  await c.send("again");
-  expect(c.turns.map((t) => [t.id, t.feature, t.end !== null])).toEqual([["turn-1", "export", true], ["turn-2", "export", true]]);
-});
-
-test("a turn's design_edit results become one card per feature at its end, board open or not; Undo says when nothing was left", () => {
-  const f = fake({ trusted: true });
-  const c = new ChatSession(f.agent, f.inv, f.trust);
-  const call = (id: string, touched: object, status = "completed") => c.dispatch({ type: "ToolCall", sessionId: "s", call: {
-    toolCallId: id, title: "mcp__ig__design_edit", status: status as "completed", rawInput: { slug: "export", ops: [] },
-    rawOutput: [{ type: "text", text: `edited plans/export/design.json\ntouched: ${JSON.stringify(touched)}\ncheck: ok` }] } });
-  c.dispatch({ type: "Sent", text: "add an audit log" });
-  call("1", { elements: ["fn-audit"], links: [], bridges: [] });
-  call("2", { elements: ["fn-audit"], links: ["fn-a|calls|fn-audit"], bridges: [] });
-  call("3", { elements: ["fn-x"], links: [], bridges: [] }, "failed");
-  expect(c.s.items.some((i) => i.kind === "board-edit")).toBe(false);
-  c.dispatch({ type: "TurnEnded", stopReason: "end_turn" });
-  const cards = c.s.items.filter((i) => i.kind === "board-edit");
-  expect(cards).toEqual([{ kind: "board-edit", feature: "export", step: "turn-1", ids: ["fn-audit", "fn-a|calls|fn-audit"],
-    elements: 1, links: 1, undo: null }]);
-  let reverted = false;
-  c.board = { feature: "export", show: () => {}, undo: () => reverted };
-  c.undoEdit("turn-1");
-  expect(c.s.items.find((i) => i.kind === "board-edit")).toMatchObject({ undo: "stale" });
-  reverted = true;
-  c.undoEdit("turn-1");
-  expect(c.s.items.find((i) => i.kind === "board-edit")).toMatchObject({ undo: "done" });
 });

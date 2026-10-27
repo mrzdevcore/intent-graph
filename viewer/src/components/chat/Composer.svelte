@@ -1,30 +1,16 @@
 <!-- The message box: Enter sends, Shift+Enter is a newline, Esc closes the completions, else stops a
-     running turn; `/` completes the session's commands (ig's first; a full name sends as typed). "Attach selection" and "Plan this" take the
-     graph's or the Files panel's selection; the board's selected sticky notes show as chips and go along as data. -->
-<script module lang="ts">
-  export interface Selection {
-    ids: string[];
-    files: string[];
-  }
-</script>
-
+     running turn; `/` completes the session's commands (ig's first; a full name sends as typed). -->
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { completions } from "../../model/chat";
 
-  let { commands, running, selection, attached = $bindable(), text = $bindable(""), chips = [], onsend, oncancel, onplan, onclearchips, controls }: {
+  let { commands, running, text = $bindable(""), onsend, oncancel, controls }: {
     commands: { name: string; description: string }[];
     running: boolean;
-    selection: Selection | null;
-    attached: Selection;
     /** The draft: the chat keeps it while the composer is hidden (the trust card). */
     text?: string;
     onsend: (text: string) => void;
     oncancel: () => void;
-    onplan: () => void;
-    /** The board's selected sticky notes. */
-    chips?: { id: string; text: string }[];
-    onclearchips?: () => void;
     /** The agent's settings, in the footer row next to Send. */
     controls?: Snippet;
   } = $props();
@@ -68,24 +54,9 @@
     }
   }
 
-  function attach() {
-    if (!selection) return;
-    attached = {
-      ids: [...new Set([...attached.ids, ...selection.ids])],
-      files: [...new Set([...attached.files, ...selection.files])],
-    };
-  }
 </script>
 
 <div class="composer">
-  {#if attached.ids.length || attached.files.length || chips.length}
-    <div class="chips" aria-label="Attached">
-      {#each attached.ids as id}<span class="chip-ctx">{id}</span>{/each}
-      {#each attached.files as f}<span class="chip-ctx">{f}</span>{/each}
-      {#each chips as n (n.id)}<span class="chip-ctx" title={n.text}>{n.id}: {n.text.length > 24 ? n.text.slice(0, 24) + "…" : n.text}</span>{/each}
-      <button class="link" onclick={() => ((attached = { ids: [], files: [] }), onclearchips?.())}>Clear</button>
-    </div>
-  {/if}
   {#if list.length}
     <ul class="complete" role="listbox" aria-label="Commands">
       {#each list as c, i}
@@ -95,10 +66,6 @@
       {/each}
     </ul>
   {/if}
-  <div class="row context">
-    <button class="link" disabled={!selection} onclick={attach}>Attach selection</button>
-    <button class="link" disabled={!selection || running} onclick={onplan}>Plan this</button>
-  </div>
   <textarea rows="3" placeholder="Message the agent; / for commands" aria-label="Message" bind:value={text} onkeydown={key}></textarea>
   <div class="row footer">
     {@render controls?.()}

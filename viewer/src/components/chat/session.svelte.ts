@@ -5,16 +5,11 @@
 // ("Not sent: …"). A running turn holds every prompt back until it ends.
 
 import type { AgentApi, TrustState } from "../../api";
-import type { Outbox } from "../../board/outbox";
-import type { AgentTurn } from "../../board/store";
-import { boardEdits, chatReducer, initialChat, type ChatAction } from "../../model/chat";
+import { chatReducer, initialChat, type ChatAction } from "../../model/chat";
 
 const msg = (e: unknown) => String((e as Error)?.message ?? e);
 
 export interface Held { feature: string; text: string }
-
-/** The open board's side of the "Edited the board" card. */
-export interface BoardLink { feature: string; show(ids: string[]): void; /** True when it changed the board. */ undo(step: string): boolean }
 
 export class ChatSession {
   s = $state.raw(initialChat);
@@ -31,20 +26,10 @@ export class ChatSession {
   features = $state.raw<Record<string, string>>({});
   /** The composer's draft: a send stopped by the trust card puts its text back. */
   draft = $state("");
-  /** The board's selected sticky notes, sent along with the next message as data. */
-  chips = $state.raw<{ id: string; text: string }[]>([]);
 
   /** The board's prompt waiting for the trust card or the setup screen. */
   held = $state.raw<Held | null>(null);
-  /** Board edits per feature: they wait for the feature's session and survive the board closing. */
-  outboxes = new Map<string, Outbox>();
-  /** Claude's turns, by the feature whose session ran them: the board groups a turn's edits. */
-  turns: (AgentTurn & { feature?: string })[] = [];
-  /** The open board, while there is one: the edit cards' Show and Undo. */
-  board = $state.raw<BoardLink | null>(null);
-
   private idle: (() => void)[] = [];
-  private turnN = 0;
   private starting: Promise<void> | null = null;
 
   constructor(private agent: AgentApi, private trustInventory: () => Promise<TrustState>,
@@ -57,37 +42,13 @@ export class ChatSession {
   }
 
   dispatch = (a: ChatAction) => {
-    const was = this.s.running;
     this.s = chatReducer(this.s, a);
-    if (!was && this.s.running) this.turns = [...this.turns.slice(-20), { id: `turn-${++this.turnN}`, start: Date.now(), end: null, feature: this.feature }];
-    const last = this.turns.at(-1);
-    if (was && !this.s.running && last && last.end === null) {
-      last.end = Date.now();
-      // the turn's board edits, from its design_edit results: a card even when no board is open
-      for (const e of boardEdits(this.s.items.slice(this.s.turnFrom), last.id)) this.s = chatReducer(this.s, e);
-    }
     // a turn's end, a failure, a reset or a stop: the waiting prompts go (or see the session gone)
     if (!this.s.running) this.idle.splice(0).forEach((f) => f());
-    this.sync();
   };
-
-  /** The card's Undo: the open board reverts Claude's turn; nothing left to revert says so. */
-  undoEdit(step: string) {
-    this.dispatch({ type: "BoardUndo", step, ok: this.board?.undo(step) ?? false });
-  }
-
-  /** Each feature's outbox: sends only in its feature's session, never during a turn. */
-  sync() {
-    const f = this.feature;
-    for (const [slug, o] of this.outboxes) {
-      o.setRunning(this.s.running);
-      o.setLive(f === slug);
-    }
-  }
 
   private setFeatures(f: Record<string, string>) {
     this.features = f;
-    this.sync();
   }
 
   /** The held prompt dropped, visibly. */

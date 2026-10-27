@@ -25,10 +25,7 @@ export type Item =
   /** `answered`: the option id, "stopped" or "cancelled"; null while it waits. */
   | { kind: "permission"; requestId: number; toolCall: ToolCallInfo; options: PermissionOption[]; answered: string | null }
   | { kind: "question"; requestId: number; message: string; questions: Question[]; answered: string | null }
-  | { kind: "error"; text: string }
-  /** Claude's edits of one turn on a feature's board: Show selects them, Undo reverts the turn. */
-  /** `undo`: "done" once reverted, "stale" when there was nothing left to revert. */
-  | { kind: "board-edit"; feature: string; step: string; ids: string[]; elements: number; links: number; undo: "done" | "stale" | null };
+  | { kind: "error"; text: string };
 
 export interface Usage {
   used: number | null;
@@ -66,9 +63,7 @@ export type ChatAction =
   /** Before a start or a load: a blank chat (a load's replay fills it). */
   | { type: "Reset" }
   /** A session is on: its id (a restart keeps the transcript). */
-  | { type: "Started"; sessionId: string }
-  | { type: "BoardEdit"; feature: string; step: string; ids: string[]; elements: number; links: number }
-  | { type: "BoardUndo"; step: string; ok: boolean };
+  | { type: "Started"; sessionId: string };
 
 export const initialChat: ChatState = {
   sessionId: null, title: null, items: [], commands: [], config: [], usage: null,
@@ -199,64 +194,10 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
       return initialChat;
     case "Started":
       return { ...s, sessionId: a.sessionId, stopped: null, login: false, setup: null };
-    case "BoardEdit": {
-      const { type: _, ...e } = a;
-      return { ...s, items: [...s.items, { kind: "board-edit", ...e, undo: null }], live: "Claude edited the board: " + editCounts(e) };
-    }
-    case "BoardUndo": {
-      const undo = a.ok ? "done" as const : "stale" as const;
-      return { ...s, items: s.items.map((i) => (i.kind === "board-edit" && i.step === a.step ? { ...i, undo } : i)) };
-    }
   }
 }
 
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-/** "2 elements, 1 link"; the links only when there are some, unless `all`. */
-export const editCounts = (e: { elements: number; links: number }, all = false) =>
-  plural(e.elements, "element") + (e.links || all ? ", " + plural(e.links, "link") : "");
-
-interface Touched { elements: string[]; links: string[]; bridges: string[] }
-
-/** `design_edit`'s `touched`, from its structured result or its text line `touched: {…}`. */
-function touchedIn(x: unknown, depth = 0): Touched | null {
-  if (depth > 6 || !x) return null;
-  if (typeof x === "string") {
-    const m = /^touched: (\{.*\})$/m.exec(x);
-    try {
-      return m ? (JSON.parse(m[1]) as Touched) : null;
-    } catch {
-      return null;
-    }
-  }
-  if (typeof x !== "object") return null;
-  const t = (x as { touched?: Touched }).touched;
-  if (t && Array.isArray(t.elements)) return t;
-  for (const v of Object.values(x)) {
-    const r = touchedIn(v, depth + 1);
-    if (r) return r;
-  }
-  return null;
-}
-
-/** The turn's "Edited the board" cards, one per feature, from its completed `design_edit` calls. */
-export function boardEdits(items: Item[], step: string): ChatAction[] {
-  const by = new Map<string, { elements: Set<string>; links: Set<string>; bridges: Set<string> }>();
-  for (const i of items) {
-    if (i.kind !== "tool" || i.call.status !== "completed" || !/^(design_edit|mcp__.*__design_edit)$/.test(i.call.title ?? "")) continue;
-    const slug = (i.call.rawInput as { slug?: unknown } | undefined)?.slug;
-    const t = touchedIn(i.call.rawOutput) ?? touchedIn(i.call.content);
-    if (typeof slug !== "string" || !t) continue;
-    const f = by.get(slug) ?? { elements: new Set(), links: new Set(), bridges: new Set() };
-    t.elements.forEach((x) => f.elements.add(x));
-    (t.links ?? []).forEach((x) => f.links.add(x));
-    (t.bridges ?? []).forEach((x) => f.bridges.add(x));
-    by.set(slug, f);
-  }
-  return [...by].map(([feature, f]) => ({ type: "BoardEdit", feature, step, ids: [...f.elements, ...f.links, ...f.bridges],
-    elements: f.elements.size, links: f.links.size }));
-}
-
-/** Claude's question cards still waiting for an answer (the board's readiness line). */
+/** Claude's question cards still waiting for an answer. */
 export const openQuestions = (s: ChatState) => s.items.filter((i) => i.kind === "question" && i.answered === null).length;
 
 /** A transcript row: an item, or consecutive tool calls of one kind in one card. */

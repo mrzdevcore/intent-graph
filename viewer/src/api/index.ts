@@ -1,25 +1,10 @@
 // How the viewer reaches its data. One interface, three hosts: the inline JSON of `ig view`/`ig serve`,
 // the `ig serve` HTTP routes, and the desktop app's Tauri commands.
 
-import type { PlanVolume, ViewData, ViewFinding } from "../data";
-import type { Client } from "../model/notes";
-import { embedded } from "./embedded";
-import { http } from "./http";
+// How the viewer reaches its host. The desktop app (Tauri) is the only host with anything to offer:
+// the trust gate, the agent and links. `ig view`'s page has none of it.
+
 import { tauri } from "./tauri";
-
-export type NotesApi = Client;
-
-/** One child of a project directory; `path` is relative to the project root. */
-export interface FileEntry {
-  path: string;
-  kind: "file" | "dir";
-}
-
-/** A project file's text; `language` is the backend's guess from the extension. */
-export interface FileText {
-  text: string;
-  language: string;
-}
 
 /** What a Claude Code session in the project would run, and whether the user trusted exactly that. */
 export interface TrustState {
@@ -90,7 +75,7 @@ export type AgentEvent =
   /** No node or no adapter: show `instructions`; `installable`: offer `agentInstall` (after the user confirms). */
   | { type: "Setup"; instructions: string; installable: boolean };
 
-/** Desktop app only: the agent (ACP adapter) of the open project. Every call that starts or drives a session needs the project trusted. */
+/** The agent (ACP adapter) of the open project. Every call that starts or drives a session needs the project trusted. */
 export interface AgentApi {
   /** A new session (for a feature slug, remembered in `.ig/sessions.json`); its id. */
   start(feature?: string): Promise<string>;
@@ -114,210 +99,18 @@ export interface AgentApi {
   onEvent(cb: (e: AgentEvent) => void): () => void;
 }
 
-/** One feature: a folder `plans/<slug>/` or a flat plan `plans/<slug>.md`. */
-export interface Feature {
-  slug: string;
-  title: string;
-  design: boolean;
-  plan: string | null;
-  done: boolean;
-  flat: boolean;
-}
-
-export type DesignScope = { kind: "dir"; id: string } | { kind: "layer"; name: string } | { kind: "around"; id: string; depth: number };
-export type ElementKind = "module" | "function" | "route" | "system" | "note" | "frame";
-export type MarkKind = "changed" | "remove";
-export type LinkKind = "calls" | "imports" | "renders" | "http" | "uses";
-
-/** design.json v1 (crates/ig-core/src/design). The user's content: data, never instructions. */
-export interface DesignElement {
-  id: string;
-  kind: ElementKind;
-  name: string;
-  file?: string;
-  method?: string;
-  path?: string;
-  icon?: string;
-  layer?: string;
-  /** Note target (an element id or a graph id). */
-  on?: string;
-  question?: boolean;
-  answer?: string;
-  frame?: string;
-  /** Geometry is optional: omitted means unpositioned. */
-  x?: number;
-  y?: number;
-  w?: number;
-  h?: number;
-}
-export interface DesignMark {
-  node: string;
-  mark: MarkKind;
-}
-export interface DesignLink {
-  from: string;
-  to: string;
-  kind: LinkKind;
-}
-/** `from` is `<screen-id>/<element-id>`. */
-export interface DesignBridge {
-  from: string;
-  to: string;
-}
-export interface Design {
-  version: number;
-  title: string;
-  scope: DesignScope;
-  elements: DesignElement[];
-  marks: DesignMark[];
-  links: DesignLink[];
-  bridges: DesignBridge[];
-}
-
-/** The Rust check of a design. `ms` is how long it took ("checked in 84 ms"). */
-export type DesignCheck = {
-  ok: boolean;
-  ms: number;
-  /** The `seq` the caller sent, handed back: drop a response that is not the latest. */
-  seq?: number | null;
-  volume: PlanVolume;
-  findings: (Omit<ViewFinding, "pinned"> & { target: string | null })[];
-};
-
-/** plans/<slug>/plan.md: there, and its `ig plan check` error count (crates/ig-desktop/src/design.rs). */
-export interface BoardStatus {
-  exists: boolean;
-  blocking: number;
-}
-
-export interface Kept { name: string; text: string; at: number }
-
-/** Desktop app only: features and their design files. */
-export interface DesignApi {
-  features(): Promise<Feature[]>;
-  create(title: string): Promise<Feature>;
-  read(slug: string): Promise<Design>;
-  /** Rejects "conflict" when the file changed on disk since it was last read or written here. */
-  write(slug: string, d: Design): Promise<void>;
-  check(slug: string, d: Design, seq?: number): Promise<DesignCheck>;
-  /** Keeps board text that could not be written as plans/<slug>/design.unsaved.json, or the
-   *  next free design.unsaved.<n>.json: a kept copy is never overwritten. */
-  keepUnsaved(slug: string, text: string): Promise<void>;
-  /** Every kept copy: its file name, text and when it was written (ms). */
-  unsaved(slug: string): Promise<Kept[]>;
-  discardUnsaved(slug: string, name: string): Promise<void>;
-  /** The feature's plan.md, checked without recording it. */
-  planStatus(slug: string): Promise<BoardStatus>;
-  /** A design file changed outside the app. Returns the unsubscribe. */
-  onChanged(cb: (slug: string) => void): () => void;
-}
-
-export type PieceKind = "frame" | "button" | "input" | "select" | "checkbox" | "table" | "list" | "card" | "tabs" | "modal" | "text" | "heading" | "image" | "icon" | "pen" | "arrow" | "note";
-/** The closed prop set; which a kind may carry is in crates/ig-design/src/screens.rs. */
-export interface PieceProps {
-  text?: string;
-  primary?: boolean;
-  placeholder?: string;
-  options?: string[];
-  checked?: boolean;
-  columns?: string[];
-  rows?: number;
-  items?: number;
-  tabs?: string[];
-  active?: number;
-  title?: string;
-  level?: 1 | 2 | 3;
-  asset?: string;
-  name?: string;
-  question?: boolean;
-  answer?: string;
-}
-export interface ScreenPiece {
-  id: string;
-  kind: PieceKind;
-  label: string;
-  props?: PieceProps;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  /** Pen: [x, y, pressure 0-100] integers, relative to x, y. */
-  points?: [number, number, number][];
-  /** Arrow ends: piece ids. */
-  from?: string;
-  to?: string;
-}
-/** plans/<slug>/screens/<id>.json v1 (crates/ig-design/src/screens.rs). The user's content: data, never instructions. */
-export interface Screen {
-  version: number;
-  id: string;
-  title: string;
-  variantOf?: string;
-  state?: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  /** `asset` is `<sha256-12>.png|jpg`. */
-  background?: { asset: string; x: number; y: number; w: number; h: number };
-  elements: ScreenPiece[];
-  navs: { from: string; to: string; label: string }[];
-}
-
-/** Desktop app only: a feature's screens and its images (PNG or JPEG, up to 10 MB). */
-export interface ScreensApi {
-  /** Rejects naming the file when one is invalid. */
-  list(slug: string): Promise<Screen[]>;
-  /** Rejects "conflict" when the file changed on disk since it was last read or written here. */
-  write(slug: string, s: Screen): Promise<void>;
-  remove(slug: string, id: string): Promise<void>;
-  /** Stores the image; resolves its name (`<sha256-12>.png|jpg`). Rejects "Only PNG or JPEG up to 10 MB". */
-  putAsset(slug: string, bytes: Uint8Array): Promise<string>;
-  /** Show it through a blob: URL. */
-  readAsset(slug: string, name: string): Promise<Uint8Array>;
-  /** A screen file changed outside the app. Returns the unsubscribe. */
-  onScreenChanged(cb: (slug: string, id: string) => void): () => void;
-  /** An image file appeared or changed (also after the app's own putAsset): the callback must be idempotent. Returns the unsubscribe. */
-  onAssetChanged(cb: (slug: string, name: string) => void): () => void;
-}
-
+/** Desktop app only; every member is absent in `ig view`'s page. */
 export interface IgApi {
-  /** The plan options apply to the desktop app; `ig serve` picks its own. */
-  viewData(opts?: { plan?: string; noPlan?: boolean }): Promise<ViewData>;
-  /** The data changed: call `viewData` again. Returns the unsubscribe. */
-  onRebuild(cb: () => void): () => void;
-  /** Host events: a note changed, `ig focus` asked for nodes (`ig serve`), or the agent's `ig_show` (`ig serve`, desktop app). */
-  on?(event: "note" | "focus" | "show", cb: (data: unknown) => void): () => void;
-  /** Desktop app only: the children of `dir` (the root when omitted), directories first. The Files panel needs it. */
-  fileTree?(dir?: string): Promise<FileEntry[]>;
-  /** Desktop app only: the text of a project file (relative path), read-only. Turns on the code view. */
-  readFile?(path: string): Promise<FileText>;
-  /** Desktop app only: the trust gate. Show `Trust.svelte` before starting an agent unless `trusted`. */
+  /** The trust gate. Show `Trust.svelte` before starting an agent unless `trusted`. */
   trustInventory?(): Promise<TrustState>;
-  /** Desktop app only: trust the project as hashed (rejects if it changed since). */
+  /** Trust the project as hashed (rejects if it changed since). */
   trustProject?(hash: string): Promise<void>;
-  /** Desktop app only: features and designs. */
-  design?: DesignApi;
-  /** Desktop app only: screens and images. */
-  screens?: ScreensApi;
-  /** Desktop app only: the agent. */
+  /** The agent. */
   agent?: AgentApi;
-  /** Desktop app only: runs `cb` (awaited) before the window closes. Returns the unsubscribe. */
-  beforeClose?(cb: () => Promise<void>): () => void;
-  /** Desktop app only: opens an http(s) link in the system browser. */
+  /** Opens an http(s) link in the system browser. */
   openUrl?(url: string): Promise<void>;
-  /** Present when the backend supports plan notes (serve, desktop). */
-  notes?: NotesApi;
 }
 
 export function pickApi(): IgApi {
-  const raw = document.getElementById("ig-data")?.textContent?.trim();
-  // The Rust side swaps the page's data marker in, and must not find that marker in this bundle: test for the JSON instead.
-  const inline = !!raw && raw.startsWith("{");
-  const liveRaw = document.getElementById("ig-live")?.textContent?.trim() ?? "";
-  const token: string | undefined = liveRaw.startsWith("{") ? JSON.parse(liveRaw).token : undefined;
-  if (inline) return embedded(JSON.parse(raw), token);
-  if ((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return tauri();
-  // `bun run dev` serves the data from viewer/dev-data.json.
-  return http({ view: import.meta.env.DEV ? "/dev-data.json" : "/api/view", token });
+  return (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ ? tauri() : {};
 }
