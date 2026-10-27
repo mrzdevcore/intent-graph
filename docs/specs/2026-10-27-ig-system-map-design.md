@@ -28,19 +28,44 @@ answers follow the same rule: "how does X work?" shows the few boxes and arrows 
 2. **Ask, see the answer drawn.** Ask Claude in the chat "how is X related to Y?" or "how does O
    work?". The relevant boxes light up on the map, opened just deep enough, with numbered steps. A
    Mermaid sequence diagram appears in the chat when the question is about a flow over time.
+3. **Live production health:** traces and metrics from production report onto the map. A box turns
+   red or gets a red badge when errors climb, an arrow turns amber when it gets slow, and a box
+   that stops responding shows "down". Monitoring is designed in from the first commit (see
+   "Layers" and "Ids production data can match"); goal 3 connects the real data.
 
-Later, not in this restart's plan, and each needing its own go-ahead:
+Later, each needing its own go-ahead:
 
-3. **Changes on the map:** a branch or merge request drawn as new, changed and removed boxes, plus
+4. **Changes on the map:** a branch or merge request drawn as new, changed and removed boxes, plus
    broken rules.
-4. **Sketch then implement:** draw a new box or arrow on the map; Claude implements it and opens the
+5. **Sketch then implement:** draw a new box or arrow on the map; Claude implements it and opens the
    merge request.
-5. **Team sharing.**
-6. **Links on boxes** (docs, dashboards).
-7. **Live map:** probes in production report onto the map. A box turns red or gets a red badge when
-   errors climb, an arrow turns amber when it gets slow, and a box that stops responding shows
-   "down". Real latency comes from traces (OpenTelemetry, Datadog, Sentry). This restart only has to
-   keep it possible: see "Ids production data can match" below.
+6. **Team sharing**, with notes on boxes and arrows.
+7. **Links on boxes** (docs, dashboards).
+
+## Layers: one mechanism for everything drawn on the map
+
+The map is a **base** (boxes and arrows) plus **layers**. Every layer speaks the same small
+language: a list of `{ id (box or arrow), state: ok | warn | bad | down, badge?, value?, note? }`.
+The renderer knows nothing about where a layer comes from.
+
+| Layer | Source | Goal |
+|---|---|---|
+| Rules | ig's checks (wrong-way dependencies) | 1 |
+| Performance risks | ig's code analysis | 1 |
+| Claude's answer | `ig_show` | 2 |
+| Production health | OpenTelemetry traces and metrics | 3 |
+| Branch changes | git | 4 |
+
+- The **health states are part of the box and arrow components from goal 1**: green, amber, red,
+  grey "down", a short pulse when a state changes, and room for an error rate and a latency number.
+  Goal 1 tests them with a fixture layer.
+- **OpenTelemetry (OTLP) is the one input format** for production data. Datadog, Sentry, Grafana,
+  Honeycomb and the cloud providers export it, so ig needs no connector per vendor. *(How ig
+  receives it, as a local OTLP endpoint or by querying a backend, is decided in goal 3's plan.)*
+- **Code risks and live data meet on the same arrow.** A query in a loop is "amber: risk" from the
+  code. With production data it becomes "amber: 1.2 s at p95": same arrow, same place, now
+  confirmed.
+- Several layers can be on at once; the legend lists them, and each can be toggled.
 
 ## Purpose behind every choice
 
@@ -95,7 +120,7 @@ shows the rest.
 
 Containers on the canvas are **rings** (onion), **bands** (layered) and **groups** (a feature or
 bounded context, its name in a tab on the border). **Notes** are team comments pinned to a box or an
-arrow; they come with goal 5.
+arrow; they come with goal 6.
 
 ## Performance
 
@@ -109,7 +134,7 @@ Performance lives mostly on arrows, at every level:
 
 ig finds these from code alone and shows them as amber badges and arrows, the same way broken rules
 show red. In this restart: **calls inside loops** and **sync hop count on a request path** only
-*(my call: the two with the clearest signal)*. Runtime numbers wait for goal 7.
+*(my call: the two with the clearest signal)*. Runtime numbers wait for goal 3.
 
 ## Ids production data can match
 
@@ -118,7 +143,7 @@ Every box id is stable and matchable to production data:
   read from the package name or deploy config when present;
 - a component's id is a slug, plus the routes or span names it owns, listed in `map.json`.
 
-This costs nothing now, and it is what makes goal 7 a data join rather than a redesign.
+This costs nothing now, and it is what makes goal 3 a data join rather than a redesign.
 
 ## Non-goals
 
@@ -227,7 +252,7 @@ See the "The box" sheet in the mockups.
   `Box.dc.html`.
 - **States:** as it is; part of Claude's answer (gold glow); new, changed or removed on this branch;
   sketched, not built (dashed blue); breaks a rule (red badge). Only "as it is", "Claude's answer"
-  and "breaks a rule" are needed in this restart. The others come with goals 3 and 4.
+  and "breaks a rule" are needed in this restart. Health states come with goal 1 too (tested with a fixture layer); the branch states come with goal 4, and "sketched" with goal 5.
 - **Levels of detail by zoom:** far shows the icon and title; mid adds kind and description; near
   adds badges; closest shows the inside.
 
