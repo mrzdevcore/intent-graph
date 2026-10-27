@@ -37,6 +37,88 @@ Later, not in this restart's plan, and each needing its own go-ahead:
    merge request.
 5. **Team sharing.**
 6. **Links on boxes** (docs, dashboards).
+7. **Live map:** probes in production report onto the map. A box turns red or gets a red badge when
+   errors climb, an arrow turns amber when it gets slow, and a box that stops responding shows
+   "down". Real latency comes from traces (OpenTelemetry, Datadog, Sentry). This restart only has to
+   keep it possible: see "Ids production data can match" below.
+
+## Purpose behind every choice
+
+ig exists to help teams build **robust, scalable and reliable** software when AI writes much of
+the code. Claude works at the code level, fast. The human steers at the container and component
+levels. The danger is quiet erosion of boundaries: domain code importing the database, two
+components growing the same job, the web app calling Postgres directly. ig keeps those levels
+visible and checked, so erosion shows up as a red arrow on the map, not as an incident.
+
+## What a box is: four levels (C4)
+
+A box is anything with a boundary someone should protect. Which boxes you see depends on how far
+you have zoomed in.
+
+1. **System:** your system, the people who use it, and outside systems (Stripe, an identity
+   provider).
+2. **Containers:** things that **run or store**: a web app, an API, a worker, Postgres, Redis, a
+   queue. Real logos live here. Reliability badges live here: sync or async, stateful, single point
+   of failure, retries.
+3. **Components:** blocks of responsibility inside one container (Checkout, Order, PayGateway,
+   billing). **The architecture pattern (onion, layered, hexagonal) applies here,** per container.
+   A monorepo usually has several containers, each with its own pattern.
+4. **Code:** classes and functions, from ig alone.
+
+Files and folders are never boxes; they are a box's "made of" detail. Single imports are never
+drawn alone; they only appear bundled into arrows.
+
+The top of the map is level 1–2: containers and outside systems, never rings. Zooming into a
+container shows its components in the shape of its pattern. *(This corrects mockup screen 4, which
+put the rings at the top.)*
+
+## Arrows
+
+One look per kind of connection (see the "Building blocks" sheet in the mockups). Each arrow
+carries at most one label, sitting on the line in a pill of the arrow's color:
+
+| Kind | Look | Label |
+|---|---|---|
+| Depends on (import) | grey, thin | none |
+| Calls | ink, solid | the function, in code type |
+| Network request | blue, dashed | method and route, or the procedure |
+| Event | purple, dotted, open head | the event's name, with a bolt |
+| Implements | green, dashed, hollow head | "implements", pointing at the port |
+| Reads and writes | teal, one head per direction | the table or collection |
+| Bundle | width grows with the count | "14 calls · 3 requests"; splits when zoomed in |
+| Breaks a rule | red, heavier | the rule |
+| Performance risk | amber | the risk ("query in a loop") |
+| Claude's answer | gold, heavier | the step number |
+
+Far away, arrows are bare lines (bundles show only their width); labels appear from mid zoom; hover
+shows the rest.
+
+Containers on the canvas are **rings** (onion), **bands** (layered) and **groups** (a feature or
+bounded context, its name in a tab on the border). **Notes** are team comments pinned to a box or an
+arrow; they come with goal 5.
+
+## Performance
+
+Performance lives mostly on arrows, at every level:
+
+- **Containers:** the hops on a request path, and sync chains (a request waiting on 3 services is as
+  slow as all 3 together).
+- **Components:** fan-out, and chatty boundaries (a bundle of 40 calls where one would do).
+- **Code:** a database or HTTP call inside a loop (N+1), queries with no limit, and work repeated
+  per item.
+
+ig finds these from code alone and shows them as amber badges and arrows, the same way broken rules
+show red. In this restart: **calls inside loops** and **sync hop count on a request path** only
+*(my call: the two with the clearest signal)*. Runtime numbers wait for goal 7.
+
+## Ids production data can match
+
+Every box id is stable and matchable to production data:
+- a container's id equals its service name, as it would appear in traces (`service.name`), and is
+  read from the package name or deploy config when present;
+- a component's id is a slug, plus the routes or span names it owns, listed in `map.json`.
+
+This costs nothing now, and it is what makes goal 7 a data join rather than a redesign.
 
 ## Non-goals
 
@@ -87,7 +169,7 @@ Later, not in this restart's plan, and each needing its own go-ahead:
   It holds **no coordinates**. ig computes positions deterministically from the reading and the
   pattern on every run, so the committed file only changes when the reading changes (no diff noise)
   and `ig view` draws the same map as the app.
-- **Depth:** Claude's reading covers levels 1–3 (system → parts → boxes). Levels 4–5 (inside a box,
+- **Depth:** Claude's reading covers levels 1–3 (system → containers → components). Level 4 (code inside a component,
   inside a step) come from ig's own facts: members and call order from the call graph, grouped by
   folder, then by name prefix, to stay at ≤12. Their descriptions are the code's own names and doc
   comments. Claude adds a sentence only when asked in the chat. "Every box holds its inside" is
@@ -136,8 +218,12 @@ See the "The box" sheet in the mockups.
   - kind and tech line;
   - one- to two-line description;
   - badges: status on this branch, rules broken, and "N inside ›".
-- **Kinds and colors:** entry point blue `#3b6fd8`; use case green `#2f8f5b`; port green dashed;
-  domain gold `#b8860b`; outside service grey dashed pill. The full token set is in the mockup's
+- **Kinds and colors:**
+  - container kinds (web app, API, worker, store, queue, outside system): mostly identified by
+    their logo;
+  - component kinds: entry point blue `#3b6fd8`; use case green `#2f8f5b`; port green dashed;
+    domain gold `#b8860b`;
+  - outside systems: grey dashed pill. The full token set is in the mockup's
   `Box.dc.html`.
 - **States:** as it is; part of Claude's answer (gold glow); new, changed or removed on this branch;
   sketched, not built (dashed blue); breaks a rule (red badge). Only "as it is", "Claude's answer"
@@ -151,13 +237,10 @@ See the "The box" sheet in the mockups.
   as its inside fades in. The breadcrumb ("billing-service › application › Checkout") glides back
   out. Scrolling and pinching zoom freely; levels of detail switch on the on-screen size of each box.
 - **Every box already holds its inside**, so zooming never reflows the map.
-- **Depth:**
-  1. system;
-  2. the pattern's parts (rings or layers);
-  3. boxes (packages, use cases, entities, services);
-  4. inside a box: its steps or members, laid out by the same rules;
-  5. inside a step: its calls and the data it touches, with **"Open in editor"** one click away.
-  ig never shows source code itself. *(my call, from "not an IDE")*
+- **Depth** follows the four levels: system → containers → components (in the container's pattern
+  shape) → code. The deepest view of a function shows its calls and the data it touches, with
+  **"Open in editor"** one click away. ig never shows source code itself. *(my call, from "not an
+  IDE")*
 - **The inside of a box is never more than about 12 children either.** If there are more, ig groups
   them (by folder, then by name prefix) into sub-boxes.
 
