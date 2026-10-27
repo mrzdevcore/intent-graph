@@ -233,3 +233,84 @@ fn load_rejects_bad_files() {
     assert!(m.is_none() && notices[0].contains("2 MB"), "{notices:?}");
     assert_eq!(load(&MemFiles::default()), (None, vec![]));
 }
+
+#[test]
+fn refresh_keeps_agent_grouping() {
+    let mut m = shop();
+    get_mut(&mut m, "api/application-refund").pinned.clear();
+    let kids: Vec<MapBox> = m
+        .boxes
+        .iter()
+        .filter(|b| b.parent.as_deref() == Some("api"))
+        .cloned()
+        .collect();
+    let merged = ["api/application-checkout", "api/application-refund"];
+    let mut notes: Vec<serde_json::Value> = kids
+        .iter()
+        .filter(|b| !merged.contains(&b.id.as_str()))
+        .map(|b| serde_json::json!({"id": b.id, "madeOf": b.made_of}))
+        .collect();
+    let orders: Vec<String> = kids
+        .iter()
+        .filter(|b| merged.contains(&b.id.as_str()))
+        .flat_map(|b| b.made_of.clone())
+        .collect();
+    let want: Vec<String> = kids
+        .iter()
+        .filter(|b| merged.contains(&b.id.as_str()))
+        .flat_map(|b| b.nodes.clone())
+        .collect();
+    assert!(!want.is_empty());
+    notes.push(serde_json::json!({"id": "api/orders", "madeOf": orders, "title": "Orders"}));
+    annotate(&mut m, &serde_json::Value::from(notes).to_string()).unwrap();
+    // through the file, as the next run sees it
+    let files = MemFiles::default();
+    save(&files, &m).unwrap();
+    let old = load(&files).0.unwrap();
+
+    let (mut ws, mut g, cfg) = crate::map::shop::load();
+    let billing = "apps/api/src/application/billing/pay.ts";
+    ws.files.push(SourceFile {
+        path: billing.into(),
+        package: 0,
+    });
+    let mut module = g.nodes.iter().find(|n| n.is_module()).unwrap().clone();
+    module.id = billing.into();
+    module.file = billing.into();
+    g.nodes.push(module);
+    let boxes = facts(&ws, &g, &cfg);
+    let new = refresh(Some(&old), &boxes, crate::map::arrows(&boxes, &g));
+
+    let orders = get(&new, "api/orders");
+    assert_eq!(orders.made_of_source, Source::Agent);
+    assert_eq!(orders.title.value, "Orders");
+    let mut got = orders.nodes.clone();
+    got.sort();
+    let mut want = want;
+    want.sort();
+    assert_eq!(got, want);
+    let unread = get(&new, "api/unread");
+    assert_eq!(unread.nodes, [billing]);
+    assert!(unread.needs_reading);
+    assert!(new.boxes.iter().all(|b| b.id != "api/application-billing"));
+    // each api file in exactly one component, and the globs say so too
+    let comps: Vec<&MapBox> = new
+        .boxes
+        .iter()
+        .filter(|b| b.parent.as_deref() == Some("api"))
+        .collect();
+    let api_files: Vec<&String> = boxes
+        .iter()
+        .filter(|b| b.parent.as_deref() == Some("api"))
+        .flat_map(|b| &b.nodes)
+        .collect();
+    for f in api_files {
+        let in_nodes = comps.iter().filter(|b| b.nodes.contains(f)).count();
+        let in_globs = comps
+            .iter()
+            .filter(|b| globs(&b.made_of).unwrap().is_match(f))
+            .count();
+        assert_eq!((in_nodes, in_globs), (1, 1), "{f}");
+    }
+    assert_eq!(validate(&new), Ok(()));
+}
