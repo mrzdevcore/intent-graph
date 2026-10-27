@@ -547,7 +547,7 @@ The board saves itself shortly after an edit and again on quit or a feature swit
 ### The engine and the graph view
 
 - **Engine:** `crates/ig-board` is Rust compiled to wasm (`make board-wasm`): the model, merge, undo, hit-testing, snapping, scene and a WebGL2 renderer, with roughr for the sketch strokes and a port of perfect-freehand 1.2.2 for the pen. Text (rename, labels, the element list for screen readers) is DOM above the canvas. The wasm is loaded lazily by the desktop app only; `ig view`, `ig serve` and flat plans are unchanged.
-- **Graph view:** sigma.js on WebGL, the same modes as before. `ig_show` writes `.ig/show.json` after checking every id against the graph; the viewer shows the nodes in gold and dims the rest.
+- **Graph view:** Cytoscape, the same modes as before. `ig_show` writes `.ig/show.json` after checking every id against the graph; the viewer shows the nodes in gold and dims the rest.
 
 ### Measured
 
