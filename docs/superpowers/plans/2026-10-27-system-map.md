@@ -249,7 +249,8 @@ commands come later, on top of the same map file.
 **Interfaces:**
 - **Consumes:** `facts`, `arrows` (Task 3).
 - **Produces:**
-  - `pub struct Field<T> { value: T, source: Source /*Ig|Agent|Person*/ }`.
+  - `pub struct Field<T> { value: T, source: Source /*Ig|Agent|Person*/, confidence: Option<Confidence> /*Extracted|Inferred|Ambiguous; set for Agent fields, as graphify does*/ }`.
+    An agent annotation without a confidence is treated as `Inferred`.
   - ```rust
     pub struct MapBox {
         id, parent, level, made_of, package, files,
@@ -302,6 +303,7 @@ commands come later, on top of the same map file.
     - Expect: the checkout description is kept; the refund slot is kept although ig guesses
       otherwise; `api/legacy` is `stale`; `api/billing` has `needs_reading`.
   - `annotate_respects_pins`: annotating the pinned slot leaves it, and the count excludes it.
+  - `annotate_keeps_confidence`: an annotation with `"confidence": "ambiguous"` is stored as such; one without is `inferred`.
   - `rejects_hostile_annotations`: each of a `..` glob, an id `"Bad Id"`, a 201-character
     description, an unknown kind, an unknown field, and 13 components returns `Err` naming the
     problem, and the map is unchanged.

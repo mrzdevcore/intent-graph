@@ -46,6 +46,25 @@ Later, each needing its own go-ahead:
    in a browser. This is where a client–server design comes in: one long-running ig process per
    repo, which is also the natural listener for production data (goal 3).
 
+9. **Any language.**
+   - Containers come from manifests and deploy files for every ecosystem (`package.json`, `go.mod`,
+     `Cargo.toml`, `pyproject.toml`, Gradle/Maven, Dockerfiles, Compose, Kubernetes).
+   - Arrows between services come from API contracts (OpenAPI, proto, GraphQL), HTTP clients and
+     queue topics.
+   - The code levels come from one tree-sitter frontend with a query file per language. TypeScript
+     keeps its dedicated parser. Language-server indexes (SCIP) are an optional precision upgrade.
+     The AI agent fills in what parsers cannot see.
+10. **The landscape (a folder of projects).** `ig view .` on a folder of projects shows each one as a
+    system box.
+    - Infrastructure as code (Terraform, Pulumi, Helm, Compose, Kubernetes) supplies the shared
+      stores and queues and the "where it runs" groups.
+    - Like graphify's per-folder `graph.json` and `merge-graphs`: each project keeps its own
+      committed `.ig/map.json` as the single source of truth, and the combined view is computed
+      when drawing (cached at most, never committed).
+    - The cross-project links and shared infrastructure, which belong to no single project, live in
+      a small committed `.ig/landscape.json` at the parent.
+    - Each project is read by the agent separately, then one short pass reads the links.
+
 ### Kept cheap now (no server is built in this restart)
 
 - **Every face goes through one engine API** in ig-app (`map_view`, the reading, the layers).
