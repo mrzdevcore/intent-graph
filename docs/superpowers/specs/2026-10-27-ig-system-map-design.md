@@ -68,6 +68,30 @@ The renderer knows nothing about where a layer comes from.
   confirmed.
 - Several layers can be on at once; the legend lists them, and each can be toggled.
 
+## How people use ig: terminal first
+
+The terminal is home base; the app is a window you open from it. Every action works from the
+command line too.
+
+| Command | Does |
+|---|---|
+| `ig` | opens the desktop app on the current folder (the same as `ig app`) |
+| `ig setup` | the same as `/ig:setup`: writes `ig.yaml` if missing, runs the analysis, then runs Claude headless (`claude -p "/ig:setup"`) to read the architecture into `.ig/map.json` |
+| `ig map [box]` | prints the map, or one box zoomed in, in the terminal: boxes, their badges, and what is red or amber |
+| `ig explore "<question>"` | asks Claude headless and prints the answer plus the boxes involved (goal 2) |
+| `ig check` | exits non-zero when a rule is broken, for CI and pre-commit |
+| `ig view` | writes the single-file HTML map |
+
+- **In the agent chat** (in the app, or Claude Code in a terminal):
+  - **`/ig:setup`** prepares the repo and reads the architecture.
+  - **`/ig:explore`** answers questions on the map (goal 2).
+- **Progress is always visible.** In the app, a bar sits on the map ("Analysing 1,240 files…",
+  "Claude is reading the architecture: 3 of 6 containers"). In the terminal, the same steps are
+  printed. Claude reports its steps through an MCP tool, `ig_progress`, so the app and the
+  terminal show the same thing.
+- **The first open of a repo without `.ig/map.json`** shows ig's plain map at once, with a banner
+  offering `/ig:setup`.
+
 ## Purpose behind every choice
 
 ig exists to help teams build **robust, scalable and reliable** software when AI writes much of
