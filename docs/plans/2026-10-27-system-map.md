@@ -242,6 +242,7 @@ commands come later, on top of the same map file.
 
 **Files:**
 - Create: `crates/ig-app/src/map/file.rs`.
+- Modify: `crates/ig/src/init.rs` (`gitignore`), the repo's own `.gitignore`.
 
 **Interfaces:**
 - **Consumes:** `facts`, `arrows` (Task 3).
@@ -286,6 +287,10 @@ commands come later, on top of the same map file.
     - unknown fields rejected.
   - `pub fn save(root: &Path, m: &MapFile) -> Result<()>` writes `.ig/map.json` with
     `ig_fs::write_atomic`.
+  - **`.ig/map.json` is committed** (the user decided: the team shares the same map). `ig init`'s
+    `gitignore()` writes `.ig/*` plus `!.ig/map.json` and `!.ig/layers/` is NOT added: live layers
+    stay ignored. An existing `.ig`, `.ig/`, `/.ig` or `/.ig/` line is replaced by those two
+    lines. The repo's own `.gitignore` gets `!.ig/map.json` in place of `!.ig/baseline.json`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `refresh_keeps_annotations`:
@@ -299,6 +304,9 @@ commands come later, on top of the same map file.
     description, an unknown kind, an unknown field, and 13 components returns `Err` naming the
     problem, and the map is unchanged.
   - `save_is_stable`: `save` twice yields byte-identical files, and boxes are sorted by id.
+  - `init.rs::gitignore_keeps_map`: `gitignore("node_modules")` gives
+    `"node_modules\n.ig/*\n!.ig/map.json\n"`; `gitignore(".ig/\n")` gives `".ig/*\n!.ig/map.json\n"`;
+    and applying it twice changes nothing.
 - [ ] **Step 2: Run** `cargo test -p ig-app map::file`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run.** Expected: PASS.
