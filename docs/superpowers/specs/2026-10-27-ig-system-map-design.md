@@ -75,7 +75,7 @@ command line too.
 
 | Command | Does |
 |---|---|
-| `ig` | opens the desktop app on the current folder (the same as `ig app`) |
+| `ig`, `ig .`, `ig <folder>` | opens the desktop app on that folder, the current one by default (the same as `ig app`); a subcommand name wins, so `ig ./map` opens a folder named `map` |
 | `ig setup` | the same as `/ig:setup`: writes `ig.yaml` if missing, runs the analysis, then runs Claude headless (`claude -p "/ig:setup"`) to read the architecture into `.ig/map.json` |
 | `ig map [box]` | prints the map, or one box zoomed in, in the terminal: boxes, their badges, and what is red or amber |
 | `ig explore "<question>"` | asks Claude headless and prints the answer plus the boxes involved (goal 2) |

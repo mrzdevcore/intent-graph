@@ -81,7 +81,7 @@ reference, including colors, sizes and fonts.
   into `build.rs` and delete `lanes.rs`. Keep `view_data.rs` until Task 6.
 - Delete in ig: `report.rs`, `hook.rs`, `serve.rs`, `serve/`, `mcp/design.rs`, the tests for
   removed commands under `src/tests/`, and `assets/{agents,legacy}`. From `assets/skills`, delete
-  `plan.md`, `apply.md` and `setup.md`.
+  `plan.md` and `apply.md`. Task 8 writes a new `setup.md`.
 - Delete in ig-desktop: `design.rs`, `screens.rs`, `unsaved.rs`, `file_tree.rs`, `read_file.rs`,
   and their commands.
 - Modify: `crates/ig/src/{main.rs,cli.rs,mcp.rs,init.rs,skills.rs}`, `crates/ig-core/src/config.rs`,
@@ -93,7 +93,7 @@ reference, including colors, sizes and fonts.
 
 **Interfaces:**
 - **Produces:**
-  - CLI commands: `ig view`, `ig mcp`, `ig init`, `ig plugin export <dir>`.
+  - CLI commands: `ig view`, `ig mcp`, `ig init`, `ig plugin export <dir>`. Task 11 adds `ig`, `ig <folder>`, `ig app`, `ig setup`, `ig map` and `ig check`.
   - MCP tools: `ig_state` and `ig_show` (unchanged).
   - `Config` keeps: `layers`, `rules`, `ignore`, `tests`, `embedded`, `auto_imports`, `patterns`,
     `blueprint.systems`, `blueprint.http_calls`, `blueprint.http_prefix`, `blueprint.route_kind`.
@@ -407,7 +407,7 @@ reference, including colors, sizes and fonts.
 
 **Files:**
 - Modify: `crates/ig/src/mcp.rs` (two tools), `crates/ig/src/skills.rs`, `crates/ig/src/init.rs`.
-- Create: `crates/ig/src/mcp/map.rs`, `crates/ig/assets/skills/map.md`.
+- Create: `crates/ig/src/mcp/map.rs`. Rewrite: `crates/ig/assets/skills/setup.md` (`/ig:setup`).
 - Test: `crates/ig/src/mcp/tests.rs`.
 
 **Interfaces:**
@@ -428,8 +428,17 @@ reference, including colors, sizes and fonts.
       it is;
     - writes `.ig/map.json` atomically;
     - returns `"Map written: N containers, M components"` or the validation errors.
-  - Skill `map.md` (the `/ig:map` command): call `ig_map_facts`, decide the pattern per container
-    using the spec's rules, write with `ig_map_write`, then explain the reading in ≤ 6 sentences.
+  - MCP `ig_progress { step: string, done?: u32, total?: u32 }` writes `.ig/progress.json`
+    atomically. Each call replaces the previous one, and `{ "step": "done" }` clears it. The app
+    watcher emits `progress`; the CLI prints it.
+  - Skill `setup.md` (the `/ig:setup` command):
+    1. run `ig init` if `ig.yaml` is missing;
+    2. call `ig_map_facts`;
+    3. report each container read with `ig_progress` ("Reading the architecture", done/total);
+    4. decide the pattern per container using the spec's rules;
+    5. write with `ig_map_write`;
+    6. finish with `ig_progress {step:"done"}`;
+    7. explain the reading in ≤ 6 sentences.
     A correction from the user means: change that box, set `pinned: true`, write again.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -437,11 +446,12 @@ reference, including colors, sizes and fonts.
   - `map_write_rejects`: a reading with a `..` glob is not written; the reply names the glob.
   - `map_write_keeps_pinned`: the current file pins `api/checkout` slot `application`; writing a
     reading that moves it to `domain` keeps `application`.
-  - `skill_listed`: `ig plugin export` lists `skills/map/SKILL.md`.
+  - `skill_listed`: `ig plugin export` lists `skills/setup/SKILL.md`, and the file mentions `ig_map_write` and `ig_progress`.
+  - `progress_roundtrip`: `ig_progress {step:"Reading", done:2, total:6}` writes `.ig/progress.json`, and `{step:"done"}` removes it.
 - [ ] **Step 2: Run** `cargo test -p intent-graph mcp::`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** `cargo test --workspace`. Expected: PASS.
-- [ ] **Step 5: Commit** `Map: Claude reads the architecture (ig_map_facts, ig_map_write, /ig:map)`.
+- [ ] **Step 5: Commit** `Map: Claude reads the architecture (ig_map_facts, ig_map_write, ig_progress, /ig:setup)`.
 
 ### Task 9: The box, the arrow and the region components
 
@@ -497,8 +507,12 @@ reference, including colors, sizes and fonts.
     attention" from the rules and risks marks, connections, "made of", `service.name`, and the
     buttons Zoom in, Open in editor (existing editor link) and links.
   - The layers panel holds toggles for rules, risks and each file layer.
-  - The top of the map shows "Read the architecture" when `reading == "fallback"`. In the app it
-    sends `/ig:map` to the chat session. In `ig view` it shows the command to run.
+  - The top of the map shows a banner when `reading == "fallback"`: "This is ig's plain map. Run
+    /ig:setup to have Claude read the architecture." In the app, its button sends `/ig:setup` to
+    the chat session. In `ig view`, it shows the command.
+  - A progress bar shows on the map while a `progress` event is live: the step text plus done/total
+    (indeterminate when there is no total). Graph builds report "Analysing N files" through the
+    same event.
   - On `map-changed` the map re-fetches through the existing `coalesce`. The camera keeps its
     place when the box it shows still exists, and otherwise fits the system.
 
@@ -516,7 +530,60 @@ reference, including colors, sizes and fonts.
   Take an app-window screenshot (`screencapture -l <id>`).
 - [ ] **Step 5: Commit** `Map viewer: the canvas, zoom, details, layers, Read the architecture`.
 
-### Task 11: Real repos, timings, docs
+### Task 11: The terminal: `ig`, `ig .`, `ig setup`, `ig map`, `ig check`
+
+**Files:**
+- Modify: `crates/ig/src/{main.rs,cli.rs}`.
+- Create: `crates/ig/src/open_app.rs`, `crates/ig/src/map_text.rs`.
+- Test: `crates/ig/src/tests/cli_map.rs`.
+
+**Interfaces:**
+- **Consumes:** `map_view` (Task 6), `ig_init`.
+- **Produces:**
+  - **`ig`, `ig <folder>` (`ig .`) and `ig app [folder]`** open the desktop app on the folder
+    (default: the current one).
+    - A first argument that is a subcommand name is the subcommand. To open a folder with such a
+      name, use `ig ./map`.
+    - A first argument that is neither a subcommand nor an existing folder prints the usage and
+      exits 2.
+    - macOS: `open -a ig --args <abs folder>`. With `IG_APP=<path>` set (dev), that binary runs
+      with the folder instead.
+    - When no app is installed, print `The ig app is not installed. Run 'make app' or use 'ig view'.`
+      and exit 1.
+    - The app accepts a folder as its first argument and opens it as the project (an
+      already-running app opens it in a new window).
+  - **`ig setup`:**
+    1. runs `ig init` when `ig.yaml` is missing;
+    2. builds the graph, printing `Analysing N files…`;
+    3. runs `claude -p "/ig:setup"` in the folder with stdio inherited;
+    4. prints `.ig/progress.json` steps as they change;
+    5. ends with the `ig map` summary.
+    When `claude` is not on PATH, print `Claude Code is not installed: the plain map is ready; install Claude Code and run 'ig setup' again for the full reading.`
+    and exit 0.
+  - **`ig map [box-id]`** prints the level under the box (the system when none is given):
+    - one line per box: `{title}  {kind · tech}  {badges}`, red marks with `✗`, amber with `!`;
+    - then the arrows: `{from} → {to}  {label}`;
+    - output is plain text when piped, colored on a TTY.
+  - **`ig check`** builds the `MapView`, prints every `Bad` mark in the `rules` layer as
+    `{from} → {to}: {badge}`, and exits 1 when there is one, otherwise 0.
+
+- [ ] **Step 1: Write the failing tests:**
+  - `map_text_shop`: `ig map` on the shop fixture prints lines containing `api`, `web` and
+    `Stripe`. `ig map api` prints `Checkout` and a line `✗ domain-order → infra-prisma`.
+  - `check_exit_code`: `ig check` on shop exits 1; with `domain/order.ts` no longer importing
+    infra, it exits 0.
+  - `open_args`: `parse_open(["."])` gives `Open(cwd)`, `parse_open(["map"])` gives the `Map`
+    command, `parse_open(["./map"])` gives `Open(cwd/map)`, and `parse_open(["nope"])` (missing
+    folder) is a usage error.
+  - `app_missing_message`: with `IG_APP=/nonexistent`, `ig .` exits 1 and stderr names `ig view`.
+  - `setup_without_claude`: with `PATH` lacking `claude`, `ig setup` exits 0 and prints the
+    plain-map message.
+- [ ] **Step 2: Run** `cargo test -p intent-graph cli_map`. Expected: FAIL.
+- [ ] **Step 3: Implement**, including the desktop app reading a folder from argv.
+- [ ] **Step 4: Run** `cargo test --workspace`. Expected: PASS.
+- [ ] **Step 5: Commit** `Terminal: ig . opens the app, ig setup, ig map, ig check`.
+
+### Task 12: Real repos, timings, docs
 
 **Files:**
 - Modify: `README.md`, `docs/specs/design.md`: replace the removed sections with a short "System
@@ -524,7 +591,7 @@ reference, including colors, sizes and fonts.
 - Create: `docs/superpowers/plans/2026-10-27-system-map-walkthrough.md`, a 10-step manual
   walkthrough.
 
-- [ ] **Step 1: Run `/ig:map` on scratch copies** of afwa and front-vision-board, at most 3 short
+- [ ] **Step 1: Run `/ig:setup` (and `ig setup` from the terminal) on scratch copies** of afwa and front-vision-board, at most 3 short
   prompts each, and record whether the pattern and containers it found are right.
 - [ ] **Step 2: Measure.** `map_view` time on front-vision-board (3,760 nodes) must be < 1 s warm.
   Measure first paint and the glide fps in the app (Performance panel); target ≥ 50 fps.
