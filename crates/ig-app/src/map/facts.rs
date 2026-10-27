@@ -115,24 +115,43 @@ pub fn facts(ws: &WorkspaceInfo, g: &Graph, cfg: &Config) -> Vec<FactBox> {
     let with_src: Vec<usize> = (0..ws.packages.len())
         .filter(|i| ws.files.iter().any(|f| f.package == *i))
         .collect();
-    for &i in &with_src {
+    // Container ids (packages, then blueprint systems) made unique before components use them.
+    let pkgs: Vec<usize> = with_src
+        .iter()
+        .copied()
+        .filter(|&i| ws.packages[i].dir != "." || with_src.len() == 1)
+        .collect();
+    let mut ids: Vec<(String, usize)> = pkgs
+        .iter()
+        .map(|&i| {
+            let name = &ws.packages[i].name;
+            slug(name.rsplit('/').next().unwrap_or(name), "pkg")
+        })
+        .chain(cfg.blueprint.systems.iter().map(|(n, _)| slug(n, "system")))
+        .enumerate()
+        .map(|(k, id)| (id, k))
+        .collect();
+    ids.sort();
+    let unique = dedupe(ids.iter().map(|(id, _)| id.clone()).collect());
+    let mut id_of = vec![String::new(); ids.len()];
+    for ((_, k), id) in ids.iter().zip(unique) {
+        id_of[*k] = id;
+    }
+    for (k, &i) in pkgs.iter().enumerate() {
         let p = &ws.packages[i];
-        if p.dir == "." && with_src.len() > 1 {
-            continue;
-        }
         let files: Vec<&str> = ws
             .files
             .iter()
             .filter(|f| f.package == i)
             .map(|f| f.path.as_str())
             .collect();
-        container(&mut out, &p.name, &p.dir, &files, &modules);
+        container(&mut out, &id_of[k], &p.name, &p.dir, &files, &modules);
     }
-    for (name, pkgs) in &cfg.blueprint.systems {
+    for (k, (name, pkgs_of)) in cfg.blueprint.systems.iter().enumerate() {
         let node = format!("system:{name}");
-        let store = crate::build::system_category(name, pkgs) == "database";
+        let store = crate::build::system_category(name, pkgs_of) == "database";
         out.push(FactBox {
-            id: slug(name),
+            id: id_of[pkgs.len() + k].clone(),
             parent: Some("system".into()),
             level: Level::Container,
             made_of: vec![],
@@ -169,17 +188,43 @@ fn guess(kind: BoxKind, title: String, pattern: Option<Pattern>, slot: Option<&s
     }
 }
 
-/// Lowercase, runs of anything but letters and digits as one `-`.
-fn slug(s: &str) -> String {
+/// Longest id (or component id part after the container's `/`).
+const MAX_ID: usize = 64;
+
+/// `[a-z0-9-]`: lowercase ASCII, runs of anything else as one `-`, trimmed, at most 64 chars;
+/// `fallback` when nothing is left.
+fn slug(s: &str, fallback: &str) -> String {
     let s: String = s
-        .to_lowercase()
+        .to_ascii_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    s.split('-')
+    let mut s = s
+        .split('-')
         .filter(|p| !p.is_empty())
         .collect::<Vec<_>>()
-        .join("-")
+        .join("-");
+    s.truncate(MAX_ID);
+    let s = s.trim_end_matches('-');
+    if s.is_empty() { fallback } else { s }.to_string()
+}
+
+/// `ids` (sorted) with repeats suffixed `-2`, `-3`… in order, each still at most 64 chars.
+fn dedupe(ids: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    ids.into_iter()
+        .map(|base| {
+            let mut id = base.clone();
+            let mut n = 1;
+            while !seen.insert(id.clone()) {
+                n += 1;
+                let suffix = format!("-{n}");
+                let keep = base.len().min(MAX_ID - suffix.len());
+                id = format!("{}{suffix}", base[..keep].trim_end_matches('-'));
+            }
+            id
+        })
+        .collect()
 }
 
 /// "use-cases" → "Use cases".
@@ -192,8 +237,15 @@ fn title(s: &str) -> String {
 }
 
 /// A package's container and its components.
-fn container(out: &mut Vec<FactBox>, name: &str, dir: &str, files: &[&str], modules: &[&str]) {
-    let id = slug(name.rsplit('/').next().unwrap_or(name));
+fn container(
+    out: &mut Vec<FactBox>,
+    id: &str,
+    name: &str,
+    dir: &str,
+    files: &[&str],
+    modules: &[&str],
+) {
+    let id = id.to_string();
     let base = if dir == "." {
         String::new()
     } else {
@@ -215,13 +267,10 @@ fn container(out: &mut Vec<FactBox>, name: &str, dir: &str, files: &[&str], modu
         }
     }
     let pattern = detect(&folders);
-    let inside = |folder: &str| -> Vec<&str> {
-        let pre = format!("{root}{folder}/");
-        modules
-            .iter()
-            .copied()
-            .filter(|m| m.starts_with(&pre))
-            .collect()
+    // Files under `folder` (only its direct files when `shallow`), relative to the source root.
+    let under = |folder: &str, f: &str, shallow: bool| {
+        f.strip_prefix(&format!("{folder}/"))
+            .is_some_and(|r| !shallow || !r.contains('/'))
     };
     let app = rel.iter().any(|f| {
         f.split('/').any(|d| d == "pages" || d == "app")
@@ -264,22 +313,25 @@ fn container(out: &mut Vec<FactBox>, name: &str, dir: &str, files: &[&str], modu
                 .any(|o| f.starts_with(&format!("{o}/")) && slot(&pattern, last(o)).is_some())
         })
         .collect();
-    let mut comps: Vec<(String, Option<&str>)> = vec![];
+    let kids = |p: &str| -> Vec<String> {
+        folders
+            .iter()
+            .filter(|f| under(p, f, true))
+            .cloned()
+            .collect()
+    };
+    let has_direct = |p: &str| rel.iter().any(|f| under(p, f, true));
+    // (folder, slot, only its direct files)
+    let mut comps: Vec<(String, Option<&str>, bool)> = vec![];
     for p in &slotted {
         let s = slot(&pattern, last(p));
-        let pre = format!("{p}/");
-        let kids: Vec<&String> = folders
-            .iter()
-            .filter(|f| f.strip_prefix(&pre).is_some_and(|r| !r.contains('/')))
-            .collect();
-        comps.extend(kids.iter().map(|k| (k.to_string(), s)));
-        if kids.is_empty()
-            || rel
-                .iter()
-                .any(|f| f.strip_prefix(&pre).is_some_and(|r| !r.contains('/')))
-        {
-            comps.push((p.to_string(), s));
+        let k = kids(p);
+        if k.is_empty() {
+            comps.push((p.to_string(), s, false));
+        } else if has_direct(p) {
+            comps.push((p.to_string(), s, true));
         }
+        comps.extend(k.into_iter().map(|k| (k, s, false)));
     }
     let other = match pattern {
         Pattern::Onion => Some("infrastructure"),
@@ -288,25 +340,47 @@ fn container(out: &mut Vec<FactBox>, name: &str, dir: &str, files: &[&str], modu
         Pattern::Layered { ref bands } => bands.last().map(String::as_str),
         Pattern::None => None,
     };
-    for top in folders.iter().filter(|f| !f.contains('/')) {
-        let pre = format!("{top}/");
-        if !slotted.iter().any(|s| *s == top || s.starts_with(&pre)) {
-            comps.push((top.clone(), other));
+    // Other folders; those holding pattern folders deeper down are split into their children.
+    let mut stack: Vec<String> = folders
+        .iter()
+        .filter(|f| !f.contains('/'))
+        .cloned()
+        .collect();
+    while let Some(f) = stack.pop() {
+        if slotted.contains(&&f) {
+            continue;
+        }
+        if slotted.iter().any(|s| under(&f, s, false)) {
+            if has_direct(&f) {
+                comps.push((f.clone(), other, true));
+            }
+            stack.extend(kids(&f));
+        } else {
+            comps.push((f, other, false));
         }
     }
     let mut boxes: Vec<FactBox> = comps
         .into_iter()
-        .map(|(folder, s)| {
-            let nodes = inside(&folder);
-            let pre = format!("{folder}/");
+        .map(|(folder, s, shallow)| {
+            let pre = &root;
             FactBox {
-                id: format!("{id}/{}", slug(&folder)),
+                id: format!("{id}/{}", slug(&folder.replace('/', "-"), "dir")),
                 parent: Some(id.clone()),
                 level: Level::Component,
-                made_of: vec![format!("{root}{folder}/**")],
+                made_of: vec![format!(
+                    "{root}{folder}/{}",
+                    if shallow { "*" } else { "**" }
+                )],
                 package: Some(name.into()),
-                files: rel.iter().filter(|f| f.starts_with(&pre)).count() as u32,
-                nodes: nodes.into_iter().map(String::from).collect(),
+                files: rel.iter().filter(|f| under(&folder, f, shallow)).count() as u32,
+                nodes: modules
+                    .iter()
+                    .filter(|m| {
+                        m.strip_prefix(pre.as_str())
+                            .is_some_and(|r| under(&folder, r, shallow))
+                    })
+                    .map(|m| m.to_string())
+                    .collect(),
                 guess: guess(kind_of(&folder), title(last(&folder)), None, s),
             }
         })
@@ -331,6 +405,16 @@ fn container(out: &mut Vec<FactBox>, name: &str, dir: &str, files: &[&str], modu
                 other,
             ),
         });
+    }
+    // Folder slugs can collide (`domain/order` and `domain-order`, a folder named `other`).
+    boxes.sort_by(|a, b| a.id.cmp(&b.id));
+    let pre = format!("{id}/");
+    let parts = boxes
+        .iter()
+        .map(|b| b.id[pre.len()..].to_string())
+        .collect();
+    for (b, part) in boxes.iter_mut().zip(dedupe(parts)) {
+        b.id = format!("{pre}{part}");
     }
     out.extend(boxes);
 }
@@ -400,96 +484,4 @@ fn kind_of(folder: &str) -> BoxKind {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ig_core::workspace::{Package, SourceFile};
-
-    fn get<'a>(boxes: &'a [FactBox], id: &str) -> &'a FactBox {
-        boxes
-            .iter()
-            .find(|b| b.id == id)
-            .unwrap_or_else(|| panic!("no box {id}"))
-    }
-
-    fn of_level(boxes: &[FactBox], level: Level) -> Vec<&str> {
-        boxes
-            .iter()
-            .filter(|b| b.level == level)
-            .map(|b| b.id.as_str())
-            .collect()
-    }
-
-    fn single(paths: &[String]) -> WorkspaceInfo {
-        WorkspaceInfo {
-            root: "repo".into(),
-            packages: vec![Package {
-                name: "repo".into(),
-                dir: ".".into(),
-                tsconfig: None,
-                source_entry: None,
-            }],
-            files: paths
-                .iter()
-                .map(|p| SourceFile {
-                    path: p.clone(),
-                    package: 0,
-                })
-                .collect(),
-        }
-    }
-
-    #[test]
-    fn shop_containers() {
-        let (ws, g, cfg) = crate::map::shop::load();
-        let b = facts(&ws, &g, &cfg);
-        assert_eq!(
-            of_level(&b, Level::Container),
-            ["api", "api-client", "postgres", "stripe", "web"]
-        );
-        assert_eq!(get(&b, "postgres").guess.kind, BoxKind::Store);
-        assert_eq!(get(&b, "stripe").guess.kind, BoxKind::External);
-        assert_eq!(get(&b, "web").parent.as_deref(), Some("system"));
-    }
-
-    #[test]
-    fn shop_onion_guess() {
-        let (ws, g, cfg) = crate::map::shop::load();
-        let b = facts(&ws, &g, &cfg);
-        assert_eq!(get(&b, "api").guess.pattern, Some(Pattern::Onion));
-        let checkout = get(&b, "api/application-checkout");
-        assert_eq!(checkout.guess.slot.as_deref(), Some("application"));
-        assert_eq!(checkout.guess.kind, BoxKind::Usecase);
-        assert_eq!(checkout.parent.as_deref(), Some("api"));
-        let order = get(&b, "api/domain-order");
-        assert_eq!(order.guess.slot.as_deref(), Some("domain"));
-        assert_eq!(order.guess.kind, BoxKind::Domain);
-        assert_eq!(get(&b, "api/application-ports").guess.kind, BoxKind::Port);
-        let routers = get(&b, "api/routers");
-        assert_eq!(routers.guess.slot.as_deref(), Some("infrastructure"));
-        assert_eq!(routers.guess.kind, BoxKind::Entry);
-        assert_eq!(get(&b, "api/infra-prisma").files, 2);
-    }
-
-    #[test]
-    fn single_package_repo() {
-        let ws = single(&["src/a/x.ts".into(), "src/b/y.ts".into()]);
-        let b = facts(&ws, &Graph::empty(), &Config::default());
-        assert_eq!(of_level(&b, Level::Container), ["repo"]);
-        assert_eq!(of_level(&b, Level::Component), ["repo/a", "repo/b"]);
-        assert_eq!(get(&b, "repo").guess.pattern, Some(Pattern::None));
-    }
-
-    #[test]
-    fn groups_past_twelve() {
-        let paths: Vec<String> = (0..30).map(|i| format!("src/f{i:02}/x.ts")).collect();
-        let b = facts(&single(&paths), &Graph::empty(), &Config::default());
-        let comps: Vec<&FactBox> = b.iter().filter(|b| b.level == Level::Component).collect();
-        assert!(comps.len() <= 12, "{} components", comps.len());
-        let groups: Vec<&&FactBox> = comps
-            .iter()
-            .filter(|b| b.guess.kind == BoxKind::Group)
-            .collect();
-        assert_eq!(groups.len(), 1);
-        assert_eq!(comps.iter().map(|b| b.files).sum::<u32>(), 30);
-    }
-}
+mod tests;
