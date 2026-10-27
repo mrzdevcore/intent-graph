@@ -1,6 +1,7 @@
 // Graph indexing: nodes by id, modules with their members, and the drill-down groups
 // (layer → directories → module) the Architecture mode walks.
 
+import type cytoscape from "cytoscape";
 import type { Status, ViewData, ViewEdge, ViewFinding, ViewNode } from "../data";
 
 export interface Module {
@@ -286,4 +287,10 @@ export function findNode(ix: Index, q: string): string | null {
 export function moduleStatus(ix: Index, f: string): Status {
   const m = ix.modules[f];
   return m.node.status !== "unchanged" ? m.node.status : m.dirty ? "changed" : "unchanged";
+}
+
+/** The Links toggle: when `show` is off every edge gets `nolink` (hidden), except the selected node's. */
+export function applyLinks(cy: cytoscape.Core, show: boolean) {
+  cy.edges().toggleClass("nolink", !show);
+  if (!show) cy.$("node:selected").connectedEdges().removeClass("nolink");
 }
