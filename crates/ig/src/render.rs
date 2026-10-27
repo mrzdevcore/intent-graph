@@ -1,7 +1,7 @@
-//! The self-contained HTML viewer page built from `ig_app::view_data`, and opening it.
+//! The self-contained HTML viewer page built from `ig_app::map::View`, and opening it.
 
 use anyhow::Result;
-use ig_app::view_data;
+use ig_app::map::View;
 use ig_wire::Wired;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -20,9 +20,9 @@ fn fill(template: &str, data_json: &str, live: &str) -> String {
         .replace("/*IG_DATA*/", data_json)
 }
 
-/// `ig view`: writes `.ig/view.html`.
-pub fn write(w: &Wired) -> Result<PathBuf> {
-    let html = page(&view_data::json(&w.env())?);
+/// `ig view`: writes `.ig/view.html` showing `v`.
+pub fn write(w: &Wired, v: &View) -> Result<PathBuf> {
+    let html = page(&serde_json::to_value(v)?);
     let path = w.root().join(".ig/view.html");
     std::fs::create_dir_all(w.root().join(".ig"))?;
     ig_fs::write_atomic(&path, html.as_bytes())?;

@@ -1,14 +1,22 @@
 //! `refresh`: the new facts with the old file's reading kept.
 
 use super::{Field, MapBox, MapFile, Source, globs, slots};
+use crate::map::layers::{risks, rules, sort_marks};
 use crate::map::{BoxKind, FactBox, Level, MapArrow};
+use ig_core::model::Finding;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// The new facts with the old file's reading kept: annotated and pinned fields survive, new
 /// boxes need reading, gone boxes are dropped unless pinned (then kept as stale). A container
 /// whose old components were drawn by an agent or a person keeps those components; files none
-/// of them match go into `{container}/unread`.
-pub fn refresh(old: Option<&MapFile>, facts: &[FactBox], arrows: Vec<MapArrow>) -> MapFile {
+/// of them match go into `{container}/unread`. The marks are the `rules` (with `findings`) and
+/// `risks` layers. Also returns a notice per pinned field refresh had to reset.
+pub fn refresh(
+    old: Option<&MapFile>,
+    facts: &[FactBox],
+    arrows: Vec<MapArrow>,
+    findings: &[Finding],
+) -> (MapFile, Vec<String>) {
     let olds: BTreeMap<&str, &MapBox> = old
         .map(|m| m.boxes.iter().map(|b| (b.id.as_str(), b)).collect())
         .unwrap_or_default();
@@ -53,21 +61,27 @@ pub fn refresh(old: Option<&MapFile>, facts: &[FactBox], arrows: Vec<MapArrow>) 
                 ..(*o).clone()
             }),
     );
-    fit_slots(&mut boxes, facts);
+    let notices = fit_slots(&mut boxes, facts);
     boxes.sort_by(|a, b| a.id.cmp(&b.id));
     let mut arrows = arrows;
     arrows.sort_by(|a, b| a.id.cmp(&b.id));
-    MapFile {
+    let mut m = MapFile {
         version: 1,
         boxes,
         arrows,
         marks: vec![],
-    }
+    };
+    m.marks = rules(&m, findings);
+    m.marks.extend(risks(&m));
+    sort_marks(&mut m.marks);
+    (m, notices)
 }
 
 /// A slot (pinned or not) the parent's pattern no longer has goes back to ig's guess, or to
 /// none when the pattern has no room for that either; a pin stands whenever it is still valid.
-fn fit_slots(boxes: &mut [MapBox], facts: &[FactBox]) {
+/// Returns a notice per pin reset.
+fn fit_slots(boxes: &mut [MapBox], facts: &[FactBox]) -> Vec<String> {
+    let mut notices = vec![];
     let patterns: BTreeMap<String, Option<crate::map::Pattern>> = boxes
         .iter()
         .map(|b| (b.id.clone(), b.pattern.as_ref().map(|p| p.value.clone())))
@@ -88,14 +102,22 @@ fn fit_slots(boxes: &mut [MapBox], facts: &[FactBox]) {
                 .iter()
                 .find(|f| f.id == b.id)
                 .and_then(|f| f.guess.slot.clone());
+            if b.pins("slot") {
+                notices.push(format!(
+                    "`{}`: the pinned slot `{}` is not one of {ok:?} any more; reset",
+                    b.id,
+                    b.slot.as_ref().unwrap().value
+                ));
+            }
             b.slot = guess.filter(|g| ok.contains(&g.as_str())).map(Field::ig);
             b.pinned.retain(|p| p != "slot");
         }
     }
+    notices
 }
 
 /// ig's own box for a fact.
-fn fresh(f: &FactBox) -> MapBox {
+pub(crate) fn fresh(f: &FactBox) -> MapBox {
     MapBox {
         id: f.id.clone(),
         parent: f.parent.clone(),

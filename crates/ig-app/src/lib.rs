@@ -6,7 +6,6 @@ mod error;
 pub mod map;
 pub mod setup;
 pub mod show;
-pub mod view_data;
 
 pub use error::{Error, Result};
 

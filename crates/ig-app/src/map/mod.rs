@@ -1,12 +1,17 @@
-//! The system map's facts: the boxes ig sees (system, containers, components) and the arrows
-//! between them, lifted from the graph.
+//! The system map: the boxes ig sees (system, containers, components, code) and the arrows
+//! between them, lifted from the graph; the map file; its layers; and the view `ig view` draws.
 
 pub mod arrows;
+pub mod code;
 pub mod facts;
 pub mod file;
+pub mod layers;
+pub mod view;
 
 pub use arrows::{ArrowKind, MapArrow, arrows};
 pub use facts::{BoxKind, FactBox, Guess, Level, Pattern, facts};
+pub use layers::{Mark, MarkState};
+pub use view::{View, view};
 
 #[cfg(test)]
 pub(crate) mod shop {

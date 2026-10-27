@@ -1,45 +1,53 @@
-//! The viewer data and page over the fixtures.
+//! `ig view` over the fixtures: the map it refreshes, its JSON and its page.
 
-use super::{env, scratch};
-use ig_app::view_data;
+use super::{git_fixture, scratch};
+use ig_app::map::view;
 use ig_wire::Wired;
-use serde_json::json;
 
 #[test]
-fn system_nodes_carry_category_and_packages() {
-    let dir = scratch("systems");
-    let mut cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap();
-    cfg.push_str("blueprint:\n  systems:\n    PostgreSQL: [pg]\n");
-    std::fs::write(dir.join("ig.yaml"), cfg).unwrap();
-    std::fs::write(
-        dir.join("packages/core/src/db.ts"),
-        "import { Pool } from \"pg\";\nexport const pool = new Pool();\n",
-    )
-    .unwrap();
-    let d = view_data::json(&env(&dir)).unwrap();
-    let n = d["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|n| n["id"] == "system:PostgreSQL")
-        .unwrap();
-    assert_eq!(
-        (n["category"].clone(), n["packages"].clone()),
-        (json!("database"), json!(["pg"]))
+fn view_json_shape() {
+    let dir = git_fixture("shop");
+    let w = Wired::new(&dir);
+    let v = serde_json::to_value(view::run(&w.env()).unwrap()).unwrap();
+    for key in ["boxes", "arrows", "marks", "placed", "notices"] {
+        assert!(v.get(key).is_some(), "no `{key}` in {v}");
+    }
+    assert!(v.get("nodes").is_none());
+    assert!(v["placed"]["frames"].is_object());
+    let ids = |k: &str| -> Vec<String> {
+        v[k].as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(ids("boxes").contains(&"api/domain-order".to_string()));
+    // the code level: graph node ids
+    assert!(ids("boxes").contains(&"apps/api/src/domain/order/order.ts#loadOrder".to_string()));
+    assert!(ids("arrows").contains(&"api/domain-order->api/infra-prisma".to_string()));
+    assert!(
+        v["marks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["badge"] == "breaks: domain → infrastructure")
     );
+    // the map was written, and a second run leaves it byte-identical
+    let first = std::fs::read(dir.join(".ig/map.json")).unwrap();
+    view::run(&w.env()).unwrap();
+    assert_eq!(std::fs::read(dir.join(".ig/map.json")).unwrap(), first);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn view_writes_the_page_and_the_json_names_the_layers() {
+fn view_writes_the_page() {
     let dir = scratch("page");
-    let path = crate::render::write(&Wired::new(&dir)).unwrap();
+    let w = Wired::new(&dir);
+    let path = crate::render::write(&w, &view::run(&w.env()).unwrap()).unwrap();
     assert!(
         std::fs::read_to_string(path)
             .unwrap()
             .contains("packages/core")
     );
-    let d = view_data::json(&env(&dir)).unwrap();
-    assert!(!d["layers"].as_array().unwrap().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }

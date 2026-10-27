@@ -17,7 +17,7 @@ fn get_mut<'a>(m: &'a mut MapFile, id: &str) -> &'a mut MapBox {
 /// `refresh`, checking the invariant every refresh keeps: its map is valid (else the next
 /// `load` would drop the whole file, pins and all).
 fn refreshed(old: Option<&MapFile>, facts: &[FactBox], arrows: Vec<MapArrow>) -> MapFile {
-    let m = refresh(old, facts, arrows);
+    let m = refresh(old, facts, arrows, &[]).0;
     assert_eq!(validate(&m), Ok(()));
     m
 }
@@ -501,4 +501,21 @@ fn unknown_keys_in_arrows_and_patterns_are_rejected() {
     )
     .unwrap_err();
     assert!(e.iter().any(|e| e.contains("rings")), "{e:?}");
+}
+
+#[test]
+fn refresh_reports_pin_reset() {
+    let mut old = shop();
+    get_mut(&mut old, "api").pattern = Some(Field::agent(Pattern::Hexagonal, None));
+    let (ws, g, cfg) = crate::map::shop::load();
+    let boxes = facts(&ws, &g, &cfg);
+    let (_, notices) = refresh(Some(&old), &boxes, vec![], &[]);
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(
+        notices[0].contains("api/application-refund") && notices[0].contains("domain"),
+        "{notices:?}"
+    );
+    // ig's own (unpinned) slots that move say nothing
+    let (_, notices) = refresh(Some(&shop()), &boxes, vec![], &[]);
+    assert!(notices.is_empty(), "{notices:?}");
 }
