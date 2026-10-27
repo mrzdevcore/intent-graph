@@ -12,10 +12,6 @@ pub struct Skill {
 
 pub const SKILLS: &[Skill] = &[
     Skill {
-        name: "setup",
-        body: include_str!("../assets/skills/setup.md"),
-    },
-    Skill {
         name: "explore",
         body: include_str!("../assets/skills/explore.md"),
     },
@@ -241,10 +237,7 @@ mod tests {
         .unwrap();
         assert_eq!(manifest["name"], "ig");
         assert_eq!(manifest["skills"], serde_json::json!(["./skills"]));
-        assert!(
-            dir.join(".claude/skills/ig/skills/setup/SKILL.md")
-                .is_file()
-        );
+        assert!(dir.join(".claude/skills/ig/skills/view/SKILL.md").is_file());
         let mcp: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(dir.join(".claude/skills/ig/.mcp.json")).unwrap(),
         )
@@ -253,11 +246,10 @@ mod tests {
             mcp,
             serde_json::json!({"mcpServers": {"ig": {"command": "ig", "args": ["mcp"]}}})
         );
-        assert!(dir.join(".agents/skills/ig-setup/SKILL.md").is_file());
         assert!(
-            std::fs::read_to_string(dir.join(".agents/skills/ig-setup/SKILL.md"))
+            std::fs::read_to_string(dir.join(".agents/skills/ig-view/SKILL.md"))
                 .unwrap()
-                .contains("name: ig-setup")
+                .contains("name: ig-view")
         );
         let explore =
             std::fs::read_to_string(dir.join(".claude/skills/ig/skills/explore/SKILL.md")).unwrap();
@@ -300,7 +292,6 @@ mod tests {
         let base = dir.join(".claude/skills/ig");
         let shown = base.join("skills/view/SKILL.md");
         let explore = base.join("skills/explore/SKILL.md");
-        let setup = base.join("skills/setup/SKILL.md");
         install(&dir, claude).unwrap();
         assert!(base.join(GENERATED).is_file());
         // Untouched since ig wrote it (an older version): updated.
@@ -322,7 +313,6 @@ mod tests {
         // Legacy: no manifest, still generated: updated with a .bak; a non-generated one is kept.
         std::fs::remove_file(base.join(GENERATED)).unwrap();
         std::fs::write(&shown, old).unwrap();
-        std::fs::write(&setup, "my own setup").unwrap();
         install(&dir, claude).unwrap();
         assert_eq!(
             std::fs::read_to_string(&shown).unwrap(),
@@ -332,8 +322,8 @@ mod tests {
             std::fs::read_to_string(shown.with_file_name("SKILL.md.bak")).unwrap(),
             old
         );
-        assert_eq!(std::fs::read_to_string(&setup).unwrap(), "my own setup");
-        assert!(setup.with_file_name("SKILL.md.new").is_file());
+        assert_eq!(std::fs::read_to_string(&explore).unwrap(), "my edit");
+        assert!(explore.with_file_name("SKILL.md.new").is_file());
         // A second legacy refresh keeps the first backup and takes the next free name.
         std::fs::remove_file(base.join(GENERATED)).unwrap();
         std::fs::write(&shown, old).unwrap();
