@@ -150,7 +150,6 @@ pub fn facts(env: &Env) -> crate::Result<Value> {
             "patterns": config.patterns.len(),
             "embedded": config.embedded,
             "blueprint": {
-                "lanes": config.blueprint.lanes.iter().map(|l| &l.name).collect::<Vec<_>>(),
                 "httpCalls": config.blueprint.http_calls,
                 "systems": config.blueprint.systems.len(),
             },
@@ -214,8 +213,8 @@ pub fn report(f: &Value) -> String {
     } else {
         let b = &c["blueprint"];
         s.push_str(&format!(
-            "{} layers, {} rules, {} patterns, embedded {}. Blueprint: lanes {}, http.calls {}, {} systems.\n\n",
-            c["layers"], c["rules"], c["patterns"], c["embedded"], b["lanes"], b["httpCalls"], b["systems"]
+            "{} layers, {} rules, {} patterns, embedded {}. Blueprint: http.calls {}, {} systems.\n\n",
+            c["layers"], c["rules"], c["patterns"], c["embedded"], b["httpCalls"], b["systems"]
         ));
     }
     s.push_str("## Workspace packages\n\n");
@@ -325,7 +324,7 @@ pub fn report(f: &Value) -> String {
 mod tests {
     use super::*;
     use crate::testing::{Fake, env};
-    use ig_core::testing::{FakeRunner, MemFiles};
+    use ig_core::testing::MemFiles;
 
     #[test]
     fn facts_and_report() {
@@ -336,8 +335,8 @@ mod tests {
             ("src/core/a.ts", "fn a\n"),
             ("src/pages/home.ts", "fn h\n"),
         ]);
-        let (runner, fe) = (FakeRunner::default(), Fake::default());
-        let f = facts(&env(&files, None, &runner, &fe)).unwrap();
+        let fe = Fake;
+        let f = facts(&env(&files, None, &fe)).unwrap();
         assert_eq!(
             (
                 f["config"]["exists"].as_bool(),
@@ -351,7 +350,7 @@ mod tests {
         let r = report(&f);
         assert!(r.starts_with("# ig setup\n") && r.contains("## Modules without a layer: 1"));
         let bad = MemFiles::with(&[("ig.yaml", "layers: 3\n")]);
-        let f = facts(&env(&bad, None, &runner, &fe)).unwrap();
+        let f = facts(&env(&bad, None, &fe)).unwrap();
         assert!(f["config"]["error"].is_string());
     }
 }

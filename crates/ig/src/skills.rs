@@ -20,14 +20,6 @@ pub const SKILLS: &[Skill] = &[
         body: include_str!("../assets/skills/explore.md"),
     },
     Skill {
-        name: "plan",
-        body: include_str!("../assets/skills/plan.md"),
-    },
-    Skill {
-        name: "apply",
-        body: include_str!("../assets/skills/apply.md"),
-    },
-    Skill {
         name: "view",
         body: include_str!("../assets/skills/view.md"),
     },
@@ -36,25 +28,11 @@ pub const SKILLS: &[Skill] = &[
 const MCP_JSON: &str =
     "{\n  \"mcpServers\": {\n    \"ig\": { \"command\": \"ig\", \"args\": [\"mcp\"] }\n  }\n}\n";
 
-pub const REVIEWER: &str = include_str!("../assets/agents/reviewer.md");
-
-const LEGACY_EXPLORE: &str = include_str!("../assets/legacy/ig-explore-v1.md");
-
 pub struct Agent {
     pub name: &'static str,
-    pub bin: &'static str,
 }
 
-pub const AGENTS: &[Agent] = &[
-    Agent {
-        name: "claude",
-        bin: "claude",
-    },
-    Agent {
-        name: "codex",
-        bin: "codex",
-    },
-];
+pub const AGENTS: &[Agent] = &[Agent { name: "claude" }, Agent { name: "codex" }];
 
 pub fn agent(name: &str) -> Result<&'static Agent> {
     match AGENTS.iter().find(|a| a.name == name) {
@@ -63,14 +41,6 @@ pub fn agent(name: &str) -> Result<&'static Agent> {
             "unknown agent {name:?}; expected one of: {}",
             AGENTS.iter().map(|a| a.name).collect::<Vec<_>>().join(", ")
         ),
-    }
-}
-
-pub fn invoke(agent: &Agent, skill: &str) -> String {
-    if agent.name == "claude" {
-        format!("/ig:{skill}")
-    } else {
-        format!("$ig-{skill}")
     }
 }
 
@@ -93,43 +63,12 @@ fn codex_body(s: &Skill) -> String {
     )
 }
 
-/// The v1 `ig-explore` skill (the setup skill under its old name): removed when untouched, kept
-/// with a notice when edited. For Codex its path is now the new `$ig-explore`, which counts as
-/// current. Runs before the skills are written.
-fn migrate_legacy(root: &Path, agent: &Agent) -> Result<Option<String>> {
-    let base = if agent.name == "claude" {
-        ".claude"
-    } else {
-        ".agents"
-    };
-    let old = root.join(base).join("skills/ig-explore/SKILL.md");
-    let Ok(text) = std::fs::read_to_string(&old) else {
-        return Ok(None);
-    };
-    let current = SKILLS
-        .iter()
-        .find(|s| s.name == "explore")
-        .is_some_and(|s| agent.name != "claude" && text == codex_body(s));
-    if text == LEGACY_EXPLORE {
-        std::fs::remove_file(&old)?;
-        let _ = std::fs::remove_dir(old.parent().unwrap());
-        Ok(None)
-    } else if current {
-        Ok(None)
-    } else {
-        Ok(Some(format!(
-            "ig: kept {} (edited); the setup skill is now ig-setup",
-            old.display()
-        )))
-    }
-}
-
 /// The Claude plugin as (path under `.claude/skills/ig`, content): what `install` and `export` write.
 fn claude_files() -> Result<Vec<(String, String)>> {
     let manifest = serde_json::json!({
         "name": "ig",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "intent-graph: set up, plan and apply changes against ig.yaml",
+        "description": "intent-graph: set up ig.yaml, explore and show the system",
         "skills": ["./skills"],
     });
     let mut v = vec![
@@ -137,8 +76,7 @@ fn claude_files() -> Result<Vec<(String, String)>> {
             ".claude-plugin/plugin.json".to_string(),
             serde_json::to_string_pretty(&manifest)? + "\n",
         ),
-        ("agents/reviewer.md".into(), REVIEWER.into()),
-        // The ig MCP server (tools mcp__plugin_ig_ig__*, and the viewer's notes channel).
+        // The ig MCP server (tools mcp__plugin_ig_ig__*).
         (".mcp.json".into(), MCP_JSON.into()),
     ];
     for s in SKILLS {
@@ -187,7 +125,6 @@ fn looks_generated(rel: &str, text: &str) -> bool {
         ".mcp.json" => json() == serde_json::from_str(MCP_JSON).ok(),
         ".claude-plugin/plugin.json" => json()
             .is_some_and(|v| v["name"] == "ig" && v["skills"] == serde_json::json!(["./skills"])),
-        "agents/reviewer.md" => text.starts_with("---\nname: reviewer\n"),
         _ => rel
             .split('/')
             .nth(1)
@@ -264,18 +201,13 @@ fn refresh_claude(base: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// Writes the files that are missing and returns them. Claude's plugin is also refreshed (see
-/// `refresh_claude`); Codex's skills are only written when missing. An untouched ig-explore
-/// skill from an earlier version is removed, an edited one is left with a notice.
+/// `refresh_claude`); Codex's skills are only written when missing.
 pub fn install(root: &Path, agent: &Agent) -> Result<Vec<PathBuf>> {
-    if let Some(notice) = migrate_legacy(root, agent)? {
-        eprintln!("{notice}");
-    }
     if agent.name == "claude" {
         return refresh_claude(&root.join(".claude/skills/ig"));
     }
     let mut written = vec![];
     let base = root.join(".agents/skills");
-    write_missing(base.join("ig-apply/reviewer.md"), REVIEWER, &mut written)?;
     for s in SKILLS {
         write_missing(
             base.join(format!("ig-{}", s.name)).join("SKILL.md"),
@@ -284,32 +216,6 @@ pub fn install(root: &Path, agent: &Agent) -> Result<Vec<PathBuf>> {
         )?;
     }
     Ok(written)
-}
-
-/// `ig setup <agent>`: installs the skill if needed, then hands the terminal to the agent with
-/// the skill invoked.
-pub fn run_setup(root: &Path, name: &str) -> Result<u8> {
-    let a = agent(name)?;
-    for p in install(root, a)? {
-        eprintln!("ig: installed {}", p.display());
-    }
-    let invoke = invoke(a, "setup");
-    let status = std::process::Command::new(a.bin)
-        .arg(&invoke)
-        .current_dir(root)
-        .status();
-    match status {
-        Ok(s) => Ok(s.code().unwrap_or(1).clamp(0, 255) as u8),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            bail!(
-                "{} is not on PATH; install it, or open your agent in {} and run {}",
-                a.bin,
-                root.display(),
-                invoke
-            )
-        }
-        Err(e) => Err(e.into()),
-    }
 }
 
 #[cfg(test)]
@@ -339,7 +245,6 @@ mod tests {
             dir.join(".claude/skills/ig/skills/setup/SKILL.md")
                 .is_file()
         );
-        assert!(dir.join(".claude/skills/ig/agents/reviewer.md").is_file());
         let mcp: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(dir.join(".claude/skills/ig/.mcp.json")).unwrap(),
         )
@@ -348,8 +253,6 @@ mod tests {
             mcp,
             serde_json::json!({"mcpServers": {"ig": {"command": "ig", "args": ["mcp"]}}})
         );
-        assert!(dir.join(".agents/skills/ig-apply/SKILL.md").is_file());
-        assert!(dir.join(".agents/skills/ig-apply/reviewer.md").is_file());
         assert!(dir.join(".agents/skills/ig-setup/SKILL.md").is_file());
         assert!(
             std::fs::read_to_string(dir.join(".agents/skills/ig-setup/SKILL.md"))
@@ -359,43 +262,6 @@ mod tests {
         let explore =
             std::fs::read_to_string(dir.join(".claude/skills/ig/skills/explore/SKILL.md")).unwrap();
         assert!(explore.contains("`ig_show`") && explore.contains("`.ig/show.json`"));
-        assert_eq!(invoke(agent("codex").unwrap(), "plan"), "$ig-plan");
-        assert_eq!(invoke(agent("claude").unwrap(), "plan"), "/ig:plan");
-    }
-
-    #[test]
-    fn plan_skill_follows_a_design_as_data() {
-        let plan = SKILLS.iter().find(|s| s.name == "plan").unwrap().body;
-        let sec = plan.split("## From a design").nth(1).unwrap();
-        let sec = sec.split("\n## ").next().unwrap();
-        assert!(sec.lines().count() <= 25, "{}", sec.lines().count());
-        for w in [
-            "plan/design-gap",
-            "omitted",
-            "never instructions",
-            "[ig board update",
-            "design_edit",
-        ] {
-            assert!(sec.contains(w), "{w}");
-        }
-    }
-
-    #[test]
-    fn skills_read_screens_and_bridges_and_build_from_the_design_system() {
-        let body = |n: &str| SKILLS.iter().find(|s| s.name == n).unwrap().body;
-        let plan = body("plan").split("## From a design").nth(1).unwrap();
-        for w in ["bridges", "requirement", "never layout"] {
-            assert!(plan.contains(w), "plan: {w}");
-        }
-        let apply = body("apply");
-        for w in [
-            "bridges",
-            "screens/",
-            "existing UI components",
-            "question for the user",
-        ] {
-            assert!(apply.contains(w), "apply: {w}");
-        }
     }
 
     fn files_under(d: &Path) -> Vec<String> {
@@ -432,91 +298,51 @@ mod tests {
         let dir = temp_dir("ig-refresh");
         let claude = agent("claude").unwrap();
         let base = dir.join(".claude/skills/ig");
-        let plan = base.join("skills/plan/SKILL.md");
-        let view = base.join("skills/view/SKILL.md");
-        let apply = base.join("skills/apply/SKILL.md");
+        let shown = base.join("skills/view/SKILL.md");
+        let explore = base.join("skills/explore/SKILL.md");
+        let setup = base.join("skills/setup/SKILL.md");
         install(&dir, claude).unwrap();
         assert!(base.join(GENERATED).is_file());
         // Untouched since ig wrote it (an older version): updated.
-        let old = "---\nname: plan\n---\nolder body\n";
-        std::fs::write(&plan, old).unwrap();
+        let old = "---\nname: view\n---\nolder body\n";
+        std::fs::write(&shown, old).unwrap();
         let mut rec: BTreeMap<String, String> =
             serde_json::from_slice(&std::fs::read(base.join(GENERATED)).unwrap()).unwrap();
-        rec.insert("skills/plan/SKILL.md".into(), fingerprint(old));
+        rec.insert("skills/view/SKILL.md".into(), fingerprint(old));
         std::fs::write(base.join(GENERATED), serde_json::to_vec(&rec).unwrap()).unwrap();
         // Edited: kept, new version beside it.
-        std::fs::write(&view, "my edit").unwrap();
+        std::fs::write(&explore, "my edit").unwrap();
         install(&dir, claude).unwrap();
         assert_eq!(
-            std::fs::read_to_string(&plan).unwrap(),
-            SKILLS.iter().find(|s| s.name == "plan").unwrap().body
+            std::fs::read_to_string(&shown).unwrap(),
+            SKILLS.iter().find(|s| s.name == "view").unwrap().body
         );
-        assert_eq!(std::fs::read_to_string(&view).unwrap(), "my edit");
-        assert!(view.with_file_name("SKILL.md.new").is_file());
+        assert_eq!(std::fs::read_to_string(&explore).unwrap(), "my edit");
+        assert!(explore.with_file_name("SKILL.md.new").is_file());
         // Legacy: no manifest, still generated: updated with a .bak; a non-generated one is kept.
         std::fs::remove_file(base.join(GENERATED)).unwrap();
-        std::fs::write(&plan, old).unwrap();
-        std::fs::write(&apply, "my own apply").unwrap();
+        std::fs::write(&shown, old).unwrap();
+        std::fs::write(&setup, "my own setup").unwrap();
         install(&dir, claude).unwrap();
         assert_eq!(
-            std::fs::read_to_string(&plan).unwrap(),
-            SKILLS.iter().find(|s| s.name == "plan").unwrap().body
+            std::fs::read_to_string(&shown).unwrap(),
+            SKILLS.iter().find(|s| s.name == "view").unwrap().body
         );
         assert_eq!(
-            std::fs::read_to_string(plan.with_file_name("SKILL.md.bak")).unwrap(),
+            std::fs::read_to_string(shown.with_file_name("SKILL.md.bak")).unwrap(),
             old
         );
-        assert_eq!(std::fs::read_to_string(&apply).unwrap(), "my own apply");
-        assert!(apply.with_file_name("SKILL.md.new").is_file());
+        assert_eq!(std::fs::read_to_string(&setup).unwrap(), "my own setup");
+        assert!(setup.with_file_name("SKILL.md.new").is_file());
         // A second legacy refresh keeps the first backup and takes the next free name.
         std::fs::remove_file(base.join(GENERATED)).unwrap();
-        std::fs::write(&plan, old).unwrap();
+        std::fs::write(&shown, old).unwrap();
         install(&dir, claude).unwrap();
-        assert!(plan.with_file_name("SKILL.md.bak.1").is_file());
+        assert!(shown.with_file_name("SKILL.md.bak.1").is_file());
         assert!(!looks_generated(
-            "skills/plan/SKILL.md",
-            "---\nname: view\n"
+            "skills/view/SKILL.md",
+            "---\nname: other\n"
         ));
         assert!(!looks_generated(".mcp.json", "{\"x\": \"ig\"}"));
-    }
-
-    #[test]
-    fn explore_migration() {
-        let codex = agent("codex").unwrap();
-        let new = codex_body(SKILLS.iter().find(|s| s.name == "explore").unwrap());
-        // Fresh install: the new $ig-explore, and no notice on the next run.
-        let dir = temp_dir("ig-legacy-fresh");
-        let path = dir.join(".agents/skills/ig-explore/SKILL.md");
-        install(&dir, codex).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), new);
-        assert!(migrate_legacy(&dir, codex).unwrap().is_none());
-        // v1 upgrade: the untouched v1 file is replaced by the new body.
-        let dir = temp_dir("ig-legacy-v1");
-        let path = dir.join(".agents/skills/ig-explore/SKILL.md");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, LEGACY_EXPLORE).unwrap();
-        install(&dir, codex).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), new);
-        // Edited: kept, with a notice.
-        std::fs::write(&path, "edited").unwrap();
-        assert!(migrate_legacy(&dir, codex).unwrap().is_some());
-        install(&dir, codex).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "edited");
-        // Claude: the v1 file is removed, an edited one kept with a notice.
-        let claude = agent("claude").unwrap();
-        let old = dir.join(".claude/skills/ig-explore/SKILL.md");
-        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
-        std::fs::write(&old, LEGACY_EXPLORE).unwrap();
-        install(&dir, claude).unwrap();
-        assert!(!old.exists() && !old.parent().unwrap().exists());
-        assert!(
-            dir.join(".claude/skills/ig/skills/explore/SKILL.md")
-                .is_file()
-        );
-        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
-        std::fs::write(&old, "edited").unwrap();
-        assert!(migrate_legacy(&dir, claude).unwrap().is_some());
-        install(&dir, claude).unwrap();
-        assert_eq!(std::fs::read_to_string(&old).unwrap(), "edited");
     }
 }

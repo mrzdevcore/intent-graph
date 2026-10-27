@@ -46,18 +46,14 @@ fn dependency_rule() {
             .filter(|d| d.starts_with("ig-"))
             .collect();
         let allowed: &[&str] = match name {
-            "ig-design" => &[],
-            "ig-core" | "ig-board" => &["ig-design"],
+            "ig-core" => &[],
             _ => &["ig-core"],
         };
         for d in &deps {
             assert!(allowed.contains(d), "{name} must not depend on {d}");
         }
     }
-    assert_eq!(
-        seen, 8,
-        "ig-design, ig-board, ig-core, ig-app, ig-lang-ts, ig-fs, ig-git, ig-checkers"
-    );
+    assert_eq!(seen, 5, "ig-core, ig-app, ig-lang-ts, ig-fs, ig-git");
 }
 
 #[test]
@@ -72,7 +68,7 @@ fn no_io_in_core_or_app() {
         "eprintln!",
     ];
     let mut files = vec![];
-    for c in ["ig-design", "ig-board", "ig-core", "ig-app"] {
+    for c in ["ig-core", "ig-app"] {
         rs_files(&root().join("crates").join(c).join("src"), &mut files);
     }
     assert!(!files.is_empty());

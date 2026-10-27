@@ -1,20 +1,13 @@
 //! Use cases over the real adapters (temporary trees and git repos), and their helpers.
 
-mod apply;
-mod base;
-mod brief;
 mod graph;
-mod plan;
 mod setup;
 mod view;
 
 use ig_app::build::Built;
-use ig_app::check::{self, Opts, Run};
 use ig_core::config::Config;
 use ig_wire::Wired;
 use std::path::{Path, PathBuf};
-
-pub(crate) const PLAN: &str = "# Export\n\n## Steps\n1. core: add export\n\n```ig-plan\nnodes:\n  - id: packages/core/src/export.ts#exportRows\n    status: new\n    exported: true\n  - id: packages/core/src/repo.ts#Repo.find\n    status: changed\nedges:\n  - from: packages/core/src/export.ts#exportRows\n    to: packages/core/src/repo.ts#Repo.find\n```\n";
 
 /// An `Env` for `dir`; its adapters are leaked (tests only).
 pub(crate) fn env(dir: &Path) -> ig_app::Env<'static> {
@@ -30,16 +23,6 @@ pub(crate) fn build(root: &Path, config: &Config, commit: Option<String>) -> any
 
 pub(crate) fn load(root: &Path) -> anyhow::Result<Config> {
     Ok(ig_app::config::load(&ig_fs::FsFiles::new(root))?)
-}
-
-pub(crate) fn check_run(root: &Path, opts: &Opts) -> anyhow::Result<Run> {
-    Ok(check::run(&Wired::new(root).env(), opts)?)
-}
-
-/// `ig plan check` on the plan at `path`.
-pub(crate) fn plan_check(root: &Path, path: &Path) -> anyhow::Result<serde_json::Value> {
-    let (rel, text) = ig_wire::read_plan(root, path)?;
-    Ok(ig_app::plan::check(&Wired::new(root).env(), &rel, &text)?)
 }
 
 pub(crate) fn fixture_dir(name: &str) -> PathBuf {
@@ -111,10 +94,4 @@ pub(crate) fn git_fixture(name: &str) -> PathBuf {
             .args(args));
     }
     dir.canonicalize().unwrap() // like main: plan paths are made root-relative
-}
-
-pub(crate) fn write(dir: &Path, rel: &str, text: &str) {
-    let p = dir.join(rel);
-    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-    std::fs::write(p, text).unwrap();
 }
