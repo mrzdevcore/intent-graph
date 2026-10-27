@@ -1,4 +1,4 @@
-//! `ig setup`: facts an agent needs to write ig.yaml, as JSON and as a Markdown report.
+//! Setup facts: what an agent needs to write ig.yaml, as JSON and as a Markdown report.
 
 use crate::Env;
 use crate::build::Built;
@@ -202,7 +202,7 @@ fn table(out: &mut String, rows: &[Value], cols: &[(&str, &str)], limit: usize) 
 
 pub fn report(f: &Value) -> String {
     let mut s = String::from(
-        "# ig setup\n\nFacts for writing ig.yaml. See the ig-setup skill for how to use them.\n\n",
+        "# ig setup\n\nFacts for writing ig.yaml.\n\n",
     );
     let c = &f["config"];
     s.push_str("## Config\n\n");

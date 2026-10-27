@@ -1,5 +1,5 @@
 //! Language-neutral graph assembly: the frontends' nodes and edges merged (code never resolves
-//! into tests), blueprint `system` nodes and `http` links, and the extras `ig setup` reports.
+//! into tests), blueprint `system` nodes and `http` links, and the extras `setup::facts` reports.
 
 use ig_core::config::Config;
 use ig_core::http;
@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 pub struct Built {
     pub graph: Graph,
     pub workspace: WorkspaceInfo,
-    /// Facts that are not graph data, for `ig setup`.
+    /// Facts that are not graph data, for `setup::facts`.
     pub extras: Extras,
 }
 

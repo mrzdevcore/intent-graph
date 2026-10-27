@@ -12,7 +12,7 @@ const AGENTS_MARKER: &str = "<!-- ig:agents -->";
 const AGENTS_SNIPPET: &str = "<!-- ig:agents -->
 ## ig (intent-graph)
 
-- Use /ig:setup ($ig-setup in Codex) to set up ig.yaml, /ig:explore to answer questions about the code.
+- Use /ig:explore ($ig-explore in Codex) to answer questions about the code with the ig graph.
 ";
 
 fn layer_name(s: &str) -> String {
@@ -193,12 +193,9 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
     if created.is_empty() {
         println!("ig init: nothing to do");
     }
-    println!(
-        "\nNext: let your coding agent populate ig.yaml with /ig:setup (Claude) or $ig-setup (Codex)."
-    );
     if agents.iter().any(|a| a.name == "claude") {
         println!(
-            "Claude loads .claude/skills/ig only after you trust this folder; run /reload-plugins if /ig:setup is missing."
+            "Claude loads .claude/skills/ig only after you trust this folder; run /reload-plugins if /ig:explore is missing."
         );
     }
     Ok(())
@@ -244,17 +241,21 @@ mod tests {
         )
         .unwrap();
         assert!(
-            dir.join(".claude/skills/ig/skills/setup/SKILL.md")
+            dir.join(".claude/skills/ig/skills/explore/SKILL.md")
                 .is_file()
         );
-        assert!(dir.join(".agents/skills/ig-setup/SKILL.md").is_file());
+        assert!(dir.join(".agents/skills/ig-explore/SKILL.md").is_file());
         let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap();
         assert!(cfg.contains("core: [\"src/core/**\"]"));
         std::fs::write(dir.join("ig.yaml"), "rules: []\n").unwrap();
-        std::fs::write(dir.join(".claude/skills/ig/skills/setup/SKILL.md"), "mine").unwrap();
+        std::fs::write(
+            dir.join(".claude/skills/ig/skills/explore/SKILL.md"),
+            "mine",
+        )
+        .unwrap();
         run(&dir, &[crate::skills::agent("claude").unwrap()]).unwrap();
         assert_eq!(
-            std::fs::read_to_string(dir.join(".claude/skills/ig/skills/setup/SKILL.md")).unwrap(),
+            std::fs::read_to_string(dir.join(".claude/skills/ig/skills/explore/SKILL.md")).unwrap(),
             "mine"
         );
         assert_eq!(
