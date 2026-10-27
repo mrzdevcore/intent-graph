@@ -68,29 +68,36 @@ The renderer knows nothing about where a layer comes from.
   confirmed.
 - Several layers can be on at once; the legend lists them, and each can be toggled.
 
-## How people use ig: terminal first
+## How people use ig: minimal, and built to grow
 
-The terminal is home base; the app is a window you open from it. Every action works from the
-command line too.
+**There are three things to learn:**
+1. **One command:** `ig .` opens the app on a folder (`ig` alone opens the current folder; a
+   subcommand name wins, so `ig ./map` opens a folder named `map`).
+2. **One screen:** the map, with the chat beside it. No modes, tabs or panels.
+3. **One way to ask:** type in the chat. Slash commands (`/ig:setup`, `/ig:explore`) are
+   shortcuts, never required.
+
+**First run, with no setup step:**
+- `ig .` shows ig's plain map within seconds.
+- One line on the map offers **"Let Claude read the architecture?"**. It runs only on that click,
+  never automatically, because it spends the user's Claude usage.
+- A progress bar runs on the map while the map reshapes. Claude reports its steps through the
+  MCP tool `ig_progress`, so the app and the terminal show the same thing.
+- The reading is saved in `.ig/map.json`, so every later open is instant.
+
+**How it grows:** every future feature is either **a layer on the map** (rules, risks,
+production health, branch changes, Claude's answers) or **a message in the chat** (explore,
+review a branch, sketch then build, fix this red arrow). Never a new screen, mode or command.
+
+**The command line is for automation:**
 
 | Command | Does |
 |---|---|
-| `ig`, `ig .`, `ig <folder>` | opens the desktop app on that folder, the current one by default (the same as `ig app`); a subcommand name wins, so `ig ./map` opens a folder named `map` |
-| `ig setup` | the same as `/ig:setup`: writes `ig.yaml` if missing, runs the analysis, then runs Claude headless (`claude -p "/ig:setup"`) to read the architecture into `.ig/map.json` |
-| `ig map [box]` | prints the map, or one box zoomed in, in the terminal: boxes, their badges, and what is red or amber |
-| `ig explore "<question>"` | asks Claude headless and prints the answer plus the boxes involved (goal 2) |
-| `ig check` | exits non-zero when a rule is broken, for CI and pre-commit |
+| `ig .` | opens the app |
+| `ig check` | exits non-zero when a rule is broken (CI, pre-commit) |
+| `ig map [box]` | prints the map, or one box zoomed in, as text |
+| `ig setup` | headless: analysis plus `claude -p "/ig:setup"`, with progress printed |
 | `ig view` | writes the single-file HTML map |
-
-- **In the agent chat** (in the app, or Claude Code in a terminal):
-  - **`/ig:setup`** prepares the repo and reads the architecture.
-  - **`/ig:explore`** answers questions on the map (goal 2).
-- **Progress is always visible.** In the app, a bar sits on the map ("Analysing 1,240 files…",
-  "Claude is reading the architecture: 3 of 6 containers"). In the terminal, the same steps are
-  printed. Claude reports its steps through an MCP tool, `ig_progress`, so the app and the
-  terminal show the same thing.
-- **The first open of a repo without `.ig/map.json`** shows ig's plain map at once, with a banner
-  offering `/ig:setup`.
 
 ## Purpose behind every choice
 
