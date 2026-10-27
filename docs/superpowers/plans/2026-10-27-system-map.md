@@ -2,23 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Strip ig down to what the map needs. Then build goal 1: open a repo and see its system as a
-few boxes in the shape of its architecture (containers → components → code), zoom smoothly into any
-box, and see the rules and risks layers. Health states are drawn from layer files, so production
-data can plug in later.
+**Goal:** Strip ig down to what the map needs, then make `ig view` robust. It builds the complete
+map file (ig's facts plus an AI agent's annotations) and opens a walkable canvas: containers →
+components → code, smooth zoom, and the rules, risks and file-based health layers.
 
 **Architecture:**
-- **Rust computes everything** (ig-app `map` module):
-  - the reading (`.ig/map.json`, or a fallback from ig's facts);
-  - the box tree;
-  - the aggregated arrows;
-  - the layout and orthogonal routes;
-  - the layers.
-  The result is shipped as one `MapView` JSON to the desktop app (Tauri command) and to `ig view`
-  (embedded).
+- **ig-app's `map` module** computes the facts (boxes, arrows, calls in loops) and merges them
+  with the annotations in `.ig/map.json` (refresh keeps annotations and pins).
+- **An agent-agnostic runner** (claude, gemini or codex, headless) annotates the boxes that need
+  reading; ig validates every answer.
+- **At render time,** ig adds the code level, the layers, the layout and the routes, and embeds one
+  `View` JSON in the single-file HTML.
 - **The viewer is plain DOM/SVG** in one transformed "world". A box's inside is rendered, scaled,
   inside the box once it is big enough on screen. Zoom is a CSS-transform camera.
-- **Claude writes the reading** through two MCP tools and one skill.
 
 **Tech Stack:** Rust 2024 (ig-core, ig-lang-ts, ig-app, ig, ig-desktop/Tauri 2), Svelte 5 + TS +
 Vite (bun), vitest + happy-dom, simple-icons (already a dependency).
@@ -341,7 +337,7 @@ commands come later, on top of the same map file.
   - `pub struct Frame { x, y, w, h: f32 }`, in the parent's own inner units.
   - `pub struct Region { parent, kind /*Ring|Band|Group*/, label, frame }`.
   - `pub struct Placed { frames: BTreeMap<String,Frame>, inner: BTreeMap<String,(f32,f32)>, regions: Vec<Region>, routes: BTreeMap<String, Vec<(f32,f32)>> }`.
-  - `pub fn layout(boxes, arrows) -> Placed`, with the rules of the old Task 5:
+  - `pub fn layout(boxes, arrows) -> Placed`, with these rules:
     - mockup sizes; gutters ≥ 48;
     - system level: people, then containers, then externals;
     - onion rings nest, domain innermost; layered bands in order; hexagonal core, ports and
@@ -359,7 +355,7 @@ commands come later, on top of the same map file.
   - `file_layer_marks`: a health file with marks on `api` and `nope` gives 1 mark and 1 notice.
   - `code::groups_past_twelve_code`: 30 functions in one component give ≤ 12 children.
   - `layout::no_overlap`, `layout::routes_avoid_boxes`, `layout::onion_rings_nest`,
-    `layout::deterministic`: as in the old Task 5, for shop and for 12 seeded random trees.
+    `layout::deterministic`: no two sibling frames intersect and each is inside its parent; no route segment crosses a sibling frame other than its own ends; domain ⊂ application ⊂ infrastructure; two runs are byte-identical. Run for shop and for 12 seeded random trees.
   - `tests/view.rs::view_json_shape`: `ig view --json` on shop has `boxes`, `arrows`, `marks`
     and `placed`, and no `nodes` key.
 - [ ] **Step 2: Run** `cargo test --workspace`. Expected: FAIL.
@@ -440,7 +436,7 @@ commands come later, on top of the same map file.
 - **Produces:**
   - `type Cam = { x: number; y: number; k: number }`.
   - `fitTo(frame: Frame, view: {w:number;h:number}, margin = 0.1): Cam`.
-  - `worldFrame(id: string, view: MapView): Frame`: the absolute frame, composing the parent
+  - `worldFrame(id: string, view: View): Frame`: the absolute frame, composing the parent
     scales.
   - `detailFor(screenW: number): "far" | "mid" | "near"`: < 140 far, < 220 mid, otherwise near.
   - `showsInside(screenW: number): boolean`: ≥ 560.
