@@ -477,6 +477,7 @@ impl<'f> Index<'f> {
                     line: i.line,
                     namespace: i.namespace,
                     reexport: i.reexport,
+                    in_loop: false,
                 });
             }
         }
@@ -492,6 +493,7 @@ impl<'f> Index<'f> {
                         line: r.line,
                         namespace: false,
                         reexport: false,
+                        in_loop: r.in_loop,
                     });
                 }
                 continue;
@@ -526,6 +528,7 @@ impl<'f> Index<'f> {
                     line: r.line,
                     namespace: false,
                     reexport: false,
+                    in_loop: r.in_loop,
                 });
             }
         }

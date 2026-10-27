@@ -45,6 +45,7 @@ fn edge(from: &str, kind: &str, to: &str, file: &str, line: u32) -> Edge {
         line,
         namespace: false,
         reexport: false,
+        in_loop: false,
     }
 }
 
