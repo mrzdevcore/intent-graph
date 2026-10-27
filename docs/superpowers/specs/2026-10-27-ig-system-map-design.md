@@ -42,6 +42,18 @@ Later, each needing its own go-ahead:
    merge request.
 6. **Team sharing**, with notes on boxes and arrows.
 7. **Links on boxes** (docs, dashboards).
+8. **ig on a server:** ig runs on a server instead of the user's machine, and people open the map
+   in a browser. This is where a client–server design comes in: one long-running ig process per
+   repo, which is also the natural listener for production data (goal 3).
+
+### Kept cheap now (no server is built in this restart)
+
+- **Every face goes through one engine API** in ig-app (`map_view`, the reading, the layers).
+  The app, `ig mcp`, the CLI and `ig view` never reach into the analysis directly. A server later
+  puts this same API behind HTTP.
+- **The viewer only talks to the engine through its `IgApi` host interface.** It already has
+  three hosts: embedded, HTTP and Tauri. The same viewer build then runs in a browser against a
+  server, unchanged.
 
 ## Layers: one mechanism for everything drawn on the map
 
