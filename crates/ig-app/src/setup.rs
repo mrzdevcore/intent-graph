@@ -201,9 +201,7 @@ fn table(out: &mut String, rows: &[Value], cols: &[(&str, &str)], limit: usize) 
 }
 
 pub fn report(f: &Value) -> String {
-    let mut s = String::from(
-        "# ig setup\n\nFacts for writing ig.yaml.\n\n",
-    );
+    let mut s = String::from("# ig setup\n\nFacts for writing ig.yaml.\n\n");
     let c = &f["config"];
     s.push_str("## Config\n\n");
     if !c["exists"].as_bool().unwrap_or(false) {
