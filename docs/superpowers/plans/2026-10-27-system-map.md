@@ -406,6 +406,10 @@ commands come later, on top of the same map file.
     - if it still fails, returns `Err` and leaves the map untouched.
     - Progress lines: `Asking {agent} to read {n} boxes…`, `{agent} answered, checking…`,
       `Read {k} boxes.`
+  - **The three stages:** (1) the static analyser's facts, (2) the agent's annotations, with
+    those facts as its input, and (3) the compiler (`refresh`, `annotate`, `validate`). The
+    compiler also upgrades an agent field's confidence to `extracted` when the facts prove it: the
+    tech or logo names a package the box imports, or the kind matches the folder evidence.
   - **`ig view`:**
     1. refresh;
     2. if any box `needs_reading` and stdin and stdout are a TTY and neither `--no-read` nor
@@ -430,6 +434,9 @@ commands come later, on top of the same map file.
     the no-agent line.
   - `pick_order`: with `gemini` and `codex` on PATH and no config, Gemini is picked; with
     `agent: codex` in config, Codex is picked.
+  - `compiler_upgrades_confidence`: the agent annotates `postgres` with tech `"via Prisma"` and
+    confidence `inferred`. Because the facts show `@prisma/client` imported by the box using it,
+    the stored confidence is `extracted`. A tech the facts cannot support stays `inferred`.
 - [ ] **Step 2: Run** `cargo test -p intent-graph agent_`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** `cargo test --workspace`. Expected: PASS.
