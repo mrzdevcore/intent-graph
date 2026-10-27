@@ -1,8 +1,9 @@
 # ig: the system map (minimal restart)
 
-Design mockups: https://claude.ai/artifact/4w5FRpxbX4otp7G7xaADg6. Screen 4 (onion, press Play and
-click Checkout) and the "The box" sheet are the target look. Screens 1–3 show the flows in the older
-plain style.
+Design mockups: https://claude.ai/artifact/4w5FRpxbX4otp7G7xaADg6. **Screen 4 is the approved target**
+(press Play, click api): containers with health and badges, then a glide into api's onion of
+components. The sheets "The box", "Building blocks" and "Building blocks, part 2" define every piece;
+`Box.dc.html` holds the exact tokens. Screens 1–3 are older explorations of the flows.
 
 ## Intent
 
@@ -234,31 +235,63 @@ layered is the fallback every repo can use)*.
 
 ## The box: one component for every element
 
-See the "The box" sheet in the mockups.
+See the sheets "The box" and "Building blocks, part 2"; `Box.dc.html` is the reference
+implementation of the component and its tokens.
 
-- **Anatomy:**
-  - icon (a real logo via simple-icons, already a viewer dependency, else the kind's icon on a tile
-    tinted with the kind's color);
-  - title (Kalam, hand-drawn feel);
-  - kind and tech line;
-  - one- to two-line description;
-  - badges: status on this branch, rules broken, and "N inside ›".
-- **Kinds and colors:**
-  - container kinds (web app, API, worker, store, queue, outside system): mostly identified by
-    their logo;
-  - component kinds: entry point blue `#3b6fd8`; use case green `#2f8f5b`; port green dashed;
-    domain gold `#b8860b`;
-  - outside systems: grey dashed pill. The full token set is in the mockup's
-  `Box.dc.html`.
-- **States:** as it is; part of Claude's answer (gold glow); new, changed or removed on this branch;
-  sketched, not built (dashed blue); breaks a rule (red badge). Only "as it is", "Claude's answer"
-  and "breaks a rule" are needed in this restart. Health states come with goal 1 too (tested with a fixture layer); the branch states come with goal 4, and "sketched" with goal 5.
-- **Levels of detail by zoom:** far shows the icon and title; mid adds kind and description; near
-  adds badges; closest shows the inside.
+- **Anatomy:** icon tile (a real logo via simple-icons, already a viewer dependency, else the kind's
+  icon); title (Kalam; code type at the code level); a "kind · tech" line; a one- to two-line
+  description; badges.
+- **Settings:**
+  - `level`: system | container | component | code, which picks the look:
+    - person: a figure, never a box;
+    - system: a heavier border;
+    - container: logo first, with reliability badges;
+    - component: kind color and icon;
+    - code: name in code type, file and line, dense.
+  - `kind`: person, system, external, app, api, worker, store, queue, entry, usecase, port, domain,
+    function, class.
+  - `detail`: far | mid | near, chosen from the box's size on screen:
+    - far: icon and title;
+    - mid: plus the "kind · tech" line and description;
+    - near: plus badges;
+    - closer still: the inside takes over.
+  - layer inputs: `health` (ok | slow | failing | down, plus its number), `status` (branch),
+    `issues` (rules broken), `highlight` (Claude's answer), and `badges` (facts; a `!` prefix
+    marks a risk, drawn amber).
+- **Precedence of looks:** health > Claude's highlight > branch status > kind.
+- **Healthy looks like nothing:** a small green dot and quiet numbers. Only problems get color.
+  - slow: amber border with the number;
+  - failing: red border, a glow and one pulse when it turns red;
+  - down: grey, dashed, faded.
+  A parent shows a red count ("1 inside") at every level up.
+- **Component kind colors:** entry blue `#3b6fd8`; use case green `#2f8f5b`; port green dashed;
+  domain gold `#b8860b`. Outside systems are grey dashed pills.
+
+### The other building blocks
+
+- **Arrows:** the kinds table above. Health recolors an arrow but never changes its kind (dashed
+  stays dashed):
+  - slow: amber;
+  - failing: red;
+  - no traffic: faded dots;
+  - risk found in the code: amber dashed;
+  - risk confirmed by production: amber solid, with the number.
+- **Containers on the canvas:** ring, band, group.
+- **Details card:** opens beside a box on click (a short version on hover), with:
+  - the production numbers;
+  - "needs attention" (rules, risks);
+  - connections in and out;
+  - "made of" (globs and `service.name`);
+  - Zoom in, Open in editor, and links.
+- **Map controls:**
+  - the breadcrumb;
+  - the layers panel (on and off per layer);
+  - the "Showing: …" chip for Claude's answer;
+  - zoom out, Fit and zoom in.
 
 ## Zoom
 
-- Clicking a box glides the camera into it in about 750 ms with an ease-out curve. Its label fades
+- Clicking a box glides the camera into it in about 800 ms with an ease-out curve. Its label fades
   as its inside fades in. The breadcrumb ("billing-service › application › Checkout") glides back
   out. Scrolling and pinching zoom freely; levels of detail switch on the on-screen size of each box.
 - **Every box already holds its inside**, so zooming never reflows the map.
