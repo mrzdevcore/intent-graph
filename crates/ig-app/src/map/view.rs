@@ -75,9 +75,9 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     if rejected.is_empty() {
         if let Some(a) = ask {
             let ev = Evidence::new(&boxes, &built.extras.imports, &config);
-            notices.extend(offer(a, &mut m, &ev, &config, env.progress));
+            notices.extend(offer(a, &mut m, &ev, &config, env.files, env.progress));
         }
-        file::save(env.files, &m)?;
+        notices.extend(save_valid(env.files, &m)?);
     } else {
         notices.extend(rejected);
         notices.push(format!(
@@ -90,6 +90,20 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     notices.append(&mut v.notices);
     v.notices = notices;
     Ok(v)
+}
+
+/// Saves `m` unless `validate` rejects it (the next run would drop the whole file): then the
+/// notice why.
+fn save_valid(files: &dyn Files, m: &MapFile) -> crate::Result<Option<String>> {
+    if let Err(e) = file::validate(m) {
+        return Ok(Some(format!(
+            "{} not written, ig's map is not valid: {}",
+            file::MAP,
+            e.join("; ")
+        )));
+    }
+    file::save(files, m)?;
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -117,5 +131,22 @@ mod tests {
         let fresh = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
         run(&env(&fresh, None, &fe)).unwrap();
         assert!(file::load(&fresh).0.is_some(), "a missing map is written");
+    }
+
+    #[test]
+    fn an_invalid_map_is_never_written() {
+        let files = MemFiles::with(&[]);
+        let mut m = MapFile {
+            version: 2,
+            boxes: vec![],
+            arrows: vec![],
+            marks: vec![],
+        };
+        let n = save_valid(&files, &m).unwrap().unwrap();
+        assert!(n.contains("not written") && n.contains("version 2"), "{n}");
+        assert!(files.read(file::MAP).is_none());
+        m.version = 1;
+        assert_eq!(save_valid(&files, &m).unwrap(), None);
+        assert!(files.read(file::MAP).is_some());
     }
 }

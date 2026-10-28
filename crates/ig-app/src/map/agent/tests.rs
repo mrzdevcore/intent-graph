@@ -1,6 +1,7 @@
 use super::*;
 use crate::map::file::refresh;
 use crate::map::{arrows, facts, shop};
+use ig_core::testing::MemFiles;
 
 /// The shop's fresh map and its evidence (the prisma client imports `@prisma/client`).
 fn shop_map() -> (MapFile, Evidence) {
@@ -36,15 +37,168 @@ fn read_with(
 #[test]
 fn pick_order() {
     let none = Config::default();
+    let all = |_: &str| true;
+    // only claude is picked on its own; gemini and codex only when named
+    assert_eq!(Agent::pick(&none, None, &all), Some(Agent::Claude));
     let found = |n: &str| n == "gemini" || n == "codex";
-    assert_eq!(Agent::pick(&none, None, &found), Some(Agent::Gemini));
+    assert_eq!(Agent::pick(&none, None, &found), None);
     let codex = Config::parse("agent: codex\n").unwrap();
     assert_eq!(Agent::pick(&codex, None, &found), Some(Agent::Codex));
     assert_eq!(
-        Agent::pick(&codex, Some(Agent::Claude), &found),
-        Some(Agent::Claude)
+        Agent::pick(&none, Some(Agent::Gemini), &found),
+        Some(Agent::Gemini)
     );
-    assert_eq!(Agent::pick(&none, None, &|_| false), None);
+    // named but not on PATH: none (no fallback)
+    assert_eq!(Agent::pick(&codex, Some(Agent::Claude), &found), None);
+    assert_eq!(
+        Agent::pick(&none, Some(Agent::Gemini), &|n| n == "claude"),
+        None
+    );
+}
+
+#[test]
+fn only_claude_is_said_to_be_read_only() {
+    assert_eq!(Agent::Claude.note(), READ_ONLY);
+    assert_eq!(
+        Agent::Gemini.note(),
+        "Using gemini: its read-only mode is not verified by ig."
+    );
+    let (mut m, ev) = shop_map();
+    let said = std::cell::RefCell::new(vec![]);
+    let mut run = |_: Agent, _: &str| Ok("<ig-annotations>[]</ig-annotations>".to_string());
+    read(
+        Agent::Codex,
+        "{{boxes}}",
+        &mut m,
+        &ev,
+        true,
+        &mut run,
+        &|s| said.borrow_mut().push(s.to_string()),
+    )
+    .unwrap();
+    let said = said.into_inner();
+    assert!(!said.iter().any(|s| s == READ_ONLY), "{said:?}");
+    assert!(said.iter().any(|s| s.contains("Using codex")), "{said:?}");
+}
+
+#[test]
+fn a_named_agent_missing_is_no_agent() {
+    let (mut m, ev) = shop_map();
+    let mut run = |_: Agent, _: &str| -> Result<String, String> { unreachable!("never run") };
+    let files = MemFiles::default();
+    let mut a = Ask {
+        all: true,
+        flag: Some(Agent::Gemini),
+        template: "",
+        found: &|n| n == "claude",
+        confirm: None,
+        run: &mut run,
+    };
+    let cfg = Config::default();
+    assert_eq!(
+        offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {}).as_deref(),
+        Some(NO_AGENT)
+    );
+}
+
+#[test]
+fn one_box_is_one_box() {
+    let (mut m, ev) = shop_map();
+    for b in m.boxes.iter_mut().skip(1) {
+        b.needs_reading = false;
+    }
+    let mut run = |_: Agent, _: &str| -> Result<String, String> { unreachable!("never run") };
+    let mut a = Ask {
+        all: false,
+        flag: None,
+        template: "",
+        found: &|_| true,
+        confirm: None,
+        run: &mut run,
+    };
+    let hint = offer(
+        &mut a,
+        &mut m,
+        &ev,
+        &Config::default(),
+        &MemFiles::default(),
+        &|_| {},
+    );
+    assert_eq!(
+        hint.as_deref(),
+        Some("1 box is ig's guess; run `ig view --read` to let an AI agent read them.")
+    );
+    let said = std::cell::RefCell::new(vec![]);
+    let reply = format!(
+        "<ig-annotations>[{{\"id\": \"{}\"}}]</ig-annotations>",
+        m.boxes[0].id
+    );
+    let mut run = |_: Agent, _: &str| Ok(reply.clone());
+    read(
+        Agent::Claude,
+        "{{boxes}}",
+        &mut m,
+        &ev,
+        false,
+        &mut run,
+        &|s| said.borrow_mut().push(s.to_string()),
+    )
+    .unwrap();
+    let said = said.into_inner();
+    assert!(
+        said.contains(&"Asking claude to read 1 box…".to_string()),
+        "{said:?}"
+    );
+    assert!(said.contains(&"Read 1 box.".to_string()), "{said:?}");
+}
+
+#[test]
+fn a_no_is_remembered_for_the_same_boxes() {
+    let (mut m, ev) = shop_map();
+    m.boxes[0].needs_reading = false;
+    let cfg = Config::default();
+    let files = MemFiles::default();
+    let mut run = |_: Agent, _: &str| -> Result<String, String> { unreachable!("never run") };
+    let asked = std::cell::Cell::new(0);
+    let mut no = |_: Agent| {
+        asked.set(asked.get() + 1);
+        false
+    };
+    let mut a = Ask {
+        all: false,
+        flag: None,
+        template: "",
+        found: &|_| true,
+        confirm: Some(&mut no),
+        run: &mut run,
+    };
+    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {}), None);
+    assert!(files.read(DECLINED).is_some());
+    // the same unread boxes: not asked again, the hint instead
+    let again = offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {});
+    assert!(again.unwrap().contains("ig view --read"));
+    assert_eq!(asked.get(), 1);
+    // another box needs reading: asked again
+    m.boxes[0].needs_reading = true;
+    offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {});
+    assert_eq!(asked.get(), 2);
+}
+
+#[test]
+fn tech_proves_a_package_only_by_a_whole_word() {
+    let (mut m, mut ev) = shop_map();
+    let order = "apps/api/src/domain/order/order.ts";
+    ev.by_file
+        .insert(order.into(), BTreeSet::from(["type-fest".to_string()]));
+    let reply = r#"<ig-annotations>[
+        {"id": "api/domain-order", "tech": "TypeScript"},
+        {"id": "postgres", "tech": "via Prisma"}
+    ]</ig-annotations>"#;
+    let (r, _) = read_with(&mut m, &ev, &[reply]);
+    assert_eq!(r, Ok(2));
+    let conf = |id: &str| get(&m, id).tech.as_ref().unwrap().confidence;
+    assert_eq!(conf("api/domain-order"), Some(Confidence::Inferred));
+    assert_eq!(conf("postgres"), Some(Confidence::Extracted));
 }
 
 #[test]
@@ -122,7 +276,7 @@ fn offer_reads_only_on_consent() {
         format!("{n} boxes are ig's guess; run `ig view --read` to let an AI agent read them.");
     // no terminal, no --read: never read, a hint
     assert_eq!(
-        offer(&mut a, &mut m, &ev, &cfg, &|_| {}),
+        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}),
         Some(hint.clone())
     );
     // asked, and the person says no
@@ -132,21 +286,30 @@ fn offer_reads_only_on_consent() {
         false
     };
     a.confirm = Some(&mut no);
-    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), None);
+    assert_eq!(
+        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}),
+        None
+    );
     // no agent to ask about: the hint, not the no-agent line
     a.found = &|_| false;
-    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), Some(hint));
+    assert_eq!(
+        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}),
+        Some(hint)
+    );
     // --read with no agent: the no-agent line
     a.all = true;
     assert_eq!(
-        offer(&mut a, &mut m, &ev, &cfg, &|_| {}).as_deref(),
+        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}).as_deref(),
         Some(NO_AGENT)
     );
     // nothing needs reading: nothing to offer
     a.all = false;
     m.boxes.iter_mut().for_each(|b| b.needs_reading = false);
     a.found = &|_| panic!("nothing needs reading");
-    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), None);
+    assert_eq!(
+        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}),
+        None
+    );
     assert!(asked);
 }
 
