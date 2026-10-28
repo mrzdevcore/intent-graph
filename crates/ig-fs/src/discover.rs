@@ -188,6 +188,48 @@ pub fn discover(root: &Path, config: &Config) -> Result<WorkspaceInfo, PortError
     })
 }
 
+/// Build output and dependencies, never source, at any depth (`.`-folders are skipped too).
+const BUILD_DIRS: [&str; 15] = [
+    "target",
+    "dist",
+    "build",
+    "out",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".turbo",
+    ".vercel",
+    ".output",
+    "coverage",
+    "node_modules",
+    "vendor",
+    ".git",
+    ".ig",
+];
+
+/// Files git would list (tracked or untracked, minus `.gitignore`d); None outside a git repo.
+fn git_visible(root: &Path) -> Option<BTreeSet<String>> {
+    let out = std::process::Command::new("git")
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .split('\0')
+            .filter(|f| !f.is_empty())
+            .map(String::from)
+            .collect(),
+    )
+}
+
 fn discover_files(
     root: &Path,
     packages: &[Package],
@@ -195,6 +237,7 @@ fn discover_files(
 ) -> Result<Vec<SourceFile>, PortError> {
     let ignore = globset(&config.ignore).map_err(io)?;
     let pkg_dirs: BTreeSet<&str> = packages.iter().map(|p| p.dir.as_str()).collect();
+    let tracked = git_visible(root);
     let mut files = vec![];
     for (pi, pkg) in packages.iter().enumerate() {
         let mut stack = vec![root.join(&pkg.dir)];
@@ -208,7 +251,7 @@ fn discover_files(
                 let Some(r) = rel(root, &p) else { continue };
                 let Ok(ft) = e.file_type() else { continue };
                 if ft.is_dir() {
-                    if name == "node_modules" || name == "dist" || name.starts_with('.') {
+                    if BUILD_DIRS.contains(&name.as_str()) || name.starts_with('.') {
                         continue;
                     }
                     if pkg_dirs.contains(r.as_str()) || p.join("package.json").is_file() {
@@ -221,6 +264,7 @@ fn discover_files(
                 } else if ft.is_file()
                     && is_source_ext(&name, &config.embedded)
                     && !ignore.is_match(&r)
+                    && tracked.as_ref().is_none_or(|t| t.contains(&r))
                 {
                     files.push(SourceFile {
                         path: r,
@@ -233,4 +277,56 @@ fn discover_files(
     files.sort_by(|a, b| a.path.cmp(&b.path));
     files.dedup_by(|a, b| a.path == b.path);
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn project(name: &str, git: bool) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("ig-disc-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        for f in [
+            "src/a.ts",
+            "target/x.js",
+            "dist/y.js",
+            ".next/z.js",
+            "src/build/b.ts",
+            "generated/g.ts",
+        ] {
+            std::fs::create_dir_all(d.join(f).parent().unwrap()).unwrap();
+            std::fs::write(d.join(f), "export const a = 1;\n").unwrap();
+        }
+        std::fs::write(d.join(".gitignore"), "generated/\n").unwrap();
+        if git {
+            let ok = std::process::Command::new("git")
+                .arg("init")
+                .arg("-q")
+                .current_dir(&d)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok);
+        }
+        d
+    }
+
+    fn paths(d: &Path) -> Vec<String> {
+        let ws = discover(d, &Config::default()).unwrap();
+        ws.files.into_iter().map(|f| f.path).collect()
+    }
+
+    #[test]
+    fn skips_build_output() {
+        let d = project("git", true);
+        assert_eq!(paths(&d), ["src/a.ts"]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn skips_build_output_without_git() {
+        let d = project("nogit", false);
+        assert_eq!(paths(&d), ["generated/g.ts", "src/a.ts"]); // src/build/ is build output too
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }
