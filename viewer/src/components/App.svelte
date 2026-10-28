@@ -1,9 +1,10 @@
-<!-- The app: a header, the map's mount point (`#map`, filled by the canvas) and, in the desktop app, the chat. -->
+<!-- The app: a header, the map (in `ig view`; the desktop app keeps an empty `#map` for now) and, in the desktop app, the chat. -->
 <script lang="ts">
   import { untrack } from "svelte";
   import type { IgApi } from "../api";
   import { ChatSession } from "./chat/session.svelte";
   import Chat from "./chat/Chat.svelte";
+  import Map from "../map/Map.svelte";
 
   let { api }: { api: IgApi } = $props();
 
@@ -26,7 +27,11 @@
   {#if chatApi}<button id="chat-toggle" class="toggle" aria-pressed={chatOpen ? "true" : "false"} onclick={() => (chatOpen = !chatOpen)}>Chat</button>{/if}
 </header>
 <main>
-  <div id="map"></div>
+  <div id="map">
+    {#if api.view}
+      {#await api.view() then view}<Map {view} />{:catch e}<p class="map-error">Could not read the map: {msg(e)}</p>{/await}
+    {/if}
+  </div>
   {#if chatApi}
     <aside id="chat" hidden={!chatOpen}>
       <Chat chat={chat!} root=""

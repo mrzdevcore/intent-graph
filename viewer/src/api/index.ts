@@ -1,9 +1,8 @@
-// How the viewer reaches its data. One interface, three hosts: the inline JSON of `ig view`/`ig serve`,
-// the `ig serve` HTTP routes, and the desktop app's Tauri commands.
+// How the viewer reaches its host. Two hosts: `ig view`'s page, which has only the embedded map,
+// and the desktop app (Tauri): the trust gate, the agent and links.
 
-// How the viewer reaches its host. The desktop app (Tauri) is the only host with anything to offer:
-// the trust gate, the agent and links. `ig view`'s page has none of it.
-
+import type { View } from "../map/types";
+import { embedded } from "./embedded";
 import { tauri } from "./tauri";
 
 /** What a Claude Code session in the project would run, and whether the user trusted exactly that. */
@@ -99,7 +98,7 @@ export interface AgentApi {
   onEvent(cb: (e: AgentEvent) => void): () => void;
 }
 
-/** Desktop app only; every member is absent in `ig view`'s page. */
+/** Desktop app members are absent in `ig view`'s page, which has only `view`. */
 export interface IgApi {
   /** The trust gate. Show `Trust.svelte` before starting an agent unless `trusted`. */
   trustInventory?(): Promise<TrustState>;
@@ -109,8 +108,10 @@ export interface IgApi {
   agent?: AgentApi;
   /** Opens an http(s) link in the system browser. */
   openUrl?(url: string): Promise<void>;
+  /** The map (`ig view`'s page only). */
+  view?(): Promise<View>;
 }
 
 export function pickApi(): IgApi {
-  return (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ ? tauri() : {};
+  return (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ ? tauri() : embedded();
 }
