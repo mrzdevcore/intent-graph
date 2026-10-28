@@ -155,7 +155,12 @@ fn groups<'g>(c: &str, tops: &[&'g Node]) -> Vec<(String, String, BoxKind, Vec<&
         // the largest 11 stay; the rest share one box
         out.sort_by(|a, b| b.3.len().cmp(&a.3.len()).then(a.0.cmp(&b.0)));
         let rest: Vec<&Node> = out.drain(MAX_CODE - 1..).flat_map(|g| g.3).collect();
-        out.push((format!("{c}/other"), "Other".into(), BoxKind::Group, rest));
+        // a kept `other` prefix group already holds that id: the rest joins it
+        let other = format!("{c}/other");
+        match out.iter_mut().find(|g| g.0 == other) {
+            Some(g) => g.3.extend(rest),
+            None => out.push((other, "Other".into(), BoxKind::Group, rest)),
+        }
     }
     out
 }
@@ -211,6 +216,25 @@ mod tests {
             g.nodes.push(n);
         }
         let (code, arrows) = code_boxes(&m, &g);
+        // a name prefix `other` (kept among the largest) must not give a second `/other` box
+        let mut g2 = g.clone();
+        for i in 0..5 {
+            let mut n = total.clone();
+            n.name = format!("otherThing{i}");
+            n.id = format!("{file}#{}", n.name);
+            g2.nodes.push(n);
+        }
+        let (code2, _) = code_boxes(&m, &g2);
+        let ids2: HashSet<&str> = code2.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(
+            ids2.len(),
+            code2.len(),
+            "ids are unique with an `other` prefix"
+        );
+        let kids2 = code2
+            .iter()
+            .filter(|b| b.parent.as_deref() == Some("api/domain-payment"));
+        assert!(kids2.count() <= 12);
         let kids: Vec<&MapBox> = code
             .iter()
             .filter(|b| b.parent.as_deref() == Some("api/domain-payment"))
