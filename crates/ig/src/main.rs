@@ -41,8 +41,7 @@ fn real_main() -> Result<u8> {
                     })?),
                     None => None,
                 };
-                let ask_person = !a.read && agent::interactive();
-                let mut confirm = |ag: Agent| !ask_person || agent::confirm(ag);
+                let mut confirm = agent::confirm;
                 let mut run = |ag: Agent, prompt: &str| agent::run(&root, ag, prompt);
                 view::run_with(
                     &env,
@@ -51,7 +50,8 @@ fn real_main() -> Result<u8> {
                         flag,
                         template: agent::PROMPT,
                         found: &agent::on_path,
-                        confirm: &mut confirm,
+                        confirm: agent::interactive()
+                            .then_some(&mut confirm as &mut dyn FnMut(Agent) -> bool),
                         run: &mut run,
                     }),
                 )?
