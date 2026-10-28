@@ -398,7 +398,7 @@ fn is_slug(s: &str) -> bool {
 }
 
 /// `b` is refresh's box of `parent`'s files no component claims.
-fn is_unread(b: &MapBox, parent: &str) -> bool {
+pub(crate) fn is_unread(b: &MapBox, parent: &str) -> bool {
     b.id.strip_prefix(parent) == Some("/unread") && b.kind.value == BoxKind::Group
 }
 

@@ -3,47 +3,14 @@
 use super::code::code_boxes;
 use super::file::{self, MapBox, MapFile, refresh};
 use super::layers::{Mark, file_layers, sort_marks};
+use super::layout::layout;
+pub use super::layout::{Frame, Placed, Region, RegionKind};
 use super::{MapArrow, arrows, facts};
 use crate::Env;
 use ig_core::model::Graph;
 use ig_core::ports::Files;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashSet};
-
-/// A box's place, in its parent's own inner units.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub struct Frame {
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RegionKind {
-    Ring,
-    Band,
-    Group,
-}
-
-/// A labelled area of a parent (an onion ring, a layered band, a hexagon part).
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Region {
-    pub parent: String,
-    pub kind: RegionKind,
-    pub label: String,
-    pub frame: Frame,
-}
-
-/// Where everything is drawn (filled by the layout).
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
-pub struct Placed {
-    pub frames: BTreeMap<String, Frame>,
-    pub inner: BTreeMap<String, (f32, f32)>,
-    pub regions: Vec<Region>,
-    pub routes: BTreeMap<String, Vec<(f32, f32)>>,
-}
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct View {
@@ -55,7 +22,8 @@ pub struct View {
     pub notices: Vec<String>,
 }
 
-/// `m` with its code level and the marks of `.ig/layers`; the notices are those layers'.
+/// `m` with its code level, the marks of `.ig/layers` and where everything is drawn; the
+/// notices are those layers' and the layout's.
 pub fn view(files: &dyn Files, m: &MapFile, g: &Graph) -> View {
     let (code, code_arrows) = code_boxes(m, g);
     let mut boxes: Vec<MapBox> = m.boxes.iter().cloned().chain(code).collect();
@@ -67,15 +35,17 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph) -> View {
         .map(|b| b.id.as_str())
         .chain(arrows.iter().map(|a| a.id.as_str()))
         .collect();
-    let (extra, notices) = file_layers(files, &known);
+    let (extra, mut notices) = file_layers(files, &known);
     let mut marks: Vec<Mark> = m.marks.iter().cloned().chain(extra).collect();
     sort_marks(&mut marks);
+    let (placed, mut unrouted) = layout(&boxes, &arrows);
+    notices.append(&mut unrouted);
     View {
         version: m.version,
         boxes,
         arrows,
         marks,
-        placed: Placed::default(),
+        placed,
         notices,
     }
 }
