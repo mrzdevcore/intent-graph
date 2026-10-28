@@ -94,6 +94,8 @@
   button { font: inherit; color: #23211e; text-align: left; cursor: pointer; font-family: system-ui, sans-serif; }
   .card { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
   .card.reading { outline: 2px dotted #b8860b; outline-offset: 3px; }
+  /* the focus ring must stay distinct from the needs-reading dots */
+  .card:focus-visible, .card.reading:focus-visible, .figure:focus-visible, .chip-box:focus-visible { outline: 3px solid #3b6fd8; outline-offset: 3px; }
   .row { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .tile { flex: none; display: flex; align-items: center; justify-content: center; }
   .glyph { font: 700 15px ui-monospace, Menlo, monospace; color: #5c5850; }

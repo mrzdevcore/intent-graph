@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { flushSync, mount } from "svelte";
 import Map from "../src/map/Map.svelte";
 import { Camera } from "../src/map/glide";
-import { fitTo, worldFrame } from "../src/map/camera";
+import { fitTo, innerTransform, worldFrame } from "../src/map/camera";
 import type { View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 
@@ -81,4 +81,26 @@ test("a health layer turns api amber and its value shows in the card; the layer 
   (health.querySelector("input") as HTMLInputElement).click();
   flushSync();
   expect(btn().style.border).not.toContain("#d08a00");
+});
+
+test("clicking a box with an inside frames the inside: it fills >= 80% of the view", () => {
+  const { view, camera, target, m } = setup();
+  (box(target, "api")!.querySelector("button") as HTMLButtonElement).click();
+  m.tick(performance.now() + 1000);
+  flushSync();
+  const t = innerTransform("api", view), [iw, ih] = view.placed.inner["api"], k = camera.cam.k;
+  expect(Math.max((iw * t.s * k) / size.w, (ih * t.s * k) / size.h)).toBeGreaterThanOrEqual(0.8 - 1e-9);
+  expect(box(target, "api/application-checkout")).not.toBeNull();
+});
+
+test("Esc closes the details card and focus returns to the box", () => {
+  const { target } = setup();
+  const btn = box(target, "stripe")!.querySelector("button") as HTMLButtonElement;
+  btn.click();
+  flushSync();
+  expect(document.activeElement).toBe(target.querySelector(".details"));
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  flushSync();
+  expect(target.querySelector(".details")).toBeNull();
+  expect(document.activeElement).toBe(btn);
 });

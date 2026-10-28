@@ -6,7 +6,7 @@
   import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { detailFor, fitTo, innerTransform, showsInside, worldFrame, type Cam } from "./camera";
   import { arrowLook, insideCounts, look } from "./looks";
-  import { Camera } from "./glide";
+  import { Camera, wheelFactor } from "./glide";
   import MapBox from "./MapBox.svelte";
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
@@ -77,11 +77,24 @@
     }
   });
 
-  const fly = (id: string) => glideTo(id === ROOT ? home() : fitTo(frameOf(id), { w: vw, h: vh }));
+  /** A box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
+  function target(id: string): Frame {
+    const inner = view.placed.inner[id];
+    if (!kids.has(id) || !inner) return frameOf(id);
+    const t = innerTransform(id, view);
+    return { x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s };
+  }
+  const fly = (id: string) => glideTo(id === ROOT ? home() : fitTo(target(id), { w: vw, h: vh }));
   function openBox(id: string) {
     selected = id;
     fly(id);
   }
+  function close() {
+    const id = selected;
+    selected = null;
+    if (id) (stage.querySelector(`[data-box="${CSS.escape(id)}"] > button`) as HTMLElement | null)?.focus({ preventScroll: true });
+  }
+  const key = (e: KeyboardEvent) => e.key === "Escape" && selected && close();
   const clampK = (k: number) => Math.min(1e5, Math.max(1e-3, k));
   function zoomAt(px: number, py: number, f: number, smooth = false) {
     const c = camera.cam, k = clampK(c.k * f), r = k / c.k;
@@ -94,7 +107,7 @@
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = stage.getBoundingClientRect();
-      zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.002));
+      zoomAt(e.clientX - r.left, e.clientY - r.top, wheelFactor(e));
     };
     stage.addEventListener("wheel", wheel, { passive: false });
     return () => stage.removeEventListener("wheel", wheel);
@@ -171,7 +184,7 @@
   {/each}
 {/snippet}
 
-<svelte:window onpointermove={move} onpointerup={up} />
+<svelte:window onpointermove={move} onpointerup={up} onkeydown={key} />
 
 <div class="map" bind:clientWidth={cw} bind:clientHeight={ch}>
   <div class="stage" bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture}>
@@ -184,7 +197,7 @@
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
-    <DetailsCard {view} box={byId.get(selected)!} onclose={() => (selected = null)} />
+    <DetailsCard {view} box={byId.get(selected)!} onclose={close} />
   {/if}
 </div>
 
