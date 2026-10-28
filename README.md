@@ -68,7 +68,7 @@ ig view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex] 
    file counts. Every box and arrow exists after this stage, laid out and drawn.
 2. **Reading (optional, an AI agent).** The agent reads files with read-only tools and fills in each
    box's title, description, kind, tech, badges, logo and the pattern of its inside (`onion`,
-   `layered`, or none). Every value in the map carries its source (`agent` or `ig`) and a confidence:
+   `hexagonal`, `layered`, or none). Every value in the map carries its source (`agent` or `ig`) and a confidence:
    `extracted` (read from a file), `inferred` (a judgment) or `ambiguous` (the agent was unsure).
 3. **Layers (always).** Words drawn on boxes and arrows: `rules` (imports breaking a box's pattern,
    `ig.yaml` rules) and `risks` (ig's own code analysis), computed each run; and your own, from

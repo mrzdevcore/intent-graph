@@ -50,8 +50,12 @@ export function insideCounts(view: View, marks: Mark[], on: Set<string>): Map<st
   const out = new Map<string, number>();
   for (const m of marks) {
     if (!on.has(m.layer) || (m.state !== "bad" && m.state !== "down")) continue;
-    for (let p = parent.has(m.target) ? parent.get(m.target) : home.get(m.target); p; p = parent.get(p))
+    // `seen`: a bad map's parent loop ends the walk
+    const seen = new Set([m.target]);
+    for (let p = parent.has(m.target) ? parent.get(m.target) : home.get(m.target); p && !seen.has(p); p = parent.get(p)) {
+      seen.add(p);
       out.set(p, (out.get(p) ?? 0) + 1);
+    }
   }
   return out;
 }

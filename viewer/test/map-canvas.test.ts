@@ -104,3 +104,24 @@ test("Esc closes the details card and focus returns to the box", () => {
   expect(target.querySelector(".details")).toBeNull();
   expect(document.activeElement).toBe(btn);
 });
+
+test("a bad map (a parent loop, a duplicate id) neither hangs nor throws", () => {
+  const view = structuredClone(shop) as unknown as View;
+  const api = view.boxes.find((b) => b.id === "api")!;
+  view.boxes.push({ ...api, id: "zzz", parent: "zzz" }, { ...api, id: "x", parent: "y" }, { ...api, id: "y", parent: "x" });
+  view.boxes.push({ ...api, parent: "api" });
+  for (const id of ["zzz", "x", "y"]) view.placed.frames[id] = view.placed.frames.api;
+  view.marks.push({ layer: "rules", target: "zzz", state: "bad" }, { layer: "rules", target: "x", state: "bad" });
+  const camera = new Camera();
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(Map, { target, props: { view, camera, size } });
+  flushSync();
+  expect(target.querySelector(`[data-box="api"]`)).not.toBeNull();
+  // into api, where the duplicate `api` (its own child) would open forever
+  camera.to(fitTo(worldFrame("api", view), size), 0);
+  m.tick(800);
+  flushSync();
+  expect(target.querySelectorAll(`[data-box="api"]`).length).toBe(1);
+  expect(target.querySelector(`[data-box="api/application-checkout"]`)).not.toBeNull();
+});

@@ -33,3 +33,11 @@ test("arrowLook: event, and a risk keeps the dash", () => {
   const warn: Mark = { layer: "risks", target: "a->b", state: "warn", badge: "risk" };
   expect(arrowLook(arrow("network"), [warn], new Set(["risks"]))).toMatchObject({ color: "#d08a00", dash: "6 4" });
 });
+
+test("insideCounts stops at a parent loop", () => {
+  const v = structuredClone(view);
+  v.boxes.push({ ...box, id: "zzz", parent: "zzz" }, { ...box, id: "x", parent: "y" }, { ...box, id: "y", parent: "x" });
+  const c = insideCounts(v, [{ layer: "rules", target: "zzz", state: "bad" }, { layer: "rules", target: "x", state: "bad" }], new Set(["rules"]));
+  expect(c.get("zzz")).toBeUndefined(); // its own mark, under no other box
+  expect([c.get("x"), c.get("y")]).toEqual([undefined, 1]);
+});
