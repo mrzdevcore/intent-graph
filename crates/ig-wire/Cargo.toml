@@ -6,11 +6,9 @@ edition.workspace = true
 # The composition root shared by the driving adapters (`ig` and `ig-desktop`): the real adapters
 # plugged into `ig_app::Env`, and the debounced file watcher.
 [dependencies]
-anyhow = "1.0.104"
 ig-app = { path = "../ig-app" }
 ig-core = { path = "../ig-core" }
 ig-fs = { path = "../ig-fs" }
-ig-checkers = { path = "../ig-checkers" }
 ig-git = { path = "../ig-git" }
 ig-lang-ts = { path = "../ig-lang-ts" }
 notify = "8.2.0"

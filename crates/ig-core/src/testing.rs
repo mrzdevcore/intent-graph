@@ -1,7 +1,7 @@
 //! In-memory fakes of the ports, and the contract every implementation must meet. Adapter crates
 //! call the `*_contract` functions on their real implementation.
 
-use crate::config::{Checker, Config, Format};
+use crate::config::Config;
 use crate::ports::*;
 use crate::workspace::{Package, SourceFile, WorkspaceInfo, globset, is_source_ext};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -188,26 +188,6 @@ impl Vcs for FakeVcs {
     }
 }
 
-/// Canned output per checker name; records each run as (checker, files).
-#[derive(Default)]
-pub struct FakeRunner {
-    pub outputs: HashMap<String, CheckerOutput>,
-    pub runs: Mutex<Vec<(String, Option<Vec<String>>)>>,
-}
-
-impl CheckerRunner for FakeRunner {
-    fn run(&self, _root: &Path, checker: &Checker, files: Option<&[String]>) -> CheckerOutput {
-        if checker.run.contains("{files}") && files.is_some_and(<[String]>::is_empty) {
-            return CheckerOutput::default();
-        }
-        self.runs
-            .lock()
-            .unwrap()
-            .push((checker.name.clone(), files.map(<[String]>::to_vec)));
-        self.outputs.get(&checker.name).cloned().unwrap_or_default()
-    }
-}
-
 /// `f` must start empty.
 pub fn files_contract(f: &dyn Files) {
     assert_eq!(f.read("missing.txt"), None);
@@ -303,16 +283,6 @@ pub fn vcs_contract(v: &dyn Vcs, file: &str, content: &str) {
     );
 }
 
-/// `checker` uses `{files}`.
-pub fn runner_contract(r: &dyn CheckerRunner, root: &Path, checker: &Checker) {
-    assert!(checker.run.contains("{files}"));
-    let out = r.run(root, checker, Some(&[]));
-    assert!(
-        out.findings.is_empty() && out.errors.is_empty(),
-        "no files: skipped"
-    );
-}
-
 /// `fe` handles `path`, whose `source` parses.
 pub fn frontend_contract(fe: &dyn LanguageFrontend, path: &str, source: &str) {
     assert!(fe.handles(path, &Config::default()));
@@ -341,17 +311,6 @@ pub fn frontend_contract(fe: &dyn LanguageFrontend, path: &str, source: &str) {
         "nodes of this file"
     );
     assert!(out.edges.iter().all(|e| e.file == path));
-}
-
-/// A `{files}` checker for `runner_contract`.
-pub fn files_checker() -> Checker {
-    Checker {
-        name: "lint".into(),
-        run: "lint {files}".into(),
-        format: Format::Lines,
-        configs: vec![],
-        extensions: vec![],
-    }
 }
 
 #[cfg(test)]
@@ -395,18 +354,6 @@ mod tests {
             ..FakeVcs::default()
         };
         vcs_contract(&v, "intents.md", "# I\n");
-    }
-
-    #[test]
-    fn fake_runner_meets_the_contract_and_records_runs() {
-        let r = FakeRunner::default();
-        runner_contract(&r, Path::new("."), &files_checker());
-        assert!(r.runs.lock().unwrap().is_empty());
-        r.run(Path::new("."), &files_checker(), Some(&["a.ts".into()]));
-        assert_eq!(
-            r.runs.lock().unwrap()[0],
-            ("lint".into(), Some(vec!["a.ts".into()]))
-        );
     }
 
     /// One module node per file; exercises `frontend_contract` itself.

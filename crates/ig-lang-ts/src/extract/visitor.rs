@@ -143,7 +143,8 @@ impl<'s, 'a> Extractor<'s, 'a> {
     pub(super) fn add_ref(&mut self, kind: &'static str, callee: Pending, off: u32) {
         let line = self.line(off);
         let from = self.nodes[self.innermost_node()].id.clone();
-        self.refs.push((Some(from), kind, callee, line));
+        self.refs
+            .push((Some(from), kind, callee, line, self.loop_depth > 0));
     }
 
     pub(super) fn add_import(&mut self, spec: &str, off: u32, namespace: bool, reexport: bool) {
@@ -186,12 +187,14 @@ impl<'s, 'a> Extractor<'s, 'a> {
                 "extends",
                 c.clone(),
                 self.nodes[idx].range.start_line,
+                false,
             ));
         }
         for imp in &class.implements {
             if let Some(c) = self.type_name_callee(&imp.expression) {
                 let line = self.line(imp.span.start);
-                self.refs.push((Some(id.clone()), "implements", c, line));
+                self.refs
+                    .push((Some(id.clone()), "implements", c, line, false));
             }
         }
         self.classes.push((id, ext));

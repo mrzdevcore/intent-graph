@@ -61,6 +61,9 @@ pub struct Edge {
     pub namespace: bool,
     #[serde(skip_serializing_if = "is_false", default)]
     pub reexport: bool,
+    /// The call sits in a loop body or an iterating callback.
+    #[serde(skip_serializing_if = "is_false", default)]
+    pub in_loop: bool,
 }
 
 impl Edge {

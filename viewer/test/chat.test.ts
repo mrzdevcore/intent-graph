@@ -1,7 +1,7 @@
 // The chat reducer over the fake agent's recorded `tour` (crates/ig-desktop record_chat_fixture).
 import { expect, test } from "vitest";
 import type { AgentEvent, ToolCallInfo } from "../src/api";
-import { chatReducer, completions, controls, fastNext, fastOn, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
+import { chatReducer, completions, openQuestions, controls, fastNext, fastOn, groupTools, initialChat, shortCommand, type ChatAction, type ChatState, type Item } from "../src/model/chat";
 import chat from "../src/components/chat/Chat.svelte?raw";
 import events from "./fixtures/agent-events.json";
 
@@ -131,4 +131,27 @@ test("agent controls: mode and model as chips, fast mode as a toggle, the rest i
   expect([c.mode?.id, c.model?.id, c.fast?.id, c.more.map((o) => o.id)]).toEqual(["mode", "model", "fast_mode", ["effort", "agent"]]);
   expect([fastOn(c.fast!), fastNext(c.fast!)]).toEqual([false, "on"]);
   expect(fastOn({ ...c.fast!, currentValue: "on" })).toBe(true);
+});
+
+test("a tool card without input takes the permission request's input; an empty update keeps it", () => {
+  const input = { title: "t", nodes: ["a"] };
+  const s = play([
+    { type: "ToolCall", sessionId: "s", call: { toolCallId: "x", title: "mcp__plugin_ig_ig__ig_show", rawInput: {} } },
+    { type: "Permission", requestId: 1, sessionId: "s", toolCall: { toolCallId: "x", rawInput: input }, options: [] },
+    { type: "ToolCallUpdate", sessionId: "s", update: { toolCallId: "x", rawInput: {}, status: "completed" } },
+  ]);
+  const tool = s.items.find((i) => i.kind === "tool");
+  expect(tool?.kind === "tool" && tool.call.rawInput).toEqual(input);
+});
+
+test("the setup card says Installing only while an install runs", () => {
+  expect(chat).toContain('{c.installing ? "Installing…" : "Install"}');
+});
+
+test("openQuestions counts only unanswered question items", () => {
+  const q = (requestId: number): ChatAction => ({ type: "Question", requestId, sessionId: "s", message: "?", schema: {} });
+  const perm: ChatAction = { type: "Permission", requestId: 9, sessionId: "s", toolCall: { toolCallId: "t" }, options: [] };
+  const s = play([{ type: "Sent", text: "hi" }, q(1), q(2), perm, { type: "Answered", requestId: 1, answer: "a" }]);
+  expect(openQuestions(s)).toBe(1);
+  expect(openQuestions(play([{ type: "TurnEnded", stopReason: "end_turn" }], s))).toBe(0);
 });

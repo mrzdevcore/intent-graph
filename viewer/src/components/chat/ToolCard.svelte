@@ -1,15 +1,10 @@
 <!-- A tool call, collapsed: title, a status chip and the location; open it for its output and
-     diffs (CodeMirror merge view, with "Open in code view"). -->
+     diffs. -->
 <script lang="ts">
   import type { ToolCallInfo } from "../../api";
   import { shortCommand } from "../../model/chat";
-  import CodeView from "../CodeView.svelte";
 
-  let { call, root, onopendiff }: {
-    call: ToolCallInfo;
-    root: string;
-    onopendiff: (path: string, before: string, after: string) => void;
-  } = $props();
+  let { call, root }: { call: ToolCallInfo; root: string } = $props();
 
   type Diff = { type: "diff"; path: string; oldText?: string | null; newText: string };
   type Text = { type: "content"; content: { type: string; text?: string } };
@@ -29,8 +24,8 @@
   {#each content as c}
     {#if c.type === "diff"}
       <div class="diff">
-        <div class="row"><code>{rel(c.path)}</code><button onclick={() => onopendiff(c.path, c.oldText ?? "", c.newText)}>Open in code view</button></div>
-        <CodeView inline path={c.path} merge={{ before: c.oldText ?? "", after: c.newText }} />
+        <div class="row"><code>{rel(c.path)}</code></div>
+        <pre>{#each (c.oldText ?? "").split("\n").filter(() => c.oldText) as l}<span class="removed">- {l}{"\n"}</span>{/each}{#each c.newText.split("\n") as l}<span class="added">+ {l}{"\n"}</span>{/each}</pre>
       </div>
     {:else if c.type === "content" && c.content?.text}
       <pre>{c.content.text}</pre>

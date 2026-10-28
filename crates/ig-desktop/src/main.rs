@@ -2,11 +2,12 @@
 //! native folder picker or a recent project), rebuilt live as its files change.
 
 mod agent;
+mod bounded;
 mod commands;
 mod events;
-mod file_tree;
+mod exit;
 mod permissions;
-mod read_file;
+mod plugin;
 mod session;
 mod shell_path;
 mod trust;
@@ -59,10 +60,29 @@ fn open(app: &AppHandle, root: &Path) {
         return;
     }
     let emitter = app.clone();
-    let watcher = ig_wire::watch(&root, move |full| {
-        // Notes alone change nothing the app shows yet.
-        if full {
+    let show = root.join(ig_app::show::SHOW);
+    let mut bad: Option<String> = None;
+    let watcher = ig_wire::watch(&root, move |c| {
+        if c.full {
             let _ = emitter.emit("rebuild", ());
+        }
+        // The agent's `ig_show`, already checked against the graph; a removed file shows nothing,
+        // an invalid one is logged (once per content) and never reaches the webview.
+        if !c.show {
+            return;
+        }
+        let Ok(text) = std::fs::read_to_string(&show) else {
+            return;
+        };
+        match serde_json::from_str::<ig_app::show::Show>(&text) {
+            Ok(s) => {
+                let _ = emitter.emit("show", s);
+            }
+            Err(e) if bad.as_deref() != Some(&text) => {
+                eprintln!("ig: {}: not a show, ignored: {e}", show.display());
+                bad = Some(text);
+            }
+            Err(_) => {}
         }
     });
     let watcher = match watcher {
@@ -94,9 +114,26 @@ fn open(app: &AppHandle, root: &Path) {
             .unwrap_or(root.as_os_str())
             .to_string_lossy();
         let _ = w.set_title(&format!("ig — {name}"));
-        // A fresh page for the new project (and one that failed for want of a project).
-        let _ = w.reload();
+        // A fresh page for the new project (and one that failed for want of a project). Dev hook
+        // for screenshots without input: IG_THEME=light|dark fixes the theme.
+        match dev_url(&w) {
+            Some(u) => {
+                let _ = w.navigate(u);
+            }
+            None => {
+                let _ = w.reload();
+            }
+        }
     }
+}
+
+fn dev_url(w: &tauri::WebviewWindow) -> Option<tauri::Url> {
+    let theme = std::env::var("IG_THEME")
+        .ok()
+        .filter(|v| matches!(v.as_str(), "light" | "dark"))?;
+    let mut u = w.url().ok()?;
+    u.set_query(Some(&format!("theme={theme}")));
+    Some(u)
 }
 
 fn pick(app: &AppHandle) {
@@ -124,10 +161,10 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Project::default())
         .manage(agent::Agent::default())
+        .manage(bounded::Gate::default())
+        .manage(exit::ExitGate::default())
         .invoke_handler(tauri::generate_handler![
             commands::view_data,
-            commands::file_tree,
-            commands::read_file,
             commands::trust_inventory,
             commands::trust_project,
             agent::agent_start,
@@ -140,7 +177,8 @@ fn main() {
             agent::agent_install,
             agent::agent_reply,
             agent::agent_set_config,
-            commands::open_url
+            commands::open_url,
+            exit::exit_flushed
         ])
         .on_window_event(|w, e| {
             // The window is gone: its agent stops, rejecting what still waits for an answer.
@@ -172,9 +210,9 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("ig desktop failed to start")
-        .run(|app, e| {
-            if let tauri::RunEvent::Exit = e {
-                stop_agent(app);
-            }
+        .run(|app, e| match e {
+            tauri::RunEvent::ExitRequested { api, code, .. } => exit::requested(app, &api, code),
+            tauri::RunEvent::Exit => stop_agent(app),
+            _ => {}
         });
 }

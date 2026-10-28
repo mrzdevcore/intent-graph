@@ -49,15 +49,22 @@ Why it matters: the user prefers reading architecture and real code over long sp
 
 - An editor that feels like a form: dialogs for every box, no keyboard shortcuts, no undo.
 - A design that silently drifts from the plan or from the code.
-- An agent that changes the drawing while the user designs. Changes the agent wants during design are proposed as notes. The as-built consolidation at `ig apply finish` is the only automatic rewrite, and the user accepts it.
+- An agent that changes the drawing behind the user's back. The agent may edit the design (see Ownership), but each of its changes is visible on the canvas, highlighted until the user acknowledges it, and undoable in one step. The as-built consolidation at `ig apply finish` is shown side by side and the user accepts it.
 
 ## Ownership: design vs plan
 
-- **The design** is user-owned, in `plans/<slug>/design.json`, `plans/<slug>/screens/*.json` and `plans/<slug>/assets/*`. Only the app writes it, on the user's actions.
+- **The design** is user-led, in `plans/<slug>/design.json`, `plans/<slug>/screens/*.json` and `plans/<slug>/assets/*`. The app writes it on the user's actions, and the agent may edit it too (below).
 - **The plan** is agent-owned, in `plans/<slug>/plan.md` (today's plan format with its `ig-plan` block). Only the agent writes it, from the design, the notes and the chat.
 - The existing notes file moves to `plans/<slug>/notes.md` (today's format). The agent ticks and answers notes as today.
 - Plans in today's flat layout (`plans/<slug>.md`) keep working. The folder layout applies to plans created from the Design workspace.
-- **During design and apply, the agent never edits the design.** It reports gaps ("your design has an arrow to `Repository` but nothing creates it") and proposes design changes as notes to the user.
+- **The agent can edit the design, live and highlighted (decided with the user, 2026-10-26; this replaces "the agent never edits the design").**
+  - **How it edits:** through an ig tool with id-based operations, validated against the design schema, rather than by rewriting the file.
+  - **Live and highlighted:** its changes apply on the canvas at once. New and changed elements glow in ig's gold until the user touches or dismisses them.
+  - **Undo:** Cmd/Ctrl+Z undoes the agent's whole change as one step.
+  - **Merging:** the agent's changes merge with the user's live edits per element. On the same element, the user's in-flight edit wins.
+  - **Reporting gaps:** the agent still reports gaps in the chat ("your design has an arrow to `Repository` but nothing creates it").
+  - **Visible and undoable:** an agent edit is never silent and never beyond undo.
+  - **Checks:** live checks run on agent edits as on the user's.
 - **The design is binding on the plan (decided with the user).** Every architecture element and link in the design must be in the plan, unless the user agreed to leave it out. `ig plan check` reports a blocking `plan/design-gap` finding for each design element missing from the plan. A gap clears when the plan records the user's answer: an `omitted` list in the `ig-plan` block, each entry with the design element id and the user's reason, written by the agent only after the user said yes in chat or in a note. Apply doesn't re-check the design; it already enforces the plan.
 - **As-built consolidation at the end (decided with the user).** `ig apply finish` produces an as-built design, derived mechanically from the real graph rather than redrawn by the agent:
   - planned elements are replaced by what was actually built (real names, files, routes);
@@ -98,7 +105,17 @@ The frontend reaches ig only through a single API client module, so the same scr
   - `ig check` results as a blocking or clean badge;
   - a TODO list as progress;
   - sessions per feature, resumable and listed.
-- **Context from the canvas:** selecting a box, link, note or screen element can attach it to the next message. "Plan this" sends the design to the chat as `/ig:plan` for that feature. Notes and design edits reach the agent as app events, so the experimental Claude Code channel isn't needed.
+- **Context from the canvas:** selecting a box, link, note or screen element can attach it to the next message. The board's **Plan** button sends the design to the chat as `/ig:plan` for that feature (see The board). Notes and design edits reach the agent as app events, so the experimental Claude Code channel isn't needed.
+- **Answers shown in the graph (decided with the user, 2026-10-26).**
+  - **What the user asks:** questions such as "how does X work?" or "how is X connected?". Claude answers on the graph rather than with a drawn diagram.
+  - **How it works:** Claude calls an ig tool with the nodes, the edges and ordered steps. ig checks every id against the graph.
+  - **What the app shows:**
+    - the requested view (focus, architecture or call chain);
+    - the answer highlighted in gold, with the rest dimmed;
+    - numbered steps;
+    - a banner "Shown by Claude: <title>", with Clear and Back.
+  - **The chat:** a "Show in graph" chip re-shows the answer later.
+  - **Where it works:** the app and `ig serve`. A show never changes design files.
 - **Login is owned by the agent, never by ig,** following Anthropic's terms and the way Zed does it:
   - ig never reads, stores or passes on Claude credentials or session tokens;
   - when the adapter reports it isn't authenticated, the chat says so and offers `/login` (handled by the agent: the user picks their Claude subscription or an API key through Anthropic's own flow);
@@ -107,6 +124,28 @@ The frontend reaches ig only through a single API client module, so the same scr
   - naming: the product may say in plain text that it "runs Claude Code", but must not use Claude Code or Anthropic names or logos in its own name or icon.
 - **The open terms question.** Using the ACP adapter (built on the Agent SDK) with a Pro or Max subscription is fine for the user's own use, as it is in Zed. Before any public distribution, get written confirmation from Anthropic. Until then, the app is built locally by its users.
 - **Fallback if ACP falls short:** spawn the user's `claude` directly in streaming JSON mode, with an ig MCP tool as `--permission-prompt-tool`, the way Anthropic's VS Code extension wraps the CLI. The chat UI stays the same; only the transport module changes.
+
+## The board (decided with the user, 2026-10-26)
+
+The design canvases form a co-editing board shared by the user and Claude.
+
+- **Chat on the board:** the feature's chat is docked on both the architecture canvas and the screens canvas, and can be collapsed.
+- **Who edits what:** Claude updates the design from the chat (see Ownership: live, highlighted, undoable). The user adds notes and objects directly.
+- **Edit cards:** each Claude edit to the board appears in the chat as an "Edited the board · N elements, M links" card, with two actions:
+  - **Show** selects the changed items and zooms to them;
+  - **Undo** reverts that edit in one step.
+- **Sticky notes:**
+  - a sticky note can be the user's own object;
+  - the user can mark it as a question, and it stays open until it has an answer;
+  - when the user asks Claude about a note, it is attached to the message as context.
+- **Board actions:** when the design is clear to both, the user clicks one of two buttons.
+  - **Plan** sends `/ig:plan` for the feature. It works from the design plus the chat context. It stays clickable when the board isn't clear: the indicator warns but doesn't block.
+  - **Apply** sends `/ig:apply`. It is enabled only when `plan.md` exists and `ig plan check` has no blocking findings. Otherwise it is disabled, with the reason shown.
+- **Readiness indicator:** shown next to the buttons, and computed by the app, not the agent.
+  - **Not clear:** "Not clear yet: N open questions, M rule problems".
+  - **Clear:** "Clear".
+  - **Open questions** are Claude's unanswered option prompts and questions in the feature's chat, plus sticky notes the user marked as a question that have no answer.
+  - **Rule problems** are the live check's blocking findings.
 
 ## Architecture canvas
 
@@ -124,7 +163,10 @@ The structured editor, built on the Architecture rows from the previous project 
 
 Rough UI mockups with a hand-drawn look.
 
-- **Rendering** uses `rough.js` for the sketchy style and `perfect-freehand` for pen strokes, both MIT. The canvas itself is ig's own: SVG or canvas is the builder's choice.
+- **Rendering (decided with the user, 2026-10-26):** both boards are drawn by ig's own engine, written in Rust, compiled to wasm and drawn on the GPU (Figma-style).
+  - **Sketch style and pen strokes:** Rust ports of rough.js (`roughr`) and perfect-freehand, both MIT.
+  - **Text and accessibility:** a DOM overlay for text editing and a keyboard-navigable element list for screen readers.
+  - **Desktop only:** the engine loads lazily in the app and is never inlined into `ig view`.
 - **Palette of UI pieces:** frame/page, button, input, select, checkbox, table, list, card, tabs, modal, text, heading, image, icon placeholder. Each piece has a label and a few properties (a table's columns, a button's text).
 - **Freehand:** pen, arrow and text for anything else; annotations are allowed anywhere.
 - **Image import:** paste or drop a PNG as a locked background layer, then annotate on top. Images are stored in `plans/<slug>/assets/`.
@@ -189,7 +231,7 @@ The user should be able to sketch the intake patient-export feature end to end w
 
 ## Left to the builder
 
-- SVG or canvas for the screens canvas, the exact JSON schemas of `design.json` and the screens files (versioned with a `version` field), and stable element-id rules.
+- The board engine's internals (decided: Rust compiled to wasm, drawn on the GPU; see Screens canvas), the exact JSON schemas of `design.json` and the screens files (versioned with a `version` field), and stable element-id rules.
 - How the app routes, and the shape of the API client module.
 - Where the app lives in the repo, and how it's built (`make app`).
 - The exact palette icons and look.

@@ -2,6 +2,11 @@
 
 use super::*;
 
+/// Array methods whose callback runs once per element.
+const ITERATORS: &[&str] = &[
+    "map", "forEach", "filter", "reduce", "flatMap", "some", "every",
+];
+
 impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
     fn visit_export_named_declaration(&mut self, it: &ExportNamedDeclaration<'a>) {
         if let Some(src) = &it.source {
@@ -216,7 +221,17 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
         if !self.http_calls.is_empty() {
             self.http_call(it);
         }
-        walk::walk_call_expression(self, it);
+        let iterates = matches!(
+            it.callee.get_inner_expression(),
+            Expression::StaticMemberExpression(m) if ITERATORS.contains(&m.property.name.as_str())
+        );
+        if !iterates {
+            return walk::walk_call_expression(self, it);
+        }
+        self.visit_expression(&it.callee);
+        self.loop_depth += 1;
+        self.visit_arguments(&it.arguments);
+        self.loop_depth -= 1;
     }
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
@@ -306,23 +321,46 @@ impl<'s, 'a> Visit<'a> for Extractor<'s, 'a> {
     }
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
         self.bump();
-        walk::walk_for_statement(self, it);
+        if let Some(i) = &it.init {
+            self.visit_for_statement_init(i);
+        }
+        self.loop_depth += 1;
+        if let Some(t) = &it.test {
+            self.visit_expression(t);
+        }
+        if let Some(u) = &it.update {
+            self.visit_expression(u);
+        }
+        self.visit_statement(&it.body);
+        self.loop_depth -= 1;
     }
     fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
         self.bump();
-        walk::walk_for_in_statement(self, it);
+        self.visit_for_statement_left(&it.left);
+        self.visit_expression(&it.right);
+        self.loop_depth += 1;
+        self.visit_statement(&it.body);
+        self.loop_depth -= 1;
     }
     fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
         self.bump();
-        walk::walk_for_of_statement(self, it);
+        self.visit_for_statement_left(&it.left);
+        self.visit_expression(&it.right);
+        self.loop_depth += 1;
+        self.visit_statement(&it.body);
+        self.loop_depth -= 1;
     }
     fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
         self.bump();
+        self.loop_depth += 1;
         walk::walk_while_statement(self, it);
+        self.loop_depth -= 1;
     }
     fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
         self.bump();
+        self.loop_depth += 1;
         walk::walk_do_while_statement(self, it);
+        self.loop_depth -= 1;
     }
     fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
         self.bump();

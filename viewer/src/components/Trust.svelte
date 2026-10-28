@@ -26,7 +26,8 @@
   {/if}
   {#each state.notes as n}<p>{n}</p>{/each}
   {#each state.unreadable as f}<p>Could not read <code>{f}</code>.</p>{/each}
-  {#if state.ig_plugin}<p>The ig plugin in <code>.claude/skills/ig</code> will be loaded.</p>{/if}
+  <p>The ig plugin (from this app, {state.app_plugin}) will be loaded.</p>
+  {#if state.ig_plugin}<p>The project's own copy in <code>.claude/skills/ig</code> is part of what you trust; the app loads its own copy instead.</p>{/if}
   {#if !state.any_files}
     <p>Nothing in the project runs on its own.</p>
   {/if}

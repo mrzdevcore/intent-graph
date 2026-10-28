@@ -46,6 +46,7 @@ impl Rig {
             &["--serve", rec.to_str().unwrap()],
             &root,
             None,
+            Some(root.join(".claude/skills/ig")),
             sink,
         )
         .await
@@ -380,7 +381,11 @@ fn real_adapter() {
         let sink: Sink = Arc::new(move |e| {
             let _ = tx.lock().unwrap().send(e);
         });
-        let s = Arc::new(Session::spawn(&cmd, &[], &root, None, sink).await.unwrap());
+        let s = Arc::new(
+            Session::spawn(&cmd, &[], &root, None, None, sink)
+                .await
+                .unwrap(),
+        );
         let r = Rig {
             root: PathBuf::new(),
             s,
@@ -511,16 +516,26 @@ fn real_adapter_load() {
     };
     block_on(async {
         let (k, rx) = sink();
-        let r = rig(Session::spawn(&cmd, &[], &root, None, k).await.unwrap(), rx);
+        let r = rig(
+            Session::spawn(&cmd, &[], &root, None, None, k)
+                .await
+                .unwrap(),
+            rx,
+        );
         let id = r.s.start(None).await.unwrap();
         let stop = r.s.prompt("Reply with the single word: pong", &[]).await;
         eprintln!("session {id}: first turn {stop:?}");
         wait(r.s.stop().unwrap(), 2000).await;
 
         let (k, rx) = sink();
-        let r2 = rig(Session::spawn(&cmd, &[], &root, None, k).await.unwrap(), rx);
+        let r2 = rig(
+            Session::spawn(&cmd, &[], &root, None, None, k)
+                .await
+                .unwrap(),
+            rx,
+        );
         r2.s.load(&id).await.unwrap();
-        nap(1500).await.unwrap();
+        nap(1500).await;
         for e in r2.rx.try_iter() {
             match e {
                 AgentEvent::MessageChunk { role, content, .. } => {

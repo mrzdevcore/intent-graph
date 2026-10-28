@@ -1,26 +1,16 @@
 //! The use cases, on top of `ig-core` and its ports (no I/O of its own).
 
-pub mod apply;
-pub mod base;
-pub mod baseline;
-pub mod brief;
 pub mod build;
-pub mod check;
 pub mod config;
 mod error;
-pub mod lanes;
-pub mod notes;
-pub mod plan;
-pub mod query;
-pub mod review;
+pub mod map;
 pub mod setup;
-pub mod view_data;
+pub mod show;
 
-pub(crate) use error::bail;
 pub use error::{Error, Result};
 
 use ig_core::config::Config;
-use ig_core::ports::{CheckerRunner, Files, LanguageFrontend, Progress, Vcs};
+use ig_core::ports::{Files, LanguageFrontend, Progress, Vcs};
 use std::path::Path;
 
 /// The ports a use case runs on. `files` and `vcs` are rooted at `root`, the ig root.
@@ -30,7 +20,6 @@ pub struct Env<'a> {
     pub files: &'a dyn Files,
     /// None outside a repository.
     pub vcs: Option<&'a dyn Vcs>,
-    pub runner: &'a dyn CheckerRunner,
     pub frontends: &'a [&'a dyn LanguageFrontend],
     /// Progress lines ("building graph…"); the binary shows them only on a terminal.
     pub progress: &'a Progress,
