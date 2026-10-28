@@ -332,3 +332,74 @@ fn unread_is_a_chip() {
     }
     assert!(seen > 0);
 }
+
+/// Pairs of interior segments (not a route's first or last) of two arrows that lie on one line
+/// and share a stretch of it.
+fn shared_lanes(p: &Placed, arrows: &[&MapArrow]) -> Vec<String> {
+    let inner = |a: &MapArrow| {
+        let r = &p.routes[&a.id];
+        let n = r.len().saturating_sub(1);
+        (1..n.saturating_sub(1))
+            .map(|k| (r[k], r[k + 1]))
+            .collect::<Vec<_>>()
+    };
+    let mut out = vec![];
+    for (i, a) in arrows.iter().enumerate() {
+        for b in &arrows[i + 1..] {
+            for (p0, p1) in inner(a) {
+                for (q0, q1) in inner(b) {
+                    let span = |x: f32, y: f32| (x.min(y), x.max(y));
+                    let shared = if p0.1 == p1.1 && q0.1 == q1.1 && p0.1 == q0.1 {
+                        Some((span(p0.0, p1.0), span(q0.0, q1.0)))
+                    } else if p0.0 == p1.0 && q0.0 == q1.0 && p0.0 == q0.0 {
+                        Some((span(p0.1, p1.1), span(q0.1, q1.1)))
+                    } else {
+                        None
+                    };
+                    if let Some((s, t)) = shared.filter(|(s, t)| s.0 < t.1 && t.0 < s.1) {
+                        out.push(format!("{} {s:?} / {} {t:?}", a.id, b.id));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn parallel_arrows_get_lanes() {
+    let mut boxes = vec![mbox("c", "system", "container", "app", None, None, false)];
+    for k in 0..8 {
+        boxes.push(mbox(
+            &format!("c/k{k}"),
+            "c",
+            "component",
+            "entry",
+            None,
+            None,
+            false,
+        ));
+    }
+    // two rows of four: every arrow crosses the middle gutter
+    let arrows: Vec<MapArrow> = [(0, 7), (1, 6), (2, 5), (3, 4), (0, 6), (3, 5)]
+        .iter()
+        .map(|(a, b)| arrow("c", &format!("c/k{a}"), &format!("c/k{b}")))
+        .collect();
+    let (p, notices) = layout(&boxes, &arrows);
+    assert!(notices.is_empty(), "{notices:?}");
+    check_routes(&boxes, &arrows, &p);
+    let all: Vec<&MapArrow> = arrows.iter().collect();
+    let shared = shared_lanes(&p, &all);
+    assert!(shared.is_empty(), "{shared:#?}");
+    for (b, a) in trees() {
+        let p = layout(&b, &a).0;
+        let mut by_parent: BTreeMap<&str, Vec<&MapArrow>> = BTreeMap::new();
+        for x in &a {
+            by_parent.entry(&x.parent).or_default().push(x);
+        }
+        for arrows in by_parent.values() {
+            let shared = shared_lanes(&p, arrows);
+            assert!(shared.is_empty(), "{shared:#?}");
+        }
+    }
+}
