@@ -436,7 +436,8 @@ fn stale_component_outlives_its_container() {
     let (ws, g, cfg) = crate::map::shop::load();
     let boxes = facts(&ws, &g, &cfg);
     let new = refreshed(Some(&old), &boxes, vec![]);
-    assert!(new.boxes.iter().all(|b| b.id != "gone"));
+    // its container is kept too (stale), so every box still has its parent
+    assert!(get(&new, "gone").stale);
     assert!(get(&new, "gone/x").stale);
 }
 
@@ -518,4 +519,54 @@ fn refresh_reports_pin_reset() {
     // ig's own (unpinned) slots that move say nothing
     let (_, notices) = refresh(Some(&shop()), &boxes, vec![], &[]);
     assert!(notices.is_empty(), "{notices:?}");
+}
+
+#[test]
+fn validate_checks_parents_levels_cycles_and_version() {
+    let ok = shop();
+    let bad = |f: &dyn Fn(&mut MapFile)| {
+        let mut m = ok.clone();
+        f(&mut m);
+        validate(&m).unwrap_err().join("; ")
+    };
+    // a pinned stale box that is its own parent
+    let e = bad(&|m| {
+        let mut z = get(m, "api/routers").clone();
+        z.id = "zzz".into();
+        z.parent = Some("zzz".into());
+        z.pinned = vec!["title".into()];
+        z.stale = true;
+        m.boxes.push(z);
+    });
+    assert!(e.contains("`zzz`") && e.contains("reaches itself"), "{e}");
+    let e = bad(&|m| get_mut(m, "api/routers").parent = Some("nope".into()));
+    assert!(e.contains("parent `nope` is not in the map"), "{e}");
+    let e = bad(&|m| get_mut(m, "api").parent = Some("web".into()));
+    assert!(e.contains("`api`: a container"), "{e}");
+    let e = bad(&|m| get_mut(m, "api/routers").level = Level::Code);
+    assert!(e.contains("code boxes are not stored"), "{e}");
+    let e = bad(&|m| get_mut(m, "system").parent = Some("api".into()));
+    assert!(e.contains("`system`: the system has no parent"), "{e}");
+    let e = bad(&|m| m.version = 2);
+    assert!(e.contains("version 2"), "{e}");
+}
+
+#[test]
+fn annotate_refits_ig_slots_to_a_new_pattern() {
+    let (ws, g, cfg) = crate::map::shop::load();
+    let boxes = facts(&ws, &g, &cfg);
+    let mut m = refreshed(None, &boxes, vec![]);
+    annotate(
+        &mut m,
+        r#"[{"id": "api", "pattern": {"kind": "hexagonal"}}]"#,
+    )
+    .unwrap();
+    assert_eq!(get(&m, "api/routers").slot, None);
+    // an agent's own slot that does not fit is still an error
+    let e = annotate(
+        &mut m,
+        r#"[{"id": "api", "pattern": {"kind": "onion"}}, {"id": "api/routers", "slot": "core"}]"#,
+    )
+    .unwrap_err();
+    assert!(e.join(";").contains("slot `core`"), "{e:?}");
 }

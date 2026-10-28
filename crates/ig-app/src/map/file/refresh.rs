@@ -52,16 +52,28 @@ pub fn refresh(
         boxes.extend(drawn_components(c, &olds, &all, facts));
     }
     let ids: HashSet<&str> = facts.iter().map(|f| f.id.as_str()).collect();
-    boxes.extend(
-        olds.values()
-            .filter(|o| !ids.contains(o.id.as_str()) && !in_drawn(&o.parent))
-            .filter(|o| !o.pinned.is_empty())
-            .map(|o| MapBox {
-                stale: true,
-                ..(*o).clone()
-            }),
-    );
-    let notices = fit_slots(&mut boxes, facts);
+    let mut stale: BTreeSet<&str> = olds
+        .values()
+        .filter(|o| !ids.contains(o.id.as_str()) && !in_drawn(&o.parent))
+        .filter(|o| !o.pinned.is_empty())
+        .map(|o| o.id.as_str())
+        .collect();
+    // a stale box keeps its gone parents (stale too): every box's parent stays in the map
+    let mut todo: Vec<&str> = stale.iter().copied().collect();
+    while let Some(id) = todo.pop() {
+        if let Some(p) = olds[id].parent.as_deref()
+            && !ids.contains(p)
+            && olds.contains_key(p)
+            && stale.insert(p)
+        {
+            todo.push(p);
+        }
+    }
+    boxes.extend(stale.into_iter().map(|id| MapBox {
+        stale: true,
+        ..olds[id].clone()
+    }));
+    let notices = fit_slots(&mut boxes, facts, &|_| true);
     boxes.sort_by(|a, b| a.id.cmp(&b.id));
     let mut arrows = arrows;
     arrows.sort_by(|a, b| a.id.cmp(&b.id));
@@ -79,14 +91,18 @@ pub fn refresh(
 
 /// A slot (pinned or not) the parent's pattern no longer has goes back to ig's guess, or to
 /// none when the pattern has no room for that either; a pin stands whenever it is still valid.
-/// Returns a notice per pin reset.
-fn fit_slots(boxes: &mut [MapBox], facts: &[FactBox]) -> Vec<String> {
+/// Only the boxes `which` takes are fitted. Returns a notice per pin reset.
+pub(crate) fn fit_slots(
+    boxes: &mut [MapBox],
+    facts: &[FactBox],
+    which: &dyn Fn(&MapBox) -> bool,
+) -> Vec<String> {
     let mut notices = vec![];
     let patterns: BTreeMap<String, Option<crate::map::Pattern>> = boxes
         .iter()
         .map(|b| (b.id.clone(), b.pattern.as_ref().map(|p| p.value.clone())))
         .collect();
-    for b in boxes.iter_mut().filter(|b| !b.stale) {
+    for b in boxes.iter_mut().filter(|b| !b.stale && which(b)) {
         let pattern = b
             .parent
             .as_ref()
