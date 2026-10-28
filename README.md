@@ -31,7 +31,7 @@ Desktop app: see [Desktop app (local build)](#desktop-app-local-build). The work
 
 ## Desktop app (local build)
 
-`crates/ig-desktop` is a Tauri 2 app: the graph viewer plus a chat panel that runs Claude Code on your project.
+`crates/ig-desktop` is a Tauri 2 app: a shell with a chat panel that runs Claude Code on your project. The map will come to the app in a later iteration; for now its map area is a placeholder (use `ig view` for the map).
 It is built locally and not distributed (no signing, no auto-update), pending Anthropic's written confirmation.
 
 ```sh
@@ -46,8 +46,7 @@ The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in developmen
 - **Trust screen:** before any Claude session the app lists what will run: hooks from `.claude/settings*.json`, permission settings (including bypass modes), `AGENTS.md`/`CLAUDE.md`/`CLAUDE.local.md`, MCP servers from `.mcp.json`, the ig plugin, and the project's skills, commands and agents (with any tools they pre-approve or hooks they run). Every file under `.claude/` is hashed (files over 1 MB by size only). You decide, and confirm natively. It asks again when any of them changes.
 - **Plugin:** the app always uses its own ig plugin (re-exported on each run into its data dir). Run `ig init` after upgrading ig to refresh a project's copy for terminal use.
 - **Settings:** sessions load the project and local settings plus the ig plugin only. Your own skills and user settings do not load.
-- **Chat:** streaming replies, tool cards, diffs in the merge view, permission and question cards, mode and model selectors (switching to a bypass mode asks to confirm), "Attach selection", "Plan this" and `/` commands.
-- **Code:** a file tree and a read-only code view with before/after. A **Tests** toggle shows test and spec files, hidden by default in every graph mode (the `tests` globs in `ig.yaml` decide what a test file is).
+- **Chat:** streaming replies, tool cards, diffs, permission and question cards, mode and model selectors (switching to a bypass mode asks to confirm) and `/` commands.
 
 ## Quick start
 

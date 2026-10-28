@@ -12,7 +12,7 @@ Date: 2026-10-24. Status: implemented (v0.1.0).
 
 The map is shown by `ig view` and answers to a coding agent over MCP.
 
-`ig` has no built-in knowledge of any framework or linter. Routes, single-file components and checkers all come from the project's `ig.yaml`.
+`ig` has no built-in knowledge of any framework. Routes and single-file components come from the project's `ig.yaml`.
 
 **Speed is the primary design goal.** `ig view` builds the graph on every run, so its wall-clock time sets the pace. The target is a warm run on a large monorepo in under 2 seconds.
 
