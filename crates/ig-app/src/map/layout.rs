@@ -73,7 +73,10 @@ pub struct Placed {
 pub(crate) const GUTTER: f32 = 48.0;
 /// A ring's or band's margin around its boxes.
 const PAD: f32 = 24.0;
-const COLS: usize = 4;
+/// The shape every inside aims for, width over height: a screen's, near the boxes' own.
+const WIDE: f32 = 1.6;
+/// How much worse too tall is than too wide (see `Lay::skew`).
+const TALL: f32 = 1.4;
 /// The width of the people's and the outside systems' rows.
 const ROW: usize = 6;
 const CHIP: (f32, f32) = (120.0, 40.0);
@@ -186,6 +189,7 @@ fn elbow(from: &Frame, to: &Frame) -> Vec<(f32, f32)> {
 }
 
 /// One parent's layout, centered on x = 0 until `normalize`.
+#[derive(Clone)]
 struct Lay<'a> {
     near: &'a BTreeMap<&'a str, Vec<&'a str>>,
     /// Centers of the boxes placed so far, for the barycenter order.
@@ -216,13 +220,43 @@ impl<'a> Lay<'a> {
         items
     }
 
+    /// How far the inside so far is from 16:10 (0 when exactly), leaning wide: too tall counts
+    /// `TALL` times as far as too wide, as the boxes' frames are wider than 16:10.
+    fn skew(&self) -> f32 {
+        self.bounds().map_or(0.0, |b| {
+            let r = ((b.w + 2.0 * GUTTER) / (b.h + 2.0 * GUTTER) / WIDE).ln();
+            if r < 0.0 { -r * TALL } else { r }
+        })
+    }
+
+    /// Runs `f` with each option on a copy and keeps the copy nearest 16:10 (the first of equals).
+    fn pick<T>(&mut self, opts: impl IntoIterator<Item = T>, f: impl Fn(&mut Self, T)) {
+        let mut best: Option<(f32, Self)> = None;
+        for o in opts {
+            let mut l = self.clone();
+            f(&mut l, o);
+            let s = l.skew();
+            if best.as_ref().is_none_or(|b| s < b.0) {
+                best = Some((s, l));
+            }
+        }
+        if let Some((_, l)) = best {
+            *self = l;
+        }
+    }
+
     /// Places `items` in rows of `cols`, centered on x = 0, the top at `top` (or the bottom at
     /// `-top` when `up`). Returns their bounds, None when there are none.
     fn grid(&mut self, items: Vec<&'a MapBox>, cols: usize, top: f32, up: bool) -> Option<Frame> {
+        let items = self.order(items);
+        self.rows(items, cols, top, up)
+    }
+
+    /// `grid` in the given order.
+    fn rows(&mut self, items: Vec<&'a MapBox>, cols: usize, top: f32, up: bool) -> Option<Frame> {
         if items.is_empty() {
             return None;
         }
-        let items = self.order(items);
         let sizes: Vec<(f32, f32)> = items.iter().map(|b| size(b)).collect();
         let cw = sizes.iter().map(|s| s.0).fold(0.0, f32::max);
         let rows: Vec<&[(f32, f32)]> = sizes.chunks(cols).collect();
@@ -264,7 +298,8 @@ impl<'a> Lay<'a> {
             .reduce(|a, b| a.union(&b))
     }
 
-    /// People on top, the containers, then the outside systems and stores.
+    /// People on top, the containers, then the outside systems and stores: in rows of their
+    /// own, or (when that runs too tall) read in that order through one grid.
     fn system(&mut self, kids: &[&'a MapBox]) {
         let rank = |b: &MapBox| match b.kind.value {
             BoxKind::Person => 0,
@@ -273,12 +308,20 @@ impl<'a> Lay<'a> {
         };
         let row =
             |r| -> Vec<&'a MapBox> { kids.iter().filter(|b| rank(b) == r).copied().collect() };
-        let mut y = 0.0;
-        for (items, cols) in [(row(0), ROW), (row(1), COLS), (row(2), ROW)] {
-            if let Some(b) = self.grid(items, cols, y, false) {
-                y = b.bottom() + GUTTER;
+        let opts = (1..=kids.len()).flat_map(|c| [(c, false), (c, true)]);
+        self.pick(opts, |l, (c, merged)| {
+            if merged {
+                let all = (0..3).flat_map(|r| l.order(row(r))).collect();
+                l.rows(all, c, 0.0, false);
+                return;
             }
-        }
+            let mut y = 0.0;
+            for (items, cols) in [(row(0), ROW), (row(1), c), (row(2), ROW)] {
+                if let Some(b) = l.grid(items, cols, y, false) {
+                    y = b.bottom() + GUTTER;
+                }
+            }
+        });
     }
 
     /// The children of a container or component in its pattern's shape; those with no slot of
@@ -311,137 +354,48 @@ impl<'a> Lay<'a> {
             Some(Pattern::Hexagonal) => self.hexagonal(&in_slot),
             Some(Pattern::None) | None => {}
         }
-        let top = self.bounds().map_or(0.0, |b| b.bottom() + GUTTER);
-        self.grid(loose, COLS, top, false);
-        for u in unread {
-            let (x, y) = self
-                .bounds()
-                .map_or((0.0, 0.0), |b| (b.right() - CHIP.0, b.bottom() + GUTTER));
-            self.put(
-                &u.id,
-                Frame {
-                    x,
-                    y,
-                    w: CHIP.0,
-                    h: CHIP.1,
-                },
-            );
-        }
-    }
-
-    /// `items` split in two alternately (each half keeps the order): one row group above `inner`,
-    /// one below. Returns the bounds of `inner` and both.
-    fn around(&mut self, items: Vec<&'a MapBox>, inner: Frame, gap: f32) -> Frame {
-        let items = self.order(items);
-        let (mut top, mut bottom) = (vec![], vec![]);
-        for (i, b) in items.into_iter().enumerate() {
-            if i % 2 == 0 {
-                top.push(b)
-            } else {
-                bottom.push(b)
-            }
-        }
-        let mut all = inner;
-        for b in [
-            self.grid(top, COLS, inner.y - gap, true),
-            self.grid(bottom, COLS, inner.bottom() + gap, false),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            all = all.union(&b);
-        }
-        all
-    }
-
-    /// Three rings, domain innermost.
-    fn onion(&mut self, in_slot: &dyn Fn(&[&str]) -> Vec<&'a MapBox>) {
-        let core = self.grid(in_slot(&["domain"]), COLS, 0.0, false);
-        let mut ring = core
-            .unwrap_or(Frame {
-                x: -124.0,
-                y: 0.0,
-                w: 248.0,
-                h: 152.0,
-            })
-            .grow(PAD);
-        self.regions.push((RegionKind::Ring, "domain".into(), ring));
-        for name in ["application", "infrastructure"] {
-            ring = self.around(in_slot(&[name]), ring, GUTTER).grow(PAD);
-            self.regions.push((RegionKind::Ring, name.into(), ring));
-        }
-    }
-
-    /// One band per name, top to bottom, all as wide as the widest.
-    fn layered(&mut self, bands: &[String], in_slot: &dyn Fn(&[&str]) -> Vec<&'a MapBox>) {
-        let mut y = 0.0;
-        let first = self.regions.len();
-        for name in bands {
-            let h = self
-                .grid(in_slot(&[name]), COLS, y + PAD + GUTTER / 2.0, false)
-                .map_or(CHIP.1, |b| b.h);
-            let h = h + 2.0 * PAD + GUTTER;
-            self.regions.push((
-                RegionKind::Band,
-                name.clone(),
-                Frame {
-                    x: 0.0,
-                    y,
-                    w: 0.0,
-                    h,
-                },
-            ));
-            y += h;
-        }
-        let (x, w) = self
-            .frames
-            .iter()
-            .map(|f| f.1)
-            .reduce(|a, b| a.union(&b))
-            .map_or((-124.0, 248.0), |b| (b.x, b.w));
-        for r in &mut self.regions[first..] {
-            r.2.x = x - PAD;
-            r.2.w = w + 2.0 * PAD;
-        }
-    }
-
-    /// The core in the middle, the ports on its edge, the adapters around.
-    fn hexagonal(&mut self, in_slot: &dyn Fn(&[&str]) -> Vec<&'a MapBox>) {
-        let ports = in_slot(&["ports"]);
-        let ph = ports.iter().map(|b| size(b).1).fold(152.0, f32::max);
-        // the wider row of ports (`around` puts half of them on each edge)
-        let k = ports.len().div_ceil(2).min(COLS) as f32;
-        let pw =
-            k * ports.iter().map(|b| size(b).0).fold(0.0, f32::max) + (k - 1.0).max(0.0) * GUTTER;
-        let core = self.grid(in_slot(&["core", "domain"]), COLS, 0.0, false);
-        let mut c = core
-            .unwrap_or(Frame {
-                x: -124.0,
-                y: 0.0,
-                w: 248.0,
-                h: 152.0,
-            })
-            .grow(ph / 2.0 + GUTTER);
-        if c.w < pw + 2.0 * GUTTER {
-            c = Frame {
-                x: -(pw / 2.0 + GUTTER),
-                w: pw + 2.0 * GUTTER,
-                ..c
+        // below the pattern's shape, or beside it: whichever is nearer 16:10
+        let shape = self.bounds();
+        let sides: &[bool] = if shape.is_some() {
+            &[false, true]
+        } else {
+            &[false]
+        };
+        let opts = (1..=loose.len()).flat_map(|c| sides.iter().map(move |&s| (c, s)));
+        self.pick(opts, |l, (c, beside)| {
+            let Some(s) = shape else {
+                l.grid(loose.clone(), c, 0.0, false);
+                return;
             };
+            let n = l.frames.len();
+            let top = if beside { s.y } else { s.bottom() + GUTTER };
+            if let Some(g) = l.grid(loose.clone(), c, top, false)
+                && beside
+            {
+                l.shift(n, s.right() + GUTTER - g.x);
+            }
+        });
+        for u in unread {
+            self.pick([false, true], |l, right| {
+                let (x, y) = l.bounds().map_or((0.0, 0.0), |b| {
+                    if right {
+                        (b.right() + GUTTER, b.bottom() - CHIP.1)
+                    } else {
+                        (b.right() - CHIP.0, b.bottom() + GUTTER)
+                    }
+                });
+                let (w, h) = CHIP;
+                l.put(&u.id, Frame { x, y, w, h });
+            });
         }
-        self.regions.push((RegionKind::Group, "core".into(), c));
-        // each port's middle on the core's top or bottom edge
-        let edge = self.around(
-            ports,
-            Frame {
-                y: c.y + ph / 2.0,
-                h: c.h - ph,
-                ..c
-            },
-            0.0,
-        );
-        let all = edge.union(&c);
-        self.around(in_slot(&["adapters"]), all, GUTTER);
+    }
+
+    /// Moves the boxes placed from the `from`th on right by `dx`.
+    fn shift(&mut self, from: usize, dx: f32) {
+        for (id, f) in &mut self.frames[from..] {
+            f.x += dx;
+            self.cx.insert(id, f.x + f.w / 2.0);
+        }
     }
 
     /// Moves everything so the bounds start at the gutter; returns the inner size.
@@ -459,5 +413,6 @@ impl<'a> Lay<'a> {
     }
 }
 
+mod shapes;
 #[cfg(test)]
 mod tests;
