@@ -17,9 +17,15 @@
       .map((k) => [k, box[k] as Field<unknown> | undefined] as const)
       .filter((e): e is readonly [typeof e[0], Field<unknown>] => !!e[1]),
   );
+  let card: HTMLElement;
+  // focus follows the selection into the card
+  $effect(() => {
+    void box.id;
+    card.focus({ preventScroll: true });
+  });
 </script>
 
-<section class="details" aria-label="Details">
+<section class="details" aria-label="Details" tabindex="-1" bind:this={card}>
   <div class="head">
     <b>{box.title.value}</b>
     <button type="button" aria-label="Close" onclick={onclose}>×</button>
@@ -61,6 +67,8 @@
   .details { position: absolute; top: 56px; right: 16px; width: 300px; max-height: calc(100% - 120px); overflow: auto;
     background: #fffdf8; border: 1px solid #d9d2c3; border-radius: 12px; padding: 12px 14px; font-size: 13px;
     box-shadow: 0 6px 20px rgba(35, 33, 30, 0.12); overflow-wrap: anywhere; }
+  .details:focus { outline: none; }
+  .details:focus-visible { outline: 3px solid #3b6fd8; outline-offset: 2px; }
   .head { display: flex; align-items: start; gap: 8px; }
   .head b { flex: 1; font-size: 16px; }
   .head button { font: inherit; border: 0; background: none; cursor: pointer; font-size: 18px; line-height: 1; color: #5c5850; }

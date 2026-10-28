@@ -13,17 +13,27 @@ function ease(p: number): number {
   return bz((lo + hi) / 2, 0.7, 1);
 }
 
-/** The camera t ms into an 800 ms glide; scale moves in log space. */
+/**
+ * The camera t ms into an 800 ms glide; scale moves in log space. Translation zooms about the
+ * fixed point (the world point both cameras put on the same screen spot), so a deep zoom heads
+ * straight in instead of swinging past; with no change of scale it is a plain eased pan.
+ */
 export function glide(from: Cam, to: Cam, t: number): Cam {
   const p = t / GLIDE_MS;
   if (!(p > 0)) return { ...from };
   if (p >= 1) return { ...to };
   const e = ease(p);
-  return {
-    x: from.x + (to.x - from.x) * e,
-    y: from.y + (to.y - from.y) * e,
-    k: Math.exp(Math.log(from.k) + (Math.log(to.k) - Math.log(from.k)) * e),
-  };
+  const k = Math.exp(Math.log(from.k) + (Math.log(to.k) - Math.log(from.k)) * e);
+  const dk = to.k - from.k;
+  if (Math.abs(dk) < 1e-9 * Math.max(from.k, to.k)) return { x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, k };
+  const wx = (from.x - to.x) / dk, wy = (from.y - to.y) / dk;
+  return { x: from.x + (from.k - k) * wx, y: from.y + (from.k - k) * wy, k };
+}
+
+/** A wheel event as a zoom factor: lines and pages become pixels; a pinch (ctrlKey) zooms faster. */
+export function wheelFactor(e: { deltaY: number; deltaMode: number; ctrlKey: boolean }): number {
+  const px = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+  return Math.exp(-px * (e.ctrlKey ? 0.01 : 0.002));
 }
 
 /** The map's camera. `to` glides from wherever it is now; `set` jumps (wheel, drag). */
