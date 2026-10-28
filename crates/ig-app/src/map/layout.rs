@@ -3,7 +3,7 @@
 //! and each arrow routed through the gutters between its siblings.
 
 use super::file::{MapBox, is_unread, slots};
-use super::route::route;
+use super::route::{Grid, lanes};
 use super::{BoxKind, Level, MapArrow, Pattern};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -140,32 +140,40 @@ pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
             }));
     }
     let mut notices = vec![];
+    let mut by_parent: BTreeMap<&str, Vec<&MapArrow>> = BTreeMap::new();
     for a in sorted {
-        let (Some(from), Some(to), Some(&inner)) = (
-            placed.frames.get(&a.from),
-            placed.frames.get(&a.to),
-            placed.inner.get(a.parent.as_str()),
-        ) else {
-            notices.push(format!(
-                "map: arrow `{}` has an end with no place; not drawn",
-                a.id
-            ));
-            continue;
-        };
+        by_parent.entry(&a.parent).or_default().push(a);
+    }
+    for (parent, arrows) in by_parent {
         let siblings: Vec<Frame> = kids
-            .get(a.parent.as_str())
+            .get(parent)
             .into_iter()
             .flatten()
             .map(|b| placed.frames[&b.id])
             .collect();
-        let r = route(&siblings, from, to, inner).unwrap_or_else(|| {
-            notices.push(format!(
-                "map: no clear path for arrow `{}`; drawn straight",
-                a.id
-            ));
-            elbow(from, to)
-        });
-        placed.routes.insert(a.id.clone(), r);
+        let inner = placed.inner.get(parent).copied().unwrap_or_default();
+        let mut grid = Grid::new(&siblings, inner);
+        let mut routes = vec![];
+        for a in arrows {
+            let (Some(from), Some(to)) = (placed.frames.get(&a.from), placed.frames.get(&a.to))
+            else {
+                notices.push(format!(
+                    "map: arrow `{}` has an end with no place; not drawn",
+                    a.id
+                ));
+                continue;
+            };
+            let r = grid.route(from, to).unwrap_or_else(|| {
+                notices.push(format!(
+                    "map: no clear path for arrow `{}`; drawn straight",
+                    a.id
+                ));
+                elbow(from, to)
+            });
+            routes.push((a.id.clone(), r));
+        }
+        lanes(&mut routes.iter_mut().map(|r| &mut r.1).collect::<Vec<_>>());
+        placed.routes.extend(routes);
     }
     (placed, notices)
 }
