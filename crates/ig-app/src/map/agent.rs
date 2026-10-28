@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const NO_AGENT: &str = "No AI agent found (claude, gemini or codex): showing ig's own reading.";
+/// Said before an agent runs.
+pub const READ_ONLY: &str = "The agent reads files in this repo with read-only tools.";
 const OPEN: &str = "<ig-annotations>";
 const CLOSE: &str = "</ig-annotations>";
 /// File names shown per box.
@@ -37,13 +39,51 @@ impl Agent {
         Agent::ALL.into_iter().find(|a| a.name() == name)
     }
 
-    /// The command line, program first. The prompt goes on stdin (it can outgrow argv).
+    /// The command line, program first. The prompt goes on stdin (it can outgrow argv). The repo
+    /// may be untrusted: each agent gets read-only tools and skips the repo's own agent config
+    /// where its CLI allows.
     pub fn argv(self) -> &'static [&'static str] {
         match self {
-            Agent::Claude => &["claude", "-p", "--output-format", "text"],
-            // gemini appends `-p` to what it reads on stdin
-            Agent::Gemini => &["gemini", "-p", "Answer as the input above asks."],
-            Agent::Codex => &["codex", "exec", "-"],
+            // checked against `claude --help`: --restricted drops the code-running tools and
+            // ignores user/project/local settings (so the repo's hooks and allow rules);
+            // --safe-mode drops CLAUDE.md, skills, hooks and MCP servers; --tools is the whole set
+            Agent::Claude => &[
+                "claude",
+                "-p",
+                "--output-format",
+                "text",
+                "--restricted",
+                "--safe-mode",
+                "--strict-mcp-config",
+                "--tools",
+                "Read,Grep,Glob",
+            ],
+            // ponytail: from gemini-cli's docs, not installed here to check: `default` approval
+            // leaves out the tools that need approval (shell, edits) when non-interactive,
+            // `-e none` loads no extensions; GEMINI.md is still read (no flag skips it).
+            // gemini appends `-p` to what it reads on stdin.
+            Agent::Gemini => &[
+                "gemini",
+                "--approval-mode",
+                "default",
+                "--extensions",
+                "none",
+                "-p",
+                "Answer as the input above asks.",
+            ],
+            // ponytail: from codex's docs, not installed here to check: a read-only sandbox, no
+            // approvals asked, AGENTS.md not loaded (project_doc_max_bytes=0); `-` reads stdin
+            Agent::Codex => &[
+                "codex",
+                "exec",
+                "--sandbox",
+                "read-only",
+                "-c",
+                "approval_policy=\"never\"",
+                "-c",
+                "project_doc_max_bytes=0",
+                "-",
+            ],
         }
     }
 
@@ -177,6 +217,7 @@ pub fn read(
     }
     let name = agent.name();
     progress(&format!("Asking {name} to read {n} boxes…"));
+    progress(READ_ONLY);
     let mut ask = base.clone();
     let mut errs = vec![];
     for _ in 0..2 {
@@ -211,7 +252,11 @@ fn prompt(template: &str, m: &MapFile, ev: &Evidence, all: bool) -> (String, usi
         .map(|b| fact_json(b, m, ev))
         .collect();
     let text = serde_json::to_string_pretty(&boxes).unwrap_or_default();
-    (template.replace("{{boxes}}", &text), boxes.len())
+    // a fence longer than any run of backticks in the repo's names, so none can close it
+    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest.max(2) + 1);
+    let block = format!("{fence}json\n{text}\n{fence}");
+    (template.replace("{{boxes}}", &block), boxes.len())
 }
 
 fn fact_json(b: &MapBox, m: &MapFile, ev: &Evidence) -> Value {
