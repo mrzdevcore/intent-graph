@@ -1,10 +1,8 @@
 //! `ig init`: scaffolding. Never overwrites anything.
 
 use anyhow::Result;
-use ig_app::check;
 use ig_core::config::Config;
 use ig_core::workspace::{self, WorkspaceInfo};
-use ig_wire::Wired;
 use regex::Regex;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -14,20 +12,8 @@ const AGENTS_MARKER: &str = "<!-- ig:agents -->";
 const AGENTS_SNIPPET: &str = "<!-- ig:agents -->
 ## ig (intent-graph)
 
-- Run `ig check --agent` before finishing; fix every blocking finding.
-- Tag code that implements an intent from `intents.md` with `// @intent ID-1`, and its tests too.
-- Add new intents to `intents.md` as `- ID-1: one line`.
-- Use /ig:setup ($ig-setup in Codex) to set up ig.yaml; /ig:plan and /ig:apply for features.
+- Use /ig:explore ($ig-explore in Codex) to answer questions about the code with the ig graph.
 ";
-
-const HOOK: &str = r#"{
-  "hooks": {
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "ig hook claude", "timeout": 300 }] }
-    ]
-  }
-}
-"#;
 
 fn layer_name(s: &str) -> String {
     let base = s.rsplit('/').next().unwrap_or(s);
@@ -91,7 +77,7 @@ fn create(root: &Path, path: &Path, content: &str, created: &mut Vec<String>) ->
     Ok(true)
 }
 
-/// `agents`: the coding agents to set up (the ig skills each, and the Stop hook for Claude).
+/// `agents`: the coding agents to set up (the ig skills each).
 pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
     let mut created = vec![];
 
@@ -156,36 +142,18 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
              # Forbidden layer dependencies, e.g.:\n\
              #   - forbid: \"core -> ui\"\n\
              rules: []\n\
-             complexity:\n  max: 15\n  maxIncrease: 5\n\
              embedded: {embedded}\n\
              # ignore: [\"**/generated/**\"]\n\
              # patterns:\n\
              #   - kind: route\n\
              #     match: \"app.$METHOD($PATH, $$$)\"\n\
              #     where: {{ METHOD: [get, post, put, delete] }}\n\
-             #     id: \"{{METHOD}} {{PATH}}\"\n\
-             # checkers:\n\
-             #   - name: eslint\n\
-             #     run: \"npx eslint -f @microsoft/eslint-formatter-sarif .\"\n\
-             # blockOn: error\n"
+             #     id: \"{{METHOD}} {{PATH}}\"\n"
         );
         Config::parse(&text)?;
         create(root, &cfg_path, &text, &mut created)?;
     }
 
-    create(
-        root,
-        &root.join("intents.md"),
-        "# Intents\n\nOne intent per line, referenced from code with `// @intent ID-1`.\n\n<!-- - APP-1: Users can sign in with email -->\n",
-        &mut created,
-    )?;
-
-    if agents.iter().any(|a| a.name == "claude") {
-        let settings = root.join(".claude/settings.json");
-        if !create(root, &settings, HOOK, &mut created)? {
-            println!("ig: .claude/settings.json exists; add this Stop hook to it:\n{HOOK}");
-        }
-    }
     for a in agents {
         for p in crate::skills::install(root, a)? {
             created.push(
@@ -199,7 +167,10 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
 
     let agents_md = root.join("AGENTS.md");
     let existing = std::fs::read_to_string(&agents_md).unwrap_or_default();
-    if !existing.contains(AGENTS_MARKER) {
+    if let Some(new) = renew_agents_block(&existing) {
+        std::fs::write(&agents_md, new)?;
+        created.push("AGENTS.md (snippet updated)".into());
+    } else if !existing.contains(AGENTS_MARKER) {
         let sep = if existing.is_empty() || existing.ends_with("\n\n") {
             ""
         } else if existing.ends_with('\n') {
@@ -211,12 +182,14 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
         created.push("AGENTS.md (snippet)".into());
     }
 
-    create(
-        root,
-        &root.join("rules.md"),
-        "# Rules\n\nRules no tool can check. One per heading, with a stable id.\n\n<!-- ## R-EXAMPLE: Components stay presentational; logic lives in composables -->\n",
-        &mut created,
-    )?;
+    let settings = root.join(".claude/settings.json");
+    if let Some(new) = std::fs::read_to_string(&settings)
+        .ok()
+        .and_then(|t| drop_stop_hook(&t))
+    {
+        std::fs::write(&settings, new)?;
+        created.push(".claude/settings.json (removed ig's old Stop hook)".into());
+    }
 
     let gi = root.join(".gitignore");
     let text = std::fs::read_to_string(&gi).unwrap_or_default();
@@ -226,77 +199,99 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
         created.push(".gitignore entries".into());
     }
 
-    if !root.join(".ig/baseline.json").exists() {
-        let w = Wired::new(root);
-        let run = check::run(
-            &w.env(),
-            &check::Opts {
-                all: true,
-                ..Default::default()
-            },
-        )?;
-        let fps = run
-            .result
-            .findings
-            .iter()
-            .filter(|f| f.rule_id != "ig/checker-error" && f.rule_id != "ig/parse-error")
-            .map(|f| f.fingerprint.clone());
-        ig_app::baseline::write(&w.env(), fps)?;
-        created.push(format!(
-            ".ig/baseline.json ({} findings)",
-            run.result.findings.len()
-        ));
-    }
     for c in &created {
         println!("created {c}");
     }
     if created.is_empty() {
         println!("ig init: nothing to do");
     }
-    let next: Vec<String> = agents
-        .iter()
-        .map(|a| {
-            format!(
-                "`ig setup {}` (or {} inside {})",
-                a.name,
-                crate::skills::invoke(a, "setup"),
-                a.name
-            )
-        })
-        .collect();
-    println!(
-        "\nNext: let your coding agent populate ig.yaml: {}.",
-        next.join(", ")
-    );
     if agents.iter().any(|a| a.name == "claude") {
         println!(
-            "Claude loads .claude/skills/ig only after you trust this folder; run /reload-plugins if /ig:setup is missing."
+            "Claude loads .claude/skills/ig only after you trust this folder; run /reload-plugins if /ig:explore is missing."
         );
     }
     Ok(())
 }
 
+/// `text` with an earlier version's `<!-- ig:agents -->` block (the one naming /ig:setup)
+/// replaced by today's; None when there is none.
+fn renew_agents_block(text: &str) -> Option<String> {
+    let start = text.find(AGENTS_MARKER)?;
+    let mut end = start;
+    let mut bullets = false;
+    for (i, line) in text[start..].split_inclusive('\n').enumerate() {
+        let l = line.trim_end();
+        let part = i == 0
+            || (!bullets && (l.starts_with("## ig") || l.is_empty()))
+            || l.starts_with("- ")
+            || (bullets && (l.is_empty() || l.starts_with(' ')));
+        if !part {
+            break;
+        }
+        end += line.len();
+        if bullets && l.is_empty() {
+            break; // the blank line after the bullets is the block's
+        }
+        bullets |= l.starts_with("- ");
+    }
+    let (block, rest) = (&text[start..end], &text[end..]);
+    block.contains("/ig:setup").then(|| {
+        let sep = if rest.is_empty() { "" } else { "\n" };
+        format!("{}{AGENTS_SNIPPET}{sep}{rest}", &text[..start])
+    })
+}
+
+/// `.claude/settings.json` without the Stop hook earlier versions installed (`ig hook claude`);
+/// None when it has none (or is not JSON).
+fn drop_stop_hook(text: &str) -> Option<String> {
+    let mut v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let ours = |h: &serde_json::Value| {
+        h["command"]
+            .as_str()
+            .is_some_and(|c| c.trim().starts_with("ig hook"))
+    };
+    let stop = v.get_mut("hooks")?.get_mut("Stop")?.as_array_mut()?;
+    let before = stop.clone();
+    for e in stop.iter_mut() {
+        if let Some(hs) = e.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+            hs.retain(|h| !ours(h));
+        }
+    }
+    stop.retain(|e| e["hooks"].as_array().is_none_or(|h| !h.is_empty()));
+    if *stop == before {
+        return None;
+    }
+    let hooks = v["hooks"].as_object_mut()?;
+    if hooks["Stop"].as_array().is_some_and(|s| s.is_empty()) {
+        hooks.remove("Stop");
+    }
+    if hooks.is_empty() {
+        v.as_object_mut()?.remove("hooks");
+    }
+    Some(serde_json::to_string_pretty(&v).ok()? + "\n")
+}
+
 fn gitignore(text: &str) -> String {
-    let mut lines: Vec<String> = vec![];
+    const LINES: &str = ".ig/*\n!.ig/map.json";
+    let has = |l: &str| text.lines().any(|x| x.trim() == l);
+    if has(".ig/*") && has("!.ig/map.json") {
+        return text.to_string();
+    }
+    // `.ig/*` alone, or a line ignoring all of `.ig`: replaced in place by both lines.
     let mut done = false;
+    let mut out: Vec<&str> = vec![];
     for l in text.lines() {
-        let t = l.trim();
-        if t == ".ig" || t == ".ig/" || t == "/.ig" || t == "/.ig/" {
-            if !done {
-                lines.push(".ig/*".into());
-                lines.push("!.ig/baseline.json".into());
-                done = true;
-            }
-            continue;
-        }
-        lines.push(l.to_string());
-    }
-    for entry in [".ig/*", "!.ig/baseline.json"] {
-        if !lines.iter().any(|l| l.trim() == entry) {
-            lines.push(entry.into());
+        if !done && matches!(l.trim(), ".ig" | ".ig/" | "/.ig" | "/.ig/" | ".ig/*") {
+            out.push(LINES);
+            done = true;
+        } else {
+            out.push(l);
         }
     }
-    lines.join("\n") + "\n"
+    if !done {
+        out.push(LINES);
+    }
+    format!("{}\n", out.join("\n"))
 }
 
 #[cfg(test)]
@@ -304,13 +299,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gitignore_rewrites_and_is_idempotent() {
+    fn gitignore_keeps_map() {
         assert_eq!(
-            gitignore("node_modules\n.ig/\n"),
-            "node_modules\n.ig/*\n!.ig/baseline.json\n"
+            gitignore("node_modules"),
+            "node_modules\n.ig/*\n!.ig/map.json\n"
         );
-        let once = gitignore("target\n");
-        assert_eq!(gitignore(&once), once);
+        assert_eq!(gitignore(".ig/\n"), ".ig/*\n!.ig/map.json\n");
+        assert_eq!(gitignore("a\n/.ig\nb\n"), "a\n.ig/*\n!.ig/map.json\nb\n");
+        for t in ["node_modules", ".ig/\n", "target\n"] {
+            let once = gitignore(t);
+            assert_eq!(gitignore(&once), once);
+        }
+    }
+
+    #[test]
+    fn old_agents_block_is_renewed() {
+        let old = "# Repo\n\n<!-- ig:agents -->\n## ig (intent-graph)\n\n\
+                   - Run `ig check --agent` before finishing.\n\
+                   - Use /ig:setup ($ig-setup in Codex) to set up ig.yaml.\n\n## Mine\n\nkeep\n";
+        let new = renew_agents_block(old).unwrap();
+        assert_eq!(
+            new,
+            format!("# Repo\n\n{AGENTS_SNIPPET}\n## Mine\n\nkeep\n")
+        );
+        assert_eq!(renew_agents_block(&new), None);
+        let at_end = "<!-- ig:agents -->\n## ig (intent-graph)\n\n- Use /ig:setup.\n";
+        assert_eq!(renew_agents_block(at_end).unwrap(), AGENTS_SNIPPET);
+    }
+
+    #[test]
+    fn old_stop_hook_is_removed() {
+        let old = r#"{
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "ig hook claude", "timeout": 300 }] }
+    ]
+  },
+  "model": "x"
+}"#;
+        let v: serde_json::Value = serde_json::from_str(&drop_stop_hook(old).unwrap()).unwrap();
+        assert_eq!(v, serde_json::json!({"model": "x"}));
+        let mixed = r#"{"hooks": {"Stop": [{"hooks": [
+            {"type": "command", "command": "ig hook claude"},
+            {"type": "command", "command": "make lint"}]}]}}"#;
+        let v: serde_json::Value = serde_json::from_str(&drop_stop_hook(mixed).unwrap()).unwrap();
+        assert_eq!(v["hooks"]["Stop"][0]["hooks"][0]["command"], "make lint");
+        assert_eq!(v["hooks"]["Stop"][0]["hooks"].as_array().unwrap().len(), 1);
+        assert_eq!(drop_stop_hook(r#"{"hooks": {"Stop": []}}"#), None);
+        assert_eq!(drop_stop_hook("not json"), None);
     }
 
     #[test]
@@ -318,7 +354,6 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ig-init-test-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("src/core")).unwrap();
         std::fs::write(dir.join("src/core/a.ts"), "export const a = () => 1;\n").unwrap();
-        std::fs::write(dir.join("intents.md"), "mine\n").unwrap();
         run(
             &dir,
             &[
@@ -328,21 +363,21 @@ mod tests {
         )
         .unwrap();
         assert!(
-            dir.join(".claude/skills/ig/skills/setup/SKILL.md")
+            dir.join(".claude/skills/ig/skills/explore/SKILL.md")
                 .is_file()
         );
-        assert!(dir.join(".agents/skills/ig-setup/SKILL.md").is_file());
-        assert_eq!(
-            std::fs::read_to_string(dir.join("intents.md")).unwrap(),
-            "mine\n"
-        );
+        assert!(dir.join(".agents/skills/ig-explore/SKILL.md").is_file());
         let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap();
         assert!(cfg.contains("core: [\"src/core/**\"]"));
         std::fs::write(dir.join("ig.yaml"), "rules: []\n").unwrap();
-        std::fs::write(dir.join(".claude/skills/ig/skills/setup/SKILL.md"), "mine").unwrap();
+        std::fs::write(
+            dir.join(".claude/skills/ig/skills/explore/SKILL.md"),
+            "mine",
+        )
+        .unwrap();
         run(&dir, &[crate::skills::agent("claude").unwrap()]).unwrap();
         assert_eq!(
-            std::fs::read_to_string(dir.join(".claude/skills/ig/skills/setup/SKILL.md")).unwrap(),
+            std::fs::read_to_string(dir.join(".claude/skills/ig/skills/explore/SKILL.md")).unwrap(),
             "mine"
         );
         assert_eq!(

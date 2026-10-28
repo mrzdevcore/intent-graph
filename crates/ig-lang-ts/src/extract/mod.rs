@@ -75,6 +75,8 @@ pub struct RawRef {
     pub kind: &'static str,
     pub callee: Callee,
     pub line: u32,
+    /// Inside a loop body or an iterating callback (`.map`, `.forEach`, …).
+    pub in_loop: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -212,13 +214,15 @@ struct Extractor<'s, 'a> {
     top_names: HashMap<String, String>,
     imports_map: HashMap<String, (String, ImportName)>,
     import_refs: Vec<ImportRef>,
-    refs: Vec<(Option<String>, &'static str, Pending, u32)>,
+    refs: Vec<(Option<String>, &'static str, Pending, u32, bool)>,
     classes: Vec<(String, Option<Pending>)>,
     this_ctx: Vec<Option<String>>,
     method_value: Option<Span>,
     pending_class: Option<String>,
     export_span: Option<Span>,
     fn_depth: u32,
+    /// Loops (and iterating callbacks) around the current position.
+    loop_depth: u32,
     http_calls: &'s [String],
     url_vars: HashMap<SymbolId, String>,
     url_consts: HashMap<String, String>,
@@ -330,6 +334,7 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
         pending_class: None,
         export_span: None,
         fn_depth: 0,
+        loop_depth: 0,
         http_calls: input.http_calls,
         url_vars: HashMap::new(),
         url_consts: HashMap::new(),
@@ -365,6 +370,7 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
                 kind,
                 Pending::Ready(callee),
                 line,
+                false,
             ));
         }
     }
@@ -404,13 +410,14 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
     let refs: Vec<RawRef> = x
         .refs
         .iter()
-        .map(|(from, kind, p, line)| RawRef {
+        .map(|(from, kind, p, line, in_loop)| RawRef {
             from: from
                 .clone()
                 .unwrap_or_else(|| innermost_at(&x.nodes, *line).to_string()),
             kind,
             callee: finish(p),
             line: *line,
+            in_loop: *in_loop,
         })
         .collect();
     let classes = x

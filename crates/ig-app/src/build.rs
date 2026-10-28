@@ -1,17 +1,18 @@
 //! Language-neutral graph assembly: the frontends' nodes and edges merged (code never resolves
-//! into tests), blueprint `system` nodes and `http` links, and the extras `ig setup` reports.
+//! into tests), blueprint `system` nodes and `http` links, and the extras `setup::facts` reports.
 
+use crate::map::externals;
 use ig_core::config::Config;
 use ig_core::http;
 use ig_core::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
 use ig_core::ports::{FileFacts, Files, LanguageFrontend, PortError};
 use ig_core::workspace::{self, SourceFile, WorkspaceInfo};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub struct Built {
     pub graph: Graph,
     pub workspace: WorkspaceInfo,
-    /// Facts that are not graph data, for `ig setup`.
+    /// Facts that are not graph data, for `setup::facts`.
     pub extras: Extras,
 }
 
@@ -19,6 +20,8 @@ pub struct Built {
 pub struct Extras {
     /// External package → number of modules importing it.
     pub packages: BTreeMap<String, usize>,
+    /// (module, external package it imports), outside tests.
+    pub imports: BTreeSet<(String, String)>,
     /// Callee name → calls whose first argument looks like a URL.
     pub url_callees: BTreeMap<String, u32>,
     /// HTTP client calls that matched no route: (file, line, method, url).
@@ -57,8 +60,22 @@ pub fn build_graph(
     }
     facts.sort_by(|a, b| a.file.cmp(&b.file));
 
+    // A file's Prisma schema: its package's, else the root's.
+    let schema = |file: &str| {
+        let dir = ws
+            .files
+            .iter()
+            .find(|f| f.path == file)
+            .map_or(".", |f| ws.packages[f.package].dir.as_str());
+        [
+            format!("{dir}/prisma/schema.prisma"),
+            "prisma/schema.prisma".into(),
+        ]
+        .iter()
+        .find_map(|p| files.read(p.trim_start_matches("./")))
+    };
     let (system_nodes, blueprint_edges, renames, http_unmatched) =
-        blueprint_links(&facts, &packages, config);
+        blueprint_links(&facts, &packages, config, &tests, &schema);
     let mut extras = Extras {
         http_unmatched,
         ..Extras::default()
@@ -67,6 +84,7 @@ pub fn build_graph(
     for (file, p, _) in packages.iter().filter(|(f, _, _)| !tests.is_match(f)) {
         if seen.insert((file, p)) {
             *extras.packages.entry(p.clone()).or_default() += 1;
+            extras.imports.insert((file.clone(), p.clone()));
         }
     }
     for f in facts.iter().filter(|f| !tests.is_match(&f.file)) {
@@ -112,6 +130,7 @@ pub fn build_graph(
             Some(x) => {
                 x.namespace |= e.namespace;
                 x.reexport |= e.reexport;
+                x.in_loop |= e.in_loop;
                 if e.resolved() {
                     x.confidence = e.confidence.clone();
                 }
@@ -152,11 +171,14 @@ type Links = (
 );
 
 /// `http` edges from client calls to route nodes, and `system` nodes with `uses` edges from the
-/// modules importing their packages.
+/// modules importing their packages: the blueprint's, and the known ones (`map::externals`)
+/// imported outside tests, joined to a blueprint system of the same name.
 fn blueprint_links(
     facts: &[FileFacts],
     packages: &[(String, String, u32)],
     config: &Config,
+    tests: &globset::GlobSet,
+    schema: &dyn Fn(&str) -> Option<String>,
 ) -> Links {
     let bp = &config.blueprint;
     let mut edges = vec![];
@@ -172,6 +194,7 @@ fn blueprint_links(
         line,
         namespace: false,
         reexport: false,
+        in_loop: false,
     };
     if !bp.http_calls.is_empty() {
         // Route node names are "METHOD /path" (or just "/path" for any method).
@@ -211,16 +234,30 @@ fn blueprint_links(
         }
     }
     let mut systems = std::collections::BTreeMap::new();
+    let slug = crate::map::facts::slug;
     for (file, pkg, line) in packages {
-        if let Some((name, _)) = bp
+        let name = match bp
             .systems
             .iter()
             .find(|(_, pkgs)| pkgs.iter().any(|p| p == pkg))
         {
-            let id = format!("system:{name}");
-            edges.push(edge(file, &id, "uses", "resolved", file, *line));
-            systems.entry(id).or_insert_with(|| name.clone());
-        }
+            Some((name, _)) => name.clone(),
+            None if tests.is_match(file) => continue,
+            None => {
+                let Some(k) = externals::system(pkg, || schema(file)) else {
+                    continue;
+                };
+                bp.systems
+                    .iter()
+                    .map(|(n, _)| n)
+                    .find(|n| [k.id.to_string(), slug(k.title, "")].contains(&slug(n, "")))
+                    .cloned()
+                    .unwrap_or_else(|| k.title.to_string())
+            }
+        };
+        let id = format!("system:{name}");
+        edges.push(edge(file, &id, "uses", "resolved", file, *line));
+        systems.entry(id).or_insert(name);
     }
     let nodes = systems
         .into_iter()
@@ -258,6 +295,34 @@ fn n_name_differs(facts: &[FileFacts], id: &str, m: &str, p: &str) -> bool {
         .flat_map(|f| f.nodes.iter())
         .find(|n| n.id == id)
         .is_some_and(|n| n.name != want)
+}
+
+#[rustfmt::skip]
+const SYSTEM_CATEGORIES: &[(&str, &[&str])] = &[
+    ("database", &["postgres", "pg", "mysql", "mariadb", "mongo", "mongoose", "prisma", "typeorm", "knex", "sequelize", "sqlite", "redis", "ioredis", "dynamo", "firestore", "supabase", "cassandra"]),
+    // Never plain "elastic": "Elastic APM" is monitoring.
+    ("search", &["elastic search", "elasticsearch", "@elastic/elasticsearch", "algolia", "meili", "typesense", "opensearch"]),
+    ("monitoring", &["apm", "datadog", "sentry", "newrelic", "opentelemetry", "grafana", "prometheus", "logrocket"]),
+    ("auth", &["auth0", "okta", "keycloak", "cognito", "clerk", "firebase-auth", "next-auth", "passport"]),
+    ("cms", &["contentful", "strapi", "sanity", "prismic", "storyblok", "directus", "ghost"]),
+    ("analytics", &["power bi", "powerbi", "segment", "mixpanel", "amplitude", "google-analytics", "gtag", "matomo", "posthog"]),
+    ("queue", &["kafka", "rabbit", "amqp", "sqs", "bull", "nats"]),
+    ("storage", &["s3", "@aws-sdk/client-s3", "minio", "cloudinary", "blob"]),
+    ("payment", &["stripe", "paypal", "adyen"]),
+    ("email", &["sendgrid", "mailgun", "nodemailer", "postmark", "ses"]),
+];
+
+/// The icon category of a blueprint system: the first whose keywords occur (case-insensitive) in
+/// its name or one of its packages, else "service".
+pub fn system_category(name: &str, packages: &[String]) -> &'static str {
+    let hay: Vec<String> = std::iter::once(name)
+        .chain(packages.iter().map(String::as_str))
+        .map(str::to_lowercase)
+        .collect();
+    SYSTEM_CATEGORIES
+        .iter()
+        .find(|(_, kws)| kws.iter().any(|k| hay.iter().any(|h| h.contains(k))))
+        .map_or("service", |(c, _)| c)
 }
 
 #[cfg(test)]
@@ -299,6 +364,7 @@ mod tests {
             line,
             namespace: false,
             reexport: false,
+            in_loop: false,
         }
     }
 
@@ -387,5 +453,30 @@ mod tests {
         assert_eq!(b.graph.parse_errors[0].file, "src/b.ts");
         // Test files don't count towards packages.
         assert_eq!(b.extras.packages.get("knex"), Some(&1));
+    }
+
+    #[test]
+    fn system_categories() {
+        let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(system_category("PostgreSQL", &p(&["pg"])), "database");
+        assert_eq!(system_category("MongoDB", &p(&["mongoose"])), "database");
+        assert_eq!(
+            system_category("Elastic APM", &p(&["elastic-apm-node"])),
+            "monitoring"
+        );
+        assert_eq!(
+            system_category("Search", &p(&["@elastic/elasticsearch"])),
+            "search"
+        );
+        assert_eq!(
+            system_category("Auth0", &p(&["@auth0/auth0-react"])),
+            "auth"
+        );
+        assert_eq!(system_category("Contentful", &p(&["contentful"])), "cms");
+        assert_eq!(
+            system_category("Power BI", &p(&["powerbi-client"])),
+            "analytics"
+        );
+        assert_eq!(system_category("Maite BFF", &p(&["@maite/sdk"])), "service");
     }
 }

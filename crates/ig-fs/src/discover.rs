@@ -188,6 +188,53 @@ pub fn discover(root: &Path, config: &Config) -> Result<WorkspaceInfo, PortError
     })
 }
 
+/// Build output and dependencies, never source, at any depth (`.`-folders are skipped too).
+const BUILD_DIRS: [&str; 15] = [
+    "target",
+    "dist",
+    "build",
+    "out",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".turbo",
+    ".vercel",
+    ".output",
+    "coverage",
+    "node_modules",
+    "vendor",
+    ".git",
+    ".ig",
+];
+
+/// Files git would list (tracked or untracked, minus `.gitignore`d). None when git cannot speak
+/// for `root`: not a repo, git missing, or nothing listed (as when `root` itself is ignored by an
+/// enclosing repo). One git run, its errors silenced.
+// ponytail: a root ignored by an enclosing repo yet holding force-added files gets git's list
+// (those files only); `git check-ignore` first would cost a second spawn per run
+fn git_visible(root: &Path) -> Option<BTreeSet<String>> {
+    let out = std::process::Command::new("git")
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let set: BTreeSet<String> = String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|f| !f.is_empty())
+        .map(String::from)
+        .collect();
+    (!set.is_empty()).then_some(set)
+}
+
 fn discover_files(
     root: &Path,
     packages: &[Package],
@@ -195,6 +242,7 @@ fn discover_files(
 ) -> Result<Vec<SourceFile>, PortError> {
     let ignore = globset(&config.ignore).map_err(io)?;
     let pkg_dirs: BTreeSet<&str> = packages.iter().map(|p| p.dir.as_str()).collect();
+    let tracked = git_visible(root);
     let mut files = vec![];
     for (pi, pkg) in packages.iter().enumerate() {
         let mut stack = vec![root.join(&pkg.dir)];
@@ -208,7 +256,13 @@ fn discover_files(
                 let Some(r) = rel(root, &p) else { continue };
                 let Ok(ft) = e.file_type() else { continue };
                 if ft.is_dir() {
-                    if name == "node_modules" || name == "dist" || name.starts_with('.') {
+                    // in a git repo git decides; only dependencies and tool folders are never walked
+                    let skip = if tracked.is_some() {
+                        matches!(name.as_str(), "node_modules" | ".git" | ".ig")
+                    } else {
+                        BUILD_DIRS.contains(&name.as_str()) || name.starts_with('.')
+                    };
+                    if skip {
                         continue;
                     }
                     if pkg_dirs.contains(r.as_str()) || p.join("package.json").is_file() {
@@ -221,6 +275,7 @@ fn discover_files(
                 } else if ft.is_file()
                     && is_source_ext(&name, &config.embedded)
                     && !ignore.is_match(&r)
+                    && tracked.as_ref().is_none_or(|t| t.contains(&r))
                 {
                     files.push(SourceFile {
                         path: r,
@@ -233,4 +288,84 @@ fn discover_files(
     files.sort_by(|a, b| a.path.cmp(&b.path));
     files.dedup_by(|a, b| a.path == b.path);
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn project(name: &str, git: bool) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("ig-disc-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        for f in [
+            "src/a.ts",
+            "target/x.js",
+            "dist/y.js",
+            ".next/z.js",
+            "src/build/b.ts",
+            "generated/g.ts",
+        ] {
+            std::fs::create_dir_all(d.join(f).parent().unwrap()).unwrap();
+            std::fs::write(d.join(f), "export const a = 1;\n").unwrap();
+        }
+        std::fs::write(d.join(".gitignore"), "generated/\ntarget/\ndist/\n.next/\n").unwrap();
+        if git {
+            let ok = std::process::Command::new("git")
+                .arg("init")
+                .arg("-q")
+                .current_dir(&d)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok);
+        }
+        d
+    }
+
+    #[test]
+    fn git_repo_keeps_tracked_files_in_build_named_folders() {
+        let d = project("tracked", true);
+        for f in ["vendor/v.ts", "src/build/b.ts"] {
+            std::fs::create_dir_all(d.join(f).parent().unwrap()).unwrap();
+            std::fs::write(d.join(f), "export const v = 1;\n").unwrap();
+        }
+        let ok = std::process::Command::new("git")
+            .args(["add", "-f", "vendor/v.ts", "src/build/b.ts"])
+            .current_dir(&d)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        assert_eq!(paths(&d), ["src/a.ts", "src/build/b.ts", "vendor/v.ts"]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn root_ignored_by_enclosing_repo_is_analysed() {
+        let d = project("enclosed", true);
+        std::fs::write(d.join(".gitignore"), "examples/\n").unwrap();
+        std::fs::create_dir_all(d.join("examples/x")).unwrap();
+        std::fs::write(d.join("examples/x/a.ts"), "export const a = 1;\n").unwrap();
+        assert_eq!(paths(&d.join("examples/x")), ["a.ts"]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    fn paths(d: &Path) -> Vec<String> {
+        let ws = discover(d, &Config::default()).unwrap();
+        ws.files.into_iter().map(|f| f.path).collect()
+    }
+
+    #[test]
+    fn skips_build_output() {
+        let d = project("git", true);
+        assert_eq!(paths(&d), ["src/a.ts", "src/build/b.ts"]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn skips_build_output_without_git() {
+        let d = project("nogit", false);
+        assert_eq!(paths(&d), ["generated/g.ts", "src/a.ts"]); // src/build/ is build output too
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }

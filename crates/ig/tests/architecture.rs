@@ -45,15 +45,15 @@ fn dependency_rule() {
             .map(|d| d["name"].as_str().unwrap())
             .filter(|d| d.starts_with("ig-"))
             .collect();
-        let allowed: &[&str] = if name == "ig-core" { &[] } else { &["ig-core"] };
+        let allowed: &[&str] = match name {
+            "ig-core" => &[],
+            _ => &["ig-core"],
+        };
         for d in &deps {
             assert!(allowed.contains(d), "{name} must not depend on {d}");
         }
     }
-    assert_eq!(
-        seen, 6,
-        "ig-core, ig-app, ig-lang-ts, ig-fs, ig-git, ig-checkers"
-    );
+    assert_eq!(seen, 5, "ig-core, ig-app, ig-lang-ts, ig-fs, ig-git");
 }
 
 #[test]

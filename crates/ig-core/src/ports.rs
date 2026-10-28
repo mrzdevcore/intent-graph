@@ -1,9 +1,9 @@
 //! The four boundaries ig talks to the world through. Adapters live in their own crates; fakes
 //! for tests live in `crate::testing` (feature `testing`).
 
-use crate::config::{Checker, Config};
+use crate::config::Config;
 use crate::http::HttpCall;
-use crate::model::{Edge, Finding, Node, ParseError};
+use crate::model::{Edge, Node, ParseError};
 use crate::workspace::{SourceFile, WorkspaceInfo};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ pub enum PortError {
 }
 
 /// Progress lines ("building graph…"). Core and app never print; the binary passes a callback
-/// that writes `ig: <msg>` to stderr when it is a terminal. Sync: checkers report from threads.
+/// that writes `ig: <msg>` to stderr when it is a terminal.
 pub type Progress = dyn Fn(&str) + Sync;
 
 /// Files under a root fixed at construction; paths are posix and relative to that root.
@@ -99,20 +99,6 @@ pub trait Vcs: Send + Sync {
     fn history(&self, n: usize) -> Vec<Vec<String>>;
     /// A temporary checkout of `rev`.
     fn checkout(&self, rev: &str) -> Result<Checkout, PortError>;
-}
-
-/// What running checkers produced. Findings carry no node ids; callers attach them.
-#[derive(Debug, Default, Clone)]
-pub struct CheckerOutput {
-    pub findings: Vec<Finding>,
-    pub errors: Vec<Finding>,
-    pub notices: Vec<String>,
-}
-
-pub trait CheckerRunner: Send + Sync {
-    /// Runs `checker` in `root`. `files` fills `{files}`: the files it should check, already
-    /// filtered (None: the whole root). An empty list skips a `{files}` checker.
-    fn run(&self, root: &Path, checker: &Checker, files: Option<&[String]>) -> CheckerOutput;
 }
 
 /// One file's language-neutral facts.

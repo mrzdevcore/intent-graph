@@ -1,4 +1,4 @@
-//! `ig setup` facts on the monorepo fixture.
+//! Setup facts on the monorepo fixture.
 
 use super::env;
 use ig_app::setup;

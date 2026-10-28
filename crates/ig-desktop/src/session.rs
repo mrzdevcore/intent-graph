@@ -48,6 +48,7 @@ const FLUSH_MS: u64 = 300;
 pub struct Session {
     conn: ConnectionTo<Agent>,
     root: PathBuf,
+    plugin: Option<PathBuf>,
     id: Mutex<Option<String>>,
     pending: Arc<Pending>,
     /// Sent or dropped (`stop`, or the session dropped): the process is killed, no `Stopped` is sent.
@@ -59,27 +60,24 @@ pub struct Session {
     sink: Sink,
 }
 
-/// A future that is ready after `ms` (the app's tokio has no timers).
-pub fn nap(ms: u64) -> JoinHandle<()> {
-    tauri::async_runtime::spawn_blocking(move || {
-        std::thread::sleep(std::time::Duration::from_millis(ms))
-    })
+/// Ready after `ms` (a tokio timer, no thread).
+pub async fn nap(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await
 }
 
 /// Waits for `task`, at most `ms`.
 pub async fn wait(task: JoinHandle<()>, ms: u64) {
-    let _ = select(task, nap(ms)).await;
+    let _ = select(task, Box::pin(nap(ms))).await;
 }
 
 fn err(e: impl std::fmt::Display) -> String {
     format!("agent: {e}")
 }
 
-/// Every session gets the ig plugin and project + local settings only (see Global Constraints).
-fn meta(root: &Path) -> Meta {
+/// Every session gets the ig plugin (the app's own, see `plugin.rs`) and project + local settings only (see Global Constraints).
+fn meta(plugin: Option<&Path>) -> Meta {
     let mut opts = json!({"settingSources": ["project", "local"]});
-    let plugin = root.join(".claude/skills/ig");
-    if plugin.is_dir() {
+    if let Some(plugin) = plugin {
         opts["plugins"] = json!([{"type": "local", "path": plugin}]);
     }
     let v = json!({"claudeCode": {"options": opts}});
@@ -108,13 +106,16 @@ impl Session {
         args: &[&str],
         root: &Path,
         ig: Option<&Path>,
+        plugin: Option<PathBuf>,
         sink: Sink,
     ) -> Result<Session, String> {
         let mut c = std::process::Command::new(cmd);
         let path = std::env::var_os("PATH").unwrap_or_default();
         c.args(args)
             .current_dir(root)
-            .env("PATH", crate::shell_path::child_path(ig, &path));
+            .env("PATH", crate::shell_path::child_path(ig, &path))
+            // ig_show answers "shown in app" to the agent.
+            .env("IG_APP", "1");
         let mut c = async_process::Command::from(c);
         c.stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -213,7 +214,7 @@ impl Session {
                 }
                 Either::Right((_, conn)) => {
                     // Let the connection write what is queued (the rejects `stop` sent) first.
-                    let _ = select(conn, nap(FLUSH_MS)).await;
+                    let _ = select(conn, Box::pin(nap(FLUSH_MS))).await;
                     let _ = child.kill();
                     let _ = child.status().await;
                 }
@@ -237,6 +238,7 @@ impl Session {
         Ok(Session {
             conn,
             root: root.to_path_buf(),
+            plugin,
             id: Mutex::new(None),
             pending,
             quit: Mutex::new(Some(quit)),
@@ -258,7 +260,7 @@ impl Session {
 
     /// A new session (`session/new`); with a feature, its id is kept in `.ig/sessions.json`.
     pub async fn start(&self, feature: Option<&str>) -> Result<String, String> {
-        let req = NewSessionRequest::new(&self.root).meta(meta(&self.root));
+        let req = NewSessionRequest::new(&self.root).meta(meta(self.plugin.as_deref()));
         let r = self
             .conn
             .send_request(req)
@@ -276,7 +278,8 @@ impl Session {
 
     /// Resumes an earlier session (`session/load`): the adapter replays it as updates.
     pub async fn load(&self, id: &str) -> Result<(), String> {
-        let req = LoadSessionRequest::new(SessionId::new(id), &self.root).meta(meta(&self.root));
+        let req = LoadSessionRequest::new(SessionId::new(id), &self.root)
+            .meta(meta(self.plugin.as_deref()));
         let r = self
             .conn
             .send_request(req)

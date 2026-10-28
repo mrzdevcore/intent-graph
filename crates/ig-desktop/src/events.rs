@@ -82,6 +82,10 @@ pub enum AgentEvent {
         reason: String,
         stderr: Option<String>,
     },
+    /// A short notice for the transcript (the app's ig plugin could not be set up).
+    Notice {
+        text: String,
+    },
     /// No node or no adapter: what to run (`installable`: `agent_install` can do it).
     Setup {
         instructions: String,

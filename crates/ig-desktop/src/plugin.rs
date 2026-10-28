@@ -1,0 +1,162 @@
+//! The ig plugin a session loads. The app brings its own (exported by the bundled `ig`, on the first session of each run, into
+//! `<app data>/plugin/current`), so an upgrade never leaves a project on stale
+//! skills. If that fails, the project's own copy is used when it has one.
+
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// Where the app's plugin lives: re-exported on the first session of each app run, so a rebuilt
+/// app never serves an older export.
+pub fn app_dir(data: &Path) -> PathBuf {
+    data.join("plugin/current")
+}
+
+/// Whether this process already exported. Concurrent session starts export once, not twice.
+static EXPORTED: Mutex<bool> = Mutex::new(false);
+
+/// Exports straight into `dir` (each file is written atomically, so a reader never sees half of
+/// one), then prunes what the new export did not write. The directory is never removed as a whole:
+/// a live session or a second app instance may be reading it. Runs under the lock.
+fn ensure(
+    done: &Mutex<bool>,
+    dir: &Path,
+    export: impl FnOnce(&Path) -> Result<Vec<String>, String>,
+) -> Result<(), String> {
+    let mut done = done.lock().unwrap_or_else(|e| e.into_inner());
+    if *done && dir.is_dir() {
+        return Ok(());
+    }
+    // An export that lists nothing (an older ig) must not prune what it just wrote.
+    let r = export(dir).and_then(|keep| {
+        if keep.is_empty() {
+            return Err("ig plugin export listed no files".to_string());
+        }
+        prune(dir, dir, &keep);
+        Ok(())
+    });
+    *done = r.is_ok();
+    r
+}
+
+/// Removes files under `dir` that are not in `keep` (paths relative to `root`), then empty dirs.
+fn prune(root: &Path, dir: &Path, keep: &[String]) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            prune(root, &p, keep);
+            let _ = std::fs::remove_dir(&p); // only succeeds when empty
+        } else if p
+            .strip_prefix(root)
+            .is_ok_and(|r| !keep.iter().any(|k| Path::new(k) == r))
+        {
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+}
+
+/// The plugin path for a session in `root`, and a notice when the app's own could not be made.
+/// The export runs on a blocking thread; the lock never crosses an await.
+pub async fn choose(
+    root: PathBuf,
+    data: PathBuf,
+    export: impl FnOnce(&Path) -> Result<Vec<String>, String> + Send + 'static,
+) -> (Option<PathBuf>, Option<String>) {
+    tauri::async_runtime::spawn_blocking(move || choose_in(&EXPORTED, &root, &data, export))
+        .await
+        .unwrap_or_else(|e| (None, Some(format!("ig plugin export: {e}"))))
+}
+
+fn choose_in(
+    done: &Mutex<bool>,
+    root: &Path,
+    data: &Path,
+    export: impl FnOnce(&Path) -> Result<Vec<String>, String>,
+) -> (Option<PathBuf>, Option<String>) {
+    let dir = app_dir(data);
+    match ensure(done, &dir, export) {
+        Ok(()) => (Some(dir), None),
+        Err(e) => {
+            let mine = root.join(".claude/skills/ig");
+            let note = format!("Could not set up the app's ig plugin ({e}); using the project's.");
+            (mine.is_dir().then_some(mine), Some(note))
+        }
+    }
+}
+
+/// Exports with the bundled `ig` (the directory the app puts first on the agent's PATH).
+pub fn export_with(ig_dir: Option<&Path>, to: &Path) -> Result<Vec<String>, String> {
+    let ig = ig_dir.ok_or("no bundled ig")?.join("ig");
+    let out = std::process::Command::new(&ig)
+        .args(["plugin", "export"])
+        .arg(to)
+        .output()
+        .map_err(|e| format!("{}: {e}", ig.display()))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(String::from)
+            .collect())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr)
+            .trim()
+            .chars()
+            .take(200)
+            .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dirs(tag: &str) -> (PathBuf, PathBuf) {
+        let b = std::env::temp_dir().join(format!("ig-plugin-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&b);
+        std::fs::create_dir_all(b.join("root/.claude/skills/ig")).unwrap();
+        (b.join("root"), b.join("data"))
+    }
+
+    #[test]
+    fn the_app_plugin_wins_and_is_exported_once() {
+        let (root, data) = dirs("ok");
+        let mut calls = 0;
+        let mk = |calls: &mut i32, to: &Path| {
+            *calls += 1;
+            std::fs::create_dir_all(to).unwrap();
+            std::fs::write(to.join("a"), "new").unwrap();
+            Ok(vec!["a".to_string()])
+        };
+        let run = Mutex::new(false);
+        let (p, n) = choose_in(&run, &root, &data, |to| mk(&mut calls, to));
+        assert_eq!((p, n), (Some(app_dir(&data)), None));
+        let (p, _) = choose_in(&run, &root, &data, |to| mk(&mut calls, to));
+        assert_eq!((p, calls), (Some(app_dir(&data)), 1));
+        // A new process re-exports.
+        let next = Mutex::new(false);
+        choose_in(&next, &root, &data, |to| mk(&mut calls, to));
+        assert_eq!(calls, 2);
+        // Re-export prunes what is no longer shipped, and never removes the directory itself.
+        let dir = app_dir(&data);
+        std::fs::create_dir_all(dir.join("old/deep")).unwrap();
+        std::fs::write(dir.join("old/deep/x"), "x").unwrap();
+        choose_in(&Mutex::new(false), &root, &data, |to| mk(&mut calls, to));
+        assert!(dir.join("a").is_file() && !dir.join("old").exists());
+    }
+
+    #[test]
+    fn a_failed_export_falls_back_to_the_project_plugin_with_a_notice() {
+        let (root, data) = dirs("fail");
+        let (p, n) = choose_in(&Mutex::new(false), &root, &data, |_| Err("boom".into()));
+        assert_eq!(p, Some(root.join(".claude/skills/ig")));
+        assert!(n.unwrap().contains("boom"));
+        assert!(!app_dir(&data).exists());
+        std::fs::remove_dir_all(root.join(".claude")).unwrap();
+        assert_eq!(
+            choose_in(&Mutex::new(false), &root, &data, |_| Err("x".into())).0,
+            None
+        );
+    }
+}

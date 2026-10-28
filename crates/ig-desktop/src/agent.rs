@@ -179,8 +179,18 @@ impl Agent {
         };
         self.stop();
         let args: Vec<&str> = l.args.iter().map(String::as_str).collect();
-        let session =
-            Arc::new(Session::spawn(&cmd, &args, root, l.ig.as_deref(), l.sink.clone()).await?);
+        let ig = l.ig.clone();
+        let (plugin, notice) =
+            crate::plugin::choose(root.to_path_buf(), data.to_path_buf(), move |to| {
+                crate::plugin::export_with(ig.as_deref(), to)
+            })
+            .await;
+        if let Some(text) = notice {
+            (l.sink)(AgentEvent::Notice { text });
+        }
+        let session = Arc::new(
+            Session::spawn(&cmd, &args, root, l.ig.as_deref(), plugin, l.sink.clone()).await?,
+        );
         *self.running.lock().unwrap() = Some(Running {
             root: root.to_path_buf(),
             session: session.clone(),
@@ -516,7 +526,7 @@ mod tests {
                 if a.current(&root).is_none() {
                     break;
                 }
-                crate::session::nap(20).await.unwrap();
+                crate::session::nap(20).await;
             }
             assert!(a.running(&root).is_err(), "the dead session is gone");
             a.load(&root, &data, "fake-1", fake(&rec)).await.unwrap();

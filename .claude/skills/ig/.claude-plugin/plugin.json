@@ -1,0 +1,8 @@
+{
+  "name": "ig",
+  "version": "0.1.0",
+  "description": "intent-graph: set up ig.yaml, explore and show the system",
+  "skills": [
+    "./skills"
+  ]
+}

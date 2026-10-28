@@ -9,7 +9,7 @@ const PLACEHOLDER: &str = r#"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ig graph view</title>
+<title>ig — system map</title>
 </head>
 <body>
 <p>viewer not built: run <code>make viewer</code></p>
