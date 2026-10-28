@@ -4,6 +4,7 @@
 pub mod agent;
 pub mod arrows;
 pub mod code;
+pub mod externals;
 pub mod facts;
 pub mod file;
 pub mod layers;

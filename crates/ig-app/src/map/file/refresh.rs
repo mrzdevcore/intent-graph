@@ -130,7 +130,7 @@ pub(crate) fn fresh(f: &FactBox) -> MapBox {
         title: Field::ig(f.guess.title.clone()),
         tech: None,
         description: None,
-        logo: None,
+        logo: f.guess.logo.clone().map(Field::ig),
         badges: None,
         pattern: f.guess.pattern.clone().map(Field::ig),
         slot: f.guess.slot.clone().map(Field::ig),

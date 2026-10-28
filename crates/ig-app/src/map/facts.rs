@@ -1,5 +1,6 @@
-//! The boxes ig knows from the code alone: the system, its containers (workspace packages and
-//! blueprint systems) and their components (source folders, read through the folder pattern).
+//! The boxes ig knows from the code alone: the system, its containers (workspace packages,
+//! blueprint systems and the known outside systems the code imports) and their components
+//! (source folders, read through the folder pattern).
 
 use ig_core::config::Config;
 use ig_core::model::Graph;
@@ -80,6 +81,9 @@ pub struct Guess {
     pub pattern: Option<Pattern>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub slot: Option<String>,
+    /// A simple-icons slug.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub logo: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -140,7 +144,15 @@ pub fn facts(ws: &WorkspaceInfo, g: &Graph, cfg: &Config) -> Vec<FactBox> {
     let with_src: Vec<usize> = (0..ws.packages.len())
         .filter(|i| ws.files.iter().any(|f| f.package == *i))
         .collect();
-    // Container ids (packages, then blueprint systems) made unique before components use them.
+    // Known outside systems the code imports (graph `system` nodes the blueprint doesn't declare).
+    let detected: Vec<(&str, &super::externals::Known)> = g
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "system" && !cfg.blueprint.systems.iter().any(|(s, _)| *s == n.name))
+        .filter_map(|n| Some((n.id.as_str(), super::externals::by_title(&n.name)?)))
+        .collect();
+    // Container ids (packages, blueprint systems, then detected ones) made unique before
+    // components use them.
     let pkgs: Vec<usize> = with_src
         .iter()
         .copied()
@@ -153,6 +165,7 @@ pub fn facts(ws: &WorkspaceInfo, g: &Graph, cfg: &Config) -> Vec<FactBox> {
             slug(name.rsplit('/').next().unwrap_or(name), "pkg")
         })
         .chain(cfg.blueprint.systems.iter().map(|(n, _)| slug(n, "system")))
+        .chain(detected.iter().map(|(_, k)| k.id.to_string()))
         .enumerate()
         .map(|(k, id)| (id, k))
         .collect();
@@ -200,6 +213,21 @@ pub fn facts(ws: &WorkspaceInfo, g: &Graph, cfg: &Config) -> Vec<FactBox> {
             ),
         });
     }
+    let first = pkgs.len() + cfg.blueprint.systems.len();
+    for (k, (node, known)) in detected.iter().enumerate() {
+        let mut g = guess(known.kind, known.title.into(), None, None);
+        g.logo = known.logo.map(String::from);
+        out.push(FactBox {
+            id: id_of[first + k].clone(),
+            parent: Some("system".into()),
+            level: Level::Container,
+            made_of: vec![],
+            package: None,
+            files: 0,
+            nodes: vec![node.to_string()],
+            guess: g,
+        });
+    }
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
 }
@@ -210,6 +238,7 @@ fn guess(kind: BoxKind, title: String, pattern: Option<Pattern>, slot: Option<&s
         title,
         pattern,
         slot: slot.map(String::from),
+        logo: None,
     }
 }
 
@@ -218,7 +247,7 @@ const MAX_ID: usize = 64;
 
 /// `[a-z0-9-]`: lowercase ASCII, runs of anything else as one `-`, trimmed, at most 64 chars;
 /// `fallback` when nothing is left.
-fn slug(s: &str, fallback: &str) -> String {
+pub(crate) fn slug(s: &str, fallback: &str) -> String {
     let s: String = s
         .to_ascii_lowercase()
         .chars()
