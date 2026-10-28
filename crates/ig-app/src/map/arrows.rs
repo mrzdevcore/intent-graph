@@ -102,7 +102,7 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
             "implements" | "extends" => ArrowKind::Implements,
             "http" => ArrowKind::Network,
             "uses" => match by_id[b].guess.kind {
-                BoxKind::Store => ArrowKind::Data,
+                BoxKind::Store | BoxKind::Queue => ArrowKind::Data,
                 BoxKind::External => ArrowKind::Network,
                 _ => ArrowKind::Uses,
             },
@@ -216,6 +216,7 @@ mod tests {
                 title: id.into(),
                 pattern: None,
                 slot: None,
+                logo: None,
             },
         }
     }

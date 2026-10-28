@@ -1,6 +1,7 @@
 //! Language-neutral graph assembly: the frontends' nodes and edges merged (code never resolves
 //! into tests), blueprint `system` nodes and `http` links, and the extras `setup::facts` reports.
 
+use crate::map::externals;
 use ig_core::config::Config;
 use ig_core::http;
 use ig_core::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
@@ -59,8 +60,22 @@ pub fn build_graph(
     }
     facts.sort_by(|a, b| a.file.cmp(&b.file));
 
+    // A file's Prisma schema: its package's, else the root's.
+    let schema = |file: &str| {
+        let dir = ws
+            .files
+            .iter()
+            .find(|f| f.path == file)
+            .map_or(".", |f| ws.packages[f.package].dir.as_str());
+        [
+            format!("{dir}/prisma/schema.prisma"),
+            "prisma/schema.prisma".into(),
+        ]
+        .iter()
+        .find_map(|p| files.read(p.trim_start_matches("./")))
+    };
     let (system_nodes, blueprint_edges, renames, http_unmatched) =
-        blueprint_links(&facts, &packages, config);
+        blueprint_links(&facts, &packages, config, &tests, &schema);
     let mut extras = Extras {
         http_unmatched,
         ..Extras::default()
@@ -156,11 +171,14 @@ type Links = (
 );
 
 /// `http` edges from client calls to route nodes, and `system` nodes with `uses` edges from the
-/// modules importing their packages.
+/// modules importing their packages: the blueprint's, and the known ones (`map::externals`)
+/// imported outside tests, joined to a blueprint system of the same name.
 fn blueprint_links(
     facts: &[FileFacts],
     packages: &[(String, String, u32)],
     config: &Config,
+    tests: &globset::GlobSet,
+    schema: &dyn Fn(&str) -> Option<String>,
 ) -> Links {
     let bp = &config.blueprint;
     let mut edges = vec![];
@@ -216,16 +234,30 @@ fn blueprint_links(
         }
     }
     let mut systems = std::collections::BTreeMap::new();
+    let slug = crate::map::facts::slug;
     for (file, pkg, line) in packages {
-        if let Some((name, _)) = bp
+        let name = match bp
             .systems
             .iter()
             .find(|(_, pkgs)| pkgs.iter().any(|p| p == pkg))
         {
-            let id = format!("system:{name}");
-            edges.push(edge(file, &id, "uses", "resolved", file, *line));
-            systems.entry(id).or_insert_with(|| name.clone());
-        }
+            Some((name, _)) => name.clone(),
+            None if tests.is_match(file) => continue,
+            None => {
+                let Some(k) = externals::system(pkg, || schema(file)) else {
+                    continue;
+                };
+                bp.systems
+                    .iter()
+                    .map(|(n, _)| n)
+                    .find(|n| [k.id.to_string(), slug(k.title, "")].contains(&slug(n, "")))
+                    .cloned()
+                    .unwrap_or_else(|| k.title.to_string())
+            }
+        };
+        let id = format!("system:{name}");
+        edges.push(edge(file, &id, "uses", "resolved", file, *line));
+        systems.entry(id).or_insert(name);
     }
     let nodes = systems
         .into_iter()

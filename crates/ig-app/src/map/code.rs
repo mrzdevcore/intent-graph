@@ -23,6 +23,7 @@ pub(crate) fn as_fact(b: &MapBox) -> FactBox {
             title: b.title.value.clone(),
             pattern: b.pattern.as_ref().map(|p| p.value.clone()),
             slot: b.slot.as_ref().map(|s| s.value.clone()),
+            logo: b.logo.as_ref().map(|l| l.value.clone()),
         },
     }
 }
@@ -80,6 +81,7 @@ pub fn code_boxes(m: &MapFile, g: &Graph) -> (Vec<MapBox>, Vec<MapArrow>) {
                     title,
                     pattern: None,
                     slot: None,
+                    logo: None,
                 },
             });
         }
