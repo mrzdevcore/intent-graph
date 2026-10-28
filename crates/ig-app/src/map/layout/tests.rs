@@ -403,3 +403,18 @@ fn parallel_arrows_get_lanes() {
         }
     }
 }
+
+#[test]
+fn insides_are_wide() {
+    let mut bad = vec![];
+    for (b, a) in trees() {
+        let p = layout(&b, &a).0;
+        for (parent, (w, h)) in &p.inner {
+            let n = kids(&b, parent).len();
+            if n >= 3 && !(1.2..=2.4).contains(&(w / h)) {
+                bad.push(format!("{parent} ({n} children): {w}x{h} = {:.2}", w / h));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
