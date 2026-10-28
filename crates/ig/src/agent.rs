@@ -24,7 +24,7 @@ pub fn interactive() -> bool {
 
 /// `Let an AI agent ({agent}) read the architecture? [Y/n]`; yes unless the answer starts with n.
 pub fn confirm(agent: Agent) -> bool {
-    eprintln!("{}", ig_app::map::agent::READ_ONLY);
+    eprintln!("{}", agent.note());
     eprint!(
         "Let an AI agent ({}) read the architecture? [Y/n] ",
         agent.name()

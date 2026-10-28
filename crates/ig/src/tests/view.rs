@@ -51,3 +51,54 @@ fn view_writes_the_page() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 13 packages (one named `system`) and 2 outside systems: the map is valid, accepted on the
+/// next run and stable.
+#[test]
+fn many_containers_stay_loadable() {
+    let mut files: Vec<(String, String)> = vec![
+        (
+            "package.json".into(),
+            r#"{"name":"mono","private":true,"workspaces":["packages/*"]}"#.into(),
+        ),
+        (
+            "ig.yaml".into(),
+            "blueprint: { systems: { Stripe: [stripe], Pg: [pg] } }\n".into(),
+        ),
+    ];
+    for i in 1..=13 {
+        let name = if i == 1 {
+            "@m/system".into()
+        } else {
+            format!("@m/p{i}")
+        };
+        files.push((
+            format!("packages/p{i}/package.json"),
+            format!(r#"{{"name":"{name}","version":"1.0.0"}}"#),
+        ));
+        files.push((
+            format!("packages/p{i}/src/a/x.ts"),
+            "export const x = 1;\n".into(),
+        ));
+    }
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    let dir = super::tmp_with(&refs);
+    let w = Wired::new(&dir);
+    let v = view::run(&w.env()).unwrap();
+    assert!(v.notices.is_empty(), "{:?}", v.notices);
+    let first = std::fs::read(dir.join(".ig/map.json")).unwrap();
+    let again = view::run(&w.env()).unwrap();
+    assert!(again.notices.is_empty(), "{:?}", again.notices);
+    assert_eq!(std::fs::read(dir.join(".ig/map.json")).unwrap(), first);
+    let ids: Vec<&str> = v
+        .boxes
+        .iter()
+        .filter(|b| b.parent.as_deref() == Some("system"))
+        .map(|b| b.id.as_str())
+        .collect();
+    assert_eq!(ids, ["packages", "pg", "stripe"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
