@@ -6,6 +6,7 @@ import MapArrow from "../src/map/MapArrow.svelte";
 import Region from "../src/map/Region.svelte";
 import { logoPath } from "../src/map/logo";
 import { look } from "../src/map/looks";
+import { siNextdotjs, siTrpc, siPrisma, siStripe } from "simple-icons";
 import type { MapBox as Box } from "../src/map/types";
 
 const f = <T,>(value: T) => ({ value, source: "ig" as const });
@@ -66,4 +67,18 @@ test("a region shows its label", () => {
   mount(Region, { target: t, props: { region: { parent: "p", kind: "group", label: "billing", frame: { x: 0, y: 0, w: 10, h: 10 } } } });
   flushSync();
   expect(t.textContent).toContain("billing");
+});
+
+test("bundled brands return the simple-icons path", () => {
+  for (const [slug, si] of Object.entries({ nextdotjs: siNextdotjs, trpc: siTrpc, prisma: siPrisma, stripe: siStripe })) expect(logoPath(slug)).toBe(si.path);
+});
+
+test("rings: domain gold, application green, else blue-grey", () => {
+  const bg = (label: string) => {
+    const t = document.createElement("div");
+    mount(Region, { target: t, props: { region: { parent: "p", kind: "ring", label, frame: { x: 0, y: 0, w: 10, h: 10 } } } });
+    flushSync();
+    return t.querySelector(".region")!.getAttribute("data-role");
+  };
+  expect([bg("Domain"), bg("Application"), bg("Infrastructure")]).toEqual(["domain", "application", "infra"]);
 });
