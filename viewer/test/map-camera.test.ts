@@ -53,3 +53,11 @@ test("detail thresholds", () => {
   expect([139, 140, 219, 220].map(detailFor)).toEqual(["far", "mid", "mid", "near"]);
   expect([559, 560].map(showsInside)).toEqual([false, true]);
 });
+
+test("the system's world frame is its inner box, and fits", () => {
+  const [w, h] = view.placed.inner["system"];
+  const f = worldFrame("system", view);
+  expect(f).toEqual({ x: 0, y: 0, w, h });
+  const c = fitTo(f, { w: 1000, h: 800 });
+  expect(Number.isFinite(c.k) && c.k > 0).toBe(true);
+});

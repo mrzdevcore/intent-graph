@@ -11,8 +11,6 @@ export function fitTo(f: Frame, view: { w: number; h: number }, margin = 0.1): C
   return { k: kk, x: view.w / 2 - (f.x + f.w / 2) * kk, y: view.h / 2 - (f.y + f.h / 2) * kk };
 }
 
-const ROOT: Frame = { x: 0, y: 0, w: 0, h: 0 };
-
 /**
  * Where a parent's inner space sits in the world: the inner box (inner units) is scaled
  * uniformly by s = min(frame.w/inner.w, frame.h/inner.h) and centred in the parent's world
@@ -33,7 +31,7 @@ export function innerTransform(parentId: string, view: View): { x: number; y: nu
 export function worldFrame(id: string, view: View): Frame {
   const f = view.placed.frames[id];
   const p = view.boxes.find((b) => b.id === id)?.parent;
-  if (!f) return ROOT;
+  if (!f) { const [w, h] = view.placed.inner[id] ?? [0, 0]; return { x: 0, y: 0, w, h }; } // the frame-less root: its inner box is the world
   if (!p) return f;
   const t = innerTransform(p, view);
   return { x: t.x + f.x * t.s, y: t.y + f.y * t.s, w: f.w * t.s, h: f.h * t.s };
