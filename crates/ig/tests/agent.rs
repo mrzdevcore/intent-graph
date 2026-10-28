@@ -121,12 +121,27 @@ fn agent_retry_on_errors() {
 #[test]
 fn no_agent_still_views() {
     let (root, _bin) = shop("none");
-    let (code, out) = ig(&root, Path::new(""), &["view", "--no-open"]);
+    let (code, out) = ig(&root, Path::new(""), &["view", "--read", "--no-open"]);
     assert_eq!(code, 0, "{out}");
     assert!(
         out.contains("No AI agent found (claude, gemini or codex): showing ig's own reading."),
         "{out}"
     );
     assert!(root.join(".ig/view.html").exists());
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn no_tty_never_reads() {
+    let (root, bin) = shop("notty");
+    fake(&bin, "claude", &[CHECKOUT]);
+    let (code, out) = ig(&root, &bin, &["view", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!bin.join("prompt.1").exists(), "the agent ran: {out}");
+    assert!(
+        out.contains("boxes are ig's guess; run `ig view --read` to let an AI agent read them."),
+        "{out}"
+    );
+    assert!(!out.contains("No AI agent found"), "{out}");
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }

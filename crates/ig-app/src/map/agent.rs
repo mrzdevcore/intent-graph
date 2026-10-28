@@ -64,8 +64,9 @@ pub struct Ask<'a> {
     pub template: &'a str,
     /// The program is on PATH.
     pub found: &'a dyn Fn(&str) -> bool,
-    /// May this agent read the architecture?
-    pub confirm: &'a mut dyn FnMut(Agent) -> bool,
+    /// May this agent read the architecture? None when nobody can be asked (no terminal):
+    /// then only `all` reads.
+    pub confirm: Option<&'a mut dyn FnMut(Agent) -> bool>,
     /// Runs the agent with a prompt; its answer, or why it failed.
     pub run: &'a mut dyn FnMut(Agent, &str) -> Result<String, String>,
 }
@@ -120,8 +121,9 @@ impl Evidence {
     }
 }
 
-/// `ig view`'s reading: when some box needs it (or `--read`), picks the agent, asks to confirm
-/// and reads. Returns a notice: no agent, or why the reading was not used.
+/// `ig view`'s reading, only on consent: `--read`, or a yes to `confirm` when some box needs
+/// reading. Returns a notice: the hint when nobody can be asked (or no agent to ask about), no
+/// agent for `--read`, or why the reading was not used.
 pub fn offer(
     a: &mut Ask,
     m: &mut MapFile,
@@ -129,15 +131,31 @@ pub fn offer(
     cfg: &Config,
     progress: &dyn Fn(&str),
 ) -> Option<String> {
-    if !a.all && !m.boxes.iter().any(|b| b.needs_reading && !b.stale) {
+    let n = m
+        .boxes
+        .iter()
+        .filter(|b| b.needs_reading && !b.stale)
+        .count();
+    let hint = || {
+        Some(format!(
+            "{n} boxes are ig's guess; run `ig view --read` to let an AI agent read them."
+        ))
+    };
+    if !a.all && n == 0 {
         return None;
     }
-    let Some(agent) = Agent::pick(cfg, a.flag, a.found) else {
+    let agent = Agent::pick(cfg, a.flag, a.found);
+    if !a.all {
+        let (Some(ag), Some(confirm)) = (agent, a.confirm.as_mut()) else {
+            return hint();
+        };
+        if !confirm(ag) {
+            return None;
+        }
+    }
+    let Some(agent) = agent else {
         return Some(NO_AGENT.into());
     };
-    if !(a.confirm)(agent) {
-        return None;
-    }
     read(agent, a.template, m, ev, a.all, a.run, progress).err()
 }
 

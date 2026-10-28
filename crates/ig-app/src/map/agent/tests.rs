@@ -105,29 +105,45 @@ fn extract_takes_the_last_block() {
 }
 
 #[test]
-fn offer_skips_a_read_map_and_tells_when_no_agent() {
+fn offer_reads_only_on_consent() {
     let (mut m, ev) = shop_map();
     let cfg = Config::default();
-    let mut asked = false;
-    let mut confirm = |_: Agent| {
-        asked = true;
-        false
-    };
-    let mut run = |_: Agent, _: &str| -> Result<String, String> { unreachable!() };
+    let mut run = |_: Agent, _: &str| -> Result<String, String> { unreachable!("never run") };
     let mut a = Ask {
         all: false,
         flag: None,
         template: "",
-        found: &|_| false,
-        confirm: &mut confirm,
+        found: &|_| true,
+        confirm: None,
         run: &mut run,
     };
+    let n = m.boxes.iter().filter(|b| b.needs_reading).count();
+    let hint =
+        format!("{n} boxes are ig's guess; run `ig view --read` to let an AI agent read them.");
+    // no terminal, no --read: never read, a hint
+    assert_eq!(
+        offer(&mut a, &mut m, &ev, &cfg, &|_| {}),
+        Some(hint.clone())
+    );
+    // asked, and the person says no
+    let mut asked = false;
+    let mut no = |_: Agent| {
+        asked = true;
+        false
+    };
+    a.confirm = Some(&mut no);
+    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), None);
+    // no agent to ask about: the hint, not the no-agent line
+    a.found = &|_| false;
+    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), Some(hint));
+    // --read with no agent: the no-agent line
+    a.all = true;
     assert_eq!(
         offer(&mut a, &mut m, &ev, &cfg, &|_| {}).as_deref(),
         Some(NO_AGENT)
     );
-    a.found = &|_| true;
-    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), None);
+    // nothing needs reading: nothing to offer
+    a.all = false;
     m.boxes.iter_mut().for_each(|b| b.needs_reading = false);
     a.found = &|_| panic!("nothing needs reading");
     assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), None);
