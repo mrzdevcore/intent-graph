@@ -45,5 +45,8 @@ pub fn parse_args() -> Result<Args> {
             _ => return Err(arg.unexpected().into()),
         }
     }
+    if a.read && a.no_read {
+        anyhow::bail!("--read and --no-read cannot be used together\n{USAGE}");
+    }
     Ok(a)
 }

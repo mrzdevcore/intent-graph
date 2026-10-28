@@ -114,3 +114,18 @@ fn ig_state_is_the_last_show() {
     let r = call_tool(&dir, "ig_state", json!({}));
     assert_eq!(r["structuredContent"]["show"]["seq"], 1);
 }
+
+#[test]
+fn ig_show_offers_no_architecture_mode() {
+    let t = tools();
+    let show = t
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "ig_show")
+        .unwrap();
+    let modes = &show["inputSchema"]["properties"]["mode"]["enum"];
+    assert_eq!(modes, &json!(["focus", "chain"]));
+    let d = show["description"].as_str().unwrap();
+    assert!(d.contains("shown in a later version"), "{d}");
+}

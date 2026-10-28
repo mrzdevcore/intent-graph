@@ -29,6 +29,28 @@ pub fn write(w: &Wired, v: &View) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Writes `.ig/.gitignore` (all but the map) when `.ig` exists and neither it nor the repo's
+/// `.gitignore` ignores `.ig/*` already, so the page and ig's other files are never committed by
+/// accident.
+pub fn ignore_ig_dir(root: &Path) -> Result<()> {
+    let dir = root.join(".ig");
+    let own = dir.join(".gitignore");
+    if !dir.is_dir() || own.exists() {
+        return Ok(());
+    }
+    let repo = std::fs::read_to_string(root.join(".gitignore")).unwrap_or_default();
+    let ignores = |l: &str| {
+        matches!(
+            l.trim(),
+            ".ig" | ".ig/" | "/.ig" | "/.ig/" | ".ig/*" | "/.ig/*"
+        )
+    };
+    if !repo.lines().any(ignores) {
+        std::fs::write(own, "*\n!map.json\n!.gitignore\n")?;
+    }
+    Ok(())
+}
+
 pub fn open(target: &Path) {
     let target = target.to_string_lossy();
     let target = target.as_ref();
@@ -60,6 +82,10 @@ mod tests {
             ("placeholder", fill(placeholder, data, "false")),
         ] {
             assert!(html.contains(data), "{name}: data missing");
+            assert!(
+                html.contains("<title>ig — system map</title>"),
+                "{name}: title"
+            );
             assert!(!html.contains("/*IG_DATA*/"), "{name}: data marker left");
             assert!(!html.contains("/*IG_LIVE*/"), "{name}: live marker left");
         }

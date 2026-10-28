@@ -15,7 +15,7 @@ fn tools() -> Value {
         },
         {
             "name": "ig_show",
-            "description": "Show an answer in the ig viewer (the ig app, or `ig view`): the nodes and edges of a path or subgraph, highlighted, with ordered steps. Every id is checked against the graph. Writes only .ig/show.json.",
+            "description": "Record an answer for the ig viewer: the nodes and edges of a path or subgraph, highlighted, with ordered steps. Every id is checked against the graph. Writes only .ig/show.json; the system map does not draw it yet (shown in a later version).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -27,7 +27,7 @@ fn tools() -> Value {
                     "steps": {"type": "array", "maxItems": 40, "items": {"type": "object", "properties": {
                         "target": {"type": "string", "description": "A node id, or from|to for an edge"},
                         "text": {"type": "string"}}, "required": ["target", "text"]}},
-                    "mode": {"type": "string", "enum": ["focus", "architecture", "chain"]}
+                    "mode": {"type": "string", "enum": ["focus", "chain"]}
                 },
                 "required": ["title", "nodes"]
             }

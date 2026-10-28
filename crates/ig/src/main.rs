@@ -17,7 +17,34 @@ use ig_wire::Wired;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+/// Commands of earlier versions that hooks and CI may still run (ruling R29).
+fn removed() -> Option<u8> {
+    let mut args = std::env::args().skip(1);
+    let cmd = loop {
+        match args.next() {
+            Some(a) if a == "--root" => {
+                args.next();
+            }
+            other => break other,
+        }
+    };
+    match cmd.as_deref() {
+        Some("hook") => {
+            eprintln!("ig hook was removed; delete ig's Stop hook from .claude/settings.json");
+            Some(0)
+        }
+        Some("check") => {
+            eprintln!("ig check was removed in this version; run ig view");
+            Some(2)
+        }
+        _ => None,
+    }
+}
+
 fn real_main() -> Result<u8> {
+    if let Some(code) = removed() {
+        return Ok(code);
+    }
     let a = parse_args()?;
     if a.version {
         println!("ig {}", model::TOOL_VERSION);
@@ -59,6 +86,7 @@ fn real_main() -> Result<u8> {
             for n in &v.notices {
                 eprintln!("ig: {n}");
             }
+            render::ignore_ig_dir(&root)?;
             if a.json {
                 println!("{}", serde_json::to_string_pretty(&v)?);
             } else {

@@ -145,3 +145,66 @@ fn no_tty_never_reads() {
     assert!(!out.contains("No AI agent found"), "{out}");
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
+
+#[test]
+fn a_named_agent_not_on_path_is_no_agent() {
+    let (root, bin) = shop("named");
+    fake(&bin, "claude", &[CHECKOUT]);
+    let (code, out) = ig(
+        &root,
+        &bin,
+        &["view", "--read", "--agent", "gemini", "--no-open"],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("No AI agent found"), "{out}");
+    assert!(!out.contains("could not start"), "{out}");
+    assert!(!bin.join("prompt.1").exists(), "claude ran instead: {out}");
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn read_and_no_read_together_is_a_usage_error() {
+    let (root, bin) = shop("both");
+    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-read", "--no-open"]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("--read and --no-read"), "{out}");
+    assert!(!root.join(".ig/map.json").exists());
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn removed_commands_say_so() {
+    let (root, bin) = shop("removed");
+    let (code, out) = ig(&root, &bin, &["hook", "claude"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(
+        out,
+        "ig hook was removed; delete ig's Stop hook from .claude/settings.json\n"
+    );
+    let (code, out) = ig(&root, &bin, &["check", "--agent"]);
+    assert_eq!(code, 2, "{out}");
+    assert_eq!(out, "ig check was removed in this version; run ig view\n");
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+/// Outside a git repo, with git on PATH: nothing from git on stderr, and `.ig/view.html` cannot
+/// be committed by accident.
+#[test]
+fn no_git_noise_and_the_page_is_ignored() {
+    let (root, bin) = shop("nogit");
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let (code, out) = ig(&root, Path::new(&path), &["view", "--no-read", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("fatal"), "{out}");
+    assert_eq!(
+        std::fs::read_to_string(root.join(".ig/.gitignore")).unwrap(),
+        "*\n!map.json\n!.gitignore\n"
+    );
+    // a repo that ignores `.ig/*` itself gets no `.ig/.gitignore`
+    std::fs::remove_dir_all(root.join(".ig")).unwrap();
+    std::fs::write(root.join(".gitignore"), ".ig/*\n!.ig/map.json\n").unwrap();
+    let (code, out) = ig(&root, Path::new(&path), &["view", "--no-read", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!root.join(".ig/.gitignore").exists());
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}

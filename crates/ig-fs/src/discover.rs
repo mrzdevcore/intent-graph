@@ -208,17 +208,11 @@ const BUILD_DIRS: [&str; 15] = [
 ];
 
 /// Files git would list (tracked or untracked, minus `.gitignore`d). None when git cannot speak
-/// for `root`: not a repo, git missing, `root` itself ignored by an enclosing repo, or nothing listed.
+/// for `root`: not a repo, git missing, or nothing listed (as when `root` itself is ignored by an
+/// enclosing repo). One git run, its errors silenced.
+// ponytail: a root ignored by an enclosing repo yet holding force-added files gets git's list
+// (those files only); `git check-ignore` first would cost a second spawn per run
 fn git_visible(root: &Path) -> Option<BTreeSet<String>> {
-    let ignored = std::process::Command::new("git")
-        .args(["check-ignore", "-q", "."])
-        .current_dir(root)
-        .status()
-        .ok()?
-        .success();
-    if ignored {
-        return None;
-    }
     let out = std::process::Command::new("git")
         .args([
             "ls-files",
@@ -228,6 +222,8 @@ fn git_visible(root: &Path) -> Option<BTreeSet<String>> {
             "--exclude-standard",
         ])
         .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .output()
         .ok()
         .filter(|o| o.status.success())?;
