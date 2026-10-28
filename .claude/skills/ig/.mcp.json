@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "ig": { "command": "ig", "args": ["mcp"] }
+  }
+}
