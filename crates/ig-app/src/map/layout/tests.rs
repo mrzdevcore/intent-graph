@@ -418,3 +418,31 @@ fn insides_are_wide() {
     }
     assert!(bad.is_empty(), "{bad:#?}");
 }
+
+#[test]
+fn root_keeps_its_groups() {
+    let mut root = mbox("system", "x", "system", "system", None, None, false);
+    root.parent = None;
+    let boxes = vec![
+        root,
+        mbox("p", "system", "container", "person", None, None, false),
+        mbox("a", "system", "container", "app", None, None, false),
+        mbox("b", "system", "container", "api", None, None, false),
+        mbox("x", "system", "container", "external", None, None, false),
+    ];
+    let p = layout(&boxes, &[]).0;
+    let f = |id: &str| p.frames[id];
+    // each group as a whole: the people above or left of all the containers, the outside
+    // below or right of them (so no row or column mixes groups)
+    let (pe, c, ex) = (f("p"), f("a").union(&f("b")), f("x"));
+    assert!(
+        pe.bottom() <= c.y || pe.right() <= c.x,
+        "person {pe:?} / {c:?}"
+    );
+    assert!(
+        ex.y >= c.bottom() || ex.x >= c.right(),
+        "external {ex:?} / {c:?}"
+    );
+    let (w, h) = p.inner["system"];
+    assert!((1.2..=2.4).contains(&(w / h)), "{w}x{h}");
+}

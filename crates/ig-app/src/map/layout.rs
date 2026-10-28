@@ -248,15 +248,10 @@ impl<'a> Lay<'a> {
     /// Places `items` in rows of `cols`, centered on x = 0, the top at `top` (or the bottom at
     /// `-top` when `up`). Returns their bounds, None when there are none.
     fn grid(&mut self, items: Vec<&'a MapBox>, cols: usize, top: f32, up: bool) -> Option<Frame> {
-        let items = self.order(items);
-        self.rows(items, cols, top, up)
-    }
-
-    /// `grid` in the given order.
-    fn rows(&mut self, items: Vec<&'a MapBox>, cols: usize, top: f32, up: bool) -> Option<Frame> {
         if items.is_empty() {
             return None;
         }
+        let items = self.order(items);
         let sizes: Vec<(f32, f32)> = items.iter().map(|b| size(b)).collect();
         let cw = sizes.iter().map(|s| s.0).fold(0.0, f32::max);
         let rows: Vec<&[(f32, f32)]> = sizes.chunks(cols).collect();
@@ -298,8 +293,9 @@ impl<'a> Lay<'a> {
             .reduce(|a, b| a.union(&b))
     }
 
-    /// People on top, the containers, then the outside systems and stores: in rows of their
-    /// own, or (when that runs too tall) read in that order through one grid.
+    /// The people, the containers, then the outside systems and stores, each group apart: the
+    /// people in a row on top or a column on the left, the containers' grid, the outside in a
+    /// row below or a column on the right; the column count and sides nearest 16:10.
     fn system(&mut self, kids: &[&'a MapBox]) {
         let rank = |b: &MapBox| match b.kind.value {
             BoxKind::Person => 0,
@@ -308,20 +304,39 @@ impl<'a> Lay<'a> {
         };
         let row =
             |r| -> Vec<&'a MapBox> { kids.iter().filter(|b| rank(b) == r).copied().collect() };
-        let opts = (1..=kids.len()).flat_map(|c| [(c, false), (c, true)]);
-        self.pick(opts, |l, (c, merged)| {
-            if merged {
-                let all = (0..3).flat_map(|r| l.order(row(r))).collect();
-                l.rows(all, c, 0.0, false);
-                return;
+        let sides = [(false, false), (true, false), (false, true), (true, true)];
+        let opts = (1..=kids.len()).flat_map(|c| sides.map(|s| (c, s)));
+        self.pick(opts, |l, (c, (left, right))| {
+            let (mut y, mut people) = (0.0, None);
+            if left {
+                people = l.column(row(0), 0.0, 0.0);
+            } else if let Some(b) = l.grid(row(0), ROW, 0.0, false) {
+                y = b.bottom() + GUTTER;
             }
-            let mut y = 0.0;
-            for (items, cols) in [(row(0), ROW), (row(1), c), (row(2), ROW)] {
-                if let Some(b) = l.grid(items, cols, y, false) {
-                    y = b.bottom() + GUTTER;
-                }
+            let n = l.frames.len();
+            if let (Some(m), Some(p)) = (l.grid(row(1), c, y, false), people) {
+                l.shift(n, p.right() + GUTTER - m.x);
             }
+            match l.bounds() {
+                Some(b) if right => l.column(row(2), b.right() + GUTTER, y),
+                b => l.grid(row(2), ROW, b.map_or(0.0, |b| b.bottom() + GUTTER), false),
+            };
         });
+    }
+
+    /// `items` stacked top to bottom, their left at `x` and the top at `top`. Returns their
+    /// bounds, None when there are none.
+    fn column(&mut self, items: Vec<&'a MapBox>, x: f32, top: f32) -> Option<Frame> {
+        let mut y = top;
+        let mut bounds: Option<Frame> = None;
+        for b in self.order(items) {
+            let (w, h) = size(b);
+            let f = Frame { x, y, w, h };
+            self.put(&b.id, f);
+            bounds = Some(bounds.map_or(f, |b| b.union(&f)));
+            y += h + GUTTER;
+        }
+        bounds
     }
 
     /// The children of a container or component in its pattern's shape; those with no slot of
