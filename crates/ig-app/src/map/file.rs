@@ -266,6 +266,9 @@ pub fn annotate(map: &mut MapFile, json: &str) -> Result<usize, Vec<String>> {
         }
         b.needs_reading = false;
     }
+    // ig's own slots follow a pattern the agent changed; its own and pinned ones must fit
+    let igs = |b: &MapBox| !b.pins("slot") && b.slot.as_ref().is_some_and(|s| is_ig(&s.source));
+    refresh::fit_slots(&mut m.boxes, &[], &igs);
     if let Err(e) = validate(&m) {
         errs.extend(e);
     }
@@ -412,7 +415,8 @@ pub(crate) fn slots(p: Option<&Pattern>) -> Vec<&str> {
     }
 }
 
-/// Every problem with the map: ids, lengths, globs, slots, children counts, pins.
+/// Every problem with the map: version, ids, parents and levels, lengths, globs, slots,
+/// children counts, pins.
 pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
     let mut errs = vec![];
     let by_id: BTreeMap<&str, &MapBox> = m.boxes.iter().map(|b| (b.id.as_str(), b)).collect();
@@ -482,6 +486,47 @@ pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
             if !PINNABLE.contains(&p.as_str()) {
                 errs.push(format!("`{id}`: `{p}` cannot be pinned"));
             }
+        }
+    }
+    if m.version != 1 {
+        errs.push(format!("version {} is not 1", m.version));
+    }
+    for b in &m.boxes {
+        let id = &b.id;
+        let parent = b
+            .parent
+            .as_deref()
+            .map(|p| (p, by_id.get(p).map(|x| x.level)));
+        match (b.level, parent) {
+            (Level::System, None) => {}
+            (Level::System, Some(_)) => errs.push(format!("`{id}`: the system has no parent")),
+            (Level::Code, _) => errs.push(format!("`{id}`: code boxes are not stored")),
+            (_, None) => errs.push(format!("`{id}`: no parent")),
+            (_, Some((p, None))) => errs.push(format!("`{id}`: parent `{p}` is not in the map")),
+            (Level::Container, Some((_, Some(Level::System))))
+            | (Level::Component, Some((_, Some(Level::Container)))) => {}
+            (l, Some((p, _))) => errs.push(format!(
+                "`{id}`: a {} must sit in the {}, not `{p}`",
+                format!("{l:?}").to_lowercase(),
+                if l == Level::Container {
+                    "system"
+                } else {
+                    "container"
+                }
+            )),
+        }
+        // the levels already forbid a loop; this keeps a bad file from hanging a reader
+        let mut seen = std::collections::BTreeSet::from([id.as_str()]);
+        let mut at = b.parent.as_deref();
+        while let Some(p) = at {
+            if p == id.as_str() {
+                errs.push(format!("`{id}` reaches itself through its parents"));
+            }
+            // a loop above this box is reported by the boxes in it
+            if !seen.insert(p) {
+                break;
+            }
+            at = by_id.get(p).and_then(|x| x.parent.as_deref());
         }
     }
     for (p, n) in children {
