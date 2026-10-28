@@ -23,7 +23,11 @@
     for (const x of xs) m.set(key(x), [...(m.get(key(x)) ?? []), x]);
     return m;
   };
-  const framed = $derived(view.boxes.filter((b) => view.placed.frames[b.id]));
+  // a bad map can never loop the page: the first box of an id only, never its own parent
+  const framed = $derived.by(() => {
+    const seen = new Set<string>();
+    return view.boxes.filter((b) => view.placed.frames[b.id] && b.parent !== b.id && !seen.has(b.id) && !!seen.add(b.id));
+  });
   const byId = $derived(new Map(view.boxes.map((b) => [b.id, b])));
   const kids = $derived(group(framed, (b: Box) => b.parent ?? ROOT));
   // ponytail: world frames computed once per view (O(n·depth) lookups); fine for thousands of boxes.
@@ -142,6 +146,7 @@
   const trail = $derived.by(() => {
     const out = [ROOT];
     for (let p = ROOT; ; ) {
+      if (out.indexOf(p) !== out.length - 1) return out.slice(0, -1); // a loop: stop before it
       const next = (kids.get(p) ?? []).find((b) => {
         const f = world.get(b.id)!, x = f.x * cam.k + cam.x, y = f.y * cam.k + cam.y, w = f.w * cam.k, h = f.h * cam.k;
         return x <= vw / 2 && vw / 2 <= x + w && y <= vh / 2 && vh / 2 <= y + h && Math.max(w / vw, h / vh) >= 0.6;

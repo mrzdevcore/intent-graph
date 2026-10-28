@@ -9,7 +9,7 @@ cd "$SCRATCH/repo"
 ```
 
 1. **Build.** In the intent-graph checkout: `make build`. Expect `target/release/ig`. Put it on your `PATH` or call it by path below.
-2. **Run.** In the scratch repo: `ig view --no-read`. It prints the path of `.ig/view.html` and opens it. Expect a warm run (second time) under 2 seconds, one notice line per removed `ig.yaml` key, and the whole system on screen: the containers, the outside systems, the arrows between them. If the repo's `ig.yaml` has keys from older ig versions (`complexity`, `checkers`, ...), expect one notice line per key, saying it is no longer read.
+2. **Run.** In the scratch repo: `ig view --no-read`. It prints the path of `.ig/view.html` and opens it. Expect a warm run (second time) under 2 seconds and the whole system on screen: the containers, the outside systems, the arrows between them. If the repo's `ig.yaml` has keys from older ig versions (`complexity`, `checkers`, ...), expect one notice line per key, saying it is no longer read.
 3. **Fit.** Wheel or pinch to zoom somewhere, drag to pan, then press **Fit** (top right). Expect a glide back to the whole system.
 4. **Click into a container.** Click `api` (or your biggest container). Expect a glide into it, the breadcrumb (top left) to read `system > api`, and its components to appear inside, laid out wide, with arrows between them. Click a component to go one level deeper; zoom far enough to see functions.
 5. **Details card.** The box you clicked opens a card: description, tech, kind, files, and for each value its source (`ig` or `agent`) and confidence (`extracted`, `inferred`, `ambiguous`). Without a reading, the descriptions are ig's guesses and a line at the bottom says so.

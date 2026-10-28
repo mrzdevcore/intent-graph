@@ -61,3 +61,14 @@ test("the system's world frame is its inner box, and fits", () => {
   const c = fitTo(f, { w: 1000, h: 800 });
   expect(Number.isFinite(c.k) && c.k > 0).toBe(true);
 });
+
+test("a parent loop or a self-parent ends the walk", () => {
+  const v = structuredClone(view);
+  const api = v.boxes.find((b) => b.id === "api")!;
+  v.boxes.push({ ...api, id: "zzz", parent: "zzz" }, { ...api, id: "x", parent: "y" }, { ...api, id: "y", parent: "x" });
+  for (const id of ["zzz", "x", "y"]) v.placed.frames[id] = v.placed.frames.api;
+  for (const id of ["zzz", "x", "y"]) {
+    expect(Number.isFinite(worldFrame(id, v).w)).toBe(true);
+    expect(Number.isFinite(innerTransform(id, v).s)).toBe(true);
+  }
+});
