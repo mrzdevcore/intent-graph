@@ -6,9 +6,12 @@ afterEach(() => {
   delete (window as any).__TAURI_INTERNALS__;
 });
 
-test("pickApi: no host outside the desktop app", async () => {
+test("pickApi: outside the desktop app, only the embedded view", async () => {
+  document.body.innerHTML = '<script id="ig-data" type="application/json">{"version":1}</script>';
   const { pickApi } = await import("../src/api");
-  expect(pickApi()).toEqual({});
+  const api = pickApi();
+  expect(Object.keys(api)).toEqual(["view"]);
+  expect(await api.view!()).toEqual({ version: 1 });
 });
 
 test("tauri agent: commands carry their arguments; onEvent hands over agent-event payloads", async () => {

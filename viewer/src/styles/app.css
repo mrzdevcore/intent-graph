@@ -10,6 +10,7 @@ header .toggle[aria-pressed="true"] { background: var(--accent); border-color: v
 header .spacer { flex: 1; }
 main { display: flex; flex: 1; min-height: 0; }
 #map { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.map-error { padding: 16px; color: var(--error); }
 aside#chat { width: 400px; border-left: 1px solid var(--line); }
 .row { display: flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
 .row:hover { background: var(--code); }
