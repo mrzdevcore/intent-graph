@@ -6,6 +6,8 @@ pub mod code;
 pub mod facts;
 pub mod file;
 pub mod layers;
+pub mod layout;
+pub mod route;
 pub mod view;
 
 pub use arrows::{ArrowKind, MapArrow, arrows};
