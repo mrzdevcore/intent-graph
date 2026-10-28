@@ -214,3 +214,136 @@ fn every_file_in_exactly_one_box() {
         paths.len() as u32
     );
 }
+
+#[test]
+fn a_package_named_system_is_not_the_root() {
+    let (ws, g) = repo(&[
+        ("@acme/system", "a", &["a/src/x/a.ts"]),
+        ("@acme/web", "b", &["b/src/x/b.ts"]),
+    ]);
+    let b = facts(&ws, &g, &Config::default());
+    assert_eq!(of_level(&b, Level::System), ["system"]);
+    assert_eq!(of_level(&b, Level::Container), ["system-2", "web"]);
+    assert_eq!(get(&b, "system-2/x").parent.as_deref(), Some("system-2"));
+}
+
+#[test]
+fn root_files_have_a_component() {
+    // only loose files: one component holds them all
+    let (ws, g) = repo(&[("flat", ".", &["src/a.ts", "src/b.ts"])]);
+    let b = facts(&ws, &g, &Config::default());
+    assert_eq!(of_level(&b, Level::Component), ["flat/root"]);
+    let root = get(&b, "flat/root");
+    assert_eq!(root.nodes, ["src/a.ts", "src/b.ts"]);
+    assert_eq!(root.made_of, ["src/*"]);
+    assert_eq!(root.guess.title, "Src");
+    // beside folders: the loose files get their own component
+    let (ws, g) = repo(&[("mixed", ".", &["src/main.ts", "src/x/y.ts"])]);
+    let b = facts(&ws, &g, &Config::default());
+    assert_eq!(of_level(&b, Level::Component), ["mixed/root", "mixed/x"]);
+    assert_eq!(get(&b, "mixed/root").nodes, ["src/main.ts"]);
+    assert_eq!(get(&b, "mixed/root").guess.kind, BoxKind::Entry);
+    // no src folder: "Root"
+    let (ws, g) = repo(&[("bare", ".", &["a.ts"])]);
+    let b = facts(&ws, &g, &Config::default());
+    assert_eq!(get(&b, "bare/root").guess.title, "Root");
+    assert_eq!(get(&b, "bare/root").made_of, ["*"]);
+}
+
+/// 13 packages under `packages/` (and 2 apps), plus 2 outside systems.
+fn many() -> (WorkspaceInfo, Graph, Config) {
+    let paths: Vec<(String, String, Vec<String>)> = (1..=13)
+        .map(|i| (format!("p{i}"), format!("packages/p{i}")))
+        .chain((1..=2).map(|i| (format!("a{i}"), format!("apps/a{i}"))))
+        .map(|(n, d)| (n.clone(), d.clone(), vec![format!("{d}/src/x/{n}.ts")]))
+        .collect();
+    let pkgs: Vec<(&str, &str, Vec<&str>)> = paths
+        .iter()
+        .map(|(n, d, f)| {
+            (
+                n.as_str(),
+                d.as_str(),
+                f.iter().map(String::as_str).collect(),
+            )
+        })
+        .collect();
+    let pkgs: Vec<(&str, &str, &[&str])> = pkgs
+        .iter()
+        .map(|(n, d, f)| (*n, *d, f.as_slice()))
+        .collect();
+    let (ws, g) = repo(&pkgs);
+    let cfg = Config::parse("blueprint: { systems: { Stripe: [stripe], Pg: [pg] } }\n").unwrap();
+    (ws, g, cfg)
+}
+
+#[test]
+fn containers_past_twelve_are_grouped() {
+    let (ws, g, cfg) = many();
+    let b = facts(&ws, &g, &cfg);
+    let roots: Vec<&str> = b
+        .iter()
+        .filter(|x| x.parent.as_deref() == Some("system"))
+        .map(|x| x.id.as_str())
+        .collect();
+    assert!(roots.len() <= 12, "{roots:?}");
+    assert_eq!(roots, ["apps", "packages", "pg", "stripe"]);
+    let p = get(&b, "packages");
+    assert_eq!(p.guess.kind, BoxKind::Group);
+    assert_eq!(p.files, 13);
+    let kids: Vec<&FactBox> = b
+        .iter()
+        .filter(|x| x.parent.as_deref() == Some("packages"))
+        .collect();
+    assert_eq!(kids.len(), 12);
+    assert!(kids.iter().all(|k| k.level == Level::Component));
+    assert_eq!(kids.iter().map(|k| k.files).sum::<u32>(), 13);
+    assert_eq!(get(&b, "packages/p1").made_of, ["packages/p1/**"]);
+    // every box's parent exists, and the levels nest
+    for x in b.iter().filter(|x| x.level != Level::System) {
+        let p = get(&b, x.parent.as_deref().unwrap());
+        assert!(p.level < x.level, "{} under {}", x.id, p.id);
+    }
+}
+
+#[test]
+fn outside_systems_grouped_when_they_crowd_the_root() {
+    let pkgs: Vec<(String, String)> = (1..=11)
+        .map(|i| (format!("p{i}"), format!("p{i}/src/x/a.ts")))
+        .collect();
+    let pkgs: Vec<(&str, &str, Vec<&str>)> = pkgs
+        .iter()
+        .map(|(n, f)| (n.as_str(), n.as_str(), vec![f.as_str()]))
+        .collect();
+    let pkgs: Vec<(&str, &str, &[&str])> = pkgs
+        .iter()
+        .map(|(n, d, f)| (*n, *d, f.as_slice()))
+        .collect();
+    let (ws, g) = repo(&pkgs);
+    let cfg = Config::parse("blueprint: { systems: { A: [a], B: [b], C: [c] } }\n").unwrap();
+    let b = facts(&ws, &g, &cfg);
+    let roots = b
+        .iter()
+        .filter(|x| x.parent.as_deref() == Some("system"))
+        .count();
+    assert_eq!(roots, 12);
+    assert_eq!(get(&b, "outside").guess.kind, BoxKind::External);
+    assert_eq!(get(&b, "outside/a").level, Level::Component);
+}
+
+#[test]
+fn root_file_arrows_are_drawn() {
+    let (ws, mut g) = repo(&[("mixed", ".", &["src/main.ts", "src/x/y.ts"])]);
+    g.edges.push(
+        serde_json::from_value(serde_json::json!({
+            "from": "src/main.ts", "to": "src/x/y.ts", "kind": "imports",
+            "confidence": "resolved", "file": "src/main.ts", "line": 1
+        }))
+        .unwrap(),
+    );
+    let b = facts(&ws, &g, &Config::default());
+    let ids: Vec<String> = crate::map::arrows(&b, &g)
+        .into_iter()
+        .map(|a| a.id)
+        .collect();
+    assert_eq!(ids, ["mixed/root->mixed/x"]);
+}
