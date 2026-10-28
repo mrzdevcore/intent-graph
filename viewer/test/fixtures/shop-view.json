@@ -1,0 +1,1506 @@
+{
+  "version": 1,
+  "boxes": [
+    {
+      "id": "api",
+      "parent": "system",
+      "level": "container",
+      "madeOf": [
+        "apps/api/**"
+      ],
+      "package": "@shop/api",
+      "files": 12,
+      "kind": {
+        "value": "app",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Api",
+        "source": "ig"
+      },
+      "pattern": {
+        "value": {
+          "kind": "onion"
+        },
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api-client",
+      "parent": "system",
+      "level": "container",
+      "madeOf": [
+        "packages/api-client/**"
+      ],
+      "package": "@shop/api-client",
+      "files": 1,
+      "kind": {
+        "value": "library",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Api client",
+        "source": "ig"
+      },
+      "pattern": {
+        "value": {
+          "kind": "none"
+        },
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api/application-checkout",
+      "parent": "api",
+      "level": "component",
+      "madeOf": [
+        "apps/api/src/application/checkout/**"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "usecase",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Checkout",
+        "source": "ig"
+      },
+      "slot": {
+        "value": "application",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api/application-ports",
+      "parent": "api",
+      "level": "component",
+      "madeOf": [
+        "apps/api/src/application/ports/**"
+      ],
+      "package": "@shop/api",
+      "files": 2,
+      "kind": {
+        "value": "port",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Ports",
+        "source": "ig"
+      },
+      "slot": {
+        "value": "application",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api/application-refund",
+      "parent": "api",
+      "level": "component",
+      "madeOf": [
+        "apps/api/src/application/refund/**"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "usecase",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Refund",
+        "source": "ig"
+      },
+      "slot": {
+        "value": "application",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api/domain-order",
+      "parent": "api",
+      "level": "component",
+      "madeOf": [
+        "apps/api/src/domain/order/**"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "domain",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Order",
+        "source": "ig"
+      },
+      "slot": {
+        "value": "domain",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api/domain-payment",
+      "parent": "api",
+      "level": "component",
+      "madeOf": [
+        "apps/api/src/domain/payment/**"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "domain",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Payment",
+        "source": "ig"
+      },
+      "slot": {
+        "value": "domain",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api/infra-prisma",
+      "parent": "api",
+      "level": "component",
+      "madeOf": [
+        "apps/api/src/infra/prisma/**"
+      ],
+      "package": "@shop/api",
+      "files": 2,
+      "kind": {
+        "value": "entry",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Prisma",
+        "source": "ig"
+      },
+      "slot": {
+        "value": "infrastructure",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api/infra-stripe",
+      "parent": "api",
+      "level": "component",
+      "madeOf": [
+        "apps/api/src/infra/stripe/**"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "entry",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Stripe",
+        "source": "ig"
+      },
+      "slot": {
+        "value": "infrastructure",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "api/routers",
+      "parent": "api",
+      "level": "component",
+      "madeOf": [
+        "apps/api/src/routers/**"
+      ],
+      "package": "@shop/api",
+      "files": 2,
+      "kind": {
+        "value": "entry",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Routers",
+        "source": "ig"
+      },
+      "slot": {
+        "value": "infrastructure",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "apps/api/src/application/checkout/checkout.ts#checkout",
+      "parent": "api/application-checkout",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/application/checkout/checkout.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "function",
+        "source": "ig"
+      },
+      "title": {
+        "value": "checkout",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/application/refund/refund.ts#refund",
+      "parent": "api/application-refund",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/application/refund/refund.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "function",
+        "source": "ig"
+      },
+      "title": {
+        "value": "refund",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/domain/order/order.ts#Order",
+      "parent": "api/domain-order",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/domain/order/order.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "class",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Order",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/domain/order/order.ts#loadOrder",
+      "parent": "api/domain-order",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/domain/order/order.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "function",
+        "source": "ig"
+      },
+      "title": {
+        "value": "loadOrder",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/domain/payment/payment.ts#total",
+      "parent": "api/domain-payment",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/domain/payment/payment.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "function",
+        "source": "ig"
+      },
+      "title": {
+        "value": "total",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo",
+      "parent": "api/infra-prisma",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/infra/prisma/order-repo.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "class",
+        "source": "ig"
+      },
+      "title": {
+        "value": "PrismaOrderRepo",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway",
+      "parent": "api/infra-stripe",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/infra/stripe/pay-gateway.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "class",
+        "source": "ig"
+      },
+      "title": {
+        "value": "StripeGateway",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/routers/router.ts#Router",
+      "parent": "api/routers",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/routers/router.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "class",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Router",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/web/pages/checkout.tsx#CheckoutPage",
+      "parent": "web/pages",
+      "level": "code",
+      "madeOf": [
+        "apps/web/pages/checkout.tsx"
+      ],
+      "package": "@shop/web",
+      "files": 1,
+      "kind": {
+        "value": "function",
+        "source": "ig"
+      },
+      "title": {
+        "value": "CheckoutPage",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "postgres",
+      "parent": "system",
+      "level": "container",
+      "madeOf": [],
+      "files": 0,
+      "kind": {
+        "value": "store",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Postgres",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "stripe",
+      "parent": "system",
+      "level": "container",
+      "madeOf": [],
+      "files": 0,
+      "kind": {
+        "value": "external",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Stripe",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "system",
+      "level": "system",
+      "madeOf": [
+        "**"
+      ],
+      "files": 14,
+      "kind": {
+        "value": "system",
+        "source": "ig"
+      },
+      "title": {
+        "value": "ig-shop-t7",
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "web",
+      "parent": "system",
+      "level": "container",
+      "madeOf": [
+        "apps/web/**"
+      ],
+      "package": "@shop/web",
+      "files": 1,
+      "kind": {
+        "value": "app",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Web",
+        "source": "ig"
+      },
+      "pattern": {
+        "value": {
+          "kind": "none"
+        },
+        "source": "ig"
+      },
+      "needsReading": true
+    },
+    {
+      "id": "web/pages",
+      "parent": "web",
+      "level": "component",
+      "madeOf": [
+        "apps/web/pages/**"
+      ],
+      "package": "@shop/web",
+      "files": 1,
+      "kind": {
+        "value": "entry",
+        "source": "ig"
+      },
+      "title": {
+        "value": "Pages",
+        "source": "ig"
+      },
+      "needsReading": true
+    }
+  ],
+  "arrows": [
+    {
+      "id": "api->postgres",
+      "parent": "system",
+      "from": "api",
+      "to": "postgres",
+      "kind": "data",
+      "count": 1,
+      "kinds": [
+        "data"
+      ]
+    },
+    {
+      "id": "api->stripe",
+      "parent": "system",
+      "from": "api",
+      "to": "stripe",
+      "kind": "network",
+      "count": 1,
+      "kinds": [
+        "network"
+      ]
+    },
+    {
+      "id": "api/application-checkout->api/application-ports",
+      "parent": "api",
+      "from": "api/application-checkout",
+      "to": "api/application-ports",
+      "kind": "depends",
+      "count": 2,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/application-checkout->api/domain-order",
+      "parent": "api",
+      "from": "api/application-checkout",
+      "to": "api/domain-order",
+      "kind": "depends",
+      "count": 1,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/application-checkout->api/domain-payment",
+      "parent": "api",
+      "from": "api/application-checkout",
+      "to": "api/domain-payment",
+      "kind": "bundle",
+      "label": "1 call · 1 import",
+      "count": 2,
+      "kinds": [
+        "depends",
+        "calls"
+      ]
+    },
+    {
+      "id": "api/application-checkout->api/infra-prisma",
+      "parent": "api",
+      "from": "api/application-checkout",
+      "to": "api/infra-prisma",
+      "kind": "calls",
+      "label": "save",
+      "count": 1,
+      "kinds": [
+        "calls"
+      ],
+      "inLoop": true
+    },
+    {
+      "id": "api/application-checkout->api/infra-stripe",
+      "parent": "api",
+      "from": "api/application-checkout",
+      "to": "api/infra-stripe",
+      "kind": "calls",
+      "label": "charge",
+      "count": 1,
+      "kinds": [
+        "calls"
+      ]
+    },
+    {
+      "id": "api/application-ports->api/domain-order",
+      "parent": "api",
+      "from": "api/application-ports",
+      "to": "api/domain-order",
+      "kind": "depends",
+      "count": 1,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/application-refund->api/application-ports",
+      "parent": "api",
+      "from": "api/application-refund",
+      "to": "api/application-ports",
+      "kind": "depends",
+      "count": 1,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/application-refund->api/infra-stripe",
+      "parent": "api",
+      "from": "api/application-refund",
+      "to": "api/infra-stripe",
+      "kind": "calls",
+      "label": "refund",
+      "count": 1,
+      "kinds": [
+        "calls"
+      ]
+    },
+    {
+      "id": "api/domain-order->api/infra-prisma",
+      "parent": "api",
+      "from": "api/domain-order",
+      "to": "api/infra-prisma",
+      "kind": "depends",
+      "count": 1,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/domain-payment->api/domain-order",
+      "parent": "api",
+      "from": "api/domain-payment",
+      "to": "api/domain-order",
+      "kind": "depends",
+      "count": 1,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/infra-prisma->api/application-ports",
+      "parent": "api",
+      "from": "api/infra-prisma",
+      "to": "api/application-ports",
+      "kind": "depends",
+      "count": 1,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/infra-prisma->api/domain-order",
+      "parent": "api",
+      "from": "api/infra-prisma",
+      "to": "api/domain-order",
+      "kind": "depends",
+      "count": 1,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/infra-stripe->api/application-ports",
+      "parent": "api",
+      "from": "api/infra-stripe",
+      "to": "api/application-ports",
+      "kind": "depends",
+      "count": 1,
+      "kinds": [
+        "depends"
+      ]
+    },
+    {
+      "id": "api/routers->api/application-checkout",
+      "parent": "api",
+      "from": "api/routers",
+      "to": "api/application-checkout",
+      "kind": "bundle",
+      "label": "1 call · 1 import",
+      "count": 2,
+      "kinds": [
+        "depends",
+        "calls"
+      ]
+    },
+    {
+      "id": "api/routers->api/application-refund",
+      "parent": "api",
+      "from": "api/routers",
+      "to": "api/application-refund",
+      "kind": "bundle",
+      "label": "1 call · 1 import",
+      "count": 2,
+      "kinds": [
+        "depends",
+        "calls"
+      ]
+    },
+    {
+      "id": "api/routers->api/infra-prisma",
+      "parent": "api",
+      "from": "api/routers",
+      "to": "api/infra-prisma",
+      "kind": "bundle",
+      "label": "1 call · 1 import",
+      "count": 2,
+      "kinds": [
+        "depends",
+        "calls"
+      ]
+    },
+    {
+      "id": "api/routers->api/infra-stripe",
+      "parent": "api",
+      "from": "api/routers",
+      "to": "api/infra-stripe",
+      "kind": "bundle",
+      "label": "2 calls · 1 import",
+      "count": 3,
+      "kinds": [
+        "depends",
+        "calls"
+      ]
+    },
+    {
+      "id": "web->api",
+      "parent": "system",
+      "from": "web",
+      "to": "api",
+      "kind": "network",
+      "label": "POST /checkout",
+      "count": 1,
+      "kinds": [
+        "network"
+      ]
+    },
+    {
+      "id": "web->api-client",
+      "parent": "system",
+      "from": "web",
+      "to": "api-client",
+      "kind": "bundle",
+      "label": "1 call · 1 import",
+      "count": 2,
+      "kinds": [
+        "depends",
+        "calls"
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "layer": "risks",
+      "target": "api/application-checkout->api/infra-prisma",
+      "state": "warn",
+      "badge": "risk: query in a loop"
+    },
+    {
+      "layer": "rules",
+      "target": "api/domain-order->api/infra-prisma",
+      "state": "bad",
+      "badge": "breaks: domain → infrastructure"
+    }
+  ],
+  "placed": {
+    "frames": {
+      "api": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 264.0,
+        "h": 152.0
+      },
+      "api-client": {
+        "x": 360.0,
+        "y": 48.0,
+        "w": 264.0,
+        "h": 152.0
+      },
+      "api/application-checkout": {
+        "x": 268.0,
+        "y": 744.0,
+        "w": 248.0,
+        "h": 152.0
+      },
+      "api/application-ports": {
+        "x": 120.0,
+        "y": 296.0,
+        "w": 248.0,
+        "h": 152.0
+      },
+      "api/application-refund": {
+        "x": 416.0,
+        "y": 296.0,
+        "w": 248.0,
+        "h": 152.0
+      },
+      "api/domain-order": {
+        "x": 120.0,
+        "y": 520.0,
+        "w": 248.0,
+        "h": 152.0
+      },
+      "api/domain-payment": {
+        "x": 416.0,
+        "y": 520.0,
+        "w": 248.0,
+        "h": 152.0
+      },
+      "api/infra-prisma": {
+        "x": 120.0,
+        "y": 72.0,
+        "w": 248.0,
+        "h": 152.0
+      },
+      "api/infra-stripe": {
+        "x": 268.0,
+        "y": 968.0,
+        "w": 248.0,
+        "h": 152.0
+      },
+      "api/routers": {
+        "x": 416.0,
+        "y": 72.0,
+        "w": 248.0,
+        "h": 152.0
+      },
+      "apps/api/src/application/checkout/checkout.ts#checkout": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/application/refund/refund.ts#refund": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/domain/order/order.ts#Order": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/domain/order/order.ts#loadOrder": {
+        "x": 316.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/domain/payment/payment.ts#total": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/routers/router.ts#Router": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/web/pages/checkout.tsx#CheckoutPage": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "postgres": {
+        "x": 204.0,
+        "y": 248.0,
+        "w": 264.0,
+        "h": 152.0
+      },
+      "stripe": {
+        "x": 516.0,
+        "y": 248.0,
+        "w": 264.0,
+        "h": 152.0
+      },
+      "web": {
+        "x": 672.0,
+        "y": 48.0,
+        "w": 264.0,
+        "h": 152.0
+      },
+      "web/pages": {
+        "x": 48.0,
+        "y": 48.0,
+        "w": 248.0,
+        "h": 152.0
+      }
+    },
+    "inner": {
+      "api": [
+        784.0,
+        1192.0
+      ],
+      "api/application-checkout": [
+        316.0,
+        208.0
+      ],
+      "api/application-refund": [
+        316.0,
+        208.0
+      ],
+      "api/domain-order": [
+        584.0,
+        208.0
+      ],
+      "api/domain-payment": [
+        316.0,
+        208.0
+      ],
+      "api/infra-prisma": [
+        316.0,
+        208.0
+      ],
+      "api/infra-stripe": [
+        316.0,
+        208.0
+      ],
+      "api/routers": [
+        316.0,
+        208.0
+      ],
+      "system": [
+        984.0,
+        448.0
+      ],
+      "web": [
+        344.0,
+        248.0
+      ],
+      "web/pages": [
+        316.0,
+        208.0
+      ]
+    },
+    "regions": [
+      {
+        "parent": "api",
+        "kind": "ring",
+        "label": "domain",
+        "frame": {
+          "x": 96.0,
+          "y": 496.0,
+          "w": 592.0,
+          "h": 200.0
+        }
+      },
+      {
+        "parent": "api",
+        "kind": "ring",
+        "label": "application",
+        "frame": {
+          "x": 72.0,
+          "y": 272.0,
+          "w": 640.0,
+          "h": 648.0
+        }
+      },
+      {
+        "parent": "api",
+        "kind": "ring",
+        "label": "infrastructure",
+        "frame": {
+          "x": 48.0,
+          "y": 48.0,
+          "w": 688.0,
+          "h": 1096.0
+        }
+      }
+    ],
+    "routes": {
+      "api->postgres": [
+        [
+          180.0,
+          200.0
+        ],
+        [
+          180.0,
+          225.0
+        ],
+        [
+          336.0,
+          225.0
+        ],
+        [
+          336.0,
+          247.0
+        ]
+      ],
+      "api->stripe": [
+        [
+          312.0,
+          124.0
+        ],
+        [
+          321.0,
+          124.0
+        ],
+        [
+          321.0,
+          132.0
+        ],
+        [
+          348.0,
+          132.0
+        ],
+        [
+          348.0,
+          231.0
+        ],
+        [
+          492.0,
+          231.0
+        ],
+        [
+          492.0,
+          324.0
+        ],
+        [
+          515.0,
+          324.0
+        ]
+      ],
+      "api/application-checkout->api/application-ports": [
+        [
+          392.0,
+          744.0
+        ],
+        [
+          392.0,
+          722.0
+        ],
+        [
+          387.0,
+          722.0
+        ],
+        [
+          387.0,
+          462.0
+        ],
+        [
+          244.0,
+          462.0
+        ],
+        [
+          244.0,
+          449.0
+        ]
+      ],
+      "api/application-checkout->api/domain-order": [
+        [
+          392.0,
+          744.0
+        ],
+        [
+          392.0,
+          727.0
+        ],
+        [
+          252.0,
+          727.0
+        ],
+        [
+          252.0,
+          684.0
+        ],
+        [
+          244.0,
+          684.0
+        ],
+        [
+          244.0,
+          673.0
+        ]
+      ],
+      "api/application-checkout->api/domain-payment": [
+        [
+          392.0,
+          744.0
+        ],
+        [
+          392.0,
+          732.0
+        ],
+        [
+          540.0,
+          732.0
+        ],
+        [
+          540.0,
+          673.0
+        ]
+      ],
+      "api/application-checkout->api/infra-prisma": [
+        [
+          392.0,
+          744.0
+        ],
+        [
+          392.0,
+          737.0
+        ],
+        [
+          393.0,
+          737.0
+        ],
+        [
+          393.0,
+          705.0
+        ],
+        [
+          108.0,
+          705.0
+        ],
+        [
+          108.0,
+          243.0
+        ],
+        [
+          244.0,
+          243.0
+        ],
+        [
+          244.0,
+          225.0
+        ]
+      ],
+      "api/application-checkout->api/infra-stripe": [
+        [
+          392.0,
+          896.0
+        ],
+        [
+          392.0,
+          921.0
+        ],
+        [
+          393.0,
+          921.0
+        ],
+        [
+          393.0,
+          939.0
+        ],
+        [
+          392.0,
+          939.0
+        ],
+        [
+          392.0,
+          967.0
+        ]
+      ],
+      "api/application-ports->api/domain-order": [
+        [
+          244.0,
+          448.0
+        ],
+        [
+          244.0,
+          468.0
+        ],
+        [
+          252.0,
+          468.0
+        ],
+        [
+          252.0,
+          486.0
+        ],
+        [
+          244.0,
+          486.0
+        ],
+        [
+          244.0,
+          519.0
+        ]
+      ],
+      "api/application-refund->api/application-ports": [
+        [
+          416.0,
+          372.0
+        ],
+        [
+          369.0,
+          372.0
+        ]
+      ],
+      "api/application-refund->api/infra-stripe": [
+        [
+          540.0,
+          448.0
+        ],
+        [
+          540.0,
+          492.0
+        ],
+        [
+          684.0,
+          492.0
+        ],
+        [
+          684.0,
+          945.0
+        ],
+        [
+          392.0,
+          945.0
+        ],
+        [
+          392.0,
+          967.0
+        ]
+      ],
+      "api/domain-order->api/infra-prisma": [
+        [
+          244.0,
+          520.0
+        ],
+        [
+          244.0,
+          492.0
+        ],
+        [
+          399.0,
+          492.0
+        ],
+        [
+          399.0,
+          249.0
+        ],
+        [
+          244.0,
+          249.0
+        ],
+        [
+          244.0,
+          225.0
+        ]
+      ],
+      "api/domain-payment->api/domain-order": [
+        [
+          416.0,
+          596.0
+        ],
+        [
+          396.0,
+          596.0
+        ],
+        [
+          369.0,
+          596.0
+        ]
+      ],
+      "api/infra-prisma->api/application-ports": [
+        [
+          244.0,
+          224.0
+        ],
+        [
+          244.0,
+          255.0
+        ],
+        [
+          249.0,
+          255.0
+        ],
+        [
+          249.0,
+          273.0
+        ],
+        [
+          244.0,
+          273.0
+        ],
+        [
+          244.0,
+          295.0
+        ]
+      ],
+      "api/infra-prisma->api/domain-order": [
+        [
+          244.0,
+          224.0
+        ],
+        [
+          244.0,
+          261.0
+        ],
+        [
+          255.0,
+          261.0
+        ],
+        [
+          255.0,
+          279.0
+        ],
+        [
+          81.0,
+          279.0
+        ],
+        [
+          81.0,
+          498.0
+        ],
+        [
+          244.0,
+          498.0
+        ],
+        [
+          244.0,
+          519.0
+        ]
+      ],
+      "api/infra-stripe->api/application-ports": [
+        [
+          392.0,
+          968.0
+        ],
+        [
+          392.0,
+          951.0
+        ],
+        [
+          87.0,
+          951.0
+        ],
+        [
+          87.0,
+          474.0
+        ],
+        [
+          244.0,
+          474.0
+        ],
+        [
+          244.0,
+          449.0
+        ]
+      ],
+      "api/routers->api/application-checkout": [
+        [
+          540.0,
+          224.0
+        ],
+        [
+          540.0,
+          276.0
+        ],
+        [
+          708.0,
+          276.0
+        ],
+        [
+          708.0,
+          711.0
+        ],
+        [
+          405.0,
+          711.0
+        ],
+        [
+          405.0,
+          742.0
+        ],
+        [
+          392.0,
+          742.0
+        ],
+        [
+          392.0,
+          743.0
+        ]
+      ],
+      "api/routers->api/application-refund": [
+        [
+          540.0,
+          224.0
+        ],
+        [
+          540.0,
+          295.0
+        ]
+      ],
+      "api/routers->api/infra-prisma": [
+        [
+          416.0,
+          148.0
+        ],
+        [
+          396.0,
+          148.0
+        ],
+        [
+          369.0,
+          148.0
+        ]
+      ],
+      "api/routers->api/infra-stripe": [
+        [
+          540.0,
+          224.0
+        ],
+        [
+          540.0,
+          252.0
+        ],
+        [
+          732.0,
+          252.0
+        ],
+        [
+          732.0,
+          927.0
+        ],
+        [
+          399.0,
+          927.0
+        ],
+        [
+          399.0,
+          957.0
+        ],
+        [
+          392.0,
+          957.0
+        ],
+        [
+          392.0,
+          967.0
+        ]
+      ],
+      "web->api": [
+        [
+          672.0,
+          124.0
+        ],
+        [
+          657.0,
+          124.0
+        ],
+        [
+          657.0,
+          129.0
+        ],
+        [
+          633.0,
+          129.0
+        ],
+        [
+          633.0,
+          36.0
+        ],
+        [
+          327.0,
+          36.0
+        ],
+        [
+          327.0,
+          124.0
+        ],
+        [
+          313.0,
+          124.0
+        ]
+      ],
+      "web->api-client": [
+        [
+          672.0,
+          124.0
+        ],
+        [
+          663.0,
+          124.0
+        ],
+        [
+          663.0,
+          135.0
+        ],
+        [
+          639.0,
+          135.0
+        ],
+        [
+          639.0,
+          124.0
+        ],
+        [
+          625.0,
+          124.0
+        ]
+      ]
+    }
+  },
+  "notices": []
+}
