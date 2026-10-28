@@ -5,12 +5,15 @@
 use super::file::{self, Confidence, Field, MapBox, MapFile, Source};
 use super::{BoxKind, FactBox};
 use ig_core::config::Config;
+use ig_core::ports::Files;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const NO_AGENT: &str = "No AI agent found (claude, gemini or codex): showing ig's own reading.";
-/// Said before an agent runs.
+/// Said before claude runs.
 pub const READ_ONLY: &str = "The agent reads files in this repo with read-only tools.";
+/// The unread boxes a person said no to (a JSON array of ids), relative to the ig root.
+pub const DECLINED: &str = ".ig/declined.json";
 const OPEN: &str = "<ig-annotations>";
 const CLOSE: &str = "</ig-annotations>";
 /// File names shown per box.
@@ -87,10 +90,24 @@ impl Agent {
         }
     }
 
-    /// `flag`, else the config's `agent`, else the first of `ALL` that `found` (on PATH).
+    /// `flag`, else the config's `agent`, else claude; None when that one is not `found` (on
+    /// PATH). Gemini and codex run only when named (ruling R30).
     pub fn pick(cfg: &Config, flag: Option<Agent>, found: &dyn Fn(&str) -> bool) -> Option<Agent> {
-        flag.or_else(|| cfg.agent.as_deref().and_then(Agent::parse))
-            .or_else(|| Agent::ALL.into_iter().find(|a| found(a.name())))
+        let a = flag
+            .or_else(|| cfg.agent.as_deref().and_then(Agent::parse))
+            .unwrap_or(Agent::Claude);
+        found(a.name()).then_some(a)
+    }
+
+    /// Said before it runs: only claude's read-only mode is checked by ig.
+    pub fn note(self) -> String {
+        match self {
+            Agent::Claude => READ_ONLY.into(),
+            a => format!(
+                "Using {}: its read-only mode is not verified by ig.",
+                a.name()
+            ),
+        }
     }
 }
 
@@ -161,24 +178,39 @@ impl Evidence {
     }
 }
 
+/// "1 box", "2 boxes".
+fn boxes(n: usize) -> String {
+    if n == 1 {
+        "1 box".into()
+    } else {
+        format!("{n} boxes")
+    }
+}
+
 /// `ig view`'s reading, only on consent: `--read`, or a yes to `confirm` when some box needs
-/// reading. Returns a notice: the hint when nobody can be asked (or no agent to ask about), no
-/// agent for `--read`, or why the reading was not used.
+/// reading. A no is kept in `DECLINED`: the same unread boxes are not asked about again. Returns
+/// a notice: the hint when nobody can be asked (no agent to ask about, or a no kept), no agent
+/// for `--read`, or why the reading was not used.
 pub fn offer(
     a: &mut Ask,
     m: &mut MapFile,
     ev: &Evidence,
     cfg: &Config,
+    files: &dyn Files,
     progress: &dyn Fn(&str),
 ) -> Option<String> {
-    let n = m
+    let unread: Vec<&str> = m
         .boxes
         .iter()
         .filter(|b| b.needs_reading && !b.stale)
-        .count();
+        .map(|b| b.id.as_str())
+        .collect();
+    let n = unread.len();
     let hint = || {
+        let are = if n == 1 { "is" } else { "are" };
         Some(format!(
-            "{n} boxes are ig's guess; run `ig view --read` to let an AI agent read them."
+            "{} {are} ig's guess; run `ig view --read` to let an AI agent read them.",
+            boxes(n)
         ))
     };
     if !a.all && n == 0 {
@@ -189,7 +221,16 @@ pub fn offer(
         let (Some(ag), Some(confirm)) = (agent, a.confirm.as_mut()) else {
             return hint();
         };
+        let declined = files
+            .read_bytes(DECLINED)
+            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok());
+        if declined.is_some_and(|d| d == unread) {
+            return hint();
+        }
         if !confirm(ag) {
+            let text = serde_json::to_string(&unread).unwrap_or_default();
+            // ponytail: a failed write only means the question comes back next time
+            let _ = files.write_atomic(DECLINED, text.as_bytes());
             return None;
         }
     }
@@ -216,8 +257,8 @@ pub fn read(
         return Ok(0);
     }
     let name = agent.name();
-    progress(&format!("Asking {name} to read {n} boxes…"));
-    progress(READ_ONLY);
+    progress(&format!("Asking {name} to read {}…", boxes(n)));
+    progress(&agent.note());
     let mut ask = base.clone();
     let mut errs = vec![];
     for _ in 0..2 {
@@ -225,7 +266,7 @@ pub fn read(
         progress(&format!("{name} answered, checking…"));
         match apply(m, &reply, ev) {
             Ok(k) => {
-                progress(&format!("Read {k} boxes."));
+                progress(&format!("Read {}.", boxes(k)));
                 return Ok(k);
             }
             Err(e) => errs = e,
@@ -311,8 +352,8 @@ fn apply(m: &mut MapFile, reply: &str, ev: &Evidence) -> Result<usize, Vec<Strin
     Ok(ids.len())
 }
 
-/// An agent's field becomes `extracted` when ig's facts prove it: a tech or logo naming a
-/// package the box's files import, a kind ig's folders gave too.
+/// An agent's field becomes `extracted` when ig's facts prove it: a tech or logo with a word that
+/// is the name of a package the box's files import, a kind ig's folders gave too.
 pub fn upgrade(m: &mut MapFile, ev: &Evidence) {
     fn prove<T>(f: &mut Field<T>, proved: impl Fn(&T) -> bool) {
         if f.source == Source::Agent && proved(&f.value) {
@@ -322,8 +363,8 @@ pub fn upgrade(m: &mut MapFile, ev: &Evidence) {
     for b in m.boxes.iter_mut() {
         let pkgs: Vec<String> = ev.packages(b).into_iter().filter_map(stem).collect();
         let names = |s: &String| {
-            let s = alnum(s);
-            pkgs.iter().any(|p| s.contains(p.as_str()))
+            s.split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|w| pkgs.iter().any(|p| p.eq_ignore_ascii_case(w)))
         };
         for f in [b.tech.as_mut(), b.logo.as_mut()].into_iter().flatten() {
             prove(f, names);
