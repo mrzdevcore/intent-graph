@@ -1,6 +1,7 @@
 //! The system map: the boxes ig sees (system, containers, components, code) and the arrows
 //! between them, lifted from the graph; the map file; its layers; and the view `ig view` draws.
 
+pub mod agent;
 pub mod arrows;
 pub mod code;
 pub mod facts;

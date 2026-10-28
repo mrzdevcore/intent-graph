@@ -1,5 +1,6 @@
 //! What `ig view` draws: the map with its code level, every layer's marks and the notices.
 
+use super::agent::{Ask, Evidence, offer};
 use super::code::code_boxes;
 use super::file::{self, MapBox, MapFile, refresh};
 use super::layers::{Mark, file_layers, sort_marks};
@@ -50,22 +51,32 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph) -> View {
     }
 }
 
-/// `ig view`: the facts of the working tree, refreshed into `.ig/map.json` (written back unless
-/// the file there was rejected: it is left for its owner to fix), then the view of it.
+/// `ig view` without an agent: see `run_with`.
 pub fn run(env: &Env) -> crate::Result<View> {
+    run_with(env, None)
+}
+
+/// `ig view`: the facts of the working tree, refreshed into `.ig/map.json` and, with `ask`, read
+/// by an AI agent (written back unless the file there was rejected: it is left for its owner to
+/// fix), then the view of it.
+pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     let config = crate::config::load(env.files)?;
     let built = crate::graph(env, env.files, &config, env.vcs.and_then(|v| v.head()))?;
     let (g, ws) = (&built.graph, &built.workspace);
     let boxes = facts(&built.workspace, g, &config);
     let findings = ig_core::rules::arch(g, &config, &ws.packages);
     let (old, rejected) = file::load(env.files);
-    let (m, reset) = refresh(old.as_ref(), &boxes, arrows(&boxes, g), &findings);
+    let (mut m, reset) = refresh(old.as_ref(), &boxes, arrows(&boxes, g), &findings);
     let mut notices: Vec<String> = config
         .notices
         .iter()
         .map(|k| format!("ig.yaml: `{k}` is no longer read; ignored"))
         .collect();
     if rejected.is_empty() {
+        if let Some(a) = ask {
+            let ev = Evidence::new(&boxes, &built.extras.imports, &config);
+            notices.extend(offer(a, &mut m, &ev, &config, env.progress));
+        }
         file::save(env.files, &m)?;
     } else {
         notices.extend(rejected);

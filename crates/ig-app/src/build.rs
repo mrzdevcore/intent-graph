@@ -6,7 +6,7 @@ use ig_core::http;
 use ig_core::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
 use ig_core::ports::{FileFacts, Files, LanguageFrontend, PortError};
 use ig_core::workspace::{self, SourceFile, WorkspaceInfo};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub struct Built {
     pub graph: Graph,
@@ -19,6 +19,8 @@ pub struct Built {
 pub struct Extras {
     /// External package → number of modules importing it.
     pub packages: BTreeMap<String, usize>,
+    /// (module, external package it imports), outside tests.
+    pub imports: BTreeSet<(String, String)>,
     /// Callee name → calls whose first argument looks like a URL.
     pub url_callees: BTreeMap<String, u32>,
     /// HTTP client calls that matched no route: (file, line, method, url).
@@ -67,6 +69,7 @@ pub fn build_graph(
     for (file, p, _) in packages.iter().filter(|(f, _, _)| !tests.is_match(f)) {
         if seen.insert((file, p)) {
             *extras.packages.entry(p.clone()).or_default() += 1;
+            extras.imports.insert((file.clone(), p.clone()));
         }
     }
     for f in facts.iter().filter(|f| !tests.is_match(&f.file)) {

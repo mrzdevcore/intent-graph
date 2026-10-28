@@ -1,0 +1,132 @@
+//! `ig view` asking an AI agent to read the architecture, with a fake agent on a temp PATH.
+#![cfg(unix)]
+
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// A copy of the shop fixture (outside git) and an empty `bin` for fake agents.
+fn shop(tag: &str) -> (PathBuf, PathBuf) {
+    let base = std::env::temp_dir().join(format!("ig-agent-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(base.join("bin")).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shop");
+    assert!(
+        Command::new("cp")
+            .arg("-R")
+            .arg(fixture)
+            .arg(base.join("shop"))
+            .status()
+            .unwrap()
+            .success()
+    );
+    (base.join("shop"), base.join("bin"))
+}
+
+/// A fake agent `name` in `bin`: it saves each prompt (stdin) as `prompt.N` and prints
+/// `replies[N-1]` (the last one once they run out).
+fn fake(bin: &Path, name: &str, replies: &[&str]) {
+    for (i, r) in replies.iter().enumerate() {
+        std::fs::write(bin.join(format!("reply.{}", i + 1)), r).unwrap();
+    }
+    let d = bin.display();
+    let script = format!(
+        "#!/bin/sh\nn=1\nwhile [ -e {d}/prompt.$n ]; do n=$((n+1)); done\n\
+         /bin/cat > {d}/prompt.$n\n\
+         if [ -e {d}/reply.$n ]; then /bin/cat {d}/reply.$n; else /bin/cat {d}/reply.{}; fi\n",
+        replies.len()
+    );
+    let p = bin.join(name);
+    std::fs::write(&p, script).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// `ig <args> --root root` with PATH = `path`: (exit code, stdout + stderr).
+fn ig(root: &Path, path: &Path, args: &[&str]) -> (i32, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_ig"))
+        .args(args)
+        .arg("--root")
+        .arg(root)
+        .env("PATH", path)
+        .output()
+        .unwrap();
+    let text =
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    (out.status.code().unwrap(), text)
+}
+
+fn box_of(root: &Path, id: &str) -> serde_json::Value {
+    let m: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join(".ig/map.json")).unwrap()).unwrap();
+    m["boxes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["id"] == id)
+        .unwrap_or_else(|| panic!("no box {id}"))
+        .clone()
+}
+
+const CHECKOUT: &str = "<ig-annotations>[{\"id\": \"api/application-checkout\", \
+    \"description\": \"Takes an order and charges it.\"}]</ig-annotations>";
+
+#[test]
+fn agent_annotates() {
+    let (root, bin) = shop("annotates");
+    fake(&bin, "claude", &[&format!("Here it is.\n{CHECKOUT}\n")]);
+    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    let d = &box_of(&root, "api/application-checkout")["description"];
+    assert_eq!(d["value"], "Takes an order and charges it.", "{out}");
+    assert_eq!(d["source"], "agent");
+    let prompt = std::fs::read_to_string(bin.join("prompt.1")).unwrap();
+    assert!(prompt.contains("<ig-annotations>"), "{prompt}");
+    assert!(prompt.contains("api/application-checkout"), "{prompt}");
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn agent_garbage_keeps_map() {
+    let (root, bin) = shop("garbage");
+    let (code, out) = ig(&root, &bin, &["view", "--no-read", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    let before = std::fs::read(root.join(".ig/map.json")).unwrap();
+    fake(&bin, "claude", &["I looked at it and it is a nice shop."]);
+    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("<ig-annotations>"), "the reason: {out}");
+    assert!(bin.join("prompt.2").exists(), "asked twice");
+    assert_eq!(std::fs::read(root.join(".ig/map.json")).unwrap(), before);
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn agent_retry_on_errors() {
+    let (root, bin) = shop("retry");
+    let bad = "<ig-annotations>[{\"id\": \"api/application-checkout\", \
+               \"madeOf\": [\"../elsewhere/*\"]}]</ig-annotations>";
+    fake(&bin, "claude", &[bad, CHECKOUT]);
+    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    let second = std::fs::read_to_string(bin.join("prompt.2")).unwrap();
+    assert!(
+        second.contains("must be relative, without `..`"),
+        "{second}"
+    );
+    let d = &box_of(&root, "api/application-checkout")["description"];
+    assert_eq!(d["value"], "Takes an order and charges it.", "{out}");
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn no_agent_still_views() {
+    let (root, _bin) = shop("none");
+    let (code, out) = ig(&root, Path::new(""), &["view", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("No AI agent found (claude, gemini or codex): showing ig's own reading."),
+        "{out}"
+    );
+    assert!(root.join(".ig/view.html").exists());
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}

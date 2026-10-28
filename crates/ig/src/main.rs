@@ -1,3 +1,4 @@
+mod agent;
 mod cli;
 mod init;
 mod mcp;
@@ -8,6 +9,7 @@ mod tests;
 
 use anyhow::{Result, bail};
 use cli::{USAGE, parse_args};
+use ig_app::map::agent::{Agent, Ask};
 use ig_app::map::view;
 // `crate::model` for the modules (and their tests) that name model types.
 use ig_core::model;
@@ -30,7 +32,30 @@ fn real_main() -> Result<u8> {
     let env = w.env();
     match a.cmd.as_str() {
         "view" => {
-            let v = view::run(&env)?;
+            let v = if a.no_read {
+                view::run(&env)?
+            } else {
+                let flag = match a.agent.as_deref() {
+                    Some(n) => Some(Agent::parse(n).ok_or_else(|| {
+                        anyhow::anyhow!("--agent {n}: expected claude, gemini or codex")
+                    })?),
+                    None => None,
+                };
+                let ask_person = !a.read && agent::interactive();
+                let mut confirm = |ag: Agent| !ask_person || agent::confirm(ag);
+                let mut run = |ag: Agent, prompt: &str| agent::run(&root, ag, prompt);
+                view::run_with(
+                    &env,
+                    Some(&mut Ask {
+                        all: a.read,
+                        flag,
+                        template: agent::PROMPT,
+                        found: &agent::on_path,
+                        confirm: &mut confirm,
+                        run: &mut run,
+                    }),
+                )?
+            };
             for n in &v.notices {
                 eprintln!("ig: {n}");
             }

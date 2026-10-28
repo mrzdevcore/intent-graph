@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 pub const USAGE: &str = "usage: ig [--version] | init [claude|codex|all]
-   | view [--no-open] [--json] | mcp | plugin export <dir>
+   | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex] | mcp | plugin export <dir>
    (all accept --root <dir>)";
 
 #[derive(Default)]
@@ -14,6 +14,10 @@ pub struct Args {
     pub root: Option<PathBuf>,
     pub json: bool,
     pub no_open: bool,
+    /// `--read`: an agent reads every box, without asking.
+    pub read: bool,
+    pub no_read: bool,
+    pub agent: Option<String>,
     pub version: bool,
     pub more: Vec<String>,
 }
@@ -32,6 +36,9 @@ pub fn parse_args() -> Result<Args> {
             Long("root") => a.root = Some(p.value()?.into()),
             Long("json") => a.json = true,
             Long("no-open") => a.no_open = true,
+            Long("read") => a.read = true,
+            Long("no-read") => a.no_read = true,
+            Long("agent") => a.agent = Some(p.value()?.string()?),
             Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
             Value(v) if a.sub.is_none() => a.sub = Some(v.string()?),
             Value(v) if a.cmd == "plugin" => a.more.push(v.string()?),
