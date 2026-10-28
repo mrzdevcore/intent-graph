@@ -170,7 +170,8 @@ pub fn facts(ws: &WorkspaceInfo, g: &Graph, cfg: &Config) -> Vec<FactBox> {
         .map(|(k, id)| (id, k))
         .collect();
     ids.sort();
-    let unique = dedupe(ids.iter().map(|(id, _)| id.clone()).collect());
+    // `system` is the root's id
+    let unique = dedupe(ids.iter().map(|(id, _)| id.clone()).collect(), &["system"]);
     let mut id_of = vec![String::new(); ids.len()];
     for ((_, k), id) in ids.iter().zip(unique) {
         id_of[*k] = id;
@@ -228,6 +229,7 @@ pub fn facts(ws: &WorkspaceInfo, g: &Graph, cfg: &Config) -> Vec<FactBox> {
             guess: g,
         });
     }
+    group::group_containers(&mut out);
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
 }
@@ -263,9 +265,10 @@ pub(crate) fn slug(s: &str, fallback: &str) -> String {
     if s.is_empty() { fallback } else { s }.to_string()
 }
 
-/// `ids` (sorted) with repeats suffixed `-2`, `-3`… in order, each still at most 64 chars.
-fn dedupe(ids: Vec<String>) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
+/// `ids` (sorted) with repeats (and ids in `taken`) suffixed `-2`, `-3`… in order, each still at
+/// most 64 chars.
+pub(super) fn dedupe(ids: Vec<String>, taken: &[&str]) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = taken.iter().map(|t| t.to_string()).collect();
     ids.into_iter()
         .map(|base| {
             let mut id = base.clone();
@@ -439,6 +442,52 @@ fn container(
             }
         })
         .collect();
+    // the files right under the source root (all of them when it has no folders)
+    let loose: Vec<&&str> = rel.iter().filter(|f| !f.contains('/')).collect();
+    if !loose.is_empty() {
+        let entry = loose.iter().any(|f| {
+            ["main.", "server.", "app.", "index."]
+                .iter()
+                .any(|e| f.starts_with(e))
+        });
+        boxes.push(FactBox {
+            id: format!("{id}/root"),
+            parent: Some(id.clone()),
+            level: Level::Component,
+            made_of: vec![format!("{root}*")],
+            package: Some(name.into()),
+            files: loose.len() as u32,
+            nodes: modules
+                .iter()
+                .filter(|m| m.strip_prefix(&root).is_some_and(|r| !r.contains('/')))
+                .map(|m| m.to_string())
+                .collect(),
+            guess: guess(
+                if entry {
+                    BoxKind::Entry
+                } else {
+                    BoxKind::Usecase
+                },
+                title(if root == base { "root" } else { "src" }),
+                None,
+                other,
+            ),
+        });
+    }
+    cap(&mut boxes, &id, Some(name), other, "folders");
+    out.extend(boxes);
+}
+
+/// `boxes` (the children of `id`) with the smallest past 12 merged into `{id}/other`, and their
+/// id parts made unique (folder slugs can collide: `domain/order` and `domain-order`, a folder
+/// named `other`).
+pub(super) fn cap(
+    boxes: &mut Vec<FactBox>,
+    id: &str,
+    package: Option<&str>,
+    slot: Option<&str>,
+    noun: &str,
+) {
     if boxes.len() > MAX_COMPONENTS {
         boxes.sort_by(|a, b| b.files.cmp(&a.files).then(a.id.cmp(&b.id)));
         let rest = boxes.split_off(MAX_COMPONENTS - 1);
@@ -446,31 +495,29 @@ fn container(
         nodes.sort();
         boxes.push(FactBox {
             id: format!("{id}/other"),
-            parent: Some(id.clone()),
+            parent: Some(id.into()),
             level: Level::Component,
             made_of: rest.iter().flat_map(|b| b.made_of.clone()).collect(),
-            package: Some(name.into()),
+            package: package.map(String::from),
             files: rest.iter().map(|b| b.files).sum(),
             nodes,
             guess: guess(
                 BoxKind::Group,
-                format!("Other ({} folders)", rest.len()),
+                format!("Other ({} {noun})", rest.len()),
                 None,
-                other,
+                slot,
             ),
         });
     }
-    // Folder slugs can collide (`domain/order` and `domain-order`, a folder named `other`).
     boxes.sort_by(|a, b| a.id.cmp(&b.id));
     let pre = format!("{id}/");
     let parts = boxes
         .iter()
         .map(|b| b.id[pre.len()..].to_string())
         .collect();
-    for (b, part) in boxes.iter_mut().zip(dedupe(parts)) {
+    for (b, part) in boxes.iter_mut().zip(dedupe(parts, &[])) {
         b.id = format!("{pre}{part}");
     }
-    out.extend(boxes);
 }
 
 fn last(folder: &str) -> &str {
@@ -536,6 +583,8 @@ fn kind_of(folder: &str) -> BoxKind {
         BoxKind::Usecase
     }
 }
+
+mod group;
 
 #[cfg(test)]
 mod tests;
