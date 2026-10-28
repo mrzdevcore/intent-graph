@@ -6,7 +6,7 @@ import { Activity, Archive, ChartBar, Cloud, CreditCard, Database, FileText, Key
 import {
   siAlgolia, siApachekafka, siAuth0, siClerk, siCloudinary, siContentful, siDatadog, siDirectus, siElastic, siElasticsearch,
   siFirebase, siGhost, siGoogleanalytics, siGrafana, siKeycloak, siMailgun, siMariadb, siMatomo, siMeilisearch, siMinio,
-  siMixpanel, siMongodb, siMysql, siNatsdotio, siNewrelic, siOkta, siOpensearch, siOpentelemetry, siPaypal, siPosthog,
+  siMixpanel, siMongodb, siMysql, siNatsdotio, siNewrelic, siNextdotjs, siPrisma, siTrpc, siOkta, siOpensearch, siOpentelemetry, siPaypal, siPosthog,
   siPostgresql, siPrismic, siPrometheus, siRabbitmq, siRedis, siSanity, siSentry, siSqlite, siStoryblok, siStrapi, siStripe,
   siSupabase, type SimpleIcon,
 } from "simple-icons";
@@ -31,6 +31,7 @@ const BRANDS: Record<string, SimpleIcon> = {
   "google-analytics": siGoogleanalytics, matomo: siMatomo, posthog: siPosthog, "posthog-js": siPosthog,
   kafka: siApachekafka, "apache kafka": siApachekafka, kafkajs: siApachekafka, rabbitmq: siRabbitmq, amqplib: siRabbitmq,
   nats: siNatsdotio, minio: siMinio, cloudinary: siCloudinary, stripe: siStripe, paypal: siPaypal,
+  nextdotjs: siNextdotjs, next: siNextdotjs, "next.js": siNextdotjs, trpc: siTrpc, prisma: siPrisma,
   mailgun: siMailgun, "mailgun.js": siMailgun,
 };
 
