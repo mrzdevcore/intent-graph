@@ -1,0 +1,28 @@
+/* The dark theme: the same tokens as light.css. The map is graphite grey on a dot grid. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #161615; --color-panel: #1f1f1d; --color-fg: #ecebe6; --color-muted: #9b9a93; --color-line: #34332f;
+  --color-code: #262624; --color-error: #ff6b6b;
+  --color-added: #51cf66; --color-changed: #fcc419; --color-removed: #f06595;
+  --color-accent: #E8A317; --color-on-accent: #161615; --color-accent-text: #E8A317;
+
+  --map-ground: #2b2c2f; --map-dots: #3d3e43; --map-surface: #35363a; --map-sunken: #3e3f44; --map-track: #45464b;
+  --map-line: #4c4d53; --map-line-soft: #404146; --map-shadow: rgba(0, 0, 0, 0.45);
+  --map-fg: #ecebe6; --map-fg-2: #d4d5d8; --map-muted: #a9aaaf; --map-faint: #85868b; --map-edge: #75767c;
+  --map-blue: #7aa2f7; --map-green: #4cc38a; --map-gold: #d9a53a; --map-purple: #b08cf0; --map-teal: #4fb3c4;
+  --map-tint-blue: #1e2a40; --map-tint-green: #1a2e24; --map-tint-gold: #352c14;
+  --map-warn: #f0a830; --map-warn-bg: #33290f; --map-warn-chip: #4a3a12; --map-warn-text: #f5c26b;
+  --map-bad: #ff6b5a; --map-bad-bg: #3a1d19; --map-bad-chip: #4d221d; --map-bad-text: #ff9a8c;
+  --map-down-bg: #303135;
+  --map-ring-bg: #2e3542; --map-ring-line: #46597a; --map-ring-text: #a9bde0;
+  --map-domain-bg: #3a3324; --map-domain-line: #8a6d2a; --map-domain-text: #e3be6a;
+  --map-app-bg: #2a3830; --map-app-line: #3e6b4f; --map-app-text: #8fd3a8;
+  --map-group-bg: rgba(255, 255, 255, 0.03);
+  --map-bar-out: #e8a317; --map-bar-in: #8f7d5c;
+  --map-trace: #e8a317;
+
+  --code-foreground: #e6e6e8; --code-background: transparent;
+  --code-token-keyword: #d49bf0; --code-token-function: #8fb4ff; --code-token-parameter: #e0c89a;
+  --code-token-constant: #f0b86a; --code-token-string: #9ed39a; --code-token-string-expression: #9ed39a;
+  --code-token-comment: #8e8f94; --code-token-punctuation: #b4b5ba; --code-token-link: #8fb4ff;
+}

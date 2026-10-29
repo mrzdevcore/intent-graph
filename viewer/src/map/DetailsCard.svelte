@@ -1,9 +1,10 @@
-<!-- The selected box: health, what needs attention, connections, what it is made of and where
-     each annotated field came from. All text, never HTML. -->
+<!-- The selected box: health, what needs attention, what it uses and what uses it, what it is made of and
+     where each annotated field came from. All text, never HTML. -->
 <script lang="ts">
   import type { Field, MapBox, View } from "./types";
+  import Code from "./Code.svelte";
 
-  let { view, box, onclose }: { view: View; box: MapBox; onclose: () => void } = $props();
+  let { view, box, onclose, onopen }: { view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void } = $props();
 
   const titleOf = (id: string) => view.boxes.find((b) => b.id === id)?.title.value ?? id;
   const mine = $derived(view.arrows.filter((a) => a.from === box.id || a.to === box.id));
@@ -12,8 +13,21 @@
   const attention = $derived(view.marks.filter((m) => (m.layer === "rules" || m.layer === "risks") && m.state !== "ok" && touched.has(m.target)));
   const source = $derived(view.sources?.[box.id]);
   const parts = $derived(view.parts?.[box.id]);
-  const ins = $derived(mine.filter((a) => a.to === box.id));
-  const outs = $derived(mine.filter((a) => a.from === box.id));
+  // an arrow from → to is from's own calls and imports: from uses to
+  const byCount = (a: { count: number }, b: { count: number }) => b.count - a.count;
+  const usedBy = $derived(mine.filter((a) => a.to === box.id).sort(byCount));
+  const uses = $derived(mine.filter((a) => a.from === box.id).sort(byCount));
+  const groups = $derived([
+    { name: "Uses", list: uses, end: "to" as const },
+    { name: "Used by", list: usedBy, end: "from" as const },
+  ]);
+  const top = $derived(Math.max(1, ...mine.map((a) => a.count)));
+  const sum = (as: { count: number }[]) => as.reduce((n, a) => n + a.count, 0);
+  const inside = $derived(view.boxes.filter((b) => b.parent === box.id).length);
+  const chips = $derived([box.kind.value, ...(box.tech?.value.split("·").map((t) => t.trim()).filter(Boolean) ?? [])]);
+  const SHOWN = 5;
+  let allPaths = $state(false);
+  const paths = $derived(allPaths ? box.madeOf : box.madeOf.slice(0, SHOWN));
   const fields = $derived(
     (["kind", "title", "tech", "description", "logo", "badges", "pattern", "slot"] as const)
       .map((k) => [k, box[k] as Field<unknown> | undefined] as const)
@@ -23,6 +37,7 @@
   // focus follows the selection into the card
   $effect(() => {
     void box.id;
+    allPaths = false;
     card.focus({ preventScroll: true });
   });
 </script>
@@ -32,8 +47,15 @@
     <b>{box.title.value}</b>
     <button type="button" aria-label="Close" onclick={onclose}>×</button>
   </div>
-  <p class="meta">{[box.kind.value, box.tech?.value, box.level].filter(Boolean).join(" · ")}</p>
+  <ul class="chips">{#each chips as c}<li>{c}</li>{/each}</ul>
   {#if box.description}<p>{box.description.value}</p>{/if}
+  {#if inside || mine.length}
+    <dl class="stats">
+      <div><dt>parts inside</dt><dd>{inside.toLocaleString("en")}</dd></div>
+      <div><dt>links out</dt><dd>{sum(uses).toLocaleString("en")}</dd></div>
+      <div><dt>links in</dt><dd>{sum(usedBy).toLocaleString("en")}</dd></div>
+    </dl>
+  {/if}
 
   {#if health.length}
     <h3>Health</h3>
@@ -43,26 +65,36 @@
     <h3>Needs attention</h3>
     <ul>{#each attention as m}<li class={m.state}>{m.badge ?? m.value ?? m.state}{m.note ? ` — ${m.note}` : ""}</li>{/each}</ul>
   {/if}
-  {#if ins.length || outs.length}
-    <h3>Connections</h3>
-    <ul>
-      {#each ins as a}<li>← {titleOf(a.from)} <span class="muted">{a.label ?? a.kind}{a.count > 1 ? ` ×${a.count}` : ""}</span></li>{/each}
-      {#each outs as a}<li>→ {titleOf(a.to)} <span class="muted">{a.label ?? a.kind}{a.count > 1 ? ` ×${a.count}` : ""}</span></li>{/each}
-    </ul>
-  {/if}
+  {#each groups as { name, list, end }}
+    {#if list.length}
+      <h3>{name} · {list.length}</h3>
+      <ul class="links {end}">
+        {#each list as a}
+          <li><button type="button" onclick={() => onopen(a[end])}>
+            <span class="row"><span class="name">{titleOf(a[end])}</span><b>×{a.count.toLocaleString("en")}</b></span>
+            <span class="bar"><span style:width="{Math.max(2, (a.count / top) * 100)}%"></span></span>
+            <span class="muted">{a.label ?? a.kind}</span>
+          </button></li>
+        {/each}
+      </ul>
+    {/if}
+  {/each}
   {#if parts?.length}
     <h3>{box.title.value}</h3>
     <ul>{#each parts as p}<li><span class="muted">{p.kind}</span> <code>{p.name}</code>{p.detail ? ` ${p.detail}` : ""} <span class="muted">:{p.line}</span></li>{/each}</ul>
   {/if}
   {#if source}
     <h3>Code</h3>
-    <p class="muted"><code>{source.file}:{source.line}</code> · complexity {source.complexity}</p>
-    <pre class="code">{source.text}{source.cut ? `\n… ${source.cut} more lines` : ""}</pre>
+    <p class="muted"><code>{source.file}:{source.line}–{source.line + source.text.split("\n").length - 1 + (source.cut ?? 0)}</code> · complexity {source.complexity}</p>
+    <pre class="code"><Code {source} /></pre>
   {/if}
   {#if box.madeOf.length}
-    <h3>Made of{box.madeOfSource ? ` (${box.madeOfSource})` : ""}</h3>
+    <h3>Made of · {box.madeOf.length} {box.madeOf.length === 1 ? "path" : "paths"}{box.madeOfSource ? ` (${box.madeOfSource})` : ""}</h3>
     <!-- no editor-link helper exists in the viewer: the paths, as text -->
-    <ul>{#each box.madeOf as p}<li><code>{p}</code></li>{/each}</ul>
+    <ul class="paths">{#each paths as p}<li>{p}</li>{/each}</ul>
+    {#if box.madeOf.length > SHOWN}
+      <button type="button" class="more" onclick={() => (allPaths = !allPaths)}>{allPaths ? "Show fewer" : `Show all ${box.madeOf.length}`}</button>
+    {/if}
   {/if}
   {#if box.serviceName || box.package}
     <p class="muted">
@@ -70,26 +102,51 @@
       {#if box.package}package <code>{box.package}</code>{/if}
     </p>
   {/if}
-  <h3>Sources</h3>
-  <ul class="muted">{#each fields as [k, f]}<li>{k}: {f.source}{f.confidence ? `, ${f.confidence}` : ""}</li>{/each}</ul>
+  <details class="muted">
+    <summary>Where these facts come from</summary>
+    <ul>{#each fields as [k, f]}<li>{k}: {f.source}{f.confidence ? `, ${f.confidence}` : ""}</li>{/each}</ul>
+  </details>
 </section>
 
 <style>
-  .details { position: absolute; top: 56px; right: 16px; width: 300px; max-height: calc(100% - 120px); overflow: auto;
-    background: #fffdf8; border: 1px solid #d9d2c3; border-radius: 12px; padding: 12px 14px; font-size: 13px;
-    box-shadow: 0 6px 20px rgba(35, 33, 30, 0.12); overflow-wrap: anywhere; }
-  .details.wide { width: 480px; }
-  .code { margin: 4px 0; padding: 8px; max-height: 360px; overflow: auto; background: #f6f3ec; border-radius: 6px;
-    font: 11.5px/15px ui-monospace, Menlo, monospace; white-space: pre; overflow-wrap: normal; }
+  .details { position: absolute; top: 3.5rem; right: var(--space-4); width: 21.25rem; color: var(--map-fg); max-height: calc(100% - 7.5rem); overflow: auto;
+    background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-xl); padding: var(--space-3) var(--space-3-5); font-size: var(--text-md);
+    box-shadow: 0 6px 20px var(--map-shadow); overflow-wrap: anywhere; }
+  .details.wide { width: 30rem; }
+  .code { margin: var(--space-1) 0; padding: var(--space-2); max-height: 22.5rem; overflow: auto; background: var(--map-sunken); border-radius: var(--radius-md);
+    font: 0.71875rem/1.3 var(--font-mono); white-space: pre; overflow-wrap: normal; }
   .details:focus { outline: none; }
-  .details:focus-visible { outline: 3px solid #3b6fd8; outline-offset: 2px; }
-  .head { display: flex; align-items: start; gap: 8px; }
-  .head b { flex: 1; font-size: 16px; }
-  .head button { font: inherit; border: 0; background: none; cursor: pointer; font-size: 18px; line-height: 1; color: #5c5850; }
-  h3 { margin: 12px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #5c5850; }
-  p { margin: 4px 0; }
+  .details:focus-visible { outline: 3px solid var(--map-blue); outline-offset: 2px; }
+  .head { display: flex; align-items: start; gap: var(--space-2); }
+  .head b { flex: 1; font-size: var(--text-xl); }
+  .head button { font: inherit; border: 0; background: none; cursor: pointer; font-size: var(--text-3xl); line-height: 1; color: var(--map-muted); }
+  h3 { margin: var(--space-3) 0 var(--space-1); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--map-muted); }
+  p { margin: var(--space-1) 0; }
+  ul { margin: 0; padding: 0; list-style: none; }
   li { padding: 1px 0; }
-  .meta, .muted { color: #6b6559; }
-  .warn { color: #6b4200; } .bad { color: #9b2c1f; } .down { color: #4a4640; } .ok { color: #2f8f5b; }
-  @media (max-width: 760px) { .details, .details.wide { left: 16px; right: 16px; width: auto; top: auto; bottom: 56px; max-height: 50%; } }
+  .muted { color: var(--map-muted); }
+  /* app.css's code takes the app's colours; the card takes the map's */
+  code { background: var(--map-sunken); color: inherit; }
+  .chips { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-1-5) 0; }
+  .chips li { font-size: var(--text-xs); padding: var(--space-0-5) 0.4375rem; border-radius: var(--radius-pill); background: var(--map-sunken); color: var(--map-fg-2); }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin: var(--space-2-5) 0 0; }
+  .stats div { display: flex; flex-direction: column-reverse; background: var(--map-sunken); border-radius: var(--radius-lg); padding: var(--space-1-5) var(--space-2-5); }
+  .stats dt { font-size: var(--text-xs); color: var(--map-muted); }
+  .stats dd { margin: 0; font-size: var(--text-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .links button { display: flex; flex-direction: column; gap: 0.1875rem; width: calc(100% + 0.75rem); margin: 0 calc(-1 * var(--space-1-5)); padding: var(--space-1) var(--space-1-5);
+    font: inherit; color: inherit; text-align: left; border: 0; border-radius: var(--radius-md); background: none; cursor: pointer; }
+  .links button:hover { background: var(--map-sunken); }
+  .links .row { display: flex; gap: var(--space-2); align-items: baseline; }
+  .links .name { flex: 1; font-weight: 500; }
+  .links b { font-variant-numeric: tabular-nums; }
+  .bar { display: block; height: 0.25rem; border-radius: 0.125rem; background: var(--map-track); }
+  .bar span { display: block; height: 100%; border-radius: 0.125rem; background: var(--map-bar-out); }
+  .from .bar span { background: var(--map-bar-in); }
+  .muted, .links .muted { font-size: var(--text-sm); }
+  .paths { font: var(--text-sm)/1.6 var(--font-mono); }
+  .more { margin-top: var(--space-1); font: inherit; font-size: var(--text-sm); border: 1px solid var(--map-line); background: var(--map-surface); color: inherit; border-radius: var(--radius-md); padding: var(--space-1) var(--space-2-5); cursor: pointer; }
+  details { margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--map-line-soft); }
+  summary { cursor: pointer; }
+  .warn { color: var(--map-warn-text); } .bad { color: var(--map-bad-text); } .down { color: var(--map-fg-2); } .ok { color: var(--map-green); }
+  @media (max-width: 47.5rem) { .details, .details.wide { left: var(--space-4); right: var(--space-4); width: auto; top: auto; bottom: 3.5rem; max-height: 50%; } }
 </style>
