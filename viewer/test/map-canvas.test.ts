@@ -328,3 +328,63 @@ test("the search opens a box it finds, and lights the path A to B on the map", (
   flushSync();
   expect(target.querySelector(".slot.traced, .slot.faded")).toBeNull();
 });
+
+/** shop with CheckoutPage's part boxes (what it keeps, what it renders), mounted. */
+function withAnatomy() {
+  const view = structuredClone(shop) as unknown as View;
+  const id = "apps/web/pages/checkout.tsx#CheckoutPage";
+  const page = view.boxes.find((b) => b.id === id)!;
+  for (const [key, title] of [["state", "State"], ["renders", "Renders"]]) {
+    view.boxes.push({ ...page, id: `${id}/${key}`, parent: id, kind: { value: "parts", source: "ig" }, title: { value: title, source: "ig" }, logo: undefined });
+  }
+  view.parts = {
+    [`${id}/state`]: [{ name: "open", kind: "useState", line: 4, detail: "false" }],
+    [`${id}/renders`]: [{ name: "CheckoutPage", kind: "tag", line: 9 }, { name: "PayButton", kind: "tag", line: 12 }],
+  };
+  // another component it renders
+  const pay = view.boxes.find((b) => b.id === `${id}.pay`)!;
+  pay.kind = { value: "component", source: "ig" };
+  pay.title = { value: "PayButton", source: "ig" };
+  const camera = new Camera();
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(Map, { target, props: { view, camera, size } });
+  flushSync();
+  const go = (to: string) => {
+    camera.to(fitTo(worldFrame(to, view), size), 0);
+    m.tick(800);
+    flushSync();
+  };
+  return { view, target, id, go };
+}
+
+test("a component's card sums up what it keeps and renders", () => {
+  const { target, id, go } = withAnatomy();
+  go("web/pages");
+  const card = box(target, id)!.textContent!;
+  expect(card).toContain("keeps open");
+  expect(card).toContain("renders CheckoutPage");
+  expect(card).toContain("1 useState");
+});
+
+test("the card links a rendered tag to its component, and closes once you walk into another box", () => {
+  const { target, go } = withAnatomy();
+  const input = target.querySelector('input[aria-label="Search the map"]') as HTMLInputElement;
+  input.focus();
+  input.value = "Renders";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  flushSync();
+  go("web/pages");
+  expect(target.querySelector(".details b")!.textContent).toBe("Renders");
+  // its own component is not a link, another one it renders is
+  const tags = [...target.querySelectorAll(".details .tag")];
+  expect(tags.map((t) => t.textContent)).toEqual(["PayButton"]);
+  (tags[0] as HTMLButtonElement).click();
+  flushSync();
+  expect(target.querySelector(".details b")!.textContent).toBe("PayButton");
+  // walking into the api (outside the web) closes it
+  go("api");
+  expect(target.querySelector(".details")).toBeNull();
+});

@@ -62,6 +62,8 @@
   });
   const byId = $derived(new Map(view.boxes.map((b) => [b.id, b])));
   const kids = $derived(group(framed, (b: Box) => b.parent ?? ROOT));
+  // a component's part boxes (inputs, state, uses, renders): its card sums them up
+  const anatomies = $derived(group(view.boxes.filter((b) => b.kind.value === "parts" && !!b.parent), (b: Box) => b.parent!));
   // world frames, once per layout (linear in the boxes): a drag in flight leaves them be
   const place = $derived(placer(shown));
   const world = $derived(new Map(framed.map((b) => [b.id, place.frame(b.id)])));
@@ -280,6 +282,19 @@
     const f = world.get(id)!, x = f.x * cam.k + cam.x, y = f.y * cam.k + cam.y;
     return x < 1.5 * vw && y < 1.5 * vh && x + f.w * cam.k > -0.5 * vw && y + f.h * cam.k > -0.5 * vh;
   }
+  /** `id` is `top` or inside it. */
+  function under(id: string, top: string) {
+    for (let p: string | undefined = id, n = 0; p && n < 64; p = byId.get(p)?.parent, n++) if (p === top) return true;
+    return false;
+  }
+  // the card follows you: walking into another box closes the card of a box outside it (not
+  // while a glide is on its way to the selected box)
+  $effect(() => {
+    const at = trail[trail.length - 1];
+    untrack(() => {
+      if (selected && !camera.moving && !trail.includes(selected) && !under(selected, at)) selected = null;
+    });
+  });
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
 
   /** A box's inner space inside its own frame, below its header (as place.inside, locally). */
@@ -310,10 +325,12 @@
     {@const open = showsInside(sw) && kids.has(b.id) && !!view.placed.inner[b.id]}
     {@const source = view.sources?.[b.id]}
     {@const list = view.parts?.[b.id]}
-    {@const reads = !open && (!!source || !!list) && showsInside(sw)}
+    <!-- a part box shows its list once it is near; code waits for more room -->
+    {@const reads = !open && (!!source || !!list) && (showsInside(sw) || (!!list && detailFor(sw) === "near"))}
+    {@const anatomy = anatomies.get(b.id)?.map((k) => ({ title: k.title.value, parts: view.parts?.[k.id] ?? [] }))}
     <div class="slot" class:traced={path?.boxes.includes(b.id)} class:faded={path && !path.boxes.includes(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
       <MapBox box={b} look={look(b.id, view.marks, on, b)} detail={open ? "open" : reads ? "source" : detailFor(sw)}
-        zoom={sw / f.w} source={reads ? source : undefined} parts={list}
+        zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)} />
       {#if open}
         {@const t = local(b.id)}
@@ -349,7 +366,7 @@
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
-    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={openBox} />
+    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} />
   {/if}
 </div>
 

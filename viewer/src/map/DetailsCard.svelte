@@ -7,6 +7,8 @@
   let { view, box, onclose, onopen }: { view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void } = $props();
 
   const titleOf = (id: string) => view.boxes.find((b) => b.id === id)?.title.value ?? id;
+  // a part named like a component on the map (a tag it renders): a link to it
+  const components = $derived(new Map(view.boxes.filter((b) => b.kind.value === "component").map((b) => [b.title.value, b.id])));
   const mine = $derived(view.arrows.filter((a) => a.from === box.id || a.to === box.id));
   const touched = $derived(new Set([box.id, ...mine.map((a) => a.id)]));
   const health = $derived(view.marks.filter((m) => m.layer === "health" && m.target === box.id));
@@ -81,7 +83,7 @@
   {/each}
   {#if parts?.length}
     <h3>{box.title.value}</h3>
-    <ul>{#each parts as p}<li><span class="muted">{p.kind}</span> <code>{p.name}</code>{p.detail ? ` ${p.detail}` : ""} <span class="muted">:{p.line}</span></li>{/each}</ul>
+    <ul>{#each parts as p}<li><span class="muted">{p.kind}</span> {#if components.get(p.name) && components.get(p.name) !== box.parent}<button type="button" class="tag" onclick={() => onopen(components.get(p.name)!)}><code>{p.name}</code></button>{:else}<code>{p.name}</code>{/if}{p.detail ? ` ${p.detail}` : ""} <span class="muted">:{p.line}</span></li>{/each}</ul>
   {/if}
   {#if source}
     <h3>Code</h3>
@@ -147,6 +149,7 @@
   .more { margin-top: var(--space-1); font: inherit; font-size: var(--text-sm); border: 1px solid var(--map-line); background: var(--map-surface); color: inherit; border-radius: var(--radius-md); padding: var(--space-1) var(--space-2-5); cursor: pointer; }
   details { margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--map-line-soft); }
   summary { cursor: pointer; }
+  .tag { font: inherit; color: inherit; border: 0; padding: 0; background: none; cursor: pointer; text-decoration: underline; text-decoration-color: var(--map-blue); }
   .warn { color: var(--map-warn-text); } .bad { color: var(--map-bad-text); } .down { color: var(--map-fg-2); } .ok { color: var(--map-green); }
   @media (max-width: 47.5rem) { .details, .details.wide { left: var(--space-4); right: var(--space-4); width: auto; top: auto; bottom: 3.5rem; max-height: 50%; } }
 </style>
