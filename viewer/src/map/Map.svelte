@@ -14,6 +14,8 @@
   import Region from "./Region.svelte";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
+  import Search from "./Search.svelte";
+  import type { Trace } from "./search";
 
   let { view, camera = new Camera(), size }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -96,6 +98,15 @@
   const vw = $derived(size?.w ?? cw), vh = $derived(size?.h ?? ch);
   let cam = $state<Cam>(untrack(() => camera.cam));
   let selected = $state<string | null>(null);
+  // the path the search lit: its boxes and arrows drawn in full, the rest of that level faded
+  let traced = $state<Trace | null>(null);
+  function lightPath(t: Trace | null) {
+    traced = t;
+    if (t) {
+      selected = null;
+      fly(t.parent);
+    }
+  }
   // under the pointer: the deepest box, and an arrow
   let hot = $state<string | null>(null);
   let hotArrow = $state<string | null>(null);
@@ -155,7 +166,11 @@
     selected = null;
     if (id) (stage.querySelector(`[data-box="${CSS.escape(id)}"] > button`) as HTMLElement | null)?.focus({ preventScroll: true });
   }
-  const key = (e: KeyboardEvent) => e.key === "Escape" && selected && close();
+  function key(e: KeyboardEvent) {
+    if (e.key !== "Escape") return;
+    if (selected) close();
+    else traced = null;
+  }
   // deep enough for the smallest code box of a deep tree
   const clampK = (k: number) => Math.min(1e9, Math.max(1e-3, k));
   function zoomAt(px: number, py: number, f: number, smooth = false) {
@@ -278,7 +293,8 @@
   {@const zoom = (unit.get(pid) ?? 1) * cam.k}
   {@const near = zoom < DEEP}
   {@const all = near ? arrows.get(pid) ?? [] : []}
-  {@const lit = all.filter(touches)}
+  {@const path = traced?.parent === pid ? traced : null}
+  {@const lit = path ? all.filter((a) => path.arrows.includes(a)) : all.filter(touches)}
   {#if near}{#each regions.get(pid) ?? [] as r, i (i)}<Region region={r} {zoom} />{/each}{/if}
   {#each all as a (a.id)}
     {@const c = pathOf(a)}
@@ -295,7 +311,7 @@
     {@const source = view.sources?.[b.id]}
     {@const list = view.parts?.[b.id]}
     {@const reads = !open && (!!source || !!list) && showsInside(sw)}
-    <div class="slot" data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
+    <div class="slot" class:traced={path?.boxes.includes(b.id)} class:faded={path && !path.boxes.includes(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
       <MapBox box={b} look={look(b.id, view.marks, on, b)} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads ? source : undefined} parts={list}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)} />
@@ -317,7 +333,8 @@
 
 <svelte:window onpointermove={move} onpointerup={up} onkeydown={key} />
 
-<div class="map" bind:clientWidth={cw} bind:clientHeight={ch}>
+<!-- the dot grid pans with the world; it keeps its size at any zoom -->
+<div class="map" bind:clientWidth={cw} bind:clientHeight={ch} style:background-position="{base.x}px {base.y}px">
   <div class="stage" bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture}
     onpointerover={over} onpointerleave={() => (hot = hotArrow = null)}>
     <div class="world" style:transform="translate({base.x}px, {base.y}px) scale({base.k})">{@render level(anchor)}</div>
@@ -325,22 +342,27 @@
   <Controls {crumbs} {layers} {on} oncrumb={fly}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
-    onreset={Object.keys(moves).length ? () => keep({}) : undefined} />
+    onreset={Object.keys(moves).length ? () => keep({}) : undefined}>
+    <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
+  </Controls>
   {#if reading}
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
-    <DetailsCard {view} box={byId.get(selected)!} onclose={close} />
+    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={openBox} />
   {/if}
 </div>
 
 <style>
-  .map { position: absolute; inset: 0; overflow: hidden; background: #faf8f3; color: #23211e; }
+  .map { position: absolute; inset: 0; overflow: hidden;
+    background: var(--map-ground) radial-gradient(var(--map-dots) 1.2px, transparent 1.4px) 0 0 / 18px 18px; color: var(--map-fg); }
   .stage { position: absolute; inset: 0; cursor: grab; touch-action: none; }
   .stage:active { cursor: grabbing; }
   .world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .slot { position: absolute; }
   .slot:not([data-open]) { cursor: move; }
+  .slot.traced { outline: 3px solid var(--map-trace); outline-offset: 4px; border-radius: 16px; }
+  .slot.faded { opacity: 0.35; transition: opacity 150ms; }
   .arrow { display: contents; }
   .inside { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
   .inside.fade { animation: ig-fade 400ms ease-out; }
@@ -348,7 +370,7 @@
   @keyframes ig-fade { from { opacity: 0; } }
   /* app.css's global .row (list rows) must not restyle the boxes' title row */
   .map :global(.row) { padding: 0; background: none; cursor: inherit; }
-  .reading { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0; padding: 6px 14px;
-    border: 1px dotted #b8860b; border-radius: 999px; background: #fffdf8; font-size: 13px; color: #4a4640; max-width: calc(100% - 32px); }
-  .reading code { background: #f2eee5; }
+  .reading { position: absolute; left: 50%; bottom: var(--space-4); transform: translateX(-50%); margin: 0; padding: var(--space-1-5) var(--space-3-5);
+    border: 1px dotted var(--map-gold); border-radius: var(--radius-pill); background: var(--map-surface); font-size: var(--text-md); color: var(--map-fg-2); max-width: calc(100% - 2rem); }
+  .reading code { background: var(--map-sunken); }
 </style>

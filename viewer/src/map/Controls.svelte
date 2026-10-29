@@ -1,10 +1,12 @@
-<!-- Over the map: the breadcrumb (top left), the layers toggles, zoom −, Fit, + and, once boxes
-     were moved by hand, Reset layout (top right). -->
+<!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles, zoom −,
+     Fit, + and, once boxes were moved by hand, Reset layout (top right). -->
 <script lang="ts">
-  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset }: {
+  import type { Snippet } from "svelte";
+
+  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void; onzoom: (f: number) => void; onfit: () => void;
-    onreset?: () => void;
+    onreset?: () => void; children?: Snippet;
   } = $props();
 </script>
 
@@ -16,6 +18,7 @@
 </nav>
 
 <div class="tools">
+  {@render children?.()}
   {#if onreset}<button type="button" onclick={onreset}>Reset layout</button>{/if}
   <details class="layers">
     <summary>Layers</summary>
@@ -31,16 +34,16 @@
 </div>
 
 <style>
-  .crumbs { position: absolute; left: 16px; top: 12px; right: 260px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; color: #8a8378; font-size: 13px; }
-  .tools { position: absolute; right: 16px; top: 12px; display: flex; gap: 8px; align-items: start; }
-  button, summary { font: inherit; font-size: 13px; border: 1px solid #d9d2c3; background: #fffdf8; color: #23211e; border-radius: 8px; padding: 3px 10px; cursor: pointer; }
-  .crumbs button { border-color: transparent; background: none; padding: 2px 6px; }
+  .crumbs { position: absolute; left: var(--space-4); top: var(--space-3); right: 36rem; display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; color: var(--map-faint); font-size: var(--text-md); }
+  .tools { position: absolute; z-index: 3; right: var(--space-4); top: var(--space-3); display: flex; gap: var(--space-2); align-items: start; }
+  button, summary { font: inherit; font-size: var(--text-md); border: 1px solid var(--map-line); background: var(--map-surface); color: var(--map-fg); border-radius: var(--radius-lg); padding: 0.1875rem var(--space-2-5); cursor: pointer; }
+  .crumbs button { border-color: transparent; background: none; padding: var(--space-0-5) var(--space-1-5); }
   .crumbs button[aria-current] { font-weight: 600; }
-  .layers { background: #fffdf8; border-radius: 8px; }
-  .layers[open] { border: 1px solid #d9d2c3; padding-bottom: 6px; }
+  .layers { background: var(--map-surface); border-radius: var(--radius-lg); }
+  .layers[open] { border: 1px solid var(--map-line); padding-bottom: var(--space-1-5); }
   .layers[open] summary { border: 0; }
   .layers summary { list-style: none; }
-  .layers label { display: flex; gap: 6px; align-items: center; padding: 2px 10px; font-size: 13px; white-space: nowrap; }
-  .zoom { display: flex; gap: 2px; }
-  @media (max-width: 760px) { .crumbs { right: 16px; top: 52px; } }
+  .layers label { display: flex; gap: var(--space-1-5); align-items: center; padding: var(--space-0-5) var(--space-2-5); font-size: var(--text-md); white-space: nowrap; }
+  .zoom { display: flex; gap: var(--space-0-5); }
+  @media (max-width: 47.5rem) { .crumbs { right: var(--space-4); top: 3.25rem; } }
 </style>

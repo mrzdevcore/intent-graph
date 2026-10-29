@@ -37,8 +37,8 @@ test("gliding into api mounts its components and the failing rules arrow", () =>
   m.tick(800);
   flushSync();
   expect(box(target, "api/application-checkout")).not.toBeNull();
-  const line = target.querySelector(`[data-arrow="${CSS.escape("api/domain-order->api/infra-prisma")}"] g[data-state] > path`)!;
-  expect(line.getAttribute("stroke")).toBe("#c0392b");
+  const line = target.querySelector(`[data-arrow="${CSS.escape("api/domain-order->api/infra-prisma")}"] g[data-state] > path`) as SVGPathElement;
+  expect(line.style.stroke).toBe("var(--map-bad)");
   // still no code level: checkout's own inside is too small on screen
   expect(box(target, "apps/api/src/application/checkout/checkout.ts#checkout")).toBeNull();
 });
@@ -63,6 +63,13 @@ test("the details card lists connections and needs attention", () => {
   const card = target.querySelector(".details")!.textContent!;
   expect(card).toContain("breaks: domain → infrastructure");
   expect(card).toContain("apps/api/src/domain/order/**");
+  expect(card).toContain("Uses ·");
+  // a neighbour is a button that opens it
+  const link = target.querySelector(".details .links button") as HTMLButtonElement;
+  const name = link.querySelector(".name")!.textContent;
+  link.click();
+  flushSync();
+  expect(target.querySelector(".details b")!.textContent).toBe(name);
 });
 
 test("a health layer turns api amber and its value shows in the card; the layer can be switched off", () => {
@@ -73,14 +80,14 @@ test("a health layer turns api amber and its value shows in the card; the layer 
   mount(Map, { target, props: { view, camera: new Camera(), size } });
   flushSync();
   const btn = () => box(target, "api")!.querySelector("button") as HTMLButtonElement;
-  expect(btn().style.border).toContain("#d08a00");
+  expect(btn().style.borderColor).toBe("var(--map-warn)");
   btn().click();
   flushSync();
   expect(target.querySelector(".details")!.textContent).toContain("p95 820ms");
   const health = [...target.querySelectorAll(".layers label")].find((l) => l.textContent!.includes("health"))!;
   (health.querySelector("input") as HTMLInputElement).click();
   flushSync();
-  expect(btn().style.border).not.toContain("#d08a00");
+  expect(btn().style.borderColor).not.toBe("var(--map-warn)");
 });
 
 test("clicking a box with an inside frames the inside: it fills >= 80% of the view", () => {
@@ -162,6 +169,9 @@ test("zoomed into a function, its box shows its code; the details card does too"
   const pre = box(target, id)!.querySelector("pre")!;
   expect(pre.textContent).toContain("return pay.charge(total(items));");
   expect(pre.querySelector(".ln")!.textContent).toBe("6");
+  // coloured by the theme's code tokens, as text
+  const kw = [...pre.querySelectorAll("span")].find((e) => e.textContent === "return")!;
+  expect(kw.getAttribute("style")).toContain("--code-token-");
   box(target, id)!.querySelector("button")!.click();
   flushSync();
   const card = target.querySelector(".details")!;
@@ -287,4 +297,34 @@ test("dragging a box in a map of thousands stays well inside a frame", () => {
   expect((box(target, "c/g5") as HTMLElement).style.left).not.toBe(left);
   expect(each).toBeLessThan(8);
   expect(drop).toBeLessThan(100);
+});
+
+test("the search opens a box it finds, and lights the path A to B on the map", () => {
+  const { target } = setup();
+  const input = target.querySelector('input[aria-label="Search the map"]') as HTMLInputElement;
+  const type = (q: string) => {
+    input.focus();
+    input.value = q;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+  };
+  const enter = () => {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    flushSync();
+  };
+  type("postg");
+  expect(target.querySelector(".search .drop")!.textContent).toContain("Postgres");
+  enter();
+  expect(target.querySelector(".details b")!.textContent).toBe("Postgres");
+
+  type("web to postgres");
+  expect(target.querySelector(".search .drop")!.textContent).toContain("2 steps");
+  enter();
+  expect(target.querySelector(".details")).toBeNull();
+  for (const id of ["web", "api", "postgres"]) expect(box(target, id)!.classList).toContain("traced");
+  expect(box(target, "api-client")!.classList).toContain("faded");
+  // Esc in the field clears the path
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  flushSync();
+  expect(target.querySelector(".slot.traced, .slot.faded")).toBeNull();
 });

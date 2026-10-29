@@ -21,7 +21,7 @@
   const w = $derived((arrowLook.label?.length ?? 0) * 6.5 + 16);
   const state = $derived(lit ? "lit" : dim ? "dim" : "rest");
   const alpha = $derived(lit || arrowLook.tone !== "neutral" ? 1 : dim ? DIM : REST);
-  const TEXT = { neutral: "#23211e", warn: "#6b4200", bad: "#9b2c1f", down: "#4a4640" };
+  const TEXT = { neutral: "var(--map-fg)", warn: "var(--map-warn-text)", bad: "var(--map-bad-text)", down: "var(--map-fg-2)" };
 </script>
 
 <svg style="position:absolute;left:0;top:0;overflow:visible;pointer-events:none;fill:none" width="1" height="1" aria-hidden="true">
@@ -29,14 +29,14 @@
     <defs>
       <marker {id} orient="auto" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX={(arrowLook.head === "filled" ? 4 : 6) * m} refY={4 * m} overflow="visible">
         <g transform="scale({m})">
-          {#if arrowLook.head === "filled"}<path d="M0 0 L8 4 L0 8 Z" fill={arrowLook.color} />
-          {:else if arrowLook.head === "open"}<path d="M0 0 L6 4 L0 8" fill="none" stroke={arrowLook.color} stroke-width="1.5" />
-          {:else}<path d="M0 0 L8 4 L0 8 Z" fill="#faf8f3" stroke={arrowLook.color} stroke-width="1.5" />{/if}
+          {#if arrowLook.head === "filled"}<path d="M0 0 L8 4 L0 8 Z" style:fill={arrowLook.color} />
+          {:else if arrowLook.head === "open"}<path d="M0 0 L6 4 L0 8" fill="none" style:stroke={arrowLook.color} stroke-width="1.5" />
+          {:else}<path d="M0 0 L8 4 L0 8 Z" style:fill="var(--map-ground)" style:stroke={arrowLook.color} stroke-width="1.5" />{/if}
         </g>
       </marker>
     </defs>
     <g opacity={alpha} data-state={state} style="transition: opacity 150ms">
-      <path {d} stroke={arrowLook.color} stroke-width={(arrowLook.width + (lit ? 0.75 : 0)) * m}
+      <path {d} style:stroke={arrowLook.color} stroke-width={(arrowLook.width + (lit ? 0.75 : 0)) * m}
         stroke-dasharray={arrowLook.dash?.split(" ").map((d) => Number(d) * m).join(" ") ?? undefined}
         stroke-linecap="round" stroke-linejoin="round" marker-end="url(#{id})" />
       {#if onhover}
@@ -48,8 +48,8 @@
     </g>
   {:else if arrowLook.label}
     <g transform="translate({mid[0]} {mid[1]}) scale({m})">
-      <rect x={-w / 2} y="-10" width={w} height="20" rx="10" fill="#faf8f3" stroke={arrowLook.color} stroke-width="1" />
-      <text y="4" text-anchor="middle" font-size="11" font-family="system-ui, sans-serif" fill={TEXT[arrowLook.tone]} style="fill:{TEXT[arrowLook.tone]}">{arrowLook.label}</text>
+      <rect x={-w / 2} y="-10" width={w} height="20" rx="10" style:fill="var(--map-ground)" style:stroke={arrowLook.color} stroke-width="1" />
+      <text y="4" text-anchor="middle" font-size="11" style:font-family="var(--font-sans)" style:fill={TEXT[arrowLook.tone]}>{arrowLook.label}</text>
     </g>
   {/if}
 </svg>

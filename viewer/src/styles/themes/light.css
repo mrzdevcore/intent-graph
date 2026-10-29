@@ -1,0 +1,39 @@
+/* The light theme, and the default. A theme is one block of colour tokens: copy this file, change the
+   selector to [data-theme="<name>"], change the colours, and import it in main.ts. */
+:root, :root[data-theme="light"] {
+  color-scheme: light;
+  /* app */
+  --color-bg: #fbfbfa; --color-panel: #ffffff; --color-fg: #1d1d1b; --color-muted: #6b6b66; --color-line: #e3e2de;
+  --color-code: #f4f3ef; --color-error: #c92a2a;
+  --color-added: #2f9e44; --color-changed: #d98a00; --color-removed: #d6336c;
+  /* Haira gold: the owl's eyes, ig's accent */
+  --color-accent: #E8A317; --color-on-accent: #161615; --color-accent-text: #9a6a00;
+
+  /* map: ground, surfaces, text */
+  /* --map-dots: the ground's dot grid; transparent hides it */
+  --map-ground: #faf8f3; --map-dots: transparent; --map-surface: #fffdf8; --map-sunken: #f2eee5; --map-track: #efe9dc;
+  --map-line: #d9d2c3; --map-line-soft: #ece6d8; --map-shadow: rgba(35, 33, 30, 0.12);
+  --map-fg: #23211e; --map-fg-2: #3a3631; --map-muted: #5c5850; --map-faint: #8a8378; --map-edge: #a39b8e;
+  /* map: kinds of box and arrow */
+  --map-blue: #3b6fd8; --map-green: #2f8f5b; --map-gold: #b8860b; --map-purple: #7b4fc9; --map-teal: #1f7a8c;
+  --map-tint-blue: #e6eefc; --map-tint-green: #e3f3ea; --map-tint-gold: #fbefc8;
+  /* map: health and rules */
+  --map-warn: #d08a00; --map-warn-bg: #fff6e0; --map-warn-chip: #fdf0d5; --map-warn-text: #6b4200;
+  --map-bad: #c0392b; --map-bad-bg: #fdf0ee; --map-bad-chip: #fbe4e1; --map-bad-text: #9b2c1f;
+  --map-down-bg: #f1efeb;
+  /* map: regions (onion rings, groups) */
+  --map-ring-bg: #eef2f8; --map-ring-line: #a9bad3; --map-ring-text: #4b5f80;
+  --map-domain-bg: #fcf3d9; --map-domain-line: #d4ab4a; --map-domain-text: #7a5a0f;
+  --map-app-bg: #eaf5ee; --map-app-line: #9cc7aa; --map-app-text: #2c6b46;
+  --map-group-bg: rgba(255, 255, 255, 0.6);
+  /* map: the details card's link bars */
+  --map-bar-out: #c98a0f; --map-bar-in: #5c4a2a;
+  /* map: a path the search lit */
+  --map-trace: #c98a0f;
+
+  /* code (highlight.ts: Shiki's css-variables theme) */
+  --code-foreground: #23211e; --code-background: transparent;
+  --code-token-keyword: #9b2c6f; --code-token-function: #2851a8; --code-token-parameter: #6b4f2a;
+  --code-token-constant: #9a5b00; --code-token-string: #2f7a3a; --code-token-string-expression: #2f7a3a;
+  --code-token-comment: #7a746a; --code-token-punctuation: #5c5850; --code-token-link: #2851a8;
+}

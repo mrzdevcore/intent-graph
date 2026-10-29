@@ -1,89 +1,89 @@
 /* Layout and components: global, unscoped styles the Svelte components render against. */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { display: flex; flex-direction: column; background: var(--color-bg); color: var(--color-fg); font: var(--text-base)/1.45 var(--font-sans); }
 #app { display: contents; }
-header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-header h1 { font-size: 15px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-header .toggle { font: inherit; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
-header .toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+header { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; padding: var(--space-2-5) var(--space-4); border-bottom: 1px solid var(--color-line); background: var(--color-panel); }
+header h1 { font-size: var(--text-lg); margin: 0; font-weight: 600; display: flex; align-items: center; gap: var(--space-1-5); }
+header .toggle { font: inherit; padding: var(--space-1) var(--space-2-5); border: 1px solid var(--color-line); background: var(--color-bg); color: var(--color-fg); border-radius: var(--radius-md); cursor: pointer; }
+header .toggle[aria-pressed="true"] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
 header .spacer { flex: 1; }
 main { display: flex; flex: 1; min-height: 0; }
 #map { position: relative; flex: 1; min-width: 0; min-height: 0; }
-.map-error { padding: 16px; color: var(--error); }
-aside#chat { width: 400px; border-left: 1px solid var(--line); }
-.row { display: flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
-.row:hover { background: var(--code); }
+.map-error { padding: var(--space-4); color: var(--color-error); }
+aside#chat { width: 25rem; border-left: 1px solid var(--color-line); }
+.row { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-0-5) var(--space-2); cursor: pointer; white-space: nowrap; }
+.row:hover { background: var(--color-code); }
 ul { list-style: none; padding: 0; margin: 0; }
-.loc { color: var(--muted); font-size: 12px; word-break: break-all; }
-pre { background: var(--code); padding: 8px; border-radius: 6px; overflow: auto; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 4px 0; max-height: 320px; }
-.added { color: var(--added); } .changed { color: var(--changed); } .removed { color: var(--removed); }
+.loc { color: var(--color-muted); font-size: var(--text-sm); word-break: break-all; }
+pre { background: var(--color-code); padding: var(--space-2); border-radius: var(--radius-md); overflow: auto; font: var(--text-sm)/1.4 var(--font-mono); margin: var(--space-1) 0; max-height: 20rem; }
+.added { color: var(--color-added); } .changed { color: var(--color-changed); } .removed { color: var(--color-removed); }
 details > summary { cursor: pointer; }
-code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-all; }
-a { color: var(--accent-text); }
-@media (max-width: 760px) {
+code { font: var(--text-sm) var(--font-mono); background: var(--color-code); padding: 1px var(--space-1); border-radius: var(--radius-sm); word-break: break-all; }
+a { color: var(--color-accent-text); }
+@media (max-width: 47.5rem) {
   body { display: block; height: auto; }
   main { flex-direction: column; }
   #map { min-height: 55vh; }
-  aside#chat { width: auto; border-left: 0; border-top: 1px solid var(--line); height: 70vh; }
+  aside#chat { width: auto; border-left: 0; border-top: 1px solid var(--color-line); height: 70vh; }
 }
 
 /* The chat panel (desktop app). */
-#chat { background: var(--panel); min-width: 0; min-height: 0; display: flex; }
+#chat { background: var(--color-panel); min-width: 0; min-height: 0; display: flex; }
 #chat[hidden] { display: none; }
-#ig-chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; font-size: 13px; }
-#ig-chat button { font: inherit; padding: 3px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+#ig-chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; font-size: var(--text-md); }
+#ig-chat button { font: inherit; padding: 0.1875rem var(--space-2-5); border: 1px solid var(--color-line); background: var(--color-bg); color: var(--color-fg); border-radius: var(--radius-md); cursor: pointer; }
 #ig-chat button:disabled { opacity: .5; cursor: default; }
-#ig-chat button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-#ig-chat button:focus-visible, #ig-chat select:focus-visible, #ig-chat textarea:focus-visible, #ig-chat .card:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-#ig-chat select, #ig-chat textarea, #ig-chat input { font: inherit; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
-#ig-chat .chat-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: nowrap; }
+#ig-chat button.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); font-weight: 600; }
+#ig-chat button:focus-visible, #ig-chat select:focus-visible, #ig-chat textarea:focus-visible, #ig-chat .card:focus { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+#ig-chat select, #ig-chat textarea, #ig-chat input { font: inherit; border: 1px solid var(--color-line); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-fg); }
+#ig-chat .chat-head { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); flex-wrap: nowrap; }
 #ig-chat .chat-head .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ig-chat .chat-head select { max-width: 55%; }
-#ig-chat .usage { display: flex; gap: 8px; align-items: center; color: var(--muted); }
-#ig-chat .usage meter { width: 60px; accent-color: var(--accent); }
-#ig-chat .transcript { flex: 1; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+#ig-chat .usage { display: flex; gap: var(--space-2); align-items: center; color: var(--color-muted); }
+#ig-chat .usage meter { width: 3.75rem; accent-color: var(--color-accent); }
+#ig-chat .transcript { flex: 1; overflow: auto; padding: var(--space-2-5) var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); overflow-wrap: anywhere; }
 #ig-chat .empty { margin: auto 0; text-align: center; }
-#ig-chat .msg.user { align-self: flex-end; max-width: 90%; background: var(--code); border-radius: 10px; padding: 6px 10px; white-space: pre-wrap; }
-#ig-chat .msg.thought { color: var(--muted); font-style: italic; }
-#ig-chat .msg.error { color: var(--error); padding: 4px 12px; }
+#ig-chat .msg.user { align-self: flex-end; max-width: 90%; background: var(--color-code); border-radius: var(--radius-xl); padding: var(--space-1-5) var(--space-2-5); white-space: pre-wrap; }
+#ig-chat .msg.thought { color: var(--color-muted); font-style: italic; }
+#ig-chat .msg.error { color: var(--color-error); padding: var(--space-1) var(--space-3); }
 #ig-chat .md :first-child { margin-top: 0; } #ig-chat .md :last-child { margin-bottom: 0; }
-#ig-chat .md pre, #ig-chat pre { background: var(--code); padding: 6px 8px; border-radius: 6px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
-#ig-chat code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-#ig-chat .card { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--bg); }
-#ig-chat .card.open { border-left: 3px solid var(--accent); }
-#ig-chat .card .row, #ig-chat .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
-#ig-chat .card .reject { color: var(--error); }
-#ig-chat .card button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-#ig-chat .qtitle { margin-top: 6px; font-weight: 600; }
-#ig-chat .other { width: 100%; margin-top: 6px; padding: 3px 8px; }
-#ig-chat .tool summary { cursor: pointer; display: flex; gap: 8px; align-items: center; }
+#ig-chat .md pre, #ig-chat pre { background: var(--color-code); padding: var(--space-1-5) var(--space-2); border-radius: var(--radius-md); overflow: auto; white-space: pre-wrap; font-size: var(--text-sm); }
+#ig-chat code { font-family: var(--font-mono); font-size: var(--text-sm); }
+#ig-chat .card { border: 1px solid var(--color-line); border-radius: var(--radius-lg); padding: var(--space-1-5) var(--space-2-5); background: var(--color-bg); }
+#ig-chat .card.open { border-left: 3px solid var(--color-accent); }
+#ig-chat .card .row, #ig-chat .row { display: flex; flex-wrap: wrap; gap: var(--space-1-5); align-items: center; margin-top: var(--space-1-5); }
+#ig-chat .card .reject { color: var(--color-error); }
+#ig-chat .card button[aria-pressed="true"] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+#ig-chat .qtitle { margin-top: var(--space-1-5); font-weight: 600; }
+#ig-chat .other { width: 100%; margin-top: var(--space-1-5); padding: 0.1875rem var(--space-2); }
+#ig-chat .tool summary { cursor: pointer; display: flex; gap: var(--space-2); align-items: center; }
 #ig-chat .tool .ttitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#ig-chat .tool .loc { color: var(--muted); font-size: 12px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#ig-chat .tool.group > .card { margin-top: 6px; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 4px 0 0; }
-#ig-chat .chip { font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
-#ig-chat .chip.completed { color: var(--added); border-color: var(--added); }
-#ig-chat .chip.failed { color: var(--error); border-color: var(--error); }
-#ig-chat .chip.in_progress { color: var(--accent); border-color: var(--accent); }
-#ig-chat .screen { padding: 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-#ig-chat .screen h2 { font-size: 14px; margin: 0 0 8px; }
-#ig-chat .screen.stopped { border: 1px solid var(--error); border-radius: 8px; }
-#ig-chat .held { margin: 12px 12px 0; padding: 6px 8px; border: 1px dashed var(--accent); border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; }
-#ig-chat .muted { color: var(--muted); }
-#ig-chat .composer { border-top: 1px solid var(--line); padding: 8px 12px; position: relative; }
-#ig-chat .composer textarea { width: 100%; resize: vertical; padding: 6px 8px; }
-#ig-chat .composer .row { flex-wrap: nowrap; margin: 0 0 4px; }
-#ig-chat .composer .row.footer { margin: 6px 0 0; }
+#ig-chat .tool .loc { color: var(--color-muted); font-size: var(--text-sm); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ig-chat .tool.group > .card { margin-top: var(--space-1-5); border: 0; border-top: 1px solid var(--color-line); border-radius: 0; padding: var(--space-1) 0 0; }
+#ig-chat .chip { font-size: var(--text-xs); padding: 0 var(--space-1-5); border-radius: var(--radius-lg); border: 1px solid var(--color-line); color: var(--color-muted); }
+#ig-chat .chip.completed { color: var(--color-added); border-color: var(--color-added); }
+#ig-chat .chip.failed { color: var(--color-error); border-color: var(--color-error); }
+#ig-chat .chip.in_progress { color: var(--color-accent); border-color: var(--color-accent); }
+#ig-chat .screen { padding: var(--space-3); border-bottom: 1px solid var(--color-line); overflow-wrap: anywhere; }
+#ig-chat .screen h2 { font-size: var(--text-base); margin: 0 0 var(--space-2); }
+#ig-chat .screen.stopped { border: 1px solid var(--color-error); border-radius: var(--radius-lg); }
+#ig-chat .held { margin: var(--space-3) var(--space-3) 0; padding: var(--space-1-5) var(--space-2); border: 1px dashed var(--color-accent); border-radius: var(--radius-md); font-size: var(--text-md); overflow-wrap: anywhere; }
+#ig-chat .muted { color: var(--color-muted); }
+#ig-chat .composer { border-top: 1px solid var(--color-line); padding: var(--space-2) var(--space-3); position: relative; }
+#ig-chat .composer textarea { width: 100%; resize: vertical; padding: var(--space-1-5) var(--space-2); }
+#ig-chat .composer .row { flex-wrap: nowrap; margin: 0 0 var(--space-1); }
+#ig-chat .composer .row.footer { margin: var(--space-1-5) 0 0; }
 #ig-chat .composer .row .primary { margin-left: auto; flex: none; }
-#ig-chat .controls { display: flex; gap: 4px; align-items: center; min-width: 0; flex: 1; }
+#ig-chat .controls { display: flex; gap: var(--space-1); align-items: center; min-width: 0; flex: 1; }
 #ig-chat .chip-select.grow { flex: 1 1 auto; max-width: none; }
-#ig-chat .chip-select, #ig-chat .chip-toggle { font-size: 12px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); min-width: 0; max-width: 130px; text-overflow: ellipsis; }
-#ig-chat .chip-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#ig-chat .chip-select, #ig-chat .chip-toggle { font-size: var(--text-sm); padding: var(--space-0-5) var(--space-2); border-radius: var(--radius-xl); border: 1px solid var(--color-line); background: var(--color-bg); color: var(--color-fg); min-width: 0; max-width: 8.125rem; text-overflow: ellipsis; }
+#ig-chat .chip-toggle[aria-pressed="true"] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
 #ig-chat .more { position: relative; }
-#ig-chat .more .menu { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 5; display: flex; flex-direction: column; gap: 6px; padding: 8px; min-width: 200px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.3); }
-#ig-chat .more .menu label { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: var(--muted); }
-#ig-chat .complete { position: absolute; bottom: 100%; left: 12px; right: 12px; margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.2); max-height: 240px; overflow: auto; }
-#ig-chat .complete button { width: 100%; text-align: left; border: 0; background: none; padding: 3px 6px; }
-#ig-chat .complete li[aria-selected="true"] button { background: var(--code); }
-#ig-chat #ig-trust { overflow: auto; border-bottom: 1px solid var(--line); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; user-select: none; -webkit-user-select: none; }
+#ig-chat .more .menu { position: absolute; bottom: calc(100% + var(--space-1)); left: 0; z-index: 5; display: flex; flex-direction: column; gap: var(--space-1-5); padding: var(--space-2); min-width: 12.5rem; background: var(--color-panel); border: 1px solid var(--color-line); border-radius: var(--radius-lg); box-shadow: 0 4px 16px rgb(0 0 0 / 0.3); }
+#ig-chat .more .menu label { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; color: var(--color-muted); }
+#ig-chat .complete { position: absolute; bottom: 100%; left: var(--space-3); right: var(--space-3); margin: 0; padding: var(--space-1); list-style: none; background: var(--color-panel); border: 1px solid var(--color-line); border-radius: var(--radius-md); box-shadow: 0 4px 16px rgba(0,0,0,.2); max-height: 15rem; overflow: auto; }
+#ig-chat .complete button { width: 100%; text-align: left; border: 0; background: none; padding: 0.1875rem var(--space-1-5); }
+#ig-chat .complete li[aria-selected="true"] button { background: var(--color-code); }
+#ig-chat #ig-trust { overflow: auto; border-bottom: 1px solid var(--color-line); }
+.sr-only { position: absolute; width: 0.0625rem; height: 0.0625rem; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; user-select: none; -webkit-user-select: none; }
