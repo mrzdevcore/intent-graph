@@ -37,8 +37,8 @@ test("gliding into api mounts its components and the failing rules arrow", () =>
   m.tick(800);
   flushSync();
   expect(box(target, "api/application-checkout")).not.toBeNull();
-  const line = target.querySelector(`[data-arrow="${CSS.escape("api/domain-order->api/infra-prisma")}"] g[data-state] > path`)!;
-  expect(line.getAttribute("stroke")).toBe("#c0392b");
+  const line = target.querySelector(`[data-arrow="${CSS.escape("api/domain-order->api/infra-prisma")}"] g[data-state] > path`) as SVGPathElement;
+  expect(line.style.stroke).toBe("var(--map-bad)");
   // still no code level: checkout's own inside is too small on screen
   expect(box(target, "apps/api/src/application/checkout/checkout.ts#checkout")).toBeNull();
 });
@@ -63,6 +63,13 @@ test("the details card lists connections and needs attention", () => {
   const card = target.querySelector(".details")!.textContent!;
   expect(card).toContain("breaks: domain → infrastructure");
   expect(card).toContain("apps/api/src/domain/order/**");
+  expect(card).toContain("Uses ·");
+  // a neighbour is a button that opens it
+  const link = target.querySelector(".details .links button") as HTMLButtonElement;
+  const name = link.querySelector(".name")!.textContent;
+  link.click();
+  flushSync();
+  expect(target.querySelector(".details b")!.textContent).toBe(name);
 });
 
 test("a health layer turns api amber and its value shows in the card; the layer can be switched off", () => {
@@ -73,14 +80,14 @@ test("a health layer turns api amber and its value shows in the card; the layer 
   mount(Map, { target, props: { view, camera: new Camera(), size } });
   flushSync();
   const btn = () => box(target, "api")!.querySelector("button") as HTMLButtonElement;
-  expect(btn().style.border).toContain("#d08a00");
+  expect(btn().style.borderColor).toBe("var(--map-warn)");
   btn().click();
   flushSync();
   expect(target.querySelector(".details")!.textContent).toContain("p95 820ms");
   const health = [...target.querySelectorAll(".layers label")].find((l) => l.textContent!.includes("health"))!;
   (health.querySelector("input") as HTMLInputElement).click();
   flushSync();
-  expect(btn().style.border).not.toContain("#d08a00");
+  expect(btn().style.borderColor).not.toBe("var(--map-warn)");
 });
 
 test("clicking a box with an inside frames the inside: it fills >= 80% of the view", () => {
@@ -162,6 +169,9 @@ test("zoomed into a function, its box shows its code; the details card does too"
   const pre = box(target, id)!.querySelector("pre")!;
   expect(pre.textContent).toContain("return pay.charge(total(items));");
   expect(pre.querySelector(".ln")!.textContent).toBe("6");
+  // coloured by the theme's code tokens, as text
+  const kw = [...pre.querySelectorAll("span")].find((e) => e.textContent === "return")!;
+  expect(kw.getAttribute("style")).toContain("--code-token-");
   box(target, id)!.querySelector("button")!.click();
   flushSync();
   const card = target.querySelector(".details")!;
@@ -287,4 +297,94 @@ test("dragging a box in a map of thousands stays well inside a frame", () => {
   expect((box(target, "c/g5") as HTMLElement).style.left).not.toBe(left);
   expect(each).toBeLessThan(8);
   expect(drop).toBeLessThan(100);
+});
+
+test("the search opens a box it finds, and lights the path A to B on the map", () => {
+  const { target } = setup();
+  const input = target.querySelector('input[aria-label="Search the map"]') as HTMLInputElement;
+  const type = (q: string) => {
+    input.focus();
+    input.value = q;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+  };
+  const enter = () => {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    flushSync();
+  };
+  type("postg");
+  expect(target.querySelector(".search .drop")!.textContent).toContain("Postgres");
+  enter();
+  expect(target.querySelector(".details b")!.textContent).toBe("Postgres");
+
+  type("web to postgres");
+  expect(target.querySelector(".search .drop")!.textContent).toContain("2 steps");
+  enter();
+  expect(target.querySelector(".details")).toBeNull();
+  for (const id of ["web", "api", "postgres"]) expect(box(target, id)!.classList).toContain("traced");
+  expect(box(target, "api-client")!.classList).toContain("faded");
+  // Esc in the field clears the path
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  flushSync();
+  expect(target.querySelector(".slot.traced, .slot.faded")).toBeNull();
+});
+
+/** shop with CheckoutPage's part boxes (what it keeps, what it renders), mounted. */
+function withAnatomy() {
+  const view = structuredClone(shop) as unknown as View;
+  const id = "apps/web/pages/checkout.tsx#CheckoutPage";
+  const page = view.boxes.find((b) => b.id === id)!;
+  for (const [key, title] of [["state", "State"], ["renders", "Renders"]]) {
+    view.boxes.push({ ...page, id: `${id}/${key}`, parent: id, kind: { value: "parts", source: "ig" }, title: { value: title, source: "ig" }, logo: undefined });
+  }
+  view.parts = {
+    [`${id}/state`]: [{ name: "open", kind: "useState", line: 4, detail: "false" }],
+    [`${id}/renders`]: [{ name: "CheckoutPage", kind: "tag", line: 9 }, { name: "PayButton", kind: "tag", line: 12 }],
+  };
+  // another component it renders
+  const pay = view.boxes.find((b) => b.id === `${id}.pay`)!;
+  pay.kind = { value: "component", source: "ig" };
+  pay.title = { value: "PayButton", source: "ig" };
+  const camera = new Camera();
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(Map, { target, props: { view, camera, size } });
+  flushSync();
+  const go = (to: string) => {
+    camera.to(fitTo(worldFrame(to, view), size), 0);
+    m.tick(800);
+    flushSync();
+  };
+  return { view, target, id, go };
+}
+
+test("a component's card sums up what it keeps and renders", () => {
+  const { target, id, go } = withAnatomy();
+  go("web/pages");
+  const card = box(target, id)!.textContent!;
+  expect(card).toContain("keeps open");
+  expect(card).toContain("renders CheckoutPage");
+  expect(card).toContain("1 useState");
+});
+
+test("the card links a rendered tag to its component, and closes once you walk into another box", () => {
+  const { target, go } = withAnatomy();
+  const input = target.querySelector('input[aria-label="Search the map"]') as HTMLInputElement;
+  input.focus();
+  input.value = "Renders";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  flushSync();
+  go("web/pages");
+  expect(target.querySelector(".details b")!.textContent).toBe("Renders");
+  // its own component is not a link, another one it renders is
+  const tags = [...target.querySelectorAll(".details .tag")];
+  expect(tags.map((t) => t.textContent)).toEqual(["PayButton"]);
+  (tags[0] as HTMLButtonElement).click();
+  flushSync();
+  expect(target.querySelector(".details b")!.textContent).toBe("PayButton");
+  // walking into the api (outside the web) closes it
+  go("api");
+  expect(target.querySelector(".details")).toBeNull();
 });

@@ -6,14 +6,14 @@ export type Look = {
   chips: { label: string; tone: Tone }[]; dot: boolean;
 };
 
-const WARN = "#d08a00", BAD = "#c0392b", DOWN = "#8a8378", OK = "#2f8f5b", NEUTRAL = "#a39b8e";
+const WARN = "var(--map-warn)", BAD = "var(--map-bad)", DOWN = "var(--map-faint)", OK = "var(--map-green)", NEUTRAL = "var(--map-edge)";
 const KIND: Partial<Record<BoxKind, { edge: string; dashed?: boolean }>> = {
-  entry: { edge: "#3b6fd8" }, usecase: { edge: OK }, port: { edge: OK, dashed: true }, domain: { edge: "#b8860b" },
+  entry: { edge: "var(--map-blue)" }, usecase: { edge: OK }, port: { edge: OK, dashed: true }, domain: { edge: "var(--map-gold)" },
 };
 const STATE: Record<Exclude<MarkState, "ok">, { edge: string; tone: Tone; bg: string }> = {
-  warn: { edge: WARN, tone: "warn", bg: "#fff6e0" },
-  bad: { edge: BAD, tone: "bad", bg: "#fdf0ee" },
-  down: { edge: DOWN, tone: "down", bg: "#f1efeb" },
+  warn: { edge: WARN, tone: "warn", bg: "var(--map-warn-bg)" },
+  bad: { edge: BAD, tone: "bad", bg: "var(--map-bad-bg)" },
+  down: { edge: DOWN, tone: "down", bg: "var(--map-down-bg)" },
 };
 const RANK: Record<MarkState, number> = { ok: 0, warn: 1, down: 2, bad: 3 };
 const worst = (ms: Mark[]) => ms.reduce<Mark | null>((w, m) => (!w || RANK[m.state] > RANK[w.state] ? m : w), null);
@@ -36,7 +36,7 @@ export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox): L
     width: s && s.tone !== "down" ? 2.5 : 1.5,
     dashed: s ? s.tone === "down" : !!(box.stale || kind?.dashed),
     glow: s && s.tone !== "down" ? s.edge : null,
-    bg: s?.bg ?? "#fffdf8",
+    bg: s?.bg ?? "var(--map-surface)",
     fade: s?.tone === "down" || (!s && box.stale) ? 0.6 : 1,
     chips,
     dot: !!health && health.state === "ok" && !s,
@@ -61,14 +61,14 @@ export function insideCounts(view: View, marks: Mark[], on: Set<string>): Map<st
 }
 
 const ARROW: Record<string, { color: string; dash: string | null; head: "filled" | "open" | "hollow" }> = {
-  uses: { color: "#3a3631", dash: null, head: "filled" },
-  calls: { color: "#3a3631", dash: null, head: "filled" },
-  depends: { color: "#8a8378", dash: null, head: "filled" },
-  bundle: { color: "#8a8378", dash: null, head: "filled" },
-  network: { color: "#3b6fd8", dash: "6 4", head: "filled" },
-  event: { color: "#7b4fc9", dash: "2 5", head: "open" },
-  data: { color: "#1f7a8c", dash: null, head: "filled" },
-  implements: { color: "#8a8378", dash: "6 4", head: "hollow" },
+  uses: { color: "var(--map-fg-2)", dash: null, head: "filled" },
+  calls: { color: "var(--map-fg-2)", dash: null, head: "filled" },
+  depends: { color: "var(--map-faint)", dash: null, head: "filled" },
+  bundle: { color: "var(--map-faint)", dash: null, head: "filled" },
+  network: { color: "var(--map-blue)", dash: "6 4", head: "filled" },
+  event: { color: "var(--map-purple)", dash: "2 5", head: "open" },
+  data: { color: "var(--map-teal)", dash: null, head: "filled" },
+  implements: { color: "var(--map-faint)", dash: "6 4", head: "hollow" },
 };
 
 export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>) {

@@ -30,7 +30,16 @@ fn read_with(
         prompts.push(p.to_string());
         Ok(replies[(prompts.len() - 1).min(replies.len() - 1)].to_string())
     };
-    let r = read(Agent::Claude, "{{boxes}}", m, ev, true, &mut run, &|_| {});
+    let r = read(
+        Agent::Claude,
+        "{{boxes}}",
+        m,
+        ev,
+        true,
+        &mut run,
+        &|_| {},
+        &|_, _, _| {},
+    );
     (r, prompts)
 }
 
@@ -75,6 +84,7 @@ fn only_claude_is_said_to_be_read_only() {
         true,
         &mut run,
         &|s| said.borrow_mut().push(s.to_string()),
+        &|_, _, _| {},
     )
     .unwrap();
     let said = said.into_inner();
@@ -95,6 +105,7 @@ fn a_named_agent_missing_is_no_agent() {
         found: &|n| n == "claude",
         confirm: None,
         run: &mut run,
+        meter: &|_, _, _| {},
     };
     let cfg = Config::default();
     assert_eq!(
@@ -118,6 +129,7 @@ fn one_box_is_one_box() {
         found: &|_| true,
         confirm: None,
         run: &mut run,
+        meter: &|_, _, _| {},
     };
     let hint = offer(
         &mut a,
@@ -145,6 +157,7 @@ fn one_box_is_one_box() {
         false,
         &mut run,
         &|s| said.borrow_mut().push(s.to_string()),
+        &|_, _, s| said.borrow_mut().push(s.to_string()),
     )
     .unwrap();
     let said = said.into_inner();
@@ -152,7 +165,11 @@ fn one_box_is_one_box() {
         said.contains(&"Asking claude to read 1 box…".to_string()),
         "{said:?}"
     );
-    assert!(said.contains(&"Read 1 box.".to_string()), "{said:?}");
+    assert_eq!(
+        said.last().map(String::as_str),
+        Some("1 box read"),
+        "{said:?}"
+    );
 }
 
 #[test]
@@ -175,6 +192,7 @@ fn a_no_is_remembered_for_the_same_boxes() {
         found: &|_| true,
         confirm: Some(&mut no),
         run: &mut run,
+        meter: &|_, _, _| {},
     };
     assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {}), None);
     assert!(files.read(DECLINED).is_some());
@@ -275,6 +293,7 @@ fn offer_reads_only_on_consent() {
         found: &|_| true,
         confirm: None,
         run: &mut run,
+        meter: &|_, _, _| {},
     };
     let n = m.boxes.iter().filter(|b| b.needs_reading).count();
     let hint =
@@ -393,7 +412,7 @@ fn a_small_model_reads_a_few_boxes_at_a_time() {
         ]
     );
     assert_eq!(batches(&ids, usize::MAX).len(), 1);
-    assert_eq!(Agent::Claude.batch(), usize::MAX);
+    assert_eq!(Agent::Claude.batch(), 20);
     // each batch is asked on its own; one that fails twice is left out
     let (mut m, ev) = shop_map();
     let mut asked = 0;
@@ -407,6 +426,7 @@ fn a_small_model_reads_a_few_boxes_at_a_time() {
             "<ig-annotations>[{{\"id\": \"{id}\", \"title\": \"Read\"}}]</ig-annotations>"
         ))
     };
+    let metered = std::cell::RefCell::new(vec![]);
     let n = read(
         Agent::Ollama,
         "{{boxes}}",
@@ -415,9 +435,16 @@ fn a_small_model_reads_a_few_boxes_at_a_time() {
         true,
         &mut run,
         &|_| {},
+        &|done, total, _| metered.borrow_mut().push((done, total)),
     )
     .unwrap();
     assert!(n >= 1 && asked > 2, "{n} {asked}");
+    // the meter starts at 0, never goes back and ends at the total
+    let metered = metered.into_inner();
+    let total = metered[0].1;
+    assert_eq!(metered.first(), Some(&(0, total)));
+    assert_eq!(metered.last(), Some(&(total, total)));
+    assert!(metered.windows(2).all(|w| w[0].0 <= w[1].0), "{metered:?}");
 }
 
 /// The first box id in a prompt.

@@ -39,6 +39,6 @@
 </div>
 
 <style>
-  .trust { padding: 16px; background: var(--panel); color: var(--fg); }
-  code { font-family: ui-monospace, Menlo, monospace; }
+  .trust { padding: var(--space-4); background: var(--color-panel); color: var(--color-fg); }
+  code { font-family: var(--font-mono); }
 </style>
