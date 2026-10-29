@@ -12,10 +12,12 @@
   import Code from "./Code.svelte";
 
   // more: how many boxes it holds
-  // parts: a component's part box's list
-  let { box, look, detail, onopen, inside = 0, more = 0, zoom = 1, source, parts }: {
+  // parts: a component's part box's list; anatomy: a component's part boxes (title, list), for
+  // its card's summary
+  let { box, look, detail, onopen, inside = 0, more = 0, zoom = 1, source, parts, anatomy }: {
     box: MapBox; look: Look; detail: "far" | "mid" | "near" | "open" | "source"; onopen: () => void;
     inside?: number; more?: number; zoom?: number; source?: Snippet; parts?: Part[];
+    anatomy?: { title: string; parts: Part[] }[];
   } = $props();
 
   const CHIP: Record<Tone, string> = {
@@ -55,19 +57,26 @@
   const chips = $derived([
     ...look.chips.map((c) => ({ label: c.label, css: CHIP[c.tone] })),
     ...(box.badges?.value ?? []).map((b) => (b[0] === "!" ? { label: b.slice(1), css: CHIP.warn } : { label: b, css: CHIP.neutral })),
-    ...(inside > 0 && !external ? [{ label: `${inside} inside ›`, css: CHIP.neutral }] : []),
+    ...count((anatomy ?? []).flatMap((a) => a.parts)).slice(0, 4).map((label) => ({ label, css: CHIP.neutral })),
+    ...(inside > 0 && !external && !anatomy?.length ? [{ label: `${inside} inside ›`, css: CHIP.neutral }] : []),
   ]);
-  // "2 props · 1 emit"
-  const tally = $derived.by(() => {
+  // ["2 props", "1 emit"]
+  function count(ps: Part[]) {
     const n = new Map<string, number>();
-    for (const p of parts ?? []) n.set(p.kind, (n.get(p.kind) ?? 0) + 1);
-    return [...n].map(([k, c]) => `${c} ${k}${c > 1 && !/s$/.test(k) ? "s" : ""}`).join(" · ");
-  });
+    for (const p of ps) n.set(p.kind, (n.get(p.kind) ?? 0) + 1);
+    return [...n].map(([k, c]) => `${c} ${k}${c > 1 && !/s$/.test(k) ? "s" : ""}`);
+  }
+  const tally = $derived(count(parts ?? []).join(" · "));
+  // a component's card: what it takes, keeps, uses and renders, a line each
+  const VERB: Record<string, string> = { Inputs: "takes", State: "keeps", Uses: "uses", Template: "renders", Renders: "renders" };
+  const summary = $derived((anatomy ?? []).filter((a) => a.parts.length)
+    .map((a) => ({ verb: VERB[a.title] ?? a.title.toLowerCase(), names: [...new Set(a.parts.map((p) => p.name))].join(", ") })));
   const meta = $derived(parts ? tally || "none" : [kind, box.tech?.value, code && more ? `${more} inside` : null].filter(Boolean).join(" · "));
   const glow = $derived(look.glow ? `0 0 0 5px color-mix(in srgb, ${look.glow} 25%, transparent)` : "none");
   const border = $derived(`${(code ? 1 : look.width) * m}px ${look.dashed || external ? "dashed" : "solid"}`);
   const edge = $derived(code && look.edge === "var(--map-edge)" ? "var(--map-line)" : look.edge);
-  const radius = $derived(external ? "34px" : code ? "8px" : "14px 12px 16px 12px");
+  // open, its corners keep their size on screen
+  const radius = $derived(external ? "34px" : opened ? `${14 * m}px` : code ? "8px" : "14px 12px 16px 12px");
   const tile = $derived(opened ? 18 : code ? 26 : level === "container" || level === "system" ? 36 : 30);
   const titleFont = $derived(code ? "var(--font-mono)" : "var(--font-hand)");
   const titleSize = $derived(opened ? 14 : code ? 14 : level === "container" || level === "system" ? 20 : 19);
@@ -108,14 +117,20 @@
       </span>
       {#if look.dot}<span class="ok" aria-hidden="true"></span>{/if}
     </span>
+    <!-- a list and its code (a template's tags): side by side -->
+    <span class="split" class:both={detail === "source" && !!parts?.length && !!source}>
     {#if detail === "source" && parts?.length}
       <span class="parts">{#each parts as p}<span class="pk">{p.kind}</span><b>{p.name}</b><span class="pd">{p.detail ?? ""}</span><span class="pl">{p.line}</span>{/each}</span>
     {/if}
     {#if detail === "source" && source}
       <pre class="code"><Code {source} /></pre>
     {/if}
+    </span>
     {#if !far && box.description}
       <span class="desc" style:opacity={look.fade} style:-webkit-line-clamp={code ? 1 : 2}>{box.description.value}</span>
+    {/if}
+    {#if detail === "near" && summary.length && !box.description}
+      <span class="summary" style:opacity={look.fade}>{#each summary as s}<span><span class="verb">{s.verb}</span> {s.names}</span>{/each}</span>
     {/if}
     {#if detail === "near" && chips.length}
       <span class="chips">{#each chips as c}<span style={"padding:2px 8px;border-radius:999px;" + c.css}>{c.label}</span>{/each}</span>
@@ -149,6 +164,13 @@
   .parts { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 2px 10px; align-content: start; overflow: hidden;
     font: 11px/15px var(--font-mono); color: var(--map-fg); flex: none; max-height: 60%; }
   .parts b { font-weight: 600; white-space: nowrap; }
+  .split { display: contents; }
+  .split.both { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr); gap: 16px; flex: 1; min-height: 0; }
+  .split.both .parts { max-height: none; grid-template-columns: auto minmax(0, 1fr) auto; }
+  .split.both .pd { display: none; }
+  .summary { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; font: 11.5px/16px var(--font-mono); color: var(--map-muted); }
+  .summary > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .verb { color: var(--map-blue); }
   .pk { color: var(--map-blue); white-space: nowrap; }
   .pd, .pl { color: var(--map-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pl { text-align: right; }
