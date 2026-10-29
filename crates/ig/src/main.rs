@@ -68,6 +68,7 @@ fn real_main() -> Result<u8> {
                     })?),
                     None => None,
                 };
+                let bar = agent::Bar::new();
                 let mut confirm = agent::confirm;
                 let mut run =
                     |ag: Agent, prompt: &str, ids: &[String]| agent::run(&root, ag, prompt, ids);
@@ -81,6 +82,7 @@ fn real_main() -> Result<u8> {
                         confirm: agent::interactive()
                             .then_some(&mut confirm as &mut dyn FnMut(Agent) -> bool),
                         run: &mut run,
+                        meter: &|done, total, status| bar.set(done, total, status),
                     }),
                 )?
             };
