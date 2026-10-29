@@ -4,6 +4,7 @@ use ig_app::map::agent::Agent;
 use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The template `ig_app::map::agent::read` fills.
@@ -33,6 +34,106 @@ pub fn confirm(agent: Agent) -> bool {
     let mut line = String::new();
     let _ = std::io::stdin().lock().read_line(&mut line);
     !line.trim().to_lowercase().starts_with('n')
+}
+
+/// `ig view --read`'s status line on stderr, on a terminal only: a spinner, boxes asked about of
+/// all to read as a bar, the time so far and what is happening now, redrawn in place so a long ask
+/// does not look stuck. Progress lines print above it (ig-wire clears its line first); dropped
+/// unfinished, it is wiped.
+pub struct Bar {
+    state: Arc<Mutex<Meter>>,
+    tty: bool,
+}
+
+#[derive(Default)]
+struct Meter {
+    done: usize,
+    total: usize,
+    status: String,
+    start: Option<Instant>,
+    /// Spinner frames drawn so far.
+    turns: usize,
+    over: bool,
+}
+
+const BAR: usize = 20;
+const SPIN: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+impl Meter {
+    /// `ig: ⠹ ███████░░░░░░░░░░░░░ 20/55 boxes · 1:12 · claude is reading…`; done, a ✓.
+    fn line(&self) -> String {
+        let fill = self.done.min(self.total) * BAR / self.total.max(1);
+        let t = self.start.map_or(0, |s| s.elapsed().as_secs());
+        let spin = if self.over {
+            '✓'
+        } else {
+            SPIN[self.turns % SPIN.len()]
+        };
+        format!(
+            "ig: {spin} {}{} {}/{} boxes · {}:{:02} · {}",
+            "█".repeat(fill),
+            "░".repeat(BAR - fill),
+            self.done,
+            self.total,
+            t / 60,
+            t % 60,
+            self.status
+        )
+    }
+
+    fn draw(&self) {
+        eprint!("\r\x1b[2K{}", self.line());
+        let _ = std::io::stderr().flush();
+    }
+}
+
+impl Bar {
+    pub fn new() -> Bar {
+        Bar {
+            state: Arc::default(),
+            tty: std::io::stderr().is_terminal(),
+        }
+    }
+
+    /// `done` boxes of `total`, and what is happening now; the first call starts the clock, the
+    /// last (all done) ends the line.
+    pub fn set(&self, done: usize, total: usize, status: &str) {
+        if !self.tty || total == 0 {
+            return;
+        }
+        let mut m = self.state.lock().unwrap();
+        if m.start.is_none() {
+            m.start = Some(Instant::now());
+            let state = Arc::clone(&self.state);
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(Duration::from_millis(100));
+                    let mut m = state.lock().unwrap();
+                    if m.over {
+                        break;
+                    }
+                    m.turns += 1;
+                    m.draw();
+                }
+            });
+        }
+        (m.done, m.total, m.status) = (done, total, status.to_string());
+        m.over = done >= total;
+        m.draw();
+        if m.over {
+            eprintln!();
+        }
+    }
+}
+
+impl Drop for Bar {
+    fn drop(&mut self) {
+        let mut m = self.state.lock().unwrap();
+        if m.start.is_some() && !m.over {
+            m.over = true;
+            eprint!("\r\x1b[2K");
+        }
+    }
 }
 
 /// Runs `agent` in `root` with `prompt` on stdin and the user's environment; its stdout, or why
@@ -192,6 +293,28 @@ fn kill_group(child: &mut std::process::Child) {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bar_fills_with_the_boxes_asked_about() {
+        let m = |done, total, over| {
+            let status = "claude is reading…".to_string();
+            Meter {
+                done,
+                total,
+                over,
+                status,
+                ..Meter::default()
+            }
+            .line()
+        };
+        let empty = "░".repeat(BAR);
+        assert_eq!(
+            m(0, 55, false),
+            format!("ig: ⠋ {empty} 0/55 boxes · 0:00 · claude is reading…")
+        );
+        assert!(m(55, 55, true).starts_with(&format!("ig: ✓ {} 55/55", "█".repeat(BAR))));
+        assert!(m(20, 55, false).starts_with(&format!("ig: ⠋ {}░", "█".repeat(7))));
+    }
 
     /// A fake agent whose helper (a grandchild) holds stdout: ig returns by the deadline and
     /// the helper is gone.

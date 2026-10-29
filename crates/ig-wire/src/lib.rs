@@ -16,10 +16,11 @@ pub use notify::RecommendedWatcher;
 static FRONTENDS: &[&dyn LanguageFrontend] = &[&TsFrontend];
 
 /// A progress line on stderr, only when it is a terminal (hooks and JSON consumers stay clean).
+/// It clears the line first: `ig view --read`'s progress bar may be on it, and is redrawn below.
 fn progress(msg: &str) {
     use std::io::IsTerminal;
     if std::io::stderr().is_terminal() {
-        eprintln!("ig: {msg}");
+        eprintln!("\r\x1b[2Kig: {msg}");
     }
 }
 

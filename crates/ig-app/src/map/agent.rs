@@ -96,11 +96,14 @@ impl Agent {
         }
     }
 
-    /// The most boxes asked about at once: a small model loses the thread in a long prompt.
+    /// The most boxes asked about at once: a small model loses the thread in a long prompt, and
+    /// smaller asks let `ig view --read` show how far it got.
+    // ponytail: 20 keeps most containers in one ask (a regrouping needs all its boxes); tune
+    // if bigger containers get cut too often
     pub fn batch(self) -> usize {
         match self {
             Agent::Ollama => 12,
-            _ => usize::MAX,
+            _ => 20,
         }
     }
 
@@ -146,6 +149,9 @@ pub struct Ask<'a> {
     pub confirm: Option<&'a mut dyn FnMut(Agent) -> bool>,
     /// Runs the agent with a prompt about the boxes `ids`; its answer, or why it failed.
     pub run: &'a mut Run<'a>,
+    /// How far the reading got: boxes asked about so far (read or left out), of all to read, and
+    /// what is happening now ("claude is reading…", "12 boxes read").
+    pub meter: &'a dyn Fn(usize, usize, &str),
 }
 
 /// The facts the compiler checks an agent's fields against.
@@ -257,13 +263,15 @@ pub fn offer(
     let Some(agent) = agent else {
         return Some(NO_AGENT.into());
     };
-    read(agent, a.template, m, ev, a.all, a.run, progress).err()
+    read(agent, a.template, m, ev, a.all, a.run, progress, a.meter).err()
 }
 
 /// Asks `agent` to read the boxes that need it (`all`: every box), `agent.batch()` at a time, and
 /// applies its annotations; on any problem asks once more with the problems appended. Returns the
 /// count of boxes read, or why nothing was (the map is then untouched). A batch that fails twice
-/// is left out and said in `progress`.
+/// is left out and said in `progress`. `meter` gets the boxes asked about so far, of the total,
+/// and what is happening now: the steps of each ask go there, not to `progress`.
+#[allow(clippy::too_many_arguments)]
 pub fn read(
     agent: Agent,
     template: &str,
@@ -272,6 +280,7 @@ pub fn read(
     all: bool,
     run: &mut Run<'_>,
     progress: &dyn Fn(&str),
+    meter: &dyn Fn(usize, usize, &str),
 ) -> Result<usize, String> {
     let ids: Vec<String> = (m.boxes.iter())
         .filter(|b| !b.stale && (all || b.needs_reading))
@@ -284,19 +293,19 @@ pub fn read(
     progress(&format!("Asking {name} to read {}…", boxes(ids.len())));
     progress(&agent.note());
     let batches = batches(&ids, agent.batch());
-    let (mut read, mut failed) = (0, vec![]);
-    for (i, batch) in batches.iter().enumerate() {
-        if batches.len() > 1 {
-            progress(&format!(
-                "Batch {}/{} ({})…",
-                i + 1,
-                batches.len(),
-                boxes(batch.len())
-            ));
-        }
+    let (mut read, mut failed, mut asked) = (0, vec![], 0);
+    let total = ids.len();
+    for batch in &batches {
+        let step = |s: &str| meter(asked, total, s);
         // the agent could not be run (missing, down, timed out): the next batch would fail alike
-        match read_batch(agent, template, m, ev, batch, run, progress)? {
-            Ok(k) => read += k,
+        let done = read_batch(agent, template, m, ev, batch, run, &step)?;
+        asked += batch.len();
+        if let Ok(k) = done {
+            read += k;
+        }
+        meter(asked, total, &format!("{} read", boxes(read)));
+        match done {
+            Ok(_) => {}
             Err(e) if batches.len() == 1 => return Err(e),
             Err(e) => {
                 progress(&e);
@@ -330,7 +339,8 @@ fn batches(ids: &[String], size: usize) -> Vec<Vec<String>> {
     out
 }
 
-/// Outer error: the agent could not be run; inner: its answers were rejected twice.
+/// Outer error: the agent could not be run; inner: its answers were rejected twice. `step` says
+/// what is happening now.
 fn read_batch(
     agent: Agent,
     template: &str,
@@ -338,20 +348,18 @@ fn read_batch(
     ev: &Evidence,
     ids: &[String],
     run: &mut Run<'_>,
-    progress: &dyn Fn(&str),
+    step: &dyn Fn(&str),
 ) -> Result<Result<usize, String>, String> {
     let name = agent.name();
     let base = prompt(template, m, ev, ids);
     let mut ask = base.clone();
     let mut errs = vec![];
-    for _ in 0..2 {
+    for again in ["", " again"] {
+        step(&format!("{name} is reading{again}…"));
         let reply = run(agent, &ask, ids)?;
-        progress(&format!("{name} answered, checking…"));
+        step(&format!("checking {name}'s answer…"));
         match apply(m, &reply, ev) {
-            Ok(k) => {
-                progress(&format!("Read {}.", boxes(k)));
-                return Ok(Ok(k));
-            }
+            Ok(k) => return Ok(Ok(k)),
             Err(e) => errs = e,
         }
         let list: Vec<String> = errs.iter().map(|e| format!("- {e}")).collect();
