@@ -5,7 +5,8 @@ export type Field<T> = { value: T; source: Source; confidence?: Confidence };
 export type Level = "system" | "container" | "component" | "code";
 export type BoxKind =
   | "person" | "system" | "external" | "app" | "api" | "worker" | "store" | "queue"
-  | "library" | "entry" | "usecase" | "port" | "domain" | "function" | "class" | "group";
+  | "library" | "entry" | "usecase" | "port" | "domain" | "folder" | "file" | "component" | "parts"
+  | "task" | "function" | "class" | "method" | "group";
 export type Pattern =
   | { kind: "onion" } | { kind: "hexagonal" } | { kind: "none" } | { kind: "layered"; bands: string[] };
 export type MapBox = {
@@ -52,11 +53,19 @@ export type Placed = {
   regions: Region[];
   routes: Record<string, [number, number][]>;
 };
+/** One declared part of a UI component: `kind` says how (prop, emit, ref, computed, useState…). */
+export type Part = { name: string; kind: string; line: number; detail?: string };
+/** A piece of a file: `text` from line `line` on, `cut` lines left out at its end. */
+export type Snippet = { file: string; line: number; text: string; cut?: number; complexity: number };
 export type View = {
   version: number;
   boxes: MapBox[];
   arrows: MapArrow[];
   marks: Mark[];
   placed: Placed;
+  /** The code of each function, class or method box, by box id. */
+  sources?: Record<string, Snippet>;
+  /** The list each part box of a component holds (inputs, state, uses, renders), by box id. */
+  parts?: Record<string, Part[]>;
   notices: string[];
 };

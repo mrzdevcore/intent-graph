@@ -85,7 +85,7 @@ pub struct Config {
     pub test_calls: Vec<String>,
     pub patterns: Vec<Pattern>,
     pub blueprint: Blueprint,
-    /// The AI agent `ig view` asks to read the architecture: claude, gemini or codex.
+    /// The AI agent `ig view` asks to read the architecture: claude, gemini, codex or ollama.
     pub agent: Option<String>,
     /// Removed keys found in the file; they are ignored.
     pub notices: Vec<String>,
@@ -192,8 +192,10 @@ impl Config {
                 }
                 "blueprint" => c.blueprint = blueprint(v, &mut c.notices)?,
                 "agent" => match v.as_str() {
-                    Some(a @ ("claude" | "gemini" | "codex")) => c.agent = Some(a.into()),
-                    _ => bail!("ig.yaml: agent: expected claude, gemini or codex"),
+                    Some(a @ ("claude" | "gemini" | "codex" | "ollama")) => {
+                        c.agent = Some(a.into())
+                    }
+                    _ => bail!("ig.yaml: agent: expected claude, gemini, codex or ollama"),
                 },
                 "complexity" | "complexityMax" | "checkers" | "severity" | "blockOn" | "editor"
                 | "hookMaxRounds" | "entryPoints" | "review" => c.notices.push(key.to_string()),
@@ -333,7 +335,10 @@ mod tests {
             Some("codex")
         );
         let e = Config::parse("agent: gpt\n").unwrap_err().to_string();
-        assert_eq!(e, "ig.yaml: agent: expected claude, gemini or codex");
+        assert_eq!(
+            e,
+            "ig.yaml: agent: expected claude, gemini, codex or ollama"
+        );
         let e = Config::parse("ignore: x\n").unwrap_err().to_string();
         assert_eq!(e, "ig.yaml: ignore: expected a list");
     }

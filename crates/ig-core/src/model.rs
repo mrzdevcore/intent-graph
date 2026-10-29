@@ -23,6 +23,41 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+/// A UI component (a Vue single-file component, a React function component) as its code
+/// declares it: what comes in, what it holds, what it uses, does and draws.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Anatomy {
+    /// "vue", "react", or the single-file extension it was read from ("svelte").
+    pub framework: String,
+    pub name: String,
+    pub file: String,
+    pub range: Range,
+    /// Props, emits, slots and models.
+    pub inputs: Vec<Part>,
+    /// Reactive state, derived values and watchers.
+    pub state: Vec<Part>,
+    /// Composables, stores, hooks and injections.
+    pub uses: Vec<Part>,
+    pub functions: Vec<Part>,
+    /// The components it draws, by tag.
+    pub renders: Vec<Part>,
+    /// Its template block, for a single-file component.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub template: Option<Range>,
+}
+
+/// One declared part of a component: `kind` says how (prop, emit, ref, computed, useState…).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Part {
+    pub name: String,
+    pub kind: String,
+    pub line: u32,
+    /// Its type or argument, as written.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detail: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {

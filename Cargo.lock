@@ -2022,6 +2022,7 @@ dependencies = [
  "anyhow",
  "globset",
  "ig-core",
+ "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

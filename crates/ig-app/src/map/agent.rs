@@ -24,17 +24,21 @@ pub enum Agent {
     Claude,
     Gemini,
     Codex,
+    /// A small model on this machine, through a local Ollama server: no tools, it answers from
+    /// the facts alone, a few boxes at a time (`batch`).
+    Ollama,
 }
 
 impl Agent {
     /// In the order `pick` looks for them.
-    pub const ALL: [Agent; 3] = [Agent::Claude, Agent::Gemini, Agent::Codex];
+    pub const ALL: [Agent; 4] = [Agent::Claude, Agent::Gemini, Agent::Codex, Agent::Ollama];
 
     pub fn name(self) -> &'static str {
         match self {
             Agent::Claude => "claude",
             Agent::Gemini => "gemini",
             Agent::Codex => "codex",
+            Agent::Ollama => "ollama",
         }
     }
 
@@ -87,11 +91,21 @@ impl Agent {
                 "project_doc_max_bytes=0",
                 "-",
             ],
+            // not run as a command: ig posts the prompt to the server (`ig::agent::run`)
+            Agent::Ollama => &["ollama"],
+        }
+    }
+
+    /// The most boxes asked about at once: a small model loses the thread in a long prompt.
+    pub fn batch(self) -> usize {
+        match self {
+            Agent::Ollama => 12,
+            _ => usize::MAX,
         }
     }
 
     /// `flag`, else the config's `agent`, else claude; None when that one is not `found` (on
-    /// PATH). Gemini and codex run only when named (ruling R30).
+    /// PATH). Gemini, codex and ollama run only when named (ruling R30).
     pub fn pick(cfg: &Config, flag: Option<Agent>, found: &dyn Fn(&str) -> bool) -> Option<Agent> {
         let a = flag
             .or_else(|| cfg.agent.as_deref().and_then(Agent::parse))
@@ -103,6 +117,9 @@ impl Agent {
     pub fn note(self) -> String {
         match self {
             Agent::Claude => READ_ONLY.into(),
+            Agent::Ollama => {
+                "Using a local model through ollama: it reads only ig's facts, no files.".into()
+            }
             a => format!(
                 "Using {}: its read-only mode is not verified by ig.",
                 a.name()
@@ -110,6 +127,9 @@ impl Agent {
         }
     }
 }
+
+/// Runs an agent with a prompt about some boxes (their ids): its answer, or why it failed.
+pub type Run<'r> = dyn FnMut(Agent, &str, &[String]) -> Result<String, String> + 'r;
 
 /// What `ig view` needs from the outside to ask an agent.
 pub struct Ask<'a> {
@@ -124,8 +144,8 @@ pub struct Ask<'a> {
     /// May this agent read the architecture? None when nobody can be asked (no terminal):
     /// then only `all` reads.
     pub confirm: Option<&'a mut dyn FnMut(Agent) -> bool>,
-    /// Runs the agent with a prompt; its answer, or why it failed.
-    pub run: &'a mut dyn FnMut(Agent, &str) -> Result<String, String>,
+    /// Runs the agent with a prompt about the boxes `ids`; its answer, or why it failed.
+    pub run: &'a mut Run<'a>,
 }
 
 /// The facts the compiler checks an agent's fields against.
@@ -240,34 +260,97 @@ pub fn offer(
     read(agent, a.template, m, ev, a.all, a.run, progress).err()
 }
 
-/// Asks `agent` to read the boxes that need it (`all`: every box) and applies its annotations;
-/// on any problem asks once more with the problems appended. Returns the count of boxes read,
-/// or why nothing was (the map is then untouched).
+/// Asks `agent` to read the boxes that need it (`all`: every box), `agent.batch()` at a time, and
+/// applies its annotations; on any problem asks once more with the problems appended. Returns the
+/// count of boxes read, or why nothing was (the map is then untouched). A batch that fails twice
+/// is left out and said in `progress`.
 pub fn read(
     agent: Agent,
     template: &str,
     m: &mut MapFile,
     ev: &Evidence,
     all: bool,
-    run: &mut dyn FnMut(Agent, &str) -> Result<String, String>,
+    run: &mut Run<'_>,
     progress: &dyn Fn(&str),
 ) -> Result<usize, String> {
-    let (base, n) = prompt(template, m, ev, all);
-    if n == 0 {
+    let ids: Vec<String> = (m.boxes.iter())
+        .filter(|b| !b.stale && (all || b.needs_reading))
+        .map(|b| b.id.clone())
+        .collect();
+    if ids.is_empty() {
         return Ok(0);
     }
     let name = agent.name();
-    progress(&format!("Asking {name} to read {}…", boxes(n)));
+    progress(&format!("Asking {name} to read {}…", boxes(ids.len())));
     progress(&agent.note());
+    let batches = batches(&ids, agent.batch());
+    let (mut read, mut failed) = (0, vec![]);
+    for (i, batch) in batches.iter().enumerate() {
+        if batches.len() > 1 {
+            progress(&format!(
+                "Batch {}/{} ({})…",
+                i + 1,
+                batches.len(),
+                boxes(batch.len())
+            ));
+        }
+        // the agent could not be run (missing, down, timed out): the next batch would fail alike
+        match read_batch(agent, template, m, ev, batch, run, progress)? {
+            Ok(k) => read += k,
+            Err(e) if batches.len() == 1 => return Err(e),
+            Err(e) => {
+                progress(&e);
+                failed.push(e);
+            }
+        }
+    }
+    if read == 0 && !failed.is_empty() {
+        return Err(failed.join("; "));
+    }
+    Ok(read)
+}
+
+/// `ids` cut into runs of at most `size`, a container's boxes kept together where they fit (a
+/// regrouping with `madeOf` needs all of them).
+fn batches(ids: &[String], size: usize) -> Vec<Vec<String>> {
+    let mut by_root: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for id in ids {
+        let root = id.split('/').next().unwrap_or(id);
+        by_root.entry(root).or_default().push(id.clone());
+    }
+    let mut out: Vec<Vec<String>> = vec![];
+    for group in by_root.into_values() {
+        for part in group.chunks(size.max(1)) {
+            match out.last_mut() {
+                Some(last) if last.len() + part.len() <= size => last.extend_from_slice(part),
+                _ => out.push(part.to_vec()),
+            }
+        }
+    }
+    out
+}
+
+/// Outer error: the agent could not be run; inner: its answers were rejected twice.
+fn read_batch(
+    agent: Agent,
+    template: &str,
+    m: &mut MapFile,
+    ev: &Evidence,
+    ids: &[String],
+    run: &mut Run<'_>,
+    progress: &dyn Fn(&str),
+) -> Result<Result<usize, String>, String> {
+    let name = agent.name();
+    let base = prompt(template, m, ev, ids);
     let mut ask = base.clone();
     let mut errs = vec![];
     for _ in 0..2 {
-        let reply = run(agent, &ask)?;
+        let reply = run(agent, &ask, ids)?;
         progress(&format!("{name} answered, checking…"));
         match apply(m, &reply, ev) {
             Ok(k) => {
                 progress(&format!("Read {}.", boxes(k)));
-                return Ok(k);
+                return Ok(Ok(k));
             }
             Err(e) => errs = e,
         }
@@ -278,18 +361,16 @@ pub fn read(
             list.join("\n")
         );
     }
-    Err(format!(
+    Ok(Err(format!(
         "{name}'s reading was not used: {}",
         errs.join("; ")
-    ))
+    )))
 }
 
-/// The prompt, and the number of boxes in it.
-fn prompt(template: &str, m: &MapFile, ev: &Evidence, all: bool) -> (String, usize) {
-    let boxes: Vec<Value> = m
-        .boxes
-        .iter()
-        .filter(|b| !b.stale && (all || b.needs_reading))
+/// The prompt for the boxes `ids`.
+fn prompt(template: &str, m: &MapFile, ev: &Evidence, ids: &[String]) -> String {
+    let boxes: Vec<Value> = (m.boxes.iter())
+        .filter(|b| ids.contains(&b.id))
         .map(|b| fact_json(b, m, ev))
         .collect();
     let text = serde_json::to_string_pretty(&boxes).unwrap_or_default();
@@ -297,7 +378,7 @@ fn prompt(template: &str, m: &MapFile, ev: &Evidence, all: bool) -> (String, usi
     let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let fence = "`".repeat(longest.max(2) + 1);
     let block = format!("{fence}json\n{text}\n{fence}");
-    (template.replace("{{boxes}}", &block), boxes.len())
+    template.replace("{{boxes}}", &block)
 }
 
 fn fact_json(b: &MapBox, m: &MapFile, ev: &Evidence) -> Value {
@@ -345,11 +426,27 @@ fn extract(reply: &str) -> Option<&str> {
 fn apply(m: &mut MapFile, reply: &str, ev: &Evidence) -> Result<usize, Vec<String>> {
     let json =
         extract(reply).ok_or_else(|| vec![format!("the answer has no {OPEN}…{CLOSE} block")])?;
+    let json = &as_list(json);
     file::annotate(m, json)?;
     upgrade(m, ev);
     let notes: Vec<Value> = serde_json::from_str(json).unwrap_or_default();
     let ids: BTreeSet<&str> = notes.iter().filter_map(|a| a["id"].as_str()).collect();
     Ok(ids.len())
+}
+
+/// A small model often wraps the array: `{"annotations": [...]}` is its array, one annotation
+/// `{"id": ...}` a list of one. Anything else is left for `annotate` to reject.
+fn as_list(json: &str) -> String {
+    match serde_json::from_str::<Value>(json) {
+        Ok(Value::Object(o)) if o.contains_key("id") => {
+            Value::Array(vec![Value::Object(o)]).to_string()
+        }
+        Ok(Value::Object(o)) => match o.into_values().find(Value::is_array) {
+            Some(a) => a.to_string(),
+            None => json.to_string(),
+        },
+        _ => json.to_string(),
+    }
 }
 
 /// An agent's field becomes `extracted` when ig's facts prove it: a tech or logo with a word that

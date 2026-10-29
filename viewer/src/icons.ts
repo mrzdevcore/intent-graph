@@ -8,7 +8,7 @@ import {
   siFirebase, siGhost, siGoogleanalytics, siGrafana, siKeycloak, siMailgun, siMariadb, siMatomo, siMeilisearch, siMinio,
   siMixpanel, siMongodb, siMysql, siNatsdotio, siNewrelic, siNextdotjs, siPrisma, siTrpc, siOkta, siOpensearch, siOpentelemetry, siPaypal, siPosthog,
   siPostgresql, siPrismic, siPrometheus, siRabbitmq, siRedis, siSanity, siSentry, siSqlite, siStoryblok, siStrapi, siStripe,
-  siSupabase, type SimpleIcon,
+  siSupabase, siVuedotjs, siReact, type SimpleIcon,
 } from "simple-icons";
 
 /** Lower-cased system names, packages and package scopes → brand. */
@@ -33,6 +33,7 @@ const BRANDS: Record<string, SimpleIcon> = {
   nats: siNatsdotio, minio: siMinio, cloudinary: siCloudinary, stripe: siStripe, paypal: siPaypal,
   nextdotjs: siNextdotjs, next: siNextdotjs, "next.js": siNextdotjs, trpc: siTrpc, prisma: siPrisma,
   mailgun: siMailgun, "mailgun.js": siMailgun,
+  vue: siVuedotjs, vuedotjs: siVuedotjs, react: siReact,
 };
 
 const BY_CATEGORY: Record<string, string> = {
