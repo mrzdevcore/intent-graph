@@ -36,9 +36,87 @@ pub fn confirm(agent: Agent) -> bool {
 }
 
 /// Runs `agent` in `root` with `prompt` on stdin and the user's environment; its stdout, or why
-/// it failed (it is killed after 10 minutes). Its stderr goes to ours.
-pub fn run(root: &Path, agent: Agent, prompt: &str) -> Result<String, String> {
-    run_argv(root, agent.name(), agent.argv(), prompt, TIMEOUT)
+/// it failed (it is killed after 10 minutes). Its stderr goes to ours. Ollama is asked over HTTP
+/// instead, its answer held to the boxes `ids`.
+pub fn run(root: &Path, agent: Agent, prompt: &str, ids: &[String]) -> Result<String, String> {
+    match agent {
+        Agent::Ollama => ollama(prompt, ids),
+        _ => run_argv(root, agent.name(), agent.argv(), prompt, TIMEOUT),
+    }
+}
+
+/// The model `--agent ollama` uses unless `IG_OLLAMA_MODEL` names another.
+pub const OLLAMA_MODEL: &str = "qwen2.5-coder:7b";
+/// Tokens of context asked for: Ollama's default (4k at most) would cut the prompt silently.
+const OLLAMA_CONTEXT: u32 = 32_768;
+
+/// The answer's shape, for Ollama's structured output: `{"annotations": [...]}` (an object at the
+/// top, as its docs show; ig takes the array out), each `id` one of `ids`: a small model copies the
+/// prompt's example ids otherwise.
+fn schema(ids: &[String]) -> serde_json::Value {
+    let text = serde_json::json!({"type": "string"});
+    serde_json::json!({
+        "type": "object",
+        "required": ["annotations"],
+        "properties": {"annotations": {"type": "array", "items": {
+            "type": "object",
+            "required": ["id", "title", "kind", "description"],
+            "properties": {
+                "id": {"enum": ids}, "title": text, "description": text, "tech": text,
+                "kind": {"enum": ["person", "system", "external", "app", "api", "worker", "store",
+                    "queue", "library", "entry", "usecase", "port", "domain", "group"]},
+                "confidence": {"enum": ["extracted", "inferred", "ambiguous"]},
+            },
+        }}},
+    })
+}
+
+/// `prompt` posted to the Ollama server (`OLLAMA_HOST`, else 127.0.0.1:11434); its answer.
+// ponytail: plain HTTP/1.0 over a socket, so no HTTP client crate; a local server only
+fn ollama(prompt: &str, ids: &[String]) -> Result<String, String> {
+    use std::net::TcpStream;
+    let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "127.0.0.1:11434".into());
+    let host = host.trim_start_matches("http://").trim_end_matches('/');
+    let model = std::env::var("IG_OLLAMA_MODEL").unwrap_or_else(|_| OLLAMA_MODEL.into());
+    let body = serde_json::json!({
+        "model": model,
+        "prompt": prompt,
+        "stream": false,
+        // decoding held to this shape: a small model's answer is then always an array
+        "format": schema(ids),
+        "options": {"num_ctx": OLLAMA_CONTEXT, "temperature": 0.2},
+    })
+    .to_string();
+    let mut sock = TcpStream::connect(host).map_err(|e| {
+        format!("ollama is not running at {host} ({e}): start it with `ollama serve`")
+    })?;
+    let _ = sock.set_read_timeout(Some(TIMEOUT));
+    let req = format!(
+        "POST /api/generate HTTP/1.0\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    sock.write_all(req.as_bytes())
+        .map_err(|e| format!("ollama: {e}"))?;
+    let mut raw = String::new();
+    sock.read_to_string(&mut raw)
+        .map_err(|e| format!("ollama: {e}"))?;
+    let (head, json) = raw.split_once("\r\n\r\n").unwrap_or((&raw, ""));
+    let v: serde_json::Value = serde_json::from_str(json)
+        .map_err(|_| format!("ollama: {}", head.lines().next().unwrap_or("")))?;
+    if let Some(e) = v["error"].as_str() {
+        let hint = if e.contains("not found") {
+            format!(" (run `ollama pull {model}`)")
+        } else {
+            String::new()
+        };
+        return Err(format!("ollama: {e}{hint}"));
+    }
+    // the schema leaves no room for the tags the prompt asks for
+    v["response"]
+        .as_str()
+        .map(|r| format!("<ig-annotations>{r}</ig-annotations>"))
+        .ok_or_else(|| "ollama: no response in its answer".into())
 }
 
 /// `argv` run as `run` says, in its own process group: when it ends or times out, the whole

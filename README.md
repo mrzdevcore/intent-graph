@@ -59,7 +59,7 @@ ig view --read     # the same, and let an AI agent read the architecture first
 ## `ig view`
 
 ```
-ig view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex] [--root <dir>]
+ig view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|ollama] [--root <dir>]
 ```
 
 `ig view` builds the map in three stages and writes `.ig/view.html`, one offline page:

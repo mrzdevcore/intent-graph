@@ -210,7 +210,7 @@ Pattern nodes use `ast-grep-core` and `ast-grep-language` (TypeScript, Tsx, Java
 
 ```
 ig [--version] | init [claude|codex|all]
-   | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex] | mcp | plugin export <dir>
+   | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|ollama] | mcp | plugin export <dir>
    (all accept --root <dir>)
 ```
 
