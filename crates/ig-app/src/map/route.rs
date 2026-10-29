@@ -1,18 +1,18 @@
 //! Arrow routes: Manhattan paths through the gutters between sibling boxes, on a grid of half a
 //! gutter whose cells under a box are blocked.
 
-use super::layout::{Frame, GUTTER};
+use super::layout::Frame;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 
-const CELL: f32 = GUTTER / 2.0;
+const CELL: f32 = 24.0;
 /// Extra cost of a turn, so routes keep straight.
 const TURN: u32 = 3;
 /// Right, down, left, up.
 const DIRS: [(i32, i32); 4] = [(1, 0), (0, 1), (-1, 0), (0, -1)];
 
 /// Extra cost of a step through a cell another route already takes, so routes spread out.
-const USED: u32 = 2;
+const USED: u32 = 4;
 /// The gap between two lanes in one gutter, and the farthest a lane moves.
 const LANE: f32 = 6.0;
 const LANE_MAX: f32 = 10.0;
@@ -67,30 +67,47 @@ impl<'a> Grid<'a> {
         self.free(c).then_some(c)
     }
 
-    /// The route from the middle of `from`'s edge facing `to` to 1 short of `to`'s facing
-    /// edge, crossing no other box; None when the gutters do not connect them.
-    pub fn route(&mut self, from: &Frame, to: &Frame) -> Option<Vec<(f32, f32)>> {
+    /// The route from port `s` on `from`'s edge to 1 short of port `e` on `to`'s, crossing no
+    /// other box; None when the gutters do not connect them.
+    pub fn route(&mut self, from: &Frame, to: &Frame, s: Port, e: Port) -> Option<Vec<(f32, f32)>> {
         let center = |c: (i32, i32)| ((c.0 as f32 + 0.5) * CELL, (c.1 as f32 + 0.5) * CELL);
-        let (d, s) = side(from, to);
-        let (dt, e) = side(to, from);
+        let ((d, s), (dt, e)) = (s, e);
         let e = (e.0 + dt.0 as f32, e.1 + dt.1 as f32);
         let (c0, c1) = (self.out(s, d)?, self.out(e, dt)?);
         let path = self.search(c0, c1, d)?;
-        // leave along the edge's normal into the first free cell; arrive the same way
+        // the straight runs out of `from` and into `to` stay in line with their ports (they are
+        // in the ports' column or row of cells), so an arrow leaves and arrives without a jog
+        let n = path.len();
+        let along = |c: (i32, i32), at: (i32, i32), d: (i32, i32)| {
+            if d.0 == 0 { c.0 == at.0 } else { c.1 == at.1 }
+        };
+        let first = path.iter().take_while(|&&c| along(c, c0, d)).count();
+        let last = path.iter().rev().take_while(|&&c| along(c, c1, dt)).count();
+        let (first, last) = if first + last > n {
+            (n.div_ceil(2), n / 2)
+        } else {
+            (first, last)
+        };
+        let mut mid: Vec<(f32, f32)> = path.iter().map(|&c| center(c)).collect();
+        for (k, p) in mid.iter_mut().enumerate() {
+            let (d, at) = if k < first {
+                (d, s)
+            } else if k >= n - last {
+                (dt, e)
+            } else {
+                continue;
+            };
+            if d.0 == 0 { p.0 = at.0 } else { p.1 = at.1 }
+        }
         let mut pts = vec![s];
-        pts.push(if d.0 == 0 {
-            (s.0, center(c0).1)
-        } else {
-            (center(c0).0, s.1)
-        });
-        pts.extend(path.iter().map(|&c| center(c)));
-        let last = center(c1);
-        pts.push(if dt.0 == 0 {
-            (e.0, last.1)
-        } else {
-            (last.0, e.1)
-        });
-        pts.push(e);
+        for p in mid.into_iter().chain([e]) {
+            let a = pts[pts.len() - 1];
+            // two neighbour cells' points off both axes: turn inside one of the two cells
+            if a.0 != p.0 && a.1 != p.1 {
+                pts.push((a.0, p.1));
+            }
+            pts.push(p);
+        }
         let pts = simplify(pts);
         // a gutter narrower than a cell lets the walk out of an end cross a neighbour
         let mut others = self.boxes.iter().filter(|f| *f != from && *f != to);
@@ -159,21 +176,62 @@ fn crosses(p: (f32, f32), q: (f32, f32), f: &Frame) -> bool {
     x0 < f.x + f.w && x1 > f.x && y0 < f.y + f.h && y1 > f.y
 }
 
-/// The edge of `a` facing `b`: its outward direction and middle.
-fn side(a: &Frame, b: &Frame) -> ((i32, i32), (f32, f32)) {
-    let (ax, ay) = (a.x + a.w / 2.0, a.y + a.h / 2.0);
-    let (dx, dy) = (b.x + b.w / 2.0 - ax, b.y + b.h / 2.0 - ay);
+/// An arrow's end: the outward direction of its box's edge, and the point on it.
+pub type Port = ((i32, i32), (f32, f32));
+
+/// The outward direction of the edge of `a` facing `b`.
+fn facing(a: &Frame, b: &Frame) -> (i32, i32) {
+    let (dx, dy) = (
+        b.x + b.w / 2.0 - a.x - a.w / 2.0,
+        b.y + b.h / 2.0 - a.y - a.h / 2.0,
+    );
     if dy.abs() >= dx.abs() {
-        if dy >= 0.0 {
-            ((0, 1), (ax, a.y + a.h))
-        } else {
-            ((0, -1), (ax, a.y))
-        }
-    } else if dx > 0.0 {
-        ((1, 0), (a.x + a.w, ay))
+        (0, if dy >= 0.0 { 1 } else { -1 })
     } else {
-        ((-1, 0), (a.x, ay))
+        (if dx > 0.0 { 1 } else { -1 }, 0)
     }
+}
+
+/// The share of an edge its ports spread over, around its middle.
+const SPREAD: f32 = 0.6;
+
+/// Both ports of each arrow `(from, to)`: on the edge of its box facing the other end, the ports
+/// of one edge spread along it in the order of their other ends, so arrows leave a box apart and
+/// do not cross by it. A lone port is the edge's middle.
+pub fn ports(ends: &[(Frame, Frame)]) -> Vec<(Port, Port)> {
+    // (frame as bits, direction) → (where the other end is along the edge, arrow, is the from end)
+    type Edge = ([u32; 4], (i32, i32));
+    let mut edges: BTreeMap<Edge, Vec<(f32, usize, bool)>> = BTreeMap::new();
+    let bits = |f: &Frame| [f.x, f.y, f.w, f.h].map(f32::to_bits);
+    for (i, (f, t)) in ends.iter().enumerate() {
+        for (me, other, from) in [(f, t, true), (t, f, false)] {
+            let d = facing(me, other);
+            let along = if d.0 == 0 {
+                other.x + other.w / 2.0
+            } else {
+                other.y + other.h / 2.0
+            };
+            edges
+                .entry((bits(me), d))
+                .or_default()
+                .push((along, i, from));
+        }
+    }
+    let mut out = vec![[((0, 0), (0.0, 0.0)); 2]; ends.len()];
+    for ((_, d), mut v) in edges {
+        v.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+        let n = v.len() as f32;
+        for (k, &(_, i, from)) in v.iter().enumerate() {
+            let f = if from { ends[i].0 } else { ends[i].1 };
+            let t = (1.0 - SPREAD) / 2.0 + SPREAD * (k as f32 + 0.5) / n;
+            let p = match d {
+                (0, dy) => (f.x + f.w * t, if dy > 0 { f.y + f.h } else { f.y }),
+                (dx, _) => (if dx > 0 { f.x + f.w } else { f.x }, f.y + f.h * t),
+            };
+            out[i][usize::from(!from)] = (d, p);
+        }
+    }
+    out.into_iter().map(|[s, e]| (s, e)).collect()
 }
 
 /// Without repeated points and the middle points of straight runs.

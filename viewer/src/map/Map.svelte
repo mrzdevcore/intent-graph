@@ -1,12 +1,14 @@
 <!-- The walkable map. One world <div> under the camera; each box whose screen width reaches
      showsInside mounts its inside (children, regions, routes in its inner units), recursively.
-     Only mounted levels are in the DOM. Map text is repo/AI-derived: text only, never {@html}. -->
+     Only mounted levels are in the DOM. Dragging a box moves it inside its parent (kept per map
+     in localStorage); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
-  import { detailFor, fitTo, innerTransform, showsInside, worldFrame, type Cam } from "./camera";
+  import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, insideCounts, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
+  import { curves } from "./curves";
   import MapBox from "./MapBox.svelte";
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
@@ -18,6 +20,34 @@
   } = $props();
 
   const ROOT = "system";
+  // the boxes moved by hand: their shift from where ig placed them, in their parent's inner units
+  type Moves = Record<string, { x: number; y: number }>;
+  const store = $derived(`ig-moves:${view.boxes.find((b) => b.id === ROOT)?.title.value ?? ""}`);
+  function load(key: string): Moves {
+    try {
+      const m = JSON.parse(globalThis.window?.localStorage?.getItem(key) ?? "{}");
+      return m && typeof m === "object" ? m : {};
+    } catch {
+      return {};
+    }
+  }
+  let moves = $state<Moves>(untrack(() => load(store)));
+  function keep(m: Moves) {
+    moves = m;
+    try {
+      if (Object.keys(m).length) globalThis.window?.localStorage?.setItem(store, JSON.stringify(m));
+      else globalThis.window?.localStorage?.removeItem(store);
+    } catch { /* private mode: moves last the page */ }
+  }
+  // the view as drawn: ig's frames with the hand moves applied
+  const shown = $derived.by((): View => {
+    const frames = { ...view.placed.frames };
+    for (const [id, d] of Object.entries(moves)) {
+      const f = frames[id];
+      if (f && Number.isFinite(d?.x) && Number.isFinite(d?.y)) frames[id] = { ...f, x: f.x + d.x, y: f.y + d.y };
+    }
+    return { ...view, placed: { ...view.placed, frames } };
+  });
   const group = <T,>(xs: T[], key: (x: T) => string) => {
     const m = new Map<string, T[]>();
     for (const x of xs) m.set(key(x), [...(m.get(key(x)) ?? []), x]);
@@ -30,13 +60,32 @@
   });
   const byId = $derived(new Map(view.boxes.map((b) => [b.id, b])));
   const kids = $derived(group(framed, (b: Box) => b.parent ?? ROOT));
-  // ponytail: world frames computed once per view (O(n·depth) lookups); fine for thousands of boxes.
-  const world = $derived(new Map(framed.map((b) => [b.id, worldFrame(b.id, view)])));
+  // world frames, once per layout (linear in the boxes): a drag in flight leaves them be
+  const place = $derived(placer(shown));
+  const world = $derived(new Map(framed.map((b) => [b.id, place.frame(b.id)])));
   const area = (f: Frame) => f.w * f.h;
   const regions = $derived(group([...view.placed.regions].sort((a, b) => area(b.frame) - area(a.frame)), (r: R) => r.parent));
-  const arrows = $derived(group(view.arrows.filter((a) => view.placed.routes[a.id]), (a: Arrow) => a.parent));
-  // each arrow-holding parent's inner unit, in world units: arrow labels show once it is legible
-  const unit = $derived(new Map([...arrows.keys()].map((p) => [p, p === ROOT ? 1 : innerTransform(p, view).s])));
+  const paths = $derived(curves(view.arrows, shown.placed.frames));
+  const arrows = $derived(group(view.arrows.filter((a) => paths.has(a.id)), (a: Arrow) => a.parent));
+  // the box being dragged and its shift so far: only it and its parent's arrows follow the pointer
+  let live = $state<{ id: string; x: number; y: number } | null>(null);
+  const shifted = (id: string, d: { x: number; y: number }) => {
+    const f = view.placed.frames[id];
+    return { ...f, x: f.x + d.x, y: f.y + d.y };
+  };
+  const livePaths = $derived.by(() => {
+    if (!live) return null;
+    const p = byId.get(live.id)?.parent ?? ROOT, frames: Record<string, Frame> = {};
+    for (const b of kids.get(p) ?? []) frames[b.id] = shown.placed.frames[b.id];
+    frames[live.id] = shifted(live.id, live);
+    return curves(arrows.get(p) ?? [], frames);
+  });
+  const pathOf = (a: Arrow) => livePaths?.get(a.id) ?? paths.get(a.id)!;
+  // each parent's inner unit, in world units
+  const unit = $derived(new Map([...kids.keys()].map((p) => [p, p === ROOT ? 1 : place.inside(p).s])));
+  // past this many screen pixels per unit, a level is far behind the box you are in: its arrows
+  // and regions are no longer drawn
+  const DEEP = 12;
   const layers = $derived([...new Set(["rules", "risks", ...view.marks.map((m) => m.layer)])]);
   let off = $state(new Set<string>());
   const on = $derived(new Set(layers.filter((l) => !off.has(l))));
@@ -47,10 +96,18 @@
   const vw = $derived(size?.w ?? cw), vh = $derived(size?.h ?? ch);
   let cam = $state<Cam>(untrack(() => camera.cam));
   let selected = $state<string | null>(null);
+  // under the pointer: the deepest box, and an arrow
+  let hot = $state<string | null>(null);
+  let hotArrow = $state<string | null>(null);
+  const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && (a.from === id || a.to === id));
+  function over(e: PointerEvent) {
+    const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
+    hot = el?.dataset.box ?? null;
+  }
   let stage: HTMLDivElement;
 
-  const home = () => fitTo(worldFrame(ROOT, view), { w: vw, h: vh });
-  const frameOf = (id: string) => (id === ROOT ? worldFrame(ROOT, view) : world.get(id) ?? worldFrame(id, view));
+  const home = () => fitTo(place.frame(ROOT), { w: vw, h: vh });
+  const frameOf = (id: string) => world.get(id) ?? place.frame(id);
 
   // rAF-driven camera: runs only while a glide is in flight.
   let raf = 0;
@@ -85,7 +142,7 @@
   function target(id: string): Frame {
     const inner = view.placed.inner[id];
     if (!kids.has(id) || !inner) return frameOf(id);
-    const t = innerTransform(id, view);
+    const t = place.inside(id);
     return { x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s };
   }
   const fly = (id: string) => glideTo(id === ROOT ? home() : fitTo(target(id), { w: vw, h: vh }));
@@ -99,7 +156,8 @@
     if (id) (stage.querySelector(`[data-box="${CSS.escape(id)}"] > button`) as HTMLElement | null)?.focus({ preventScroll: true });
   }
   const key = (e: KeyboardEvent) => e.key === "Escape" && selected && close();
-  const clampK = (k: number) => Math.min(1e5, Math.max(1e-3, k));
+  // deep enough for the smallest code box of a deep tree
+  const clampK = (k: number) => Math.min(1e9, Math.max(1e-3, k));
   function zoomAt(px: number, py: number, f: number, smooth = false) {
     const c = camera.cam, k = clampK(c.k * f), r = k / c.k;
     const next = { k, x: px - (px - c.x) * r, y: py - (py - c.y) * r };
@@ -117,22 +175,45 @@
     return () => stage.removeEventListener("wheel", wheel);
   });
 
-  // Drag pans; a drag's trailing click must not open a box.
-  let drag: { x: number; y: number; from: Cam; moved: boolean } | null = null;
+  // Drag pans, or moves the closed box under the pointer (`box`: its id, its shift at the start
+  // and screen pixels per unit of its parent); a drag's trailing click must not open a box.
+  let drag: { x: number; y: number; from: Cam; moved: boolean; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
   let swallow = false;
   function down(e: PointerEvent) {
     swallow = false;
-    if (e.button === 0) drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false };
+    if (e.button !== 0) return;
+    drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false };
+    const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
+    const id = el && !el.hasAttribute("data-open") ? el.dataset.box : undefined;
+    const b = id ? byId.get(id) : undefined;
+    if (b) drag.box = { id: b.id, at: moves[b.id] ?? { x: 0, y: 0 }, k: (unit.get(b.parent ?? ROOT) ?? 1) * camera.cam.k };
+  }
+  /** Shift `d` of box `id`, kept inside its parent's frame (the system has none: anywhere). */
+  function within(id: string, d: { x: number; y: number }) {
+    const f = view.placed.frames[id], p = byId.get(id)?.parent;
+    const pf = p && p !== ROOT ? shown.placed.frames[p] : undefined;
+    const inner = p ? view.placed.inner[p] : undefined;
+    if (!f || !pf || !inner) return d;
+    const t = fitInner(pf, inner[0], inner[1]), head = Math.min(HEAD, pf.h / 4);
+    const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+    return {
+      x: clamp(f.x + d.x, -t.x / t.s, (pf.w - t.x) / t.s - f.w) - f.x,
+      y: clamp(f.y + d.y, (head - t.y) / t.s, (pf.h - t.y) / t.s - f.h) - f.y,
+    };
   }
   function move(e: PointerEvent) {
     if (!drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 4) return;
     drag.moved = true;
-    jump({ k: drag.from.k, x: drag.from.x + dx, y: drag.from.y + dy });
+    const b = drag.box;
+    if (b && b.k > 0) live = { id: b.id, ...within(b.id, { x: b.at.x + dx / b.k, y: b.at.y + dy / b.k }) };
+    else jump({ k: drag.from.k, x: drag.from.x + dx, y: drag.from.y + dy });
   }
   function up() {
     swallow = !!drag?.moved;
+    if (live) keep({ ...moves, [live.id]: { x: live.x, y: live.y } });
+    live = null;
     drag = null;
   }
   function clickCapture(e: MouseEvent) {
@@ -155,36 +236,81 @@
       out.push((p = next.id));
     }
   });
+  /** The deepest open box of the trail covering the whole view: only its inside is drawn, placed
+   *  straight on the screen, so neither the boxes around it nor a huge scale cost anything. */
+  const anchor = $derived.by(() => {
+    let a = ROOT;
+    for (const id of trail.slice(1)) {
+      const f = world.get(id)!, x = f.x * cam.k + cam.x, y = f.y * cam.k + cam.y;
+      const covers = x <= 0 && y <= 0 && x + f.w * cam.k >= vw && y + f.h * cam.k >= vh;
+      if (!covers || !kids.has(id) || !view.placed.inner[id]) break;
+      a = id;
+    }
+    return a;
+  });
+  const base = $derived.by(() => {
+    const t = anchor === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(anchor);
+    return { x: t.x * cam.k + cam.x, y: t.y * cam.k + cam.y, k: t.s * cam.k };
+  });
+  // a new anchor mounts again what was already shown: no fade-in then
+  let calm = $state(true);
+  $effect(() => {
+    void anchor;
+    calm = false;
+    const t = setTimeout(() => (calm = true), 450);
+    return () => clearTimeout(t);
+  });
+  /** Whether box `id` is on screen, or near it (half a view around). */
+  function seen(id: string) {
+    const f = world.get(id)!, x = f.x * cam.k + cam.x, y = f.y * cam.k + cam.y;
+    return x < 1.5 * vw && y < 1.5 * vh && x + f.w * cam.k > -0.5 * vw && y + f.h * cam.k > -0.5 * vh;
+  }
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
 
-  /** A box's inner space inside its own frame: uniform scale, centred (as innerTransform, locally). */
+  /** A box's inner space inside its own frame, below its header (as place.inside, locally). */
   function local(id: string) {
-    const f = view.placed.frames[id], [iw, ih] = view.placed.inner[id] ?? [0, 0];
-    const s0 = Math.min(f.w / iw, f.h / ih), s = Number.isFinite(s0) && s0 > 0 ? s0 : 1;
-    return { x: (f.w - iw * s) / 2, y: (f.h - ih * s) / 2, s, iw, ih };
+    const f = shown.placed.frames[id], [iw, ih] = view.placed.inner[id] ?? [0, 0];
+    return { ...fitInner(f, iw, ih), iw, ih };
   }
 </script>
 
 {#snippet level(pid: string)}
-  {#each regions.get(pid) ?? [] as r, i (i)}<Region region={r} />{/each}
-  {#each arrows.get(pid) ?? [] as a (a.id)}
+  {@const zoom = (unit.get(pid) ?? 1) * cam.k}
+  {@const near = zoom < DEEP}
+  {@const all = near ? arrows.get(pid) ?? [] : []}
+  {@const lit = all.filter(touches)}
+  {#if near}{#each regions.get(pid) ?? [] as r, i (i)}<Region region={r} {zoom} />{/each}{/if}
+  {#each all as a (a.id)}
+    {@const c = pathOf(a)}
     <div class="arrow" data-arrow={a.id}>
-      <MapArrow points={view.placed.routes[a.id]} arrowLook={arrowLook(a, view.marks, on)}
-        detail={(unit.get(pid) ?? 1) * cam.k >= 0.6 ? "near" : "far"} />
+      <MapArrow d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom}
+        lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
+        onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
     </div>
   {/each}
-  {#each kids.get(pid) ?? [] as b (b.id)}
-    {@const f = view.placed.frames[b.id]}
+  {#each (kids.get(pid) ?? []).filter((b) => !vw || seen(b.id)) as b (b.id)}
+    {@const f = live?.id === b.id ? shifted(b.id, live) : shown.placed.frames[b.id]}
     {@const sw = world.get(b.id)!.w * cam.k}
     {@const open = showsInside(sw) && kids.has(b.id) && !!view.placed.inner[b.id]}
-    <div class="slot" data-box={b.id} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
-      <MapBox box={b} look={look(b.id, view.marks, on, b)} detail={open ? "far" : detailFor(sw)}
-        inside={counts.get(b.id) ?? 0} onopen={() => openBox(b.id)} />
+    {@const source = view.sources?.[b.id]}
+    {@const list = view.parts?.[b.id]}
+    {@const reads = !open && (!!source || !!list) && showsInside(sw)}
+    <div class="slot" data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
+      <MapBox box={b} look={look(b.id, view.marks, on, b)} detail={open ? "open" : reads ? "source" : detailFor(sw)}
+        zoom={sw / f.w} source={reads ? source : undefined} parts={list}
+        inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)} />
       {#if open}
         {@const t = local(b.id)}
-        <div class="inside" style:width="{t.iw}px" style:height="{t.ih}px"
+        <div class="inside" class:fade={calm} style:width="{t.iw}px" style:height="{t.ih}px"
           style:transform="translate({t.x}px, {t.y}px) scale({t.s})">{@render level(b.id)}</div>
       {/if}
+    </div>
+  {/each}
+  <!-- the focused arrows' labels, above the boxes -->
+  {#each lit as a (a.id)}
+    {@const c = pathOf(a)}
+    <div class="arrow" data-label={a.id}>
+      <MapArrow part="label" d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom} />
     </div>
   {/each}
 {/snippet}
@@ -192,12 +318,14 @@
 <svelte:window onpointermove={move} onpointerup={up} onkeydown={key} />
 
 <div class="map" bind:clientWidth={cw} bind:clientHeight={ch}>
-  <div class="stage" bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture}>
-    <div class="world" style:transform="translate({cam.x}px, {cam.y}px) scale({cam.k})">{@render level(ROOT)}</div>
+  <div class="stage" bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture}
+    onpointerover={over} onpointerleave={() => (hot = hotArrow = null)}>
+    <div class="world" style:transform="translate({base.x}px, {base.y}px) scale({base.k})">{@render level(anchor)}</div>
   </div>
   <Controls {crumbs} {layers} {on} oncrumb={fly}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
-    onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())} />
+    onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
+    onreset={Object.keys(moves).length ? () => keep({}) : undefined} />
   {#if reading}
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
@@ -212,8 +340,10 @@
   .stage:active { cursor: grabbing; }
   .world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .slot { position: absolute; }
+  .slot:not([data-open]) { cursor: move; }
   .arrow { display: contents; }
-  .inside { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; animation: ig-fade 400ms ease-out; }
+  .inside { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
+  .inside.fade { animation: ig-fade 400ms ease-out; }
   .inside > .slot { pointer-events: auto; }
   @keyframes ig-fade { from { opacity: 0; } }
   /* app.css's global .row (list rows) must not restyle the boxes' title row */

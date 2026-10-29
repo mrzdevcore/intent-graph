@@ -9,7 +9,7 @@ fn shop() -> (Vec<MapBox>, Vec<MapArrow>) {
     let (ws, g, cfg) = crate::map::shop::load();
     let b = facts(&ws, &g, &cfg);
     let m: MapFile = refresh(None, &b, arrows(&b, &g), &[]).0;
-    let v = view(&MemFiles::with(&[]), &m, &g);
+    let v = view(&MemFiles::with(&[]), &m, &g, &[]);
     (v.boxes, v.arrows)
 }
 
@@ -212,16 +212,14 @@ fn check_routes(boxes: &[MapBox], arrows: &[MapArrow], p: &Placed) {
         }
         let (from, to) = (&p.frames[&a.from], &p.frames[&a.to]);
         let (s, e) = (r[0], r[r.len() - 1]);
-        let mid = |f: &Frame| (f.x + f.w / 2.0, f.y + f.h / 2.0);
-        let on_edge = (s.0 == from.x || s.0 == from.x + from.w) && s.1 == mid(from).1
-            || (s.1 == from.y || s.1 == from.y + from.h) && s.0 == mid(from).0;
-        assert!(
-            on_edge,
-            "{} leaves {s:?}, not an edge middle of {from:?}",
-            a.id
-        );
-        let short = (e.0 == to.x - 1.0 || e.0 == to.x + to.w + 1.0) && e.1 == mid(to).1
-            || (e.1 == to.y - 1.0 || e.1 == to.y + to.h + 1.0) && e.0 == mid(to).0;
+        // within the middle part of an edge, where ports spread
+        let within =
+            |v: f32, lo: f32, len: f32| v >= lo + 0.2 * len - 0.01 && v <= lo + 0.8 * len + 0.01;
+        let on_edge = (s.0 == from.x || s.0 == from.x + from.w) && within(s.1, from.y, from.h)
+            || (s.1 == from.y || s.1 == from.y + from.h) && within(s.0, from.x, from.w);
+        assert!(on_edge, "{} leaves {s:?}, not on an edge of {from:?}", a.id);
+        let short = (e.0 == to.x - 1.0 || e.0 == to.x + to.w + 1.0) && within(e.1, to.y, to.h)
+            || (e.1 == to.y - 1.0 || e.1 == to.y + to.h + 1.0) && within(e.0, to.x, to.w);
         assert!(short, "{} ends at {e:?}, not 1 short of {to:?}", a.id);
     }
 }
@@ -445,4 +443,60 @@ fn root_keeps_its_groups() {
     );
     let (w, h) = p.inner["system"];
     assert!((1.2..=2.4).contains(&(w / h)), "{w}x{h}");
+}
+
+#[test]
+fn arrows_leave_a_box_apart_and_straight() {
+    for (b, a) in trees().into_iter().chain([shop()]) {
+        let p = layout(&b, &a).0;
+        let mut starts: BTreeMap<(&str, [u32; 2]), &str> = BTreeMap::new();
+        for x in &a {
+            let r = &p.routes[&x.id];
+            let f = &p.frames[&x.from];
+            // the first leg runs along the edge's normal
+            let (s, n) = (r[0], r[1]);
+            let normal = if s.0 == f.x || s.0 == f.x + f.w {
+                s.1 == n.1
+            } else {
+                s.0 == n.0
+            };
+            assert!(normal, "{} sets off along its box: {r:?}", x.id);
+            let key = (x.from.as_str(), [s.0.to_bits(), s.1.to_bits()]);
+            if let Some(other) = starts.insert(key, &x.id) {
+                panic!("{} and {other} leave from one point {s:?}", x.id);
+            }
+        }
+    }
+}
+
+#[test]
+fn boxes_trade_places_to_untangle_arrows() {
+    let mut b = vec![mbox("c", "x", "component", "usecase", None, None, false)];
+    b[0].parent = None;
+    for id in ["a", "b", "c1", "d", "e", "f"] {
+        b.push(mbox(id, "c", "code", "function", None, None, false));
+    }
+    // by name a b c1 / d e f: every arrow would cross or cut through a box
+    let pairs = [("a", "f"), ("b", "e"), ("c1", "d"), ("a", "e")];
+    let a: Vec<MapArrow> = pairs.iter().map(|(x, y)| arrow("c", x, y)).collect();
+    let p = layout(&b, &a).0;
+    let mid = |id: &str| {
+        let f = p.frames[id];
+        (f.x + f.w / 2.0, f.y + f.h / 2.0)
+    };
+    for (i, (x, y)) in pairs.iter().enumerate() {
+        for (u, v) in &pairs[i + 1..] {
+            let shared = [x, y].contains(&u) || [x, y].contains(&v);
+            assert!(
+                shared || !super::crosses(mid(x), mid(y), mid(u), mid(v)),
+                "{x}-{y} crosses {u}-{v}"
+            );
+        }
+        for o in ["a", "b", "c1", "d", "e", "f"] {
+            assert!(
+                [x, y].contains(&&o) || !super::cuts(mid(x), mid(y), &p.frames[o]),
+                "{x}-{y} cuts through {o}"
+            );
+        }
+    }
 }

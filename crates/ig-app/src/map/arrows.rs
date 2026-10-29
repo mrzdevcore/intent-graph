@@ -56,9 +56,19 @@ const NOUNS: &[(ArrowKind, &str)] = &[
 /// children, are not drawn.
 pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
     let by_id: HashMap<&str, &FactBox> = boxes.iter().map(|b| (b.id.as_str(), b)).collect();
-    // Node → its deepest box (deeper levels overwrite).
-    let mut sorted: Vec<&FactBox> = boxes.iter().collect();
-    sorted.sort_by_key(|b| b.level);
+    // Node → its deepest box (deeper boxes overwrite; code boxes nest at any depth).
+    let depth = |b: &FactBox| {
+        let mut d = 0;
+        let mut p = b.parent.as_deref();
+        while let Some(x) = p.filter(|_| d <= boxes.len()) {
+            d += 1;
+            p = by_id.get(x).and_then(|b| b.parent.as_deref());
+        }
+        d
+    };
+    let mut sorted: Vec<(usize, &FactBox)> = boxes.iter().map(|b| (depth(b), b)).collect();
+    sorted.sort_by_key(|b| b.0);
+    let sorted = sorted.into_iter().map(|b| b.1);
     let mut owner: HashMap<&str, &str> = HashMap::new();
     for b in sorted {
         for n in &b.nodes {

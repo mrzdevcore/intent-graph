@@ -3,7 +3,7 @@
 
 use crate::config::Config;
 use crate::http::HttpCall;
-use crate::model::{Edge, Node, ParseError};
+use crate::model::{Anatomy, Edge, Node, ParseError};
 use crate::workspace::{SourceFile, WorkspaceInfo};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -149,6 +149,11 @@ pub trait LanguageFrontend: Send + Sync {
     /// Files under `root` (posix, root-relative, sorted) outside the source files whose contents
     /// change this frontend's output: their contents key the base-graph cache.
     fn cache_inputs(&self, _root: &Path, _config: &Config) -> Vec<String> {
+        vec![]
+    }
+    /// The UI components declared in `source`, the file at `path`; none when the language has
+    /// no such thing or the file holds none.
+    fn anatomy(&self, _path: &str, _source: &str, _config: &Config) -> Vec<Anatomy> {
         vec![]
     }
 }
