@@ -32,8 +32,17 @@ pub enum BoxKind {
     Usecase,
     Port,
     Domain,
+    Folder,
+    File,
+    /// A UI component (Vue, React), opening onto its parts.
+    Component,
+    /// One part list of a component: its inputs, state, uses or template.
+    Parts,
+    /// An Ansible task.
+    Task,
     Function,
     Class,
+    Method,
     Group,
 }
 
@@ -390,13 +399,7 @@ fn container(
         }
         comps.extend(k.into_iter().map(|k| (k, s, false)));
     }
-    let other = match pattern {
-        Pattern::Onion => Some("infrastructure"),
-        Pattern::Hexagonal => Some("adapters"),
-        // ponytail: unknown folders of a layered package sit in the bottom band (shared code).
-        Pattern::Layered { ref bands } => bands.last().map(String::as_str),
-        Pattern::None => None,
-    };
+    let other = other(&pattern);
     // Other folders; those holding pattern folders deeper down are split into their children.
     let mut stack: Vec<String> = folders
         .iter()
@@ -524,8 +527,19 @@ fn last(folder: &str) -> &str {
     folder.rsplit('/').next().unwrap_or(folder)
 }
 
+/// The slot of the folders a pattern does not name.
+pub(super) fn other(p: &Pattern) -> Option<&str> {
+    match p {
+        Pattern::Onion => Some("infrastructure"),
+        Pattern::Hexagonal => Some("adapters"),
+        // ponytail: unknown folders of a layered package sit in the bottom band (shared code).
+        Pattern::Layered { bands } => bands.last().map(String::as_str),
+        Pattern::None => None,
+    }
+}
+
 /// The pattern the folder names show (ruling R7).
-fn detect(folders: &std::collections::BTreeSet<String>) -> Pattern {
+pub(super) fn detect(folders: &std::collections::BTreeSet<String>) -> Pattern {
     let names: std::collections::HashSet<String> =
         folders.iter().map(|f| last(f).to_lowercase()).collect();
     let any = |set: &[&str]| set.iter().any(|n| names.contains(*n));
@@ -547,7 +561,7 @@ fn detect(folders: &std::collections::BTreeSet<String>) -> Pattern {
 }
 
 /// The ring or band a pattern folder named `name` stands for.
-fn slot(p: &Pattern, name: &str) -> Option<&'static str> {
+pub(super) fn slot(p: &Pattern, name: &str) -> Option<&'static str> {
     let n = name.to_lowercase();
     let n = n.as_str();
     match p {

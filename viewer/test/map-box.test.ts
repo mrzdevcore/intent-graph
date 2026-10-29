@@ -49,17 +49,63 @@ test("a person is a figure without a box border", () => {
 
 test("unknown logo slug is null", () => expect(logoPath("not-a-logo")).toBeNull());
 
-test("an arrow draws a head and, unless far, a label", () => {
-  const al = { color: "#333", width: 1.5, dash: null, head: "filled" as const, label: "pays", tone: "neutral" as const };
-  const go = (detail: "far" | "near") => {
+test("an arrow's line has a head; its label is a part of its own, steady on screen", () => {
+  const al = { color: "#333", width: 1.5, dash: "6 4", head: "filled" as const, label: "pays", tone: "neutral" as const };
+  const go = (part: "line" | "label", zoom = 1) => {
     const t = document.createElement("div");
-    mount(MapArrow, { target: t, props: { points: [[0, 0], [100, 0], [100, 40]], arrowLook: al, detail } });
+    mount(MapArrow, { target: t, props: { d: "M0,0 C50,0 50,40 100,40", mid: [50, 20], arrowLook: al, part, zoom } });
     flushSync();
     return t;
   };
-  expect(go("near").querySelector("polyline")).not.toBeNull();
-  expect(go("near").textContent).toContain("pays");
-  expect(go("far").textContent).not.toContain("pays");
+  expect(go("line").querySelector("g[data-state] > path")).not.toBeNull();
+  expect(go("line").querySelector("marker path")).not.toBeNull();
+  expect(go("line").textContent).not.toContain("pays");
+  expect(go("label").textContent).toContain("pays");
+  // 10 screen pixels per unit: the line is drawn 1.6 pixels per unit wide on screen, not 10
+  const line = go("line", 10).querySelector("g[data-state] > path")!;
+  expect(Number(line.getAttribute("stroke-width")) * 10).toBeCloseTo(1.5 * 1.6);
+  expect(line.getAttribute("stroke-dasharray")).toBe("0.96 0.64");
+  expect(go("label", 10).querySelector("g")!.getAttribute("transform")).toContain("scale(0.16)");
+});
+
+test("a function zoomed into shows its numbered lines, steady on screen, and what was cut", () => {
+  const t = document.createElement("div");
+  const b = box({ level: "code", kind: f("function"), title: f("total") });
+  const source = { file: "a.ts", line: 3, text: "function total() {\n  return 1;\n}", cut: 7, complexity: 1 };
+  mount(MapBox, { target: t, props: { box: b, look: look(b.id, [], new Set(), b), detail: "source", zoom: 10, source, onopen: () => {} } });
+  flushSync();
+  const pre = t.querySelector("pre")!;
+  expect([...pre.querySelectorAll(".ln")].map((e) => e.textContent)).toEqual(["3", "4", "5", "…"]);
+  expect(pre.textContent).toContain("7 more lines");
+  expect((pre.closest(".body") as HTMLElement).style.transform).toBe("scale(0.16)");
+});
+
+test("a component's part box tallies its parts; zoomed into, it lists them above its code", () => {
+  const go = (detail: "near" | "source") => {
+    const t = document.createElement("div");
+    const b = box({ level: "code", kind: f("parts"), title: f("Inputs") });
+    const parts = [
+      { name: "orderId", kind: "prop", line: 4, detail: "string" },
+      { name: "compact", kind: "prop", line: 5 },
+      { name: "saved", kind: "emit", line: 6 },
+    ];
+    const source = { file: "a.vue", line: 1, text: "<template>", complexity: 0 };
+    mount(MapBox, { target: t, props: { box: b, look: look(b.id, [], new Set(), b), detail, zoom: 4, parts, source, onopen: () => {} } });
+    flushSync();
+    return t;
+  };
+  expect(go("near").textContent).toContain("2 props · 1 emit");
+  expect(go("near").querySelector(".parts")).toBeNull();
+  const t = go("source");
+  expect([...t.querySelectorAll(".parts b")].map((e) => e.textContent)).toEqual(["orderId", "compact", "saved"]);
+  expect(t.querySelector(".parts")!.textContent).toContain("string");
+  expect(t.querySelector("pre")!.textContent).toContain("<template>");
+});
+
+test("a component box wears its framework's logo", () => {
+  const t = render(box({ level: "code", kind: f("component"), title: f("OrderList"), logo: f("vue") }));
+  expect(t.querySelector("svg path")!.getAttribute("d")).toBe(logoPath("vue"));
+  expect(logoPath("react")).not.toBeNull();
 });
 
 test("a region shows its label", () => {

@@ -332,6 +332,24 @@
       }
     },
     {
+      "id": "apps/api/src/domain/order/order.ts#Order.constructor",
+      "parent": "apps/api/src/domain/order/order.ts#Order",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/domain/order/order.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "method",
+        "source": "ig"
+      },
+      "title": {
+        "value": "constructor",
+        "source": "ig"
+      }
+    },
+    {
       "id": "apps/api/src/domain/order/order.ts#loadOrder",
       "parent": "api/domain-order",
       "level": "code",
@@ -386,6 +404,24 @@
       }
     },
     {
+      "id": "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo.save",
+      "parent": "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/infra/prisma/order-repo.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "method",
+        "source": "ig"
+      },
+      "title": {
+        "value": "save",
+        "source": "ig"
+      }
+    },
+    {
       "id": "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway",
       "parent": "api/infra-stripe",
       "level": "code",
@@ -400,6 +436,42 @@
       },
       "title": {
         "value": "StripeGateway",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway.charge",
+      "parent": "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/infra/stripe/pay-gateway.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "method",
+        "source": "ig"
+      },
+      "title": {
+        "value": "charge",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway.refund",
+      "parent": "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/infra/stripe/pay-gateway.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "method",
+        "source": "ig"
+      },
+      "title": {
+        "value": "refund",
         "source": "ig"
       }
     },
@@ -422,8 +494,48 @@
       }
     },
     {
+      "id": "apps/api/src/routers/router.ts#Router.post",
+      "parent": "apps/api/src/routers/router.ts#Router",
+      "level": "code",
+      "madeOf": [
+        "apps/api/src/routers/router.ts"
+      ],
+      "package": "@shop/api",
+      "files": 1,
+      "kind": {
+        "value": "method",
+        "source": "ig"
+      },
+      "title": {
+        "value": "post",
+        "source": "ig"
+      }
+    },
+    {
       "id": "apps/web/pages/checkout.tsx#CheckoutPage",
       "parent": "web/pages",
+      "level": "code",
+      "madeOf": [
+        "apps/web/pages/checkout.tsx"
+      ],
+      "package": "@shop/web",
+      "files": 1,
+      "kind": {
+        "value": "component",
+        "source": "ig"
+      },
+      "title": {
+        "value": "CheckoutPage",
+        "source": "ig"
+      },
+      "logo": {
+        "value": "react",
+        "source": "ig"
+      }
+    },
+    {
+      "id": "apps/web/pages/checkout.tsx#CheckoutPage.pay",
+      "parent": "apps/web/pages/checkout.tsx#CheckoutPage",
       "level": "code",
       "madeOf": [
         "apps/web/pages/checkout.tsx"
@@ -435,7 +547,7 @@
         "source": "ig"
       },
       "title": {
-        "value": "CheckoutPage",
+        "value": "pay",
         "source": "ig"
       }
     },
@@ -501,7 +613,7 @@
         "source": "ig"
       },
       "title": {
-        "value": "shopfix",
+        "value": "shopfx",
         "source": "ig"
       },
       "needsReading": true
@@ -829,214 +941,270 @@
   "placed": {
     "frames": {
       "api": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 456.0,
+        "y": 96.0,
         "w": 264.0,
         "h": 152.0
       },
       "api-client": {
-        "x": 360.0,
-        "y": 48.0,
+        "x": 276.0,
+        "y": 344.0,
         "w": 264.0,
         "h": 152.0
       },
       "api-client/root": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/application-checkout": {
-        "x": 564.0,
-        "y": 296.0,
+        "x": 1028.0,
+        "y": 392.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/application-ports": {
-        "x": 96.0,
-        "y": 520.0,
+        "x": 488.0,
+        "y": 664.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/application-refund": {
-        "x": 1032.0,
-        "y": 520.0,
+        "x": 1568.0,
+        "y": 664.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/domain-order": {
-        "x": 416.0,
-        "y": 520.0,
+        "x": 856.0,
+        "y": 664.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/domain-payment": {
-        "x": 712.0,
-        "y": 520.0,
+        "x": 1200.0,
+        "y": 664.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/infra-prisma": {
-        "x": 416.0,
-        "y": 72.0,
+        "x": 120.0,
+        "y": 540.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/infra-stripe": {
-        "x": 416.0,
-        "y": 768.0,
+        "x": 1028.0,
+        "y": 120.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/root": {
-        "x": 712.0,
-        "y": 768.0,
+        "x": 1936.0,
+        "y": 540.0,
         "w": 248.0,
         "h": 152.0
       },
       "api/routers": {
-        "x": 712.0,
-        "y": 72.0,
+        "x": 1028.0,
+        "y": 960.0,
         "w": 248.0,
         "h": 152.0
       },
       "apps/api/src/application/checkout/checkout.ts#checkout": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "apps/api/src/application/refund/refund.ts#refund": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "apps/api/src/domain/order/order.ts#Order": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/domain/order/order.ts#Order.constructor": {
+        "x": 96.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "apps/api/src/domain/order/order.ts#loadOrder": {
-        "x": 316.0,
-        "y": 48.0,
+        "x": 412.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "apps/api/src/domain/payment/payment.ts#total": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo.save": {
+        "x": 96.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway.charge": {
+        "x": 96.0,
+        "y": 96.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway.refund": {
+        "x": 412.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "apps/api/src/routers/router.ts#Router": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/api/src/routers/router.ts#Router.post": {
+        "x": 96.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "apps/web/pages/checkout.tsx#CheckoutPage": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
+        "w": 220.0,
+        "h": 112.0
+      },
+      "apps/web/pages/checkout.tsx#CheckoutPage.pay": {
+        "x": 96.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "packages/api-client/src/index.ts#request": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
         "w": 220.0,
         "h": 112.0
       },
       "postgres": {
-        "x": 672.0,
-        "y": 48.0,
+        "x": 816.0,
+        "y": 96.0,
         "w": 264.0,
         "h": 152.0
       },
       "stripe": {
-        "x": 672.0,
-        "y": 248.0,
+        "x": 816.0,
+        "y": 344.0,
         "w": 264.0,
         "h": 152.0
       },
       "web": {
-        "x": 204.0,
-        "y": 248.0,
+        "x": 96.0,
+        "y": 96.0,
         "w": 264.0,
         "h": 152.0
       },
       "web/pages": {
-        "x": 48.0,
-        "y": 48.0,
+        "x": 96.0,
+        "y": 96.0,
         "w": 248.0,
         "h": 152.0
       }
     },
     "inner": {
       "api": [
-        1376.0,
-        992.0
+        2304.0,
+        1232.0
       ],
       "api-client": [
-        344.0,
-        248.0
+        440.0,
+        344.0
       ],
       "api-client/root": [
-        316.0,
-        208.0
+        412.0,
+        304.0
       ],
       "api/application-checkout": [
-        316.0,
-        208.0
+        412.0,
+        304.0
       ],
       "api/application-refund": [
-        316.0,
-        208.0
+        412.0,
+        304.0
       ],
       "api/domain-order": [
-        584.0,
-        208.0
+        728.0,
+        304.0
       ],
       "api/domain-payment": [
-        316.0,
-        208.0
+        412.0,
+        304.0
       ],
       "api/infra-prisma": [
-        316.0,
-        208.0
+        412.0,
+        304.0
       ],
       "api/infra-stripe": [
-        316.0,
-        208.0
+        412.0,
+        304.0
       ],
       "api/routers": [
-        316.0,
-        208.0
+        412.0,
+        304.0
+      ],
+      "apps/api/src/domain/order/order.ts#Order": [
+        412.0,
+        304.0
+      ],
+      "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo": [
+        412.0,
+        304.0
+      ],
+      "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway": [
+        728.0,
+        304.0
+      ],
+      "apps/api/src/routers/router.ts#Router": [
+        412.0,
+        304.0
+      ],
+      "apps/web/pages/checkout.tsx#CheckoutPage": [
+        412.0,
+        304.0
       ],
       "system": [
-        984.0,
-        448.0
+        1176.0,
+        592.0
       ],
       "web": [
-        344.0,
-        248.0
+        440.0,
+        344.0
       ],
       "web/pages": [
-        316.0,
-        208.0
+        412.0,
+        304.0
       ]
     },
     "regions": [
@@ -1045,9 +1213,9 @@
         "kind": "ring",
         "label": "domain",
         "frame": {
-          "x": 392.0,
-          "y": 496.0,
-          "w": 592.0,
+          "x": 832.0,
+          "y": 640.0,
+          "w": 640.0,
           "h": 200.0
         }
       },
@@ -1056,10 +1224,10 @@
         "kind": "ring",
         "label": "application",
         "frame": {
-          "x": 72.0,
-          "y": 272.0,
-          "w": 1232.0,
-          "h": 448.0
+          "x": 464.0,
+          "y": 368.0,
+          "w": 1376.0,
+          "h": 496.0
         }
       },
       {
@@ -1067,555 +1235,518 @@
         "kind": "ring",
         "label": "infrastructure",
         "frame": {
-          "x": 48.0,
-          "y": 48.0,
-          "w": 1280.0,
-          "h": 896.0
+          "x": 96.0,
+          "y": 96.0,
+          "w": 2112.0,
+          "h": 1040.0
         }
       }
     ],
     "routes": {
       "api->postgres": [
         [
-          312.0,
-          124.0
+          720.0,
+          149.2
         ],
         [
-          321.0,
-          124.0
+          804.0,
+          149.2
         ],
         [
-          321.0,
-          132.0
+          804.0,
+          172.0
         ],
         [
-          348.0,
-          132.0
-        ],
-        [
-          348.0,
-          36.0
-        ],
-        [
-          660.0,
-          36.0
-        ],
-        [
-          660.0,
-          124.0
-        ],
-        [
-          671.0,
-          124.0
+          815.0,
+          172.0
         ]
       ],
       "api->stripe": [
         [
-          312.0,
-          124.0
+          720.0,
+          194.79999
         ],
         [
-          327.0,
-          124.0
+          804.0,
+          194.79999
         ],
         [
-          327.0,
-          222.0
+          804.0,
+          420.0
         ],
         [
-          660.0,
-          222.0
-        ],
-        [
-          660.0,
-          324.0
-        ],
-        [
-          671.0,
-          324.0
+          815.0,
+          420.0
         ]
       ],
       "api/application-checkout->api/application-ports": [
         [
-          564.0,
-          372.0
+          1028.0,
+          490.8
         ],
         [
-          363.0,
-          372.0
+          756.0,
+          490.8
         ],
         [
-          363.0,
-          596.0
+          756.0,
+          709.6
         ],
         [
-          345.0,
-          596.0
+          737.0,
+          709.6
         ]
       ],
       "api/application-checkout->api/domain-order": [
         [
-          688.0,
-          448.0
+          1102.4,
+          544.0
         ],
         [
-          688.0,
-          462.0
+          1102.4,
+          636.0
         ],
         [
-          675.0,
-          462.0
+          980.0,
+          636.0
         ],
         [
-          675.0,
-          483.0
-        ],
-        [
-          540.0,
-          483.0
-        ],
-        [
-          540.0,
-          519.0
+          980.0,
+          663.0
         ]
       ],
       "api/application-checkout->api/domain-payment": [
         [
-          688.0,
-          448.0
+          1201.6,
+          544.0
         ],
         [
-          688.0,
-          468.0
+          1201.6,
+          636.0
         ],
         [
-          681.0,
-          468.0
+          1324.0,
+          636.0
         ],
         [
-          681.0,
-          489.0
-        ],
-        [
-          836.0,
-          489.0
-        ],
-        [
-          836.0,
-          519.0
+          1324.0,
+          663.0
         ]
       ],
       "api/application-checkout->api/infra-prisma": [
         [
-          688.0,
-          296.0
+          1028.0,
+          445.2
         ],
         [
-          688.0,
-          270.0
+          396.0,
+          445.2
         ],
         [
-          684.0,
-          270.0
+          396.0,
+          579.52
         ],
         [
-          684.0,
-          249.0
-        ],
-        [
-          540.0,
-          249.0
-        ],
-        [
-          540.0,
-          225.0
+          369.0,
+          579.52
         ]
       ],
       "api/application-checkout->api/infra-stripe": [
         [
-          688.0,
-          448.0
+          1152.0,
+          392.0
         ],
         [
-          688.0,
-          474.0
+          1152.0,
+          294.0
         ],
         [
-          687.0,
-          474.0
+          1133.4,
+          294.0
         ],
         [
-          687.0,
-          750.0
-        ],
-        [
-          540.0,
-          750.0
-        ],
-        [
-          540.0,
-          767.0
+          1133.4,
+          273.0
         ]
       ],
       "api/application-ports->api/domain-order": [
         [
-          344.0,
-          596.0
+          736.0,
+          740.0
         ],
         [
-          369.0,
-          596.0
+          825.0,
+          740.0
         ],
         [
-          369.0,
-          585.0
+          825.0,
+          770.4
         ],
         [
-          393.0,
-          585.0
-        ],
-        [
-          393.0,
-          596.0
-        ],
-        [
-          415.0,
-          596.0
+          855.0,
+          770.4
         ]
       ],
       "api/application-refund->api/application-ports": [
         [
-          1032.0,
-          596.0
+          1568.0,
+          717.2
         ],
         [
-          1017.0,
-          596.0
+          1476.0,
+          717.2
         ],
         [
-          1017.0,
-          588.0
+          1476.0,
+          828.0
         ],
         [
-          969.0,
-          588.0
+          756.0,
+          828.0
         ],
         [
-          969.0,
-          684.0
+          756.0,
+          770.4
         ],
         [
-          375.0,
-          684.0
-        ],
-        [
-          375.0,
-          596.0
-        ],
-        [
-          345.0,
-          596.0
+          737.0,
+          770.4
         ]
       ],
       "api/application-refund->api/infra-stripe": [
         [
-          1032.0,
-          596.0
+          1692.0,
+          664.0
         ],
         [
-          1023.0,
-          596.0
+          1692.0,
+          300.0
         ],
         [
-          1023.0,
-          756.0
+          1207.8,
+          300.0
         ],
         [
-          693.0,
-          756.0
-        ],
-        [
-          693.0,
-          844.0
-        ],
-        [
-          665.0,
-          844.0
+          1207.8,
+          273.0
         ]
       ],
       "api/domain-order->api/infra-prisma": [
         [
-          540.0,
-          520.0
+          856.0,
+          709.6
         ],
         [
-          540.0,
-          225.0
+          780.0,
+          709.6
+        ],
+        [
+          780.0,
+          597.76
+        ],
+        [
+          369.0,
+          597.76
         ]
       ],
       "api/domain-payment->api/domain-order": [
         [
-          712.0,
-          596.0
+          1200.0,
+          740.0
         ],
         [
-          684.0,
-          596.0
-        ],
-        [
-          665.0,
-          596.0
+          1105.0,
+          740.0
         ]
       ],
       "api/infra-prisma->api/application-ports": [
         [
-          540.0,
-          224.0
+          368.0,
+          616.0
         ],
         [
-          540.0,
-          255.0
+          468.0,
+          616.0
         ],
         [
-          228.0,
-          255.0
+          468.0,
+          740.0
         ],
         [
-          228.0,
-          492.0
-        ],
-        [
-          220.0,
-          492.0
-        ],
-        [
-          220.0,
-          519.0
+          487.0,
+          740.0
         ]
       ],
       "api/infra-prisma->api/domain-order": [
         [
-          540.0,
-          224.0
+          368.0,
+          634.24
         ],
         [
-          540.0,
-          276.0
+          831.0,
+          634.24
         ],
         [
-          516.0,
-          276.0
+          831.0,
+          740.0
         ],
         [
-          516.0,
-          495.0
-        ],
-        [
-          540.0,
-          495.0
-        ],
-        [
-          540.0,
-          519.0
+          855.0,
+          740.0
         ]
       ],
       "api/infra-stripe->api/application-ports": [
         [
-          416.0,
-          844.0
+          1096.2,
+          272.0
         ],
         [
-          399.0,
-          844.0
+          1096.2,
+          372.0
         ],
         [
-          399.0,
-          591.0
+          612.0,
+          372.0
         ],
         [
-          381.0,
-          591.0
-        ],
-        [
-          381.0,
-          596.0
-        ],
-        [
-          345.0,
-          596.0
+          612.0,
+          663.0
         ]
       ],
       "api/root->api/routers": [
         [
-          836.0,
-          768.0
+          1936.0,
+          616.0
         ],
         [
-          836.0,
-          762.0
+          1836.0,
+          616.0
         ],
         [
-          828.0,
-          762.0
+          1836.0,
+          1013.2
         ],
         [
-          828.0,
-          708.0
-        ],
-        [
-          996.0,
-          708.0
-        ],
-        [
-          996.0,
-          243.0
-        ],
-        [
-          836.0,
-          243.0
-        ],
-        [
-          836.0,
-          225.0
+          1277.0,
+          1013.2
         ]
       ],
       "api/routers->api/application-checkout": [
         [
-          836.0,
-          224.0
+          1114.8,
+          960.0
         ],
         [
-          836.0,
-          249.0
+          1114.8,
+          564.0
         ],
         [
-          822.0,
-          249.0
+          1152.0,
+          564.0
         ],
         [
-          822.0,
-          276.0
-        ],
-        [
-          688.0,
-          276.0
-        ],
-        [
-          688.0,
-          295.0
+          1152.0,
+          545.0
         ]
       ],
       "api/routers->api/application-refund": [
         [
-          836.0,
-          224.0
+          1276.0,
+          1058.8
         ],
         [
-          836.0,
-          255.0
+          1548.0,
+          1058.8
         ],
         [
-          828.0,
-          255.0
+          1548.0,
+          762.8
         ],
         [
-          828.0,
-          501.0
-        ],
-        [
-          1156.0,
-          501.0
-        ],
-        [
-          1156.0,
-          519.0
+          1567.0,
+          762.8
         ]
       ],
       "api/routers->api/infra-prisma": [
         [
-          712.0,
-          148.0
+          1028.0,
+          1036.0
         ],
         [
-          684.0,
-          148.0
+          396.0,
+          1036.0
         ],
         [
-          665.0,
-          148.0
+          396.0,
+          652.48
+        ],
+        [
+          369.0,
+          652.48
         ]
       ],
       "api/routers->api/infra-stripe": [
         [
-          836.0,
-          224.0
+          1189.2,
+          960.0
         ],
         [
-          836.0,
-          261.0
+          1189.2,
+          564.0
         ],
         [
-          834.0,
-          261.0
+          1308.0,
+          564.0
         ],
         [
-          834.0,
-          282.0
+          1308.0,
+          324.0
         ],
         [
-          975.0,
-          282.0
+          1188.0,
+          324.0
         ],
         [
-          975.0,
-          732.0
+          1188.0,
+          306.0
         ],
         [
-          540.0,
-          732.0
+          1170.6,
+          306.0
         ],
         [
-          540.0,
-          767.0
+          1170.6,
+          273.0
         ]
       ],
       "web->api": [
         [
-          336.0,
-          248.0
+          360.0,
+          172.0
         ],
         [
-          336.0,
-          228.0
-        ],
-        [
-          180.0,
-          228.0
-        ],
-        [
-          180.0,
-          201.0
+          455.0,
+          172.0
         ]
       ],
       "web->api-client": [
         [
-          336.0,
+          228.0,
           248.0
         ],
         [
-          336.0,
-          234.0
+          228.0,
+          324.0
         ],
         [
-          492.0,
-          234.0
+          408.0,
+          324.0
         ],
         [
-          492.0,
-          201.0
+          408.0,
+          343.0
         ]
       ]
     }
   },
+  "sources": {
+    "apps/api/src/application/checkout/checkout.ts#checkout": {
+      "file": "apps/api/src/application/checkout/checkout.ts",
+      "line": 6,
+      "text": "export async function checkout(orderRepo: OrderRepo, pay: PayGateway, items: Order[]) {\n  for (const item of items) await orderRepo.save(item);\n  return pay.charge(total(items));\n}",
+      "complexity": 2
+    },
+    "apps/api/src/application/refund/refund.ts#refund": {
+      "file": "apps/api/src/application/refund/refund.ts",
+      "line": 3,
+      "text": "export async function refund(pay: PayGateway, orderId: string) {\n  await pay.refund(orderId);\n}",
+      "complexity": 1
+    },
+    "apps/api/src/domain/order/order.ts#Order": {
+      "file": "apps/api/src/domain/order/order.ts",
+      "line": 4,
+      "text": "export class Order {\n  constructor(public id: string, public amount: number) {}\n}",
+      "complexity": 1
+    },
+    "apps/api/src/domain/order/order.ts#Order.constructor": {
+      "file": "apps/api/src/domain/order/order.ts",
+      "line": 5,
+      "text": "  constructor(public id: string, public amount: number) {}",
+      "complexity": 1
+    },
+    "apps/api/src/domain/order/order.ts#loadOrder": {
+      "file": "apps/api/src/domain/order/order.ts",
+      "line": 8,
+      "text": "export function loadOrder(id: string) {\n  return prisma.order.findUnique({ where: { id } });\n}",
+      "complexity": 1
+    },
+    "apps/api/src/domain/payment/payment.ts#total": {
+      "file": "apps/api/src/domain/payment/payment.ts",
+      "line": 3,
+      "text": "export function total(items: Order[]) {\n  return items.reduce((sum, o) => sum + o.amount, 0);\n}",
+      "complexity": 1
+    },
+    "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo": {
+      "file": "apps/api/src/infra/prisma/order-repo.ts",
+      "line": 5,
+      "text": "export class PrismaOrderRepo implements OrderRepo {\n  async save(order: Order) {\n    await prisma.order.create({ data: order });\n  }\n}",
+      "complexity": 1
+    },
+    "apps/api/src/infra/prisma/order-repo.ts#PrismaOrderRepo.save": {
+      "file": "apps/api/src/infra/prisma/order-repo.ts",
+      "line": 6,
+      "text": "  async save(order: Order) {\n    await prisma.order.create({ data: order });\n  }",
+      "complexity": 1
+    },
+    "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway": {
+      "file": "apps/api/src/infra/stripe/pay-gateway.ts",
+      "line": 6,
+      "text": "export class StripeGateway implements PayGateway {\n  async charge(amount: number) {\n    const intent = await stripe.paymentIntents.create({ amount, currency: 'eur' });\n    return intent.id;\n  }\n  async refund(id: string) {\n    await stripe.refunds.create({ payment_intent: id });\n  }\n}",
+      "complexity": 1
+    },
+    "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway.charge": {
+      "file": "apps/api/src/infra/stripe/pay-gateway.ts",
+      "line": 7,
+      "text": "  async charge(amount: number) {\n    const intent = await stripe.paymentIntents.create({ amount, currency: 'eur' });\n    return intent.id;\n  }",
+      "complexity": 1
+    },
+    "apps/api/src/infra/stripe/pay-gateway.ts#StripeGateway.refund": {
+      "file": "apps/api/src/infra/stripe/pay-gateway.ts",
+      "line": 11,
+      "text": "  async refund(id: string) {\n    await stripe.refunds.create({ payment_intent: id });\n  }",
+      "complexity": 1
+    },
+    "apps/api/src/routers/router.ts#Router": {
+      "file": "apps/api/src/routers/router.ts",
+      "line": 1,
+      "text": "export class Router {\n  post(path: string, handler: (body: any) => unknown) {\n    return { path, handler };\n  }\n}",
+      "complexity": 1
+    },
+    "apps/api/src/routers/router.ts#Router.post": {
+      "file": "apps/api/src/routers/router.ts",
+      "line": 2,
+      "text": "  post(path: string, handler: (body: any) => unknown) {\n    return { path, handler };\n  }",
+      "complexity": 1
+    },
+    "apps/web/pages/checkout.tsx#CheckoutPage": {
+      "file": "apps/web/pages/checkout.tsx",
+      "line": 3,
+      "text": "export default function CheckoutPage() {\n  const pay = () => request('/checkout', { method: 'POST' });\n  return <button onClick={pay}>Pay</button>;\n}",
+      "complexity": 1
+    },
+    "apps/web/pages/checkout.tsx#CheckoutPage.pay": {
+      "file": "apps/web/pages/checkout.tsx",
+      "line": 4,
+      "text": "  const pay = () => request('/checkout', { method: 'POST' });",
+      "complexity": 1
+    },
+    "packages/api-client/src/index.ts#request": {
+      "file": "packages/api-client/src/index.ts",
+      "line": 1,
+      "text": "export async function request(path: string, init: { method?: string; body?: unknown } = {}) {\n  const res = await fetch(path, { method: init.method ?? 'GET', body: JSON.stringify(init.body) });\n  return res.json();\n}",
+      "complexity": 2
+    }
+  },
+  "parts": {},
   "notices": []
 }

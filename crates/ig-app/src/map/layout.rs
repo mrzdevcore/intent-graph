@@ -3,7 +3,7 @@
 //! and each arrow routed through the gutters between its siblings.
 
 use super::file::{MapBox, is_unread, slots};
-use super::route::{Grid, lanes};
+use super::route::{Grid, lanes, ports};
 use super::{BoxKind, Level, MapArrow, Pattern};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -70,13 +70,19 @@ pub struct Placed {
 }
 
 /// The least space between two boxes, and around the inside of a parent.
-pub(crate) const GUTTER: f32 = 48.0;
+pub(crate) const GUTTER: f32 = 96.0;
 /// A ring's or band's margin around its boxes.
 const PAD: f32 = 24.0;
 /// The shape every inside aims for, width over height: a screen's, near the boxes' own.
 const WIDE: f32 = 1.6;
 /// How much worse too tall is than too wide (see `Lay::skew`).
 const TALL: f32 = 1.4;
+/// How many times `untangle` goes over every trade at most.
+const UNTANGLE: usize = 6;
+/// What a box an arrow cuts through costs, against 1 for two arrows crossing.
+const THROUGH: f32 = 1.5;
+/// The arrow length that costs as much as two arrows crossing.
+const LONG: f32 = 1200.0;
 /// The width of the people's and the outside systems' rows.
 const ROW: usize = 6;
 const CHIP: (f32, f32) = (120.0, 40.0);
@@ -119,6 +125,7 @@ pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
             cx: BTreeMap::new(),
             frames: vec![],
             regions: vec![],
+            groups: vec![],
         };
         let pattern = by_id
             .get(parent)
@@ -128,6 +135,7 @@ pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
             Some(b) if b.level == Level::System || b.parent.is_none() => l.system(kids),
             _ => l.pattern(parent, pattern, kids),
         }
+        l.untangle();
         let (w, h) = l.normalize();
         placed.inner.insert(parent.to_string(), (w, h));
         for (id, f) in l.frames {
@@ -157,16 +165,20 @@ pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
         let inner = placed.inner.get(parent).copied().unwrap_or_default();
         let mut grid = Grid::new(&siblings, inner);
         let mut routes = vec![];
+        let mut ends = vec![];
         for a in arrows {
-            let (Some(from), Some(to)) = (placed.frames.get(&a.from), placed.frames.get(&a.to))
-            else {
-                notices.push(format!(
+            match (placed.frames.get(&a.from), placed.frames.get(&a.to)) {
+                (Some(from), Some(to)) => ends.push((a, *from, *to)),
+                _ => notices.push(format!(
                     "map: arrow `{}` has an end with no place; not drawn",
                     a.id
-                ));
-                continue;
-            };
-            let r = grid.route(from, to).unwrap_or_else(|| {
+                )),
+            }
+        }
+        let at = ports(&ends.iter().map(|e| (e.1, e.2)).collect::<Vec<_>>());
+        for ((a, from, to), (s, e)) in ends.into_iter().zip(at) {
+            let (from, to) = (&from, &to);
+            let r = grid.route(from, to, s, e).unwrap_or_else(|| {
                 notices.push(format!(
                     "map: no clear path for arrow `{}`; drawn straight",
                     a.id
@@ -179,6 +191,35 @@ pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
         placed.routes.extend(routes);
     }
     (placed, notices)
+}
+
+/// Whether segments pq and rs cross at a point inside both.
+fn crosses(p: (f32, f32), q: (f32, f32), r: (f32, f32), s: (f32, f32)) -> bool {
+    let side = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| {
+        ((b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)).signum()
+    };
+    side(p, q, r) * side(p, q, s) < 0.0 && side(r, s, p) * side(r, s, q) < 0.0
+}
+
+/// Whether segment pq runs through frame `f` (its edges not counted).
+fn cuts(p: (f32, f32), q: (f32, f32), f: &Frame) -> bool {
+    let (mut t0, mut t1) = (0.0f32, 1.0f32);
+    let d = (q.0 - p.0, q.1 - p.1);
+    for (dp, lo, hi) in [
+        (d.0, f.x - p.0, f.right() - p.0),
+        (d.1, f.y - p.1, f.bottom() - p.1),
+    ] {
+        if dp == 0.0 {
+            if lo >= 0.0 || hi <= 0.0 {
+                return false;
+            }
+        } else {
+            let (a, b) = (lo / dp, hi / dp);
+            t0 = t0.max(a.min(b));
+            t1 = t1.min(a.max(b));
+        }
+    }
+    t0 < t1
 }
 
 /// From the middle of `from`'s bottom to 1 short of `to`'s side, in two segments.
@@ -196,6 +237,9 @@ struct Lay<'a> {
     cx: BTreeMap<&'a str, f32>,
     frames: Vec<(&'a str, Frame)>,
     regions: Vec<(RegionKind, String, Frame)>,
+    /// The runs of `frames` placed together (start, end, any two may trade places: a grid's;
+    /// else only two of one size: a column's), for `untangle`.
+    groups: Vec<(usize, usize, bool)>,
 }
 
 impl<'a> Lay<'a> {
@@ -252,6 +296,7 @@ impl<'a> Lay<'a> {
             return None;
         }
         let items = self.order(items);
+        let start = self.frames.len();
         let sizes: Vec<(f32, f32)> = items.iter().map(|b| size(b)).collect();
         let cw = sizes.iter().map(|s| s.0).fold(0.0, f32::max);
         let rows: Vec<&[(f32, f32)]> = sizes.chunks(cols).collect();
@@ -279,6 +324,7 @@ impl<'a> Lay<'a> {
             }
             y += rh + GUTTER;
         }
+        self.groups.push((start, self.frames.len(), true));
         bounds
     }
 
@@ -329,6 +375,7 @@ impl<'a> Lay<'a> {
     fn column(&mut self, items: Vec<&'a MapBox>, x: f32, top: f32) -> Option<Frame> {
         let mut y = top;
         let mut bounds: Option<Frame> = None;
+        let start = self.frames.len();
         for b in self.order(items) {
             let (w, h) = size(b);
             let f = Frame { x, y, w, h };
@@ -336,6 +383,7 @@ impl<'a> Lay<'a> {
             bounds = Some(bounds.map_or(f, |b| b.union(&f)));
             y += h + GUTTER;
         }
+        self.groups.push((start, self.frames.len(), false));
         bounds
     }
 
@@ -403,6 +451,99 @@ impl<'a> Lay<'a> {
                 l.put(&u.id, Frame { x, y, w, h });
             });
         }
+    }
+
+    /// Boxes of one group trade places while that leaves the arrows between them all less
+    /// tangled (see `tangle`), each drawn straight between box centres; the first trade found
+    /// better is kept, until none is.
+    fn untangle(&mut self) {
+        let at: BTreeMap<&str, usize> = (self.frames.iter().enumerate())
+            .map(|(i, f)| (f.0, i))
+            .collect();
+        let mut edges = vec![];
+        for (i, (id, _)) in self.frames.iter().enumerate() {
+            for n in self.near.get(id).into_iter().flatten() {
+                match at.get(n) {
+                    Some(&j) if j > i => edges.push((i, j)),
+                    _ => {}
+                }
+            }
+        }
+        if edges.len() < 2 {
+            return;
+        }
+        let mut best = self.tangle(&edges);
+        for _ in 0..UNTANGLE {
+            let mut better = false;
+            for (start, end, any) in self.groups.clone() {
+                for i in start..end {
+                    for j in i + 1..end {
+                        let (a, b) = (self.frames[i].1, self.frames[j].1);
+                        if !any && (a.w, a.h) != (b.w, b.h) {
+                            continue;
+                        }
+                        self.trade(i, j);
+                        let t = self.tangle(&edges);
+                        if t < best - 1e-3 {
+                            (best, better) = (t, true);
+                        } else {
+                            self.trade(i, j);
+                        }
+                    }
+                }
+            }
+            if !better {
+                break;
+            }
+        }
+    }
+
+    /// Boxes `i` and `j` swap centres.
+    fn trade(&mut self, i: usize, j: usize) {
+        let (a, b) = (self.frames[i].1, self.frames[j].1);
+        let c = |f: &Frame| (f.x + f.w / 2.0, f.y + f.h / 2.0);
+        let (ca, cb) = (c(&a), c(&b));
+        self.frames[i].1 = Frame {
+            x: cb.0 - a.w / 2.0,
+            y: cb.1 - a.h / 2.0,
+            ..a
+        };
+        self.frames[j].1 = Frame {
+            x: ca.0 - b.w / 2.0,
+            y: ca.1 - b.h / 2.0,
+            ..b
+        };
+        for k in [i, j] {
+            let (id, f) = self.frames[k];
+            self.cx.insert(id, f.x + f.w / 2.0);
+        }
+    }
+
+    /// How tangled the arrows `edges` (pairs of frame indexes) are, drawn straight between box
+    /// centres: 1 per two crossing, `THROUGH` per box one cuts through, and their length.
+    fn tangle(&self, edges: &[(usize, usize)]) -> f32 {
+        let c = |i: usize| {
+            let f = self.frames[i].1;
+            (f.x + f.w / 2.0, f.y + f.h / 2.0)
+        };
+        let segs: Vec<_> = edges.iter().map(|&(a, b)| (c(a), c(b))).collect();
+        let mut t = 0.0;
+        for (k, &(a, b)) in edges.iter().enumerate() {
+            let (p, q) = segs[k];
+            t += ((q.0 - p.0).abs() + (q.1 - p.1).abs()) / LONG;
+            for (m, &(e, g)) in edges.iter().enumerate().skip(k + 1) {
+                let (r, s) = segs[m];
+                if ![a, b].contains(&e) && ![a, b].contains(&g) && crosses(p, q, r, s) {
+                    t += 1.0;
+                }
+            }
+            for (i, (_, f)) in self.frames.iter().enumerate() {
+                if i != a && i != b && cuts(p, q, f) {
+                    t += THROUGH;
+                }
+            }
+        }
+        t
     }
 
     /// Moves the boxes placed from the `from`th on right by `dx`.

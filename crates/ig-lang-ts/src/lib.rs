@@ -2,6 +2,7 @@
 //! extraction, ast-grep `patterns`, tsconfig-aware resolution, `autoImports`, and checkout
 //! preparation. Fs-bound (oxc_resolver reads the tree).
 
+mod anatomy;
 mod autoimports;
 mod embedded;
 mod extract;
@@ -11,6 +12,7 @@ mod resolve;
 mod tsconfig;
 
 use ig_core::config::Config;
+use ig_core::model::Anatomy;
 use ig_core::ports::{FrontendOutput, LanguageFrontend, PortError};
 use ig_core::workspace::{SourceFile, WorkspaceInfo, is_source_ext};
 use std::path::Path;
@@ -50,6 +52,16 @@ impl LanguageFrontend for TsFrontend {
     /// The `autoImports` declaration files.
     fn cache_inputs(&self, root: &Path, config: &Config) -> Vec<String> {
         autoimports::files(root, &config.auto_imports).0
+    }
+
+    /// A single-file component (an `embedded` extension) is one; a .tsx or .jsx file holds its
+    /// React function components.
+    fn anatomy(&self, path: &str, source: &str, config: &Config) -> Vec<Anatomy> {
+        let lower = path.to_ascii_lowercase();
+        let sfc = (config.embedded.iter())
+            .find(|e| lower.ends_with(&e.to_ascii_lowercase()))
+            .map(String::as_str);
+        anatomy::read(path, source, sfc)
     }
 }
 

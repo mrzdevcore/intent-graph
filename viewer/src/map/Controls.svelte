@@ -1,8 +1,10 @@
-<!-- Over the map: the breadcrumb (top left), the layers toggles and zoom −, Fit, + (top right). -->
+<!-- Over the map: the breadcrumb (top left), the layers toggles, zoom −, Fit, + and, once boxes
+     were moved by hand, Reset layout (top right). -->
 <script lang="ts">
-  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit }: {
+  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void; onzoom: (f: number) => void; onfit: () => void;
+    onreset?: () => void;
   } = $props();
 </script>
 
@@ -14,6 +16,7 @@
 </nav>
 
 <div class="tools">
+  {#if onreset}<button type="button" onclick={onreset}>Reset layout</button>{/if}
   <details class="layers">
     <summary>Layers</summary>
     {#each layers as l (l)}

@@ -15,7 +15,9 @@ Design: `docs/superpowers/specs/2026-10-27-ig-system-map-design.md` · Plan:
    - **Outside services** come from the packages the code imports (Postgres, Redis, Stripe, Auth0,
      Sentry, about 25 known ones), or from `ig.yaml` declarations, which win.
    - **Components** come from folders. ig guesses the pattern from folder names: onion, layered,
-     hexagonal or none. Loose files get a "root" component.
+     hexagonal or none. Loose files get a "root" component. Deeper down, folders whose names
+     show a pattern (`domain/`, `application/`, `use-cases/`, `infrastructure/`…) are laid out
+     in its shape too.
    - **Arrows** are lifted to the right level, each with a kind: depends, calls, network, data,
      implements, or bundle.
    - **Calls inside loops** are flagged.
@@ -47,11 +49,45 @@ Design: `docs/superpowers/specs/2026-10-27-ig-system-map-design.md` · Plan:
 
 - **Boxes:** one component with four looks (system, container, component and code levels), real
   logos, and health colors where "healthy looks like nothing".
-- **Arrows:** right-angle routes that never cross a box or overlap, with label pills.
+- **As deep as the code goes:** below the components, the code level nests folders, files, classes,
+  functions and methods. A box holds at most 12; past that its items are grouped by subfolder or
+  file, else by name prefix, else alphabetically, and every group opens. enseignes.com goes 11
+  levels deep. Zoomed into, a function or method shows its code with line numbers; the details
+  card shows it too, with its file, line and complexity.
+- **Ansible trees:** in a repository with no code ig reads but with Ansible roles
+  (`**/roles/*/tasks`), `ig view` draws the roles instead (`map/ansible.rs`). Containers are where
+  roles deploy (`meta/targets.yml`; small targets put together, helpers apart), each role a
+  component (API, front, job, helper by its name), or past 12 roles per kind with each role a
+  folder inside. A role's tasks and files are its code level, with their YAML. Arrows: a task
+  including a role or rendering a template, a template's `*_API_HOST`/`*_URL` settings naming
+  another role, and the outside systems its settings name (`AUTH0_`, `ELASTIC_APM_`,
+  `DATABASE_`…). Read as text (Jinja is not YAML). The infrastructure repo: 75 roles, 701 boxes,
+  0.7 s.
+- **UI components:** a Vue single-file component (with `embedded: [".vue"]` in `ig.yaml`) or a
+  React function component is one box with its framework's logo. It opens onto its parts:
+  Inputs (props, emits, slots, models), State (refs, computed, data, watchers, `useState`…), Uses
+  (composables, stores, hooks), Template or Renders (the components it draws, with the template's
+  code), then its own functions. Read from the syntax by `ig-lang-ts` (`anatomy`): `<script
+  setup>`, the Options API and React hooks; a props type is resolved only in the same file.
+- **Arrows:** curves from the side of a box facing the other end to the opposite side of that
+  box, drawn by the viewer from where the boxes are, so they follow a box moved by hand. The boxes
+  of one grid trade places while that leaves fewer arrows crossing or cutting through boxes
+  (enseignes.com: about half the crossings). The arrows of one box side leave from separate
+  points, ordered by where their other end sits. A curve may pass over a box between its ends
+  (the right-angle routes `ig` computes are no longer drawn). They thicken with the edges they carry. At rest they are faint (a rule's
+  or risk's stays in full); the box or arrow under the pointer, or the selected box, lights its
+  own with their labels, above the boxes, and dims the others further.
+- **Zooming in:** lines, heads, labels, region names and an open box's header keep a steady size
+  on screen. A level far behind the box you are in stops drawing its arrows and regions, and an
+  open box keeps its title in a header above its inside. Only boxes on or near the screen are
+  drawn, from the deepest open box that covers the whole view, so zooming deep stays fast and
+  free of huge-scale jitter.
 - **Pattern shapes:** onion rings, layered bands and a hexagonal core. Insides are laid out wide,
   and people, containers and outside services stay apart at the top level.
 - **Navigation:** a smooth glide into any box, wheel or pinch zoom, drag to pan, a breadcrumb and
-  Fit.
+  Fit. Dragging a closed box moves it inside its parent; moves are kept per map in the browser
+  (localStorage) and Reset layout undoes them. A drag redraws only that box and its parent's
+  arrows; the map is laid out again once, on release.
 - **Details card:** health, what needs attention, connections, what the box is made of, and where
   each annotation came from.
 - **Controls:** layer toggles and keyboard support (Esc, focus).

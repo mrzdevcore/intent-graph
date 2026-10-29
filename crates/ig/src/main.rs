@@ -64,12 +64,13 @@ fn real_main() -> Result<u8> {
             } else {
                 let flag = match a.agent.as_deref() {
                     Some(n) => Some(Agent::parse(n).ok_or_else(|| {
-                        anyhow::anyhow!("--agent {n}: expected claude, gemini or codex")
+                        anyhow::anyhow!("--agent {n}: expected claude, gemini, codex or ollama")
                     })?),
                     None => None,
                 };
                 let mut confirm = agent::confirm;
-                let mut run = |ag: Agent, prompt: &str| agent::run(&root, ag, prompt);
+                let mut run =
+                    |ag: Agent, prompt: &str, ids: &[String]| agent::run(&root, ag, prompt, ids);
                 view::run_with(
                     &env,
                     Some(&mut Ask {

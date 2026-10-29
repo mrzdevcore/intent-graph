@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { flushSync, mount } from "svelte";
 import Map from "../src/map/Map.svelte";
 import { Camera } from "../src/map/glide";
@@ -37,7 +37,7 @@ test("gliding into api mounts its components and the failing rules arrow", () =>
   m.tick(800);
   flushSync();
   expect(box(target, "api/application-checkout")).not.toBeNull();
-  const line = target.querySelector(`[data-arrow="${CSS.escape("api/domain-order->api/infra-prisma")}"] polyline`)!;
+  const line = target.querySelector(`[data-arrow="${CSS.escape("api/domain-order->api/infra-prisma")}"] g[data-state] > path`)!;
   expect(line.getAttribute("stroke")).toBe("#c0392b");
   // still no code level: checkout's own inside is too small on screen
   expect(box(target, "apps/api/src/application/checkout/checkout.ts#checkout")).toBeNull();
@@ -124,4 +124,167 @@ test("a bad map (a parent loop, a duplicate id) neither hangs nor throws", () =>
   flushSync();
   expect(target.querySelectorAll(`[data-box="api"]`).length).toBe(1);
   expect(target.querySelector(`[data-box="api/application-checkout"]`)).not.toBeNull();
+});
+
+test("arrows rest faint; the box under the pointer lights its own, with labels, and dims the others", () => {
+  const { view, camera, target, m } = setup();
+  camera.to(fitTo(worldFrame("api", view), size), 0);
+  m.tick(800);
+  flushSync();
+  const id = "api/domain-order->api/infra-prisma";
+  expect(target.querySelector("[data-label]")).toBeNull();
+  const states = () => [...target.querySelectorAll("[data-arrow] g[data-state]")].map((g) => g.getAttribute("data-state"));
+  expect(new Set(states())).toEqual(new Set(["rest"]));
+  box(target, "api/domain-order")!.querySelector("button")!.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+  flushSync();
+  expect(target.querySelector(`[data-label="${CSS.escape(id)}"]`)).not.toBeNull();
+  const ids = [...target.querySelectorAll("[data-label]")].map((e) => e.getAttribute("data-label")!);
+  expect(ids.every((a) => a.split("->").includes("api/domain-order"))).toBe(true);
+  expect(states().filter((s) => s === "lit").length).toBe(ids.length);
+  expect(states().filter((s) => s === "dim").length).toBe(view.arrows.filter((a) => a.parent === "api").length - ids.length);
+});
+
+test("an open box's inside sits below its header", () => {
+  const { view } = setup();
+  const f = worldFrame("api", view), t = innerTransform("api", view);
+  expect(t.y - f.y).toBeGreaterThan(0);
+  const [, ih] = view.placed.inner["api"];
+  expect(t.y + ih * t.s).toBeLessThanOrEqual(f.y + f.h + 1e-6);
+});
+
+test("zoomed into a function, its box shows its code; the details card does too", () => {
+  const { view, camera, target, m } = setup();
+  const id = "apps/api/src/application/checkout/checkout.ts#checkout";
+  expect(box(target, id)?.querySelector("pre")).toBeFalsy();
+  camera.to(fitTo(worldFrame(id, view), size), 0);
+  m.tick(800);
+  flushSync();
+  const pre = box(target, id)!.querySelector("pre")!;
+  expect(pre.textContent).toContain("return pay.charge(total(items));");
+  expect(pre.querySelector(".ln")!.textContent).toBe("6");
+  box(target, id)!.querySelector("button")!.click();
+  flushSync();
+  const card = target.querySelector(".details")!;
+  expect(card.textContent).toContain("apps/api/src/application/checkout/checkout.ts:6");
+  expect(card.querySelector("pre")!.textContent).toContain("orderRepo.save(item)");
+});
+
+test("deep inside, only the covering box's inside is drawn, at a modest scale", () => {
+  const { view, camera, target, m } = setup();
+  const all = target.querySelectorAll("[data-box]").length;
+  const id = "apps/api/src/application/checkout/checkout.ts#checkout";
+  camera.to(fitTo(worldFrame(id, view), size), 0);
+  m.tick(800);
+  flushSync();
+  expect(box(target, id)).not.toBeNull();
+  expect(box(target, "stripe")).toBeNull(); // off screen, not drawn
+  expect(box(target, "api")).toBeNull(); // covers the view: only its inside is drawn
+  const k = Number((target.querySelector(".world") as HTMLElement).style.transform.match(/scale\(([\d.e+-]+)\)/)![1]);
+  expect(k).toBeLessThan(camera.cam.k);
+  expect(target.querySelectorAll("[data-box]").length).toBeLessThan(all + 10);
+});
+
+test("a React component is a box of its own; the details card lists a part box's parts", () => {
+  const { view, target, m, camera } = setup();
+  const id = "apps/web/pages/checkout.tsx#CheckoutPage";
+  expect(view.boxes.find((b) => b.id === id)!.kind.value).toBe("component");
+  view.parts = { [id]: [{ name: "open", kind: "useState", line: 4, detail: "false" }] };
+  camera.to(fitTo(worldFrame(view.boxes.find((b) => b.id === id)!.parent!, view), size), 0);
+  m.tick(800);
+  flushSync();
+  box(target, id)!.querySelector("button")!.click();
+  flushSync();
+  expect(target.querySelector(".details")!.textContent).toContain("useState open false");
+});
+
+test("dragging a closed box moves it and its arrows, keeps it, and Reset layout undoes it", () => {
+  // Node's own localStorage (unset without --localstorage-file) hides happy-dom's
+  const kept: Record<string, string> = {};
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => kept[k] ?? null, setItem: (k: string, v: string) => (kept[k] = v), removeItem: (k: string) => delete kept[k],
+  });
+  const { view, camera, target, m } = setup();
+  camera.to(fitTo(worldFrame("api", view), size), 0);
+  m.tick(800);
+  flushSync();
+  const id = "api/domain-order";
+  const slot = () => box(target, id) as HTMLElement;
+  const line = () => target.querySelector(`[data-arrow="${CSS.escape("api/domain-order->api/infra-prisma")}"] g[data-state] > path`)!.getAttribute("d");
+  const [left, before] = [slot().style.left, line()];
+  const k = innerTransform("api", view).s * camera.cam.k;
+  const btn = slot().querySelector("button")!;
+  btn.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 500, clientY: 400, bubbles: true }));
+  window.dispatchEvent(new PointerEvent("pointermove", { clientX: 500 - 20 * k, clientY: 400 }));
+  window.dispatchEvent(new PointerEvent("pointerup", {}));
+  flushSync();
+  expect(parseFloat(slot().style.left)).toBeCloseTo(parseFloat(left) - 20);
+  expect(line()).not.toBe(before);
+  // the camera did not pan, and the trailing click opened nothing
+  expect(camera.cam).toEqual(fitTo(worldFrame("api", view), size));
+  btn.click();
+  flushSync();
+  expect(target.querySelector(".details")).toBeNull();
+  expect(Object.keys(JSON.parse(kept["ig-moves:" + view.boxes.find((b) => b.id === "system")!.title.value]))).toEqual([id]);
+  (([...target.querySelectorAll(".tools button")].find((b) => b.textContent === "Reset layout")) as HTMLButtonElement).click();
+  flushSync();
+  expect(slot().style.left).toBe(left);
+  expect(kept).toEqual({});
+  vi.unstubAllGlobals();
+});
+
+/** A system of one container, `groups` boxes in a grid inside it, each holding `each` code boxes. */
+function big(groups: number, each: number): View {
+  const view: View = { version: 1, boxes: [], arrows: [], marks: [], notices: [], placed: { frames: {}, inner: {}, regions: [], routes: {} } };
+  const f = (title: string) => ({ value: title, source: "ig" as const });
+  const add = (id: string, parent: string | undefined, level: View["boxes"][0]["level"]) =>
+    view.boxes.push({ id, parent, level, madeOf: [], files: 1, kind: f("folder") as never, title: f(id) });
+  add("system", undefined, "system");
+  add("c", "system", "container");
+  view.placed.inner.system = [1000, 800];
+  view.placed.frames.c = { x: 0, y: 0, w: 1000, h: 800 };
+  view.placed.inner.c = [1000, 800];
+  for (let g = 0; g < groups; g++) {
+    const id = `c/g${g}`;
+    add(id, "c", "component");
+    view.placed.frames[id] = { x: (g % 4) * 250, y: Math.floor(g / 4) * 200, w: 200, h: 150 };
+    view.placed.inner[id] = [400, 300];
+    if (g) view.arrows.push({ id: `c/g0->${id}`, parent: "c", from: "c/g0", to: id, kind: "uses", count: 1, kinds: ["uses"] });
+    for (let i = 0; i < each; i++) {
+      add(`${id}/b${i}`, id, "code");
+      view.placed.frames[`${id}/b${i}`] = { x: (i % 20) * 20, y: Math.floor(i / 20) * 20, w: 15, h: 15 };
+    }
+  }
+  return view;
+}
+
+test("dragging a box in a map of thousands stays well inside a frame", () => {
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  const view = big(12, 400);
+  const camera = new Camera(), target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(Map, { target, props: { view, camera, size } });
+  flushSync();
+  camera.to(fitTo(worldFrame("c", view), size), 0);
+  m.tick(800);
+  flushSync();
+  const left = (box(target, "c/g5") as HTMLElement).style.left;
+  const btn = box(target, "c/g5")!.querySelector("button")!;
+  btn.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 500, clientY: 400, bubbles: true }));
+  window.dispatchEvent(new PointerEvent("pointermove", { clientX: 510, clientY: 400 }));
+  flushSync();
+  const t0 = performance.now();
+  for (let i = 0; i < 30; i++) {
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 510 + i, clientY: 400 + i }));
+    flushSync();
+  }
+  const each = (performance.now() - t0) / 30;
+  const t1 = performance.now();
+  window.dispatchEvent(new PointerEvent("pointerup", {}));
+  flushSync();
+  // letting go lays the whole map out again, once
+  const drop = performance.now() - t1;
+  vi.unstubAllGlobals();
+  expect((box(target, "c/g5") as HTMLElement).style.left).not.toBe(left);
+  expect(each).toBeLessThan(8);
+  expect(drop).toBeLessThan(100);
 });

@@ -77,7 +77,8 @@ export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>) {
   const s = hit ? STATE[hit.state as Exclude<MarkState, "ok">] : null;
   return {
     color: s?.edge ?? base.color,
-    width: s ? 2.5 : 1.5,
+    // thicker the more edges it lifts: 1 → +0, 10 → +0.75, 100 and more → +1.5
+    width: (s ? 2.5 : 1.5) + Math.min(1.5, 0.75 * Math.log10(Math.max(1, arrow.count))),
     dash: base.dash,
     head: base.head,
     label: arrow.label ?? hit?.badge ?? null,

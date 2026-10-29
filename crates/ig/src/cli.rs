@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 pub const USAGE: &str = "usage: ig [--version] | init [claude|codex|all]
-   | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex] | mcp | plugin export <dir>
+   | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|ollama] | mcp | plugin export <dir>
    (all accept --root <dir>)";
 
 #[derive(Default)]
