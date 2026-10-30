@@ -31,7 +31,7 @@ Desktop app: see [Desktop app (local build)](#desktop-app-local-build). The work
 
 ## Desktop app (local build)
 
-`crates/ig-desktop` is a Tauri 2 app: a shell with a chat panel that runs Claude Code on your project. The map will come to the app in a later iteration; for now its map area is a placeholder (use `ig view` for the map).
+`crates/ig-desktop` is a Tauri 2 app: the map, editable (boxes, arrows, rename, move, delete, undo), beside a chat panel that runs Claude Code on your project. `ig .` (or `ig app [<dir>]`) opens it on a folder: it runs `$IG_APP` if set, else the app built next to this `ig` (`target/<profile>/ig-desktop`), else the installed `ig.app`.
 It is built locally and not distributed (no signing, no auto-update), pending Anthropic's written confirmation.
 
 ```sh
@@ -51,7 +51,8 @@ The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in developmen
 ## Quick start
 
 ```sh
-ig init            # ig.yaml, the explore and view skills, an AGENTS.md snippet, .gitignore entries
+ig init            # ig.yaml, ig/ (an empty system in an empty repo), the skills, an AGENTS.md snippet, .gitignore entries
+ig .               # open the desktop app on this folder
 ig view            # build the map, write .ig/view.html and open it
 ig view --read     # the same, and let an AI agent read the architecture first
 ```
