@@ -1,5 +1,8 @@
 # ig: a linter for system design, and a map to build on
 
+> **Replaced** by `2026-10-30-ig-core-model-design.md`: the separate "change" became an edit to `ig.kdl`, the spec of the intended architecture. Kept for the decisions it records.
+
+
 Status: design, not implemented. Date: 2026-10-29. Replaces the add-only draft of this file and
 `2026-10-25-ig-design-workspace-design.md`. Mockups: the "Design mode" row of the design canvas
 (the design canvas); they predate the multi-repo and refactoring

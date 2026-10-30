@@ -1,0 +1,41 @@
+# The shop, as ig's model. Ids are stable; `at` is where the code lives.
+system: shop
+children:
+  - app: web
+    tech: Next.js
+    at: web/**
+    calls: [{to: api, label: POST /checkout}]
+
+  - service: api
+    tech: NestJS
+    at: api/**
+    owner: team-orders
+    children:
+      - usecase: checkout
+        at: src/checkout/**
+        depends: [order]
+        calls: [payments]
+      - usecase: refund
+        at: src/refund/**
+        moved-to: billing
+        calls: [payments]
+      - domain: order
+        at: src/domain/order/**
+      - port: payments
+        at: src/ports/payments.ts
+        calls: [{to: stripe, label: "charge, refund"}]
+
+  # planned: refunds get their own service
+  - service: billing
+    tech: NestJS
+    at: billing/**
+    planned: true
+    children:
+      - usecase: refund
+        at: src/refund/**
+        calls: [{to: stripe, label: refund}]
+
+  - store: postgres
+    tech: PostgreSQL
+    telemetry: {p95-ms: 12, errors-per-min: 0}
+  - external: stripe

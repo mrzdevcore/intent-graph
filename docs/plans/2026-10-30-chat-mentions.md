@@ -1,5 +1,8 @@
 # @ mentions in the chat Implementation Plan
 
+> **Replaced** by `docs/specs/2026-10-30-ig-core-model-design.md`: mentions now go through the core (`ig_get`); a new plan follows that design.
+
+
 **Goal:** In the desktop app, the user points Claude at map boxes (`@` in the message box, or "Add to chat" on the selected box); Claude gets each box's place, files and arrows, and the boxes it names in replies light up and fly to on the map.
 
 **Architecture:** A pure module (`model/mentions.ts`) turns box ids into the context Claude receives and matches Claude's `@Title` refs back to ids. The Composer completes `@` with the map search (`map/search.ts` `find`) and keeps the picked boxes as chips; the session sends the user's text to the transcript and text plus context to Claude. `App` owns the loaded view and wires Map ↔ Chat: Map gets `lit` and `onmention`, Chat gets `view` and exposes `mention()`.
