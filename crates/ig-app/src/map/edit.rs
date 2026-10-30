@@ -80,6 +80,17 @@ pub fn apply(files: &dyn Files, e: &Edit) -> Result<Edit, Vec<String>> {
     Ok(inverse)
 }
 
+/// Errs when `at` claims `**`, the whole repo, for box `id`: only the system does, or later
+/// drift would hide in the box. Every edit and `ig accept` go through it.
+pub fn not_whole_repo(id: &str, at: &[String]) -> Result<(), String> {
+    match at.iter().any(|g| g == "**") {
+        true => Err(format!(
+            "`{id}` claims `**`, the whole repo; only the system does"
+        )),
+        false => Ok(()),
+    }
+}
+
 const PROPS: [&str; 5] = ["title", "tech", "description", "logo", "slot"];
 
 fn system_path() -> String {
@@ -237,6 +248,7 @@ impl Spec {
                 before,
             } => {
                 self.unused(id)?;
+                not_whole_repo(id, at)?;
                 let mut n = KdlNode::new(name_of(kind));
                 n.push(KdlEntry::new(id.as_str()));
                 n.push(KdlEntry::new_prop("title", title.as_str()));
@@ -406,6 +418,9 @@ impl Spec {
             .filter(|g| !g.is_empty())
             .map(String::from)
             .collect();
+        if id != self.sys {
+            not_whole_repo(id, &globs)?;
+        }
         let nodes = (self.node(&loc).children())
             .map(|c| c.nodes())
             .unwrap_or_default();

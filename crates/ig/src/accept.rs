@@ -2,8 +2,8 @@
 //! an error stops it with the items before it accepted (and printed).
 
 use anyhow::{Result, bail};
-use ig_app::map::edit::Edit;
 use ig_app::map::edit::journal::{By, record};
+use ig_app::map::edit::{self, Edit};
 use ig_app::map::file::MapBox;
 use ig_app::map::origin::Origin;
 use ig_app::map::{ArrowKind, Level, MapArrow, view};
@@ -35,15 +35,10 @@ pub fn run(files: &dyn Files, v: &view::View, all: bool, ids: &[String]) -> Resu
     let Some(root) = v.boxes.iter().find(|b| b.level == Level::System) else {
         bail!("no system box in ig/");
     };
-    // a box claiming the whole repo would hide every later drift
-    if let Some(b) = boxes
-        .iter()
-        .find(|b| want(&b.id) && b.made_of.iter().any(|g| g == "**"))
-    {
-        bail!(
-            "refusing to accept {}: it claims `**`, the whole repo",
-            b.id
-        );
+    // checked before any write: a box claiming the whole repo would hide every later drift
+    for b in boxes.iter().filter(|b| want(&b.id)) {
+        edit::not_whole_repo(&b.id, &b.made_of)
+            .map_err(|e| anyhow::anyhow!("refusing to accept: {e}"))?;
     }
     // each printed as it is recorded: an error part way leaves those before it accepted
     let mut done: Vec<String> = vec![];

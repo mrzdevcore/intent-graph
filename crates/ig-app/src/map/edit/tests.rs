@@ -3,6 +3,7 @@ use ig_core::testing::MemFiles;
 
 mod files;
 mod fmt;
+mod guard;
 mod journal;
 mod slot;
 
