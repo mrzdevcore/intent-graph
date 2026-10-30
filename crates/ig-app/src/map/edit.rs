@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-mod fmt;
+pub(crate) mod fmt;
 pub mod journal;
 pub(crate) mod tidy;
 pub use fmt::fmt;
