@@ -1,7 +1,7 @@
 use super::*;
 use crate::map::file::{MapFile, refresh};
 use crate::map::spec::{read, write};
-use crate::map::{FactBox, arrows};
+use crate::map::{FactBox, Level, arrows};
 use ig_core::model::Graph;
 use ig_core::testing::MemFiles;
 use std::collections::BTreeMap;
@@ -192,6 +192,13 @@ fn an_unlisted_arrow_between_spec_boxes_is_drift_and_a_kind_mismatch_is_to_build
         both.iter()
             .any(|a| a.kind == ArrowKind::Data && a.origin == Origin::Drift)
     );
+    let drift = both.iter().find(|a| a.origin == Origin::Drift).unwrap();
+    assert_eq!(drift.id, "api->postgres~drift");
+    let mut ids: Vec<_> = m.arrows.iter().map(|a| a.id.as_str()).collect();
+    ids.sort();
+    let n = ids.len();
+    ids.dedup();
+    assert_eq!(ids.len(), n, "arrow ids are unique");
 }
 
 #[test]
@@ -283,4 +290,77 @@ fn origin_is_not_written_when_built() {
             .unwrap()
             .contains("\"origin\":\"drift\"")
     );
+}
+
+#[test]
+fn a_box_with_no_files_whose_children_are_declarations_is_built() {
+    let mut w = spec_files();
+    w.insert(
+        "ig/vendors.kdl".into(),
+        "external \"vendors\" title=\"Vendors\" {\n  external \"vendors/mail\" title=\"Mail\"\n  external \"vendors/sms\" title=\"Sms\"\n}\n".into(),
+    );
+    let m = compare(&read_files(&w), &facts(), &graph());
+    assert_eq!(origin_of(&m, "vendors"), Origin::Built);
+    assert_eq!(origin_of(&m, "vendors/mail"), Origin::Built);
+    assert!(plan(&m).build.is_empty(), "{:?}", plan(&m));
+}
+
+/// The spec with `api` holding no `at` of its own and without `api/domain-order`: that
+/// component's code is in no box.
+fn without_a_component() -> MapFile {
+    let mut s = without(spec(), "api/domain-order");
+    for b in s.boxes.iter_mut().filter(|b| b.id == "api") {
+        b.made_of = vec![];
+    }
+    s
+}
+
+#[test]
+fn a_drift_component_comes_back_as_a_container_with_a_slug_id() {
+    let m = compare(&without_a_component(), &facts(), &graph());
+    let d = m.boxes.iter().find(|b| b.origin == Origin::Drift).unwrap();
+    assert_eq!(d.id, "api-domain-order");
+    assert_eq!(d.level, Level::Container);
+    assert_eq!(d.parent.as_deref(), Some("system"));
+}
+
+#[test]
+fn every_drift_fixture_is_a_valid_map() {
+    let mut moved = spec();
+    for b in moved
+        .boxes
+        .iter_mut()
+        .filter(|b| b.id == "web" || b.id.starts_with("web/"))
+    {
+        b.made_of = vec!["apps/web/nothing/**".into()];
+    }
+    let mut partly = spec();
+    for b in partly.boxes.iter_mut() {
+        match b.id.as_str() {
+            "api" => b.made_of = vec![],
+            "api/infra-prisma" => b.made_of = vec!["apps/api/src/infra/prisma/client.ts".into()],
+            _ => {}
+        }
+    }
+    let mut no_pg = spec();
+    no_pg.boxes.retain(|b| b.id != "postgres");
+    no_pg.arrows.retain(|a| a.to != "postgres");
+    let mut kinds = spec();
+    for a in kinds.arrows.iter_mut().filter(|a| a.id == "api->postgres") {
+        a.kind = ArrowKind::Event;
+    }
+    for (name, s) in [
+        ("without web", without(spec(), "web")),
+        ("moved", moved),
+        ("partly", partly),
+        ("no postgres", no_pg),
+        ("component", without_a_component()),
+        ("kinds", kinds),
+    ] {
+        let m = compare(&s, &facts(), &graph());
+        assert!(m.boxes.iter().any(|b| b.origin == Origin::Drift) || name == "kinds");
+        if let Err(e) = crate::map::file::validate(&m) {
+            panic!("{name}: {e:?}");
+        }
+    }
 }

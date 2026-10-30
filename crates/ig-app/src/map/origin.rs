@@ -88,19 +88,20 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
             None => unclaimed.extend(f.nodes.iter().map(String::as_str)),
         }
     }
-    // Box origins: own globs matching a file decide; otherwise any built descendant, or a bare
-    // declaration.
-    let own: Vec<Option<bool>> = (0..m.boxes.len())
-        .map(|i| sets[i].as_ref().map(|_| matched[i]))
-        .collect();
-    for i in 0..m.boxes.len() {
-        let id = &m.boxes[i].id;
-        let below: Vec<usize> = (0..m.boxes.len())
-            .filter(|&j| j != i && is_below(&parents, &m.boxes[j].id, id))
+    // Box origins, deepest first: own globs matching a file decide; otherwise any built child,
+    // or none at all (a bare declaration).
+    let mut built: Vec<bool> = vec![true; m.boxes.len()];
+    let mut order: Vec<usize> = (0..m.boxes.len()).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(depths[i]));
+    for i in order {
+        let kids: Vec<usize> = (0..m.boxes.len())
+            .filter(|&j| m.boxes[j].parent.as_deref() == Some(m.boxes[i].id.as_str()))
             .collect();
-        let built = own[i]
-            .unwrap_or_else(|| below.is_empty() || below.iter().any(|&j| own[j] == Some(true)));
-        if !built {
+        built[i] = match sets[i] {
+            Some(_) => matched[i],
+            None => kids.is_empty() || kids.iter().any(|&j| built[j]),
+        };
+        if !built[i] {
             m.boxes[i].origin = Origin::Build;
         }
     }
@@ -125,25 +126,19 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
         };
     }
     for (c, _) in code.into_iter().zip(used).filter(|(_, u)| !u) {
+        // the spec's own arrow between the same boxes, of another kind, keeps the plain id
+        let id = if m.arrows.iter().any(|a| a.id == c.id) {
+            format!("{}~drift", c.id)
+        } else {
+            c.id.clone()
+        };
         m.arrows.push(MapArrow {
+            id,
             origin: Origin::Drift,
             ..c
         });
     }
     m
-}
-
-fn is_below(parents: &HashMap<&str, Option<&str>>, id: &str, of: &str) -> bool {
-    let mut at = parents.get(id).copied().flatten();
-    let mut hops = 0;
-    while let Some(p) = at.filter(|_| hops <= parents.len()) {
-        if p == of {
-            return true;
-        }
-        hops += 1;
-        at = parents.get(p).copied().flatten();
-    }
-    false
 }
 
 /// Drift boxes under `root`: the highest fact boxes holding only unclaimed nodes; unclaimed
@@ -160,8 +155,28 @@ fn drift(
         .collect();
     let mut order: Vec<&FactBox> = facts.iter().filter(|f| f.level != Level::System).collect();
     order.sort_by_key(|f| depth(&parents, &f.id));
-    let taken = |id: &str, out: &[MapBox]| spec.iter().chain(out).any(|b| b.id == id);
     let mut out: Vec<MapBox> = vec![];
+    // A container under the root, with a slug id no other box has.
+    let place = |mut b: MapBox, out: &mut Vec<MapBox>| {
+        let taken = |id: &str| spec.iter().chain(out.iter()).any(|b| b.id == id);
+        let base = b.id.replace('/', "-");
+        let mut id = base.clone();
+        let mut k = 1;
+        while taken(&id) {
+            id = if k == 1 {
+                format!("{base}-drift")
+            } else {
+                format!("{base}-drift-{k}")
+            };
+            k += 1;
+        }
+        b.id = id;
+        b.parent = Some(root.into());
+        b.level = Level::Container;
+        b.slot = None;
+        b.origin = Origin::Drift;
+        out.push(b);
+    };
     let mut covered: BTreeSet<&str> = BTreeSet::new();
     for f in &order {
         let all = !f.nodes.is_empty() && f.nodes.iter().all(|n| unclaimed.contains(n.as_str()));
@@ -169,14 +184,7 @@ fn drift(
             continue;
         }
         covered.extend(f.nodes.iter().map(String::as_str));
-        let mut b = fresh(f);
-        if taken(&b.id, &out) {
-            b.id = format!("{}-drift", b.id);
-        }
-        b.parent = Some(root.into());
-        b.slot = None;
-        b.origin = Origin::Drift;
-        out.push(b);
+        place(fresh(f), &mut out);
     }
     // Left over: grouped by the deepest fact box holding each file.
     let mut left: BTreeMap<Option<&str>, Vec<&str>> = BTreeMap::new();
@@ -186,7 +194,7 @@ fn drift(
     }
     for (home, files) in left {
         let folder = common_folder(&files);
-        let id = format!("{}-drift", home.unwrap_or("code"));
+        let id = home.unwrap_or("code").to_string();
         let f = FactBox {
             id: id.clone(),
             parent: Some(root.into()),
@@ -207,9 +215,7 @@ fn drift(
                 logo: None,
             },
         };
-        let mut b = fresh(&f);
-        b.origin = Origin::Drift;
-        out.push(b);
+        place(fresh(&f), &mut out);
     }
     out
 }
