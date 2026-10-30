@@ -54,6 +54,22 @@ const NOUNS: &[(ArrowKind, &str)] = &[
     (ArrowKind::Uses, "use"),
 ];
 
+/// The arrow kind of a graph edge of kind `kind` into a box of kind `to`; none for edges not drawn.
+pub(super) fn edge_kind(kind: &str, to: BoxKind) -> Option<ArrowKind> {
+    Some(match kind {
+        "imports" => ArrowKind::Depends,
+        "calls" | "renders" | "dispatch" => ArrowKind::Calls,
+        "implements" | "extends" => ArrowKind::Implements,
+        "http" => ArrowKind::Network,
+        "uses" => match to {
+            BoxKind::Store | BoxKind::Queue => ArrowKind::Data,
+            BoxKind::External => ArrowKind::Network,
+            _ => ArrowKind::Uses,
+        },
+        _ => return None,
+    })
+}
+
 /// Every graph edge between two boxes, lifted to the children of their lowest common parent and
 /// merged per pair; sorted by id. Edges inside one box, or from a box's loose files into its own
 /// children, are not drawn.
@@ -109,17 +125,8 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
         if i == 0 || j == 0 {
             continue;
         }
-        let kind = match e.kind.as_str() {
-            "imports" => ArrowKind::Depends,
-            "calls" | "renders" | "dispatch" => ArrowKind::Calls,
-            "implements" | "extends" => ArrowKind::Implements,
-            "http" => ArrowKind::Network,
-            "uses" => match by_id[b].guess.kind {
-                BoxKind::Store | BoxKind::Queue => ArrowKind::Data,
-                BoxKind::External => ArrowKind::Network,
-                _ => ArrowKind::Uses,
-            },
-            _ => continue,
+        let Some(kind) = edge_kind(&e.kind, by_id[b].guess.kind) else {
+            continue;
         };
         pairs
             .entry((ca[i], ca[i - 1], cb[j - 1]))
