@@ -4,7 +4,7 @@
      in localStorage); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
+  import type { BoxKind, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, insideCounts, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
@@ -19,6 +19,8 @@
   import type { EditApi } from "../api";
   import Toolbar from "./edit/Toolbar.svelte";
   import { ToolState, type Tool } from "./edit/tool.svelte";
+  import AddBox from "./edit/AddBox.svelte";
+  import { freeId } from "./edit/add";
 
   let { view, camera = new Camera(), size, edit, onview }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -202,6 +204,7 @@
     }
     if (e.key !== "Escape") return;
     tool.current = "select";
+    adding = null;
     if (selected) close();
     else traced = null;
   }
@@ -265,11 +268,25 @@
     live = null;
     drag = null;
   }
+  // the add form: inside the box clicked with the Box tool (the system ground when none), at the click
+  let adding = $state<{ parent: string; x: number; y: number } | null>(null);
+  const addParent = $derived(adding ? byId.get(adding.parent) : undefined);
   function clickCapture(e: MouseEvent) {
-    if (!swallow) return;
-    swallow = false;
+    if (swallow) {
+      swallow = false;
+    } else if (edit && tool.current === "box") {
+      const id = ((e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;
+      const r = stage.getBoundingClientRect();
+      adding = { parent: id && byId.has(id) ? id : ROOT, x: e.clientX - r.left, y: e.clientY - r.top };
+    } else return;
     e.stopPropagation();
     e.preventDefault();
+  }
+  function add(a: { kind: BoxKind; name: string; at: string[] }) {
+    const parent = adding!.parent;
+    adding = null;
+    tool.current = "select";
+    run(edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null }));
   }
 
   /** The deepest box holding the view's centre and filling >= 60% of the view's width or height. */
@@ -402,6 +419,10 @@
     {/snippet}
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
+  {#if edit && adding}
+    <AddBox parentTitle={addParent?.title.value ?? view.boxes.find((b) => b.id === ROOT)?.title.value ?? ROOT} system={adding.parent === ROOT}
+      globs={addParent?.madeOf ?? []} x={adding.x} y={adding.y} onadd={add} onclose={() => (adding = null)} />
+  {/if}
   {#if reading}
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}

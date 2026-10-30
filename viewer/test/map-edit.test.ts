@@ -99,3 +99,61 @@ test("contenteditable: shortcuts ignored", () => {
   press("b", {}, div);
   expect(pressed(target)).toContain("Select");
 });
+
+// --- add a box
+const form = (t: HTMLElement) => t.querySelector('form[aria-label^="New box"]') as HTMLFormElement | null;
+const input = (f: HTMLElement, label: string) =>
+  [...f.querySelectorAll("label")].find((l) => l.textContent!.startsWith(label))!.querySelector("input,select") as HTMLInputElement;
+const type = (el: HTMLInputElement, v: string) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); flushSync(); };
+function clickBox(t: HTMLElement, id: string | null) {
+  press("b");
+  const el = id ? t.querySelector(`[data-box="${id}"] > button`)! : t.querySelector(".stage")!;
+  el.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 40, clientY: 50 }));
+  flushSync();
+}
+const adds = () => {
+  const got: unknown[] = [];
+  const f = fake({ apply: async (e) => (got.push(e), fresh()) });
+  return { ...f, got };
+};
+
+test("Box tool click in a container: container kinds, Code lives at prefilled from its glob", () => {
+  const { target } = setup(adds().api);
+  clickBox(target, "api");
+  const f = form(target)!;
+  expect([...input(f, "Kind").querySelectorAll("option")].map((o) => o.value)).toEqual(["usecase", "domain", "port", "folder", "component", "entry"]);
+  expect(document.activeElement).toBe(input(f, "Name"));
+  type(input(f, "Name"), "Billing");
+  expect(input(f, "Code lives at").value).toBe("apps/api/billing/**");
+});
+
+test("Box tool click on the ground: system kinds; external hides the code path", () => {
+  const { target } = setup(adds().api);
+  clickBox(target, null);
+  const f = form(target)!;
+  expect([...input(f, "Kind").querySelectorAll("option")].map((o) => o.value)).toEqual(["app", "api", "library", "worker", "store", "queue", "external", "person"]);
+  ([...input(f, "Kind").querySelectorAll("option")].find((o) => o.value === "external") as HTMLOptionElement).selected = true; input(f, "Kind").dispatchEvent(new Event("change", { bubbles: true })); flushSync();
+  expect([...f.querySelectorAll("label")].some((l) => l.textContent!.startsWith("Code lives"))).toBe(false);
+});
+
+test("Enter adds: apply gets the Add, the id de-clashed", async () => {
+  const { api, got } = adds();
+  const { target } = setup(api);
+  clickBox(target, "api");
+  type(input(form(target)!, "Name"), "Api");
+  form(target)!.requestSubmit();
+  await tick();
+  expect(got).toEqual([{ op: "add", parent: "api", kind: "usecase", id: "api-2", title: "Api", at: ["apps/api/api/**"], before: null }]);
+  expect(form(target)).toBeNull();
+});
+
+test("Esc closes the form and sends nothing", async () => {
+  const { api, got } = adds();
+  const { target } = setup(api);
+  clickBox(target, "api");
+  type(input(form(target)!, "Name"), "Billing");
+  press("Escape", {}, input(form(target)!, "Name"));
+  await tick();
+  expect(form(target)).toBeNull();
+  expect(got).toEqual([]);
+});
