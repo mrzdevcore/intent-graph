@@ -10,8 +10,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod fmt;
 pub mod journal;
 pub(crate) mod tidy;
+pub use fmt::fmt;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]

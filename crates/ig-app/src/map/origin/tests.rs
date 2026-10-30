@@ -127,7 +127,7 @@ fn code_in_no_box_and_unlisted_arrows_are_drift() {
     let p = plan(&m);
     assert!(
         p.drift
-            .contains(&"drift: code under apps/web/** is in no box".into()),
+            .contains(&"drift: code under apps/web/** is in no box (web)".into()),
         "{p:?}"
     );
     assert!(
@@ -236,8 +236,10 @@ fn files_left_in_a_partly_claimed_box_are_drift_by_their_folder() {
     assert_eq!(d.parent.as_deref(), Some("system"));
     let p = plan(&m);
     assert!(
-        p.drift
-            .contains(&"drift: code under apps/api/src/infra/prisma/** is in no box".into()),
+        p.drift.contains(
+            &"drift: code under apps/api/src/infra/prisma/** is in no box (api-infra-prisma)"
+                .into()
+        ),
         "{p:?}"
     );
 }

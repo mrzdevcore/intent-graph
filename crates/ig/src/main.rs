@@ -1,3 +1,4 @@
+mod accept;
 mod agent;
 mod cli;
 mod init;
@@ -10,7 +11,7 @@ mod tests;
 use anyhow::{Result, bail};
 use cli::{USAGE, parse_args};
 use ig_app::map::agent::{Agent, Ask};
-use ig_app::map::{origin, spec, view};
+use ig_app::map::{edit, origin, spec, view};
 // `crate::model` for the modules (and their tests) that name model types.
 use ig_core::model;
 use ig_wire::Wired;
@@ -122,6 +123,47 @@ fn real_main() -> Result<u8> {
             p.build.iter().chain(&p.drift).for_each(|l| println!("{l}"));
             let open = !p.build.is_empty() || !p.drift.is_empty();
             Ok(u8::from(a.cmd == "check" && open))
+        }
+        "fmt" => {
+            if env
+                .files
+                .glob(&[format!("{}/*.kdl", spec::DIR)])?
+                .is_empty()
+            {
+                eprintln!("ig: no ig/ yet: run `ig plan` or `ig view` to write it");
+                return Ok(2);
+            }
+            match edit::fmt(env.files, !a.check) {
+                Ok(changed) => {
+                    let verb = if a.check { "would format" } else { "formatted" };
+                    changed.iter().for_each(|p| println!("{verb} {p}"));
+                    Ok(u8::from(a.check && !changed.is_empty()))
+                }
+                Err(errs) => {
+                    errs.iter().for_each(|e| eprintln!("ig: {e}"));
+                    Ok(2)
+                }
+            }
+        }
+        "accept" => {
+            if env
+                .files
+                .glob(&[format!("{}/*.kdl", spec::DIR)])?
+                .is_empty()
+            {
+                eprintln!("ig: no ig/ yet: run `ig plan` or `ig view` to write it");
+                return Ok(2);
+            }
+            let ids: Vec<String> = a.sub.iter().chain(&a.more).cloned().collect();
+            if !a.all && ids.is_empty() {
+                bail!("accept: expected --all or one or more ids\n{USAGE}");
+            }
+            let v = view::run(&env)?;
+            if v.broken {
+                v.notices.iter().for_each(|n| eprintln!("ig: {n}"));
+                return Ok(2);
+            }
+            accept::run(env.files, &v, a.all, &ids)
         }
         "mcp" => {
             mcp::serve(&root)?;
