@@ -1,11 +1,13 @@
 //! The spec (`ig/*.kdl`) against the code: each box and arrow is built (in both), to build (in
 //! the spec only) or drift (in the code only). Pure: no I/O.
 
-use super::file::{MapBox, MapFile, fresh, globs};
-use super::{ArrowKind, FactBox, Level, MapArrow, arrows};
+use super::arrows::edge_kind;
+use super::file::{MapBox, MapFile, fresh};
+use super::{ArrowKind, BoxKind, FactBox, Level, MapArrow, arrows};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use ig_core::model::Graph;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -54,25 +56,36 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
         .iter()
         .map(|b| (b.id.as_str(), b.parent.as_deref()))
         .collect();
-    let sets: Vec<_> = spec
-        .boxes
-        .iter()
-        .map(|b| {
-            (b.level != Level::System && !b.made_of.is_empty())
-                .then(|| globs(&b.made_of).ok())
-                .flatten()
-        })
-        .collect();
     let depths: Vec<usize> = spec.boxes.iter().map(|b| depth(&parents, &b.id)).collect();
+    // One glob set for every box's `at`, each glob back to its box: one match per file.
+    let mut set = GlobSetBuilder::new();
+    let mut glob_box: Vec<usize> = vec![];
+    let mut has_globs = vec![false; spec.boxes.len()];
+    for (i, b) in spec.boxes.iter().enumerate() {
+        if b.level == Level::System || b.made_of.is_empty() {
+            continue;
+        }
+        let built: Option<Vec<_>> = (b.made_of.iter())
+            .map(|g| GlobBuilder::new(g).literal_separator(true).build().ok())
+            .collect();
+        for g in built.into_iter().flatten() {
+            set.add(g);
+            glob_box.push(i);
+            has_globs[i] = true;
+        }
+    }
+    let set = set.build().unwrap_or_else(|_| GlobSet::empty());
     for b in &mut m.boxes {
         b.nodes.clear();
         b.origin = Origin::Built;
     }
     let mut unclaimed: BTreeSet<&str> = BTreeSet::new();
-    let mut matched = vec![false; sets.len()];
+    let mut matched = vec![false; spec.boxes.len()];
     for n in g.nodes.iter().filter(|n| n.is_module()) {
-        let hits: Vec<usize> = (0..sets.len())
-            .filter(|&i| sets[i].as_ref().is_some_and(|s| s.is_match(&n.file)))
+        let hits: Vec<usize> = set
+            .matches(&n.file)
+            .into_iter()
+            .map(|k| glob_box[k])
             .collect();
         hits.iter().for_each(|&i| matched[i] = true);
         match hits.into_iter().max_by_key(|&i| depths[i]) {
@@ -97,35 +110,110 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
         let kids: Vec<usize> = (0..m.boxes.len())
             .filter(|&j| m.boxes[j].parent.as_deref() == Some(m.boxes[i].id.as_str()))
             .collect();
-        built[i] = match sets[i] {
-            Some(_) => matched[i],
-            None => kids.is_empty() || kids.iter().any(|&j| built[j]),
+        built[i] = match has_globs[i] {
+            true => matched[i],
+            false => kids.is_empty() || kids.iter().any(|&j| built[j]),
         };
         if !built[i] {
             m.boxes[i].origin = Origin::Build;
         }
     }
     m.boxes.extend(drift(facts, &unclaimed, &root, &m.boxes));
-    // Arrows: the code's, lifted over these boxes, against the spec's.
-    let live: Vec<FactBox> = m.boxes.iter().map(super::code::as_fact).collect();
-    let code = arrows(&live, g);
-    let mut used = vec![false; code.len()];
+    arrows_against(&mut m, g);
+    m
+}
+
+/// Each spec arrow is built when a graph edge of its kind (any kind for a `bundle`) runs from
+/// the code under its tail into the code under its head; an arrow touching a person is a
+/// declaration. Each code arrow (lifted over the boxes) that no spec arrow covers, from its
+/// ends or their ancestors, is drift.
+fn arrows_against(m: &mut MapFile, g: &Graph) {
+    let boxes = &m.boxes;
+    let index: HashMap<&str, usize> = (boxes.iter().enumerate())
+        .map(|(i, b)| (b.id.as_str(), i))
+        .collect();
+    let up: Vec<Option<usize>> = (boxes.iter())
+        .map(|b| b.parent.as_deref().and_then(|p| index.get(p).copied()))
+        .collect();
+    // `i` and its ancestors, innermost first (bounded, so a bad parent chain cannot loop)
+    let chain = |i: usize| {
+        let mut out = vec![i];
+        while let Some(p) = up[*out.last().unwrap()].filter(|_| out.len() <= boxes.len()) {
+            out.push(p);
+        }
+        out
+    };
+    let mut owner: HashMap<&str, usize> = HashMap::new();
+    for (i, b) in boxes.iter().enumerate() {
+        owner.extend(b.nodes.iter().map(|n| (n.as_str(), i)));
+    }
+    let box_of = |id: &str| {
+        let module = id.split('#').next().unwrap_or(id);
+        owner.get(id).or_else(|| owner.get(module)).copied()
+    };
+    // (tail, head) → edges, their kinds, any in a loop: every pair of ancestors of the ends
+    let mut between: HashMap<(usize, usize), (u32, BTreeSet<ArrowKind>, bool)> = HashMap::new();
+    for e in &g.edges {
+        let (Some(a), Some(b)) = (box_of(&e.from), box_of(&e.to)) else {
+            continue;
+        };
+        let Some(kind) = edge_kind(&e.kind, boxes[b].kind.value) else {
+            continue;
+        };
+        let (ca, cb) = (chain(a), chain(b));
+        for &x in &ca {
+            for &y in cb.iter().filter(|&&y| y != x) {
+                let s = between.entry((x, y)).or_default();
+                s.0 += 1;
+                s.1.insert(kind);
+                s.2 |= e.in_loop;
+            }
+        }
+    }
+    let person = |id: &str| {
+        index
+            .get(id)
+            .is_some_and(|&i| boxes[i].kind.value == BoxKind::Person)
+    };
+    let mut said: HashSet<(usize, usize, ArrowKind)> = HashSet::new();
     for a in &mut m.arrows {
-        let hit = code.iter().position(|c| {
-            c.from == a.from && c.to == a.to && (c.kind == a.kind || c.kinds.contains(&a.kind))
-        });
+        let ends = index.get(a.from.as_str()).zip(index.get(a.to.as_str()));
+        if let Some((&f, &t)) = ends {
+            said.insert((f, t, a.kind));
+        }
+        if person(&a.from) || person(&a.to) {
+            a.origin = Origin::Built;
+            continue;
+        }
+        let hit = ends
+            .and_then(|(f, t)| between.get(&(*f, *t)))
+            .filter(|s| a.kind == ArrowKind::Bundle || s.1.contains(&a.kind));
         a.origin = match hit {
-            Some(k) => {
-                used[k] = true;
-                let c = &code[k];
-                (a.parent, a.count, a.kinds, a.in_loop) =
-                    (c.parent.clone(), c.count, c.kinds.clone(), c.in_loop);
+            Some((count, kinds, in_loop)) => {
+                (a.count, a.kinds, a.in_loop) = (*count, kinds.iter().copied().collect(), *in_loop);
                 Origin::Built
             }
             None => Origin::Build,
         };
     }
-    for (c, _) in code.into_iter().zip(used).filter(|(_, u)| !u) {
+    let live: Vec<FactBox> = boxes.iter().map(super::code::as_fact).collect();
+    let mut drift = vec![];
+    for c in arrows(&live, g) {
+        let (Some(&f), Some(&t)) = (index.get(c.from.as_str()), index.get(c.to.as_str())) else {
+            continue;
+        };
+        let (cf, ct) = (chain(f), chain(t));
+        let covered = cf.iter().any(|&x| {
+            ct.iter().any(|&y| {
+                said.contains(&(x, y, ArrowKind::Bundle))
+                    || c.kinds.iter().any(|&k| said.contains(&(x, y, k)))
+            })
+        });
+        if !covered {
+            drift.push(c);
+        }
+    }
+    for c in drift {
         // the spec's own arrow between the same boxes, of another kind, keeps the plain id
         let id = if m.arrows.iter().any(|a| a.id == c.id) {
             format!("{}~drift", c.id)
@@ -138,7 +226,6 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
             ..c
         });
     }
-    m
 }
 
 /// Drift boxes under `root`: the highest fact boxes holding only unclaimed nodes; unclaimed

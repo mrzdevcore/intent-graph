@@ -364,3 +364,92 @@ fn every_drift_fixture_is_a_valid_map() {
         }
     }
 }
+
+fn spec_arrow(from: &str, kind: ArrowKind, to: &str) -> MapArrow {
+    MapArrow {
+        id: format!("{from}->{to}"),
+        parent: "system".into(),
+        from: from.into(),
+        to: to.into(),
+        kind,
+        label: None,
+        count: 0,
+        kinds: vec![kind],
+        in_loop: false,
+        origin: Origin::Built,
+    }
+}
+
+#[test]
+fn an_arrow_from_a_person_is_a_declaration() {
+    let mut w = spec_files();
+    w.insert(
+        "ig/patient.kdl".into(),
+        "person \"patient\" title=\"Patient\" {\n  uses \"web\"\n}\n".into(),
+    );
+    let m = compare(&read_files(&w), &facts(), &graph());
+    assert_eq!(arrow_origin(&m, "patient", "web"), Origin::Built);
+    assert!(plan(&m).build.is_empty(), "{:?}", plan(&m));
+}
+
+#[test]
+fn a_bundle_arrow_in_the_spec_matches_any_code_arrow_between_the_pair() {
+    let mut s = spec();
+    for a in s.arrows.iter_mut().filter(|a| a.id == "api->postgres") {
+        a.kind = ArrowKind::Bundle;
+        a.kinds = vec![ArrowKind::Bundle];
+    }
+    let m = compare(&s, &facts(), &graph());
+    assert_eq!(arrow_origin(&m, "api", "postgres"), Origin::Built);
+    assert!(plan(&m).drift.is_empty(), "{:?}", plan(&m));
+}
+
+#[test]
+fn a_cross_level_arrow_is_built_by_code_under_its_ends() {
+    let s = spec();
+    let built = compare(&s, &facts(), &graph());
+    let owner = |file: &str| {
+        let b = built
+            .boxes
+            .iter()
+            .find(|b| b.nodes.iter().any(|n| n == file));
+        b.unwrap().id.clone()
+    };
+    let checkout = owner("apps/web/pages/checkout.tsx");
+    assert!(checkout.starts_with("web/"), "{checkout}");
+    let other = (built.boxes.iter())
+        .find(|b| b.parent.as_deref() == Some("api"))
+        .map(|b| b.id.clone())
+        .unwrap();
+    let mut s = s;
+    s.arrows
+        .push(spec_arrow(&checkout, ArrowKind::Calls, "api-client"));
+    s.arrows
+        .push(spec_arrow(&other, ArrowKind::Calls, "api-client"));
+    let m = compare(&s, &facts(), &graph());
+    assert_eq!(arrow_origin(&m, &checkout, "api-client"), Origin::Built);
+    assert_eq!(arrow_origin(&m, &other, "api-client"), Origin::Build);
+    assert!(plan(&m).drift.is_empty(), "{:?}", plan(&m));
+}
+
+#[test]
+fn a_code_arrow_under_a_spec_arrow_between_ancestors_is_not_drift() {
+    // a spec arrow from a component to its own container covers the code between that
+    // component and its siblings
+    let s = spec();
+    let built = compare(&s, &facts(), &graph());
+    let a = (built.arrows.iter())
+        .find(|a| a.parent == "api" && a.from.starts_with("api/"))
+        .unwrap()
+        .clone();
+    let mut s = s;
+    s.arrows.retain(|x| x.id != a.id);
+    s.arrows.push(spec_arrow(&a.from, a.kind, "api"));
+    let m = compare(&s, &facts(), &graph());
+    assert!(
+        !m.arrows.iter().any(|x| x.id == a.id),
+        "{} is covered: {:?}",
+        a.id,
+        plan(&m)
+    );
+}
