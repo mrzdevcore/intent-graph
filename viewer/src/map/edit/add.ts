@@ -12,7 +12,7 @@ const MAX_ID = 64;
 
 /** `[a-z0-9-]`, runs of anything else as one `-`, trimmed, at most 64 chars; `fallback` when nothing is left. */
 export function slug(s: string, fallback = "box"): string {
-  const t = s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, MAX_ID).replace(/-+$/, "");
+  const t = s.replace(/[A-Z]/g, (c) => c.toLowerCase()).replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, MAX_ID).replace(/-+$/, "");
   return t || fallback;
 }
 
@@ -31,5 +31,7 @@ export function freeId(name: string, taken: Set<string>): string {
 export function prefill(globs: string[], name: string): string {
   const s = name.trim() ? slug(name) : "";
   const g = globs[0];
-  return g?.endsWith("**") ? `${g.slice(0, -2)}${s}/**` : `${s}/**`;
+  // the folder of the parent's first glob: `apps/api/**` and `apps/api/main.ts` both give `apps/api/`
+  const dir = g ? g.slice(0, g.lastIndexOf("/") + 1) : "";
+  return `${dir}${s}/**`;
 }

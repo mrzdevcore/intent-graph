@@ -5,6 +5,7 @@ import Map from "../src/map/Map.svelte";
 import type { EditApi } from "../src/api";
 import type { View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
+import { prefill, slug } from "../src/map/edit/add";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const fresh = () => structuredClone(shop) as unknown as View;
@@ -156,4 +157,11 @@ test("Esc closes the form and sends nothing", async () => {
   await tick();
   expect(form(target)).toBeNull();
   expect(got).toEqual([]);
+});
+
+test("prefill and slug edge cases", () => {
+  expect(prefill(["apps/api/**", "libs/x/**"], "Billing")).toBe("apps/api/billing/**");
+  expect(prefill(["apps/api/main.ts"], "Billing")).toBe("apps/api/billing/**");
+  expect(prefill([], "Billing")).toBe("billing/**");
+  expect(slug("Kelvin")).toBe("elvin"); // non-ASCII is a dash, like Rust
 });
