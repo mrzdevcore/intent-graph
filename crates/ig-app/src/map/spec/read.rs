@@ -320,7 +320,7 @@ impl Reader {
     }
 }
 
-fn pattern(v: &[String]) -> Result<Pattern, String> {
+pub(crate) fn pattern(v: &[String]) -> Result<Pattern, String> {
     match v.split_first() {
         Some((k, [])) if k == "onion" => Ok(Pattern::Onion),
         Some((k, [])) if k == "hexagonal" => Ok(Pattern::Hexagonal),

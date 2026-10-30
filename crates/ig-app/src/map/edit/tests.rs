@@ -4,6 +4,7 @@ use ig_core::testing::MemFiles;
 mod files;
 mod fmt;
 mod journal;
+mod slot;
 
 const H: &str = "// ig's intended architecture: edit freely; ig never rewrites this file.\n";
 
@@ -271,6 +272,7 @@ fn move_a_component_to_another_container_keeps_its_id_and_arrows() {
             id: "api/orders".into(),
             parent: "web".into(),
             before: None,
+            slot: None,
         },
         &[
             (
@@ -312,6 +314,7 @@ app "api" title="Api" {
             id: "api/orders".into(),
             parent: "api".into(),
             before: None,
+            slot: None,
         }
     );
     // the moved spec reads back: the box sits in web, the arrow still points at it
@@ -322,6 +325,7 @@ app "api" title="Api" {
             id: "api/orders".into(),
             parent: "web".into(),
             before: None,
+            slot: None,
         },
     )
     .unwrap();
@@ -338,6 +342,7 @@ fn move_reorders_a_subtree_with_its_block() {
             id: "web".into(),
             parent: "shop".into(),
             before: Some("db".into()),
+            slot: None,
         },
         &[(
             "ig/system.kdl",
@@ -539,6 +544,7 @@ fn bad_edits_write_nothing() {
             id: "api".into(),
             parent: "api/checkout".into(),
             before: None,
+            slot: None,
         },
         "into itself",
     );
@@ -547,6 +553,7 @@ fn bad_edits_write_nothing() {
             id: "web".into(),
             parent: "web".into(),
             before: None,
+            slot: None,
         },
         "into itself",
     );
