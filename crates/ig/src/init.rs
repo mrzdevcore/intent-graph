@@ -272,12 +272,12 @@ fn drop_stop_hook(text: &str) -> Option<String> {
 }
 
 fn gitignore(text: &str) -> String {
-    const LINES: &str = ".ig/*\n!.ig/map.json";
-    let has = |l: &str| text.lines().any(|x| x.trim() == l);
-    if has(".ig/*") && has("!.ig/map.json") {
+    // `ig/` sits outside `.ig/` and is never ignored
+    const LINES: &str = ".ig/*";
+    if text.lines().any(|x| x.trim() == LINES) {
         return text.to_string();
     }
-    // `.ig/*` alone, or a line ignoring all of `.ig`: replaced in place by both lines.
+    // a line ignoring all of `.ig`: replaced in place.
     let mut done = false;
     let mut out: Vec<&str> = vec![];
     for l in text.lines() {
@@ -299,13 +299,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gitignore_keeps_map() {
-        assert_eq!(
-            gitignore("node_modules"),
-            "node_modules\n.ig/*\n!.ig/map.json\n"
-        );
-        assert_eq!(gitignore(".ig/\n"), ".ig/*\n!.ig/map.json\n");
-        assert_eq!(gitignore("a\n/.ig\nb\n"), "a\n.ig/*\n!.ig/map.json\nb\n");
+    fn gitignore_ignores_ig_dir() {
+        assert_eq!(gitignore("node_modules"), "node_modules\n.ig/*\n");
+        assert_eq!(gitignore(".ig/\n"), ".ig/*\n");
+        assert_eq!(gitignore("a\n/.ig\nb\n"), "a\n.ig/*\nb\n");
+        // an older repo's map.json line is left alone
+        let old = ".ig/*\n!.ig/map.json\n";
+        assert_eq!(gitignore(old), old);
         for t in ["node_modules", ".ig/\n", "target\n"] {
             let once = gitignore(t);
             assert_eq!(gitignore(&once), once);

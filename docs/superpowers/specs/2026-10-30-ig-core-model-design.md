@@ -48,7 +48,8 @@ The user's rule: few features, built very well.
 - **Ids are stable across renames and moves** (the inode idea): a node keeps its id when its name or
   parent changes, so ig can tell "moved" from "deleted + created". Ids are written in the file.
 - **Arrows are first-class links** between nodes: a kind (`calls`, `depends`, `data`, `network`,
-  `event`, `implements`, `bundle`), an optional label, and, live, a count.
+  `event`, `implements`, `bundle`), an optional label, and, live, a count. ig writes an arrow of
+  several kinds as its main kind; a hand-written `bundle` is satisfied by code of any kind.
 - **Properties vs attributes.** A node's own properties (`title`, `tech`, `description`, `at`, and
   any the team writes, such as `owner.team`) are part of the spec in the file, changed through
   `ig_edit`. **Attributes** written by providers (`telemetry.p95-ms`, later `deploy.*`) live in
@@ -107,11 +108,12 @@ The user's rule: few features, built very well.
   (moved).
 - **`ig apply`**: hands the plan to an agent (Claude) to build; on an empty repo, the whole
   system. Claude builds with its usual tools and permissions.
-- **`ig check`**: exits non-zero while code and file differ; locally, in CI, and as "done" while
+- **`ig check`**: never writes `ig/` (with none it exits 2: run `ig plan` or `ig view` first);
+  exits non-zero while code and file differ; locally, in CI, and as "done" while
   Claude builds. **You check what you write** (decided with the user):
   - every node the file describes exists (code under its `at`), and every arrow the file lists
     exists: an arrow between two nodes is satisfied by any code edge from one's subtree into the
-    other's (lifted, as arrows are today);
+    other's (lifted, as arrows are today); an arrow touching a `person` is a declaration;
   - it fails on code under no node's `at`, and on arrows between described nodes that the file does
     not list;
   - code inside a node's `at` that the file does not describe is fine;
