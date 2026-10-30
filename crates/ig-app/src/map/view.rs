@@ -31,9 +31,9 @@ pub struct View {
     /// The list each part box of a component holds, by box id.
     pub parts: BTreeMap<String, Vec<Part>>,
     pub notices: Vec<String>,
-    /// The code ig does not read (`origin::not_read`): for the plan, not drawn.
+    /// The files ig read (the graph's modules), for `unread`.
     #[serde(skip)]
-    pub not_read: Vec<String>,
+    pub read: BTreeSet<String>,
     /// No spec could be read or written: the view is of the code alone.
     #[serde(skip)]
     pub broken: bool,
@@ -145,7 +145,9 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         sources,
         parts,
         notices,
-        not_read: vec![],
+        read: (g.nodes.iter().filter(|n| n.is_module()))
+            .map(|n| n.file.clone())
+            .collect(),
         broken: false,
     }
 }
@@ -265,14 +267,11 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     notices.append(&mut v.notices);
     v.notices = notices;
     v.broken = broken;
-    if let Some(vcs) = env.vcs {
-        v.not_read = unread(&vcs.list_files(), g, env.frontends, &config);
-    }
     Ok(v)
 }
 
-/// The spec at HEAD: today's `ig/*.kdl` and `ig/system.kdl` as committed; None without a commit
-/// or when it does not read.
+/// The spec at HEAD: today's `ig/*.kdl`, `ig/system.kdl` and the `ig/*.kdl` changed since (a
+/// renamed or deleted one) as committed; None without a commit or when it does not read.
 fn prior(env: &Env) -> Option<MapFile> {
     let vcs = env.vcs?;
     let head = vcs.head()?;
@@ -280,34 +279,44 @@ fn prior(env: &Env) -> Option<MapFile> {
         .into_iter()
         .collect();
     paths.insert(format!("{}/system.kdl", spec::DIR));
+    let pre = format!("{}/", spec::DIR);
+    paths.extend(
+        (vcs.changed_files(Some(&head), &mut vec![]).into_iter()).filter(|p| {
+            p.strip_prefix(&pre)
+                .is_some_and(|f| !f.contains('/') && f.ends_with(".kdl"))
+        }),
+    );
     let texts = (paths.into_iter())
         .filter_map(|p| vcs.show(&head, &p).map(|t| (p, Some(t))))
         .collect();
     spec::parse(texts).ok()
 }
 
-/// The `listed` files a frontend handles that are in no package ig reads (not module files of
-/// `g`, not under ig.yaml's `ignore`), grouped as `not_read` does.
-fn unread(
-    listed: &[String],
-    g: &Graph,
-    frontends: &[&dyn LanguageFrontend],
-    config: &Config,
-) -> Vec<String> {
-    let read: BTreeSet<&str> = (g.nodes.iter().filter(|n| n.is_module()))
-        .map(|n| n.file.as_str())
-        .collect();
+/// The code ig does not read (`origin::not_read`'s globs): the files git lists (none without
+/// git) that a frontend handles and `v` did not read, outside ig.yaml's `ignore`, folders whose
+/// name starts with `.` or is in `skip` (build output) and the repo root's own files.
+pub fn unread(env: &Env, v: &View, skip: &[&str]) -> crate::Result<Vec<String>> {
+    let Some(vcs) = env.vcs else {
+        return Ok(vec![]);
+    };
+    let config = crate::config::load(env.files)?;
     let ignore = ig_core::workspace::globset(&config.ignore).unwrap_or_else(|_| GlobSet::empty());
     // a file, or a folder above it, ignored
     let ignored = |f: &str| {
         std::iter::successors(Some(f), |p| p.rsplit_once('/').map(|(d, _)| d))
             .any(|p| ignore.is_match(p))
     };
+    let skipped = |f: &str| {
+        let dirs = f.rsplit_once('/').map_or("", |(d, _)| d);
+        dirs.is_empty() || (dirs.split('/')).any(|d| d.starts_with('.') || skip.contains(&d))
+    };
+    let listed = vcs.list_files();
     let left: Vec<&str> = (listed.iter().map(String::as_str))
-        .filter(|f| !read.contains(f) && !ignored(f))
-        .filter(|f| frontends.iter().any(|fe| fe.handles(f, config)))
+        .filter(|f| !v.read.contains(*f) && !skipped(f) && !ignored(f))
+        .filter(|f| env.frontends.iter().any(|fe| fe.handles(f, &config)))
         .collect();
-    not_read(&read, &left)
+    let read: BTreeSet<&str> = v.read.iter().map(String::as_str).collect();
+    Ok(not_read(&read, &left))
 }
 
 /// `m`'s arrows lifted over its own boxes, and the marks that read them: an agent's or a

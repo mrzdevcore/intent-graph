@@ -163,3 +163,51 @@ fn check_names_a_move_since_the_last_commit_and_code_ig_does_not_read() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_move_is_named_after_its_spec_file_is_renamed() {
+    let dir = committed_shop("rename");
+    let text = std::fs::read_to_string(dir.join("ig/api.kdl")).unwrap();
+    let (old, new) = (
+        "apps/api/src/application/refund/**",
+        "apps/api/src/billing/refund/**",
+    );
+    std::fs::write(dir.join("ig/backend.kdl"), text.replace(old, new)).unwrap();
+    std::fs::remove_file(dir.join("ig/api.kdl")).unwrap();
+    let out = run_ig(&dir, &["plan"]);
+    assert!(
+        out.stdout
+            .contains(&format!("move: {old} → {new} (api/application-refund)")),
+        "{}{}",
+        out.stdout,
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn root_files_dot_folders_and_build_output_are_not_listed_as_not_read() {
+    let dir = committed_shop("unread");
+    for (p, s) in [
+        ("eslint.config.mjs", "export default [];\n"),
+        (".github/scripts/rel.js", "export const r = 1;\n"),
+        ("vendor/x.js", "export const v = 1;\n"),
+        ("scripts/seed.ts", "export const x = 1;\n"),
+    ] {
+        let f = dir.join(p);
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(f, s).unwrap();
+    }
+    let out = run_ig(&dir, &["check"]);
+    assert_eq!(out.code, 1, "{}{}", out.stdout, out.stderr);
+    let unread: Vec<&str> = (out.stdout.lines())
+        .filter(|l| l.starts_with("not read:"))
+        .collect();
+    assert_eq!(
+        unread,
+        ["not read: scripts/** (outside every package ig reads)"],
+        "{}",
+        out.stdout
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

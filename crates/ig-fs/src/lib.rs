@@ -2,7 +2,7 @@
 
 mod discover;
 
-pub use discover::discover;
+pub use discover::{BUILD_DIRS, discover};
 
 use ig_core::config::Config;
 use ig_core::ports::{Files, PortError};

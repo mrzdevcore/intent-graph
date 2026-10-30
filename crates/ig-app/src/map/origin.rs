@@ -221,6 +221,8 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
     };
     // (tail, head) → edges, their kinds, any in a loop: every pair of ancestors of the ends
     let mut between: HashMap<(usize, usize), (u32, BTreeSet<ArrowKind>, bool)> = HashMap::new();
+    // each edge's ends' chains and kind
+    let mut edges: Vec<(Vec<usize>, Vec<usize>, ArrowKind)> = vec![];
     for e in &g.edges {
         let (Some(a), Some(b)) = (box_of(&e.from), box_of(&e.to)) else {
             continue;
@@ -229,6 +231,7 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
             continue;
         };
         let (ca, cb) = (chain(a), chain(b));
+        edges.push((ca.clone(), cb.clone(), kind));
         for &x in &ca {
             for &y in cb.iter().filter(|&&y| y != x) {
                 let s = between.entry((x, y)).or_default();
@@ -244,19 +247,15 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
             .is_some_and(|&i| boxes[i].kind.value == BoxKind::Person)
     };
     let mut said: HashSet<(usize, usize, ArrowKind)> = HashSet::new();
-    // the ancestors of a moved box's arrows: their code is lifted over the box's new place
-    let mut moved: HashSet<(usize, usize)> = HashSet::new();
+    // the arrows of a moved box: its code, at the old place, is lifted over the new one
+    let mut moved: HashSet<(usize, usize, ArrowKind)> = HashSet::new();
     let is_moved = |i: usize| boxes[i].origin == Origin::Moved;
     for a in &mut m.arrows {
         let ends = index.get(a.from.as_str()).zip(index.get(a.to.as_str()));
         if let Some((&f, &t)) = ends {
             said.insert((f, t, a.kind));
             if is_moved(f) || is_moved(t) {
-                moved.extend(
-                    chain(f)
-                        .into_iter()
-                        .flat_map(|x| chain(t).into_iter().map(move |y| (x, y))),
-                );
+                moved.insert((f, t, a.kind));
             }
         }
         if person(&a.from) || person(&a.to) {
@@ -281,14 +280,33 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
             continue;
         };
         let (cf, ct) = (chain(f), chain(t));
-        let covered = moved.contains(&(f, t))
-            || cf.iter().any(|&x| {
+        let says = |set: &HashSet<_>, cf: &[usize], ct: &[usize], kinds: &[ArrowKind]| {
+            cf.iter().any(|&x| {
                 ct.iter().any(|&y| {
-                    said.contains(&(x, y, ArrowKind::Bundle))
-                        || c.kinds.iter().any(|&k| said.contains(&(x, y, k)))
+                    set.contains(&(x, y, ArrowKind::Bundle))
+                        || kinds.iter().any(|&k| set.contains(&(x, y, k)))
                 })
-            });
-        if !covered {
+            })
+        };
+        if says(&said, &cf, &ct, &c.kinds) {
+            continue;
+        }
+        if moved.is_empty() {
+            drift.push(c);
+            continue;
+        }
+        // lifted over a moved box's new place: the code under it, box pair by box pair, is
+        // what that box's arrows say (any of a pair's kinds, as for the arrow itself)
+        let mut under: BTreeMap<(usize, usize), Vec<ArrowKind>> = BTreeMap::new();
+        for (ca, cb, k) in edges
+            .iter()
+            .filter(|(a, b, _)| a.contains(&f) && b.contains(&t))
+        {
+            under.entry((ca[0], cb[0])).or_default().push(*k);
+        }
+        let of_a_move = !under.is_empty()
+            && (under.iter()).all(|(&(a, b), kinds)| says(&moved, &chain(a), &chain(b), kinds));
+        if !of_a_move {
             drift.push(c);
         }
     }

@@ -43,3 +43,47 @@ fn without_a_prior_or_once_the_code_moved_it_is_not_a_move() {
     let m = compare(&spec(), &facts(), &graph(), Some(&spec()));
     assert!(m.boxes.iter().all(|b| b.origin == Origin::Built));
 }
+
+const REFUND: &str = "apps/api/src/application/refund/refund.ts";
+const ORDER: &str = "apps/api/src/domain/order/order.ts";
+
+/// The shop graph with an `imports` edge `from` → `to`, and a module at `from` when new.
+fn importing(from: &str, to: &str) -> Graph {
+    let mut g = graph();
+    if !g.nodes.iter().any(|n| n.id == from) {
+        let mut n = g.nodes.iter().find(|n| n.is_module()).unwrap().clone();
+        (n.id, n.file, n.name) = (from.into(), from.into(), from.into());
+        g.nodes.push(n);
+    }
+    let mut e = g.edges[0].clone();
+    (e.from, e.to, e.kind, e.file) = (from.into(), to.into(), "imports".into(), from.into());
+    g.edges.push(e);
+    g
+}
+
+fn drift_lines(m: &MapFile) -> Vec<String> {
+    plan(m).drift
+}
+
+#[test]
+fn a_moved_box_s_code_its_arrows_do_not_say_is_still_drift() {
+    let g = importing(REFUND, ORDER);
+    // without the move it is drift
+    let before = compare(&spec(), &facts(), &g, None);
+    assert!(!drift_lines(&before).is_empty());
+    let m = compare(&moved(), &facts(), &g, Some(&spec()));
+    assert_eq!(origin_of(&m, ID), Origin::Moved);
+    assert!(!drift_lines(&m).is_empty(), "{:?}", plan(&m));
+}
+
+#[test]
+fn other_code_between_the_new_and_the_old_parent_is_still_drift() {
+    let g = importing("billing/src/invoice/inv.ts", ORDER);
+    let m = compare(&moved(), &facts(), &g, Some(&spec()));
+    assert_eq!(origin_of(&m, ID), Origin::Moved);
+    let d = drift_lines(&m);
+    assert!(
+        d.iter().any(|l| l.contains("billing") && l.contains("api")),
+        "{d:?}"
+    );
+}
