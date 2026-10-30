@@ -128,6 +128,9 @@ pub struct MapBox {
     /// Built, to build or drift: the spec against the code.
     #[serde(skip_serializing_if = "super::origin::is_built", default)]
     pub origin: super::origin::Origin,
+    /// A moved box's `at` at the last commit; not stored.
+    #[serde(skip)]
+    pub moved_from: Vec<String>,
     /// The box's files (module node ids), from the facts of this run; not stored.
     #[serde(skip)]
     pub nodes: Vec<String>,
@@ -366,6 +369,7 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
                 needs_reading: false,
                 stale: false,
                 nodes: vec![],
+                moved_from: vec![],
                 origin: Default::default(),
             });
             if !b.pins("madeOf") {

@@ -6,14 +6,15 @@ use super::file::{self, Field, MapBox, MapFile, refresh};
 use super::layers::{Mark, file_layers, risks, rules, sort_marks};
 use super::layout::layout;
 pub use super::layout::{Frame, Placed, Region, RegionKind};
-use super::origin::compare;
+use super::origin::{compare, not_read};
 use super::{MapArrow, Pattern, arrows, facts, spec};
 use crate::Env;
+use globset::GlobSet;
 use ig_core::config::Config;
 use ig_core::model::{Anatomy, Graph, Part, Range};
 use ig_core::ports::{Files, LanguageFrontend};
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 mod propose;
 
@@ -30,6 +31,9 @@ pub struct View {
     /// The list each part box of a component holds, by box id.
     pub parts: BTreeMap<String, Vec<Part>>,
     pub notices: Vec<String>,
+    /// The code ig does not read (`origin::not_read`): for the plan, not drawn.
+    #[serde(skip)]
+    pub not_read: Vec<String>,
     /// No spec could be read or written: the view is of the code alone.
     #[serde(skip)]
     pub broken: bool,
@@ -141,6 +145,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         sources,
         parts,
         notices,
+        not_read: vec![],
         broken: false,
     }
 }
@@ -182,12 +187,13 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
         (m, reset)
     };
     let mut broken = false;
+    let prior = prior(env);
     let read = match spec::read(env.files) {
         Ok(Some(s)) => match ask.filter(|a| a.all) {
             // `--read`: the reading's edits are in ig/ now, so it is read again
             Some(a) => {
                 let ev = Evidence::new(&boxes, &built.extras.imports, &config).for_spec();
-                let cm = compare(&s, &boxes, g);
+                let cm = compare(&s, &boxes, g, prior.as_ref());
                 notices.extend(propose::propose(
                     a,
                     &cm,
@@ -246,7 +252,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     };
     let mut m = match read {
         Ok(s) => {
-            let mut m = compare(&s, &boxes, g);
+            let mut m = compare(&s, &boxes, g, prior.as_ref());
             marks(&mut m, &findings);
             m
         }
@@ -259,7 +265,49 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     notices.append(&mut v.notices);
     v.notices = notices;
     v.broken = broken;
+    if let Some(vcs) = env.vcs {
+        v.not_read = unread(&vcs.list_files(), g, env.frontends, &config);
+    }
     Ok(v)
+}
+
+/// The spec at HEAD: today's `ig/*.kdl` and `ig/system.kdl` as committed; None without a commit
+/// or when it does not read.
+fn prior(env: &Env) -> Option<MapFile> {
+    let vcs = env.vcs?;
+    let head = vcs.head()?;
+    let mut paths: BTreeSet<String> = (env.files.glob(&[format!("{}/*.kdl", spec::DIR)]).ok()?)
+        .into_iter()
+        .collect();
+    paths.insert(format!("{}/system.kdl", spec::DIR));
+    let texts = (paths.into_iter())
+        .filter_map(|p| vcs.show(&head, &p).map(|t| (p, Some(t))))
+        .collect();
+    spec::parse(texts).ok()
+}
+
+/// The `listed` files a frontend handles that are in no package ig reads (not module files of
+/// `g`, not under ig.yaml's `ignore`), grouped as `not_read` does.
+fn unread(
+    listed: &[String],
+    g: &Graph,
+    frontends: &[&dyn LanguageFrontend],
+    config: &Config,
+) -> Vec<String> {
+    let read: BTreeSet<&str> = (g.nodes.iter().filter(|n| n.is_module()))
+        .map(|n| n.file.as_str())
+        .collect();
+    let ignore = ig_core::workspace::globset(&config.ignore).unwrap_or_else(|_| GlobSet::empty());
+    // a file, or a folder above it, ignored
+    let ignored = |f: &str| {
+        std::iter::successors(Some(f), |p| p.rsplit_once('/').map(|(d, _)| d))
+            .any(|p| ignore.is_match(p))
+    };
+    let left: Vec<&str> = (listed.iter().map(String::as_str))
+        .filter(|f| !read.contains(f) && !ignored(f))
+        .filter(|f| frontends.iter().any(|fe| fe.handles(f, config)))
+        .collect();
+    not_read(&read, &left)
 }
 
 /// `m`'s arrows lifted over its own boxes, and the marks that read them: an agent's or a

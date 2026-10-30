@@ -16,11 +16,16 @@ const STATE: Record<Exclude<MarkState, "ok">, { edge: string; tone: Tone; bg: st
   bad: { edge: BAD, tone: "bad", bg: "var(--map-bad-bg)" },
   down: { edge: DOWN, tone: "down", bg: "var(--map-down-bg)" },
 };
+const ORIGIN: Record<NonNullable<MapBox["origin"]>, { edge: string; label: string; tone: Tone }> = {
+  build: { edge: TRACE, label: "to build", tone: "neutral" },
+  drift: { edge: WARN, label: "not in ig/", tone: "warn" },
+  moved: { edge: "var(--map-blue)", label: "to move", tone: "neutral" },
+};
 const RANK: Record<MarkState, number> = { ok: 0, warn: 1, down: 2, bad: 3 };
 const worst = (ms: Mark[]) => ms.reduce<Mark | null>((w, m) => (!w || RANK[m.state] > RANK[w.state] ? m : w), null);
 const shown = (marks: Mark[], on: Set<string>, target: string) => marks.filter((m) => m.target === target && on.has(m.layer));
 
-/** Precedence: health > highlight (other layers' marks) > origin (build, drift) > status (stale) > kind. */
+/** Precedence: health > highlight (other layers' marks) > origin (build, drift, moved) > status (stale) > kind. */
 export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox): Look {
   const mine = shown(marks, on, id);
   const health = worst(mine.filter((m) => m.layer === "health"));
@@ -31,7 +36,7 @@ export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox): L
   const chips = mine.filter((m) => m.state !== "ok" && (m.badge ?? m.value)).map((m) => ({
     label: (m.badge ?? m.value)!, tone: STATE[m.state as Exclude<MarkState, "ok">].tone,
   }));
-  const o = box.origin === "build" ? { edge: TRACE, label: "to build", tone: "neutral" as Tone } : box.origin === "drift" ? { edge: WARN, label: "not in ig/", tone: "warn" as Tone } : null;
+  const o = box.origin ? ORIGIN[box.origin] : null;
   if (o) chips.push({ label: o.label, tone: o.tone });
   if (box.stale) chips.push({ label: "stale", tone: "neutral" });
   return {

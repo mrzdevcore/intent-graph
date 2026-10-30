@@ -94,3 +94,72 @@ fn check_and_plan_exit_2_on_a_broken_spec() {
     assert_eq!(out.code, 2);
     assert_eq!(out.stdout, "");
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    let ok = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+        ])
+        .args(args)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "git {args:?}");
+}
+
+/// The shop fixture in a fresh git repo, its `ig/` written and committed.
+fn committed_shop(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ig-plan-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shop");
+    assert!(
+        Command::new("cp")
+            .arg("-R")
+            .arg(fixture)
+            .arg(&dir)
+            .status()
+            .unwrap()
+            .success()
+    );
+    git(&dir, &["init", "-q"]);
+    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-qm", "base"]);
+    dir
+}
+
+#[test]
+fn check_names_a_move_since_the_last_commit_and_code_ig_does_not_read() {
+    let dir = committed_shop("move");
+    let api = dir.join("ig/api.kdl");
+    let text = std::fs::read_to_string(&api).unwrap();
+    let (old, new) = (
+        "apps/api/src/application/refund/**",
+        "apps/api/src/billing/refund/**",
+    );
+    assert!(text.contains(old), "{text}");
+    std::fs::write(&api, text.replace(old, new)).unwrap();
+    std::fs::create_dir_all(dir.join("scripts")).unwrap();
+    std::fs::write(dir.join("scripts/seed.ts"), "export const x = 1;\n").unwrap();
+    let out = run_ig(&dir, &["check"]);
+    assert_eq!(out.code, 1, "{}{}", out.stdout, out.stderr);
+    let lines: Vec<&str> = out.stdout.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "ig check: 0 to build, 0 drift, 1 to move, 1 not read",
+            &format!("move: {old} → {new} (api/application-refund)"),
+            "not read: scripts/** (outside every package ig reads)",
+        ],
+        "{}",
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

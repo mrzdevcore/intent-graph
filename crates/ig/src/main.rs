@@ -113,16 +113,9 @@ fn real_main() -> Result<u8> {
             if v.broken {
                 return Ok(2);
             }
-            let p = origin::plan_of(&v.boxes, &v.arrows);
-            println!(
-                "ig {}: {} to build, {} drift",
-                a.cmd,
-                p.build.len(),
-                p.drift.len()
-            );
-            p.build.iter().chain(&p.drift).for_each(|l| println!("{l}"));
-            let open = !p.build.is_empty() || !p.drift.is_empty();
-            Ok(u8::from(a.cmd == "check" && open))
+            let p = origin::plan_of(&v.boxes, &v.arrows, &v.not_read);
+            println!("{}", p.text(&a.cmd));
+            Ok(u8::from(a.cmd == "check" && !p.is_empty()))
         }
         "fmt" => {
             if env
