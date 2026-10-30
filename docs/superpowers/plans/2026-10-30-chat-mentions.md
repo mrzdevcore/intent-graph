@@ -1,5 +1,8 @@
 # @ mentions in the chat Implementation Plan
 
+> **Replaced** by `docs/superpowers/specs/2026-10-30-ig-core-model-design.md`: mentions now go through the core (`ig_get`); a new plan follows that design.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** In the desktop app, the user points Claude at map boxes (`@` in the message box, or "Add to chat" on the selected box); Claude gets each box's place, files and arrows, and the boxes it names in replies light up and fly to on the map.
