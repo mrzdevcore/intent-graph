@@ -1,7 +1,7 @@
 <!-- Rename in place: an input over the box's title. Enter keeps, Esc or leaving the field cancels. -->
 <script lang="ts">
   import { onMount } from "svelte";
-  let { value, x, y, w, onsubmit, onclose }: { value: string; x: number; y: number; w: number; onsubmit: (v: string) => void; onclose: () => void } = $props();
+  let { value, x, y, w, onsubmit, onclose, onleave }: { value: string; x: number; y: number; w: number; onsubmit: (v: string) => void; onclose: () => void; onleave?: () => void } = $props();
   let v = $state(""), done = false, field: HTMLInputElement;
   onMount(() => { v = value; field.focus(); field.select(); });
   const finish = (fn: () => void) => { if (!done) { done = true; fn(); } };
@@ -11,8 +11,8 @@
   }
 </script>
 
-<input bind:this={field} bind:value={v} aria-label="Rename box" autocomplete="off" spellcheck="false" style:left="{x}px" style:top="{y}px" style:width="max(10rem, {w}px)"
-  onkeydown={keydown} onblur={() => finish(onclose)} />
+<input data-popover bind:this={field} bind:value={v} aria-label="Rename box" autocomplete="off" spellcheck="false" style:left="{x}px" style:top="{y}px" style:width="max(10rem, {w}px)"
+  onkeydown={keydown} onblur={() => finish(onleave ?? onclose)} />
 
 <style>
   input { position: absolute; z-index: 6; box-sizing: border-box; font: inherit; font-size: var(--text-lg); font-weight: 600; color: var(--map-fg); background: var(--map-surface);

@@ -1,5 +1,7 @@
 // Which boxes can hold a box that is being moved. Rust's reader stays the final judge.
 import type { MapBox } from "../types";
+/** What the box menu offers. */
+export type Act = "rename" | "move" | "add" | "arrow" | "delete";
 import { NO_CODE, SYSTEM_KINDS } from "./add";
 
 /** A system-level kind goes only under the system root; any other kind under a system-level box that holds

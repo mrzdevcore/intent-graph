@@ -37,7 +37,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<form aria-label="New box in {parentTitle}" style:left="{x}px" style:top="{y}px" onsubmit={submit} onkeydown={keydown}>
+<form data-popover aria-label="New box in {parentTitle}" style:left="{x}px" style:top="{y}px" onsubmit={submit} onkeydown={keydown}>
   <b>New box in {parentTitle}</b>
   <label>Kind
     <select value={kind} onchange={(e) => (kind = e.currentTarget.value as BoxKind)}>{#each kinds as k (k)}<option value={k}>{k}</option>{/each}</select>

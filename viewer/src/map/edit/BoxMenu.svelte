@@ -2,7 +2,7 @@
      Arrow keys move between items; Esc closes (handled here: the map ignores keys while focus is in a field). -->
 <script lang="ts">
   import { onMount } from "svelte";
-  export type Act = "rename" | "move" | "add" | "arrow" | "delete";
+  import type { Act } from "./menu";
   let { x, y, title, onpick, onclose }: { x: number; y: number; title: string; onpick: (a: Act) => void; onclose: () => void } = $props();
   const items: [Act, string, string][] = [["rename", "Rename", "F2"], ["move", "Move to…", "M"], ["add", "Add box inside", "B"], ["arrow", "Arrow from here", "A"], ["delete", "Delete", "⌫"]];
   let menu: HTMLDivElement;
@@ -22,7 +22,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div role="menu" aria-label="{title} menu" tabindex="-1" bind:this={menu} style:left="{x}px" style:top="{y}px" onkeydown={keydown}>
+<div role="menu" data-popover aria-label="{title} menu" tabindex="-1" bind:this={menu} style:left="{x}px" style:top="{y}px" onkeydown={keydown}>
   {#each items as [a, label, hint] (a)}
     <button type="button" role="menuitem" class:bad={a === "delete"} onclick={() => onpick(a)}><span>{label}</span><kbd>{hint}</kbd></button>
   {/each}
