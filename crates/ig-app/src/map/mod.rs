@@ -5,12 +5,15 @@ pub mod agent;
 pub mod ansible;
 pub mod arrows;
 pub mod code;
+pub mod edit;
 pub mod externals;
 pub mod facts;
 pub mod file;
 pub mod layers;
 pub mod layout;
+pub mod origin;
 pub mod route;
+pub mod spec;
 pub mod view;
 
 pub use arrows::{ArrowKind, MapArrow, arrows};

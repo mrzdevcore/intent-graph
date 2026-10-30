@@ -32,6 +32,26 @@ fn git_bytes(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
     out.status.success().then_some(out.stdout)
 }
 
+/// `git cat-file --batch` of `shas` (one a line).
+fn cat_file(dir: &Path, shas: &str) -> Option<Vec<u8>> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut c = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    // ponytail: written before reading: fine for the few dozen shas of a spec, a writer thread
+    // if it ever lists more than the pipe buffer holds
+    c.stdin.take()?.write_all(shas.as_bytes()).ok()?;
+    let out = c.wait_with_output().ok()?;
+    out.status.success().then_some(out.stdout)
+}
+
 fn verify(dir: &Path, rev: &str) -> Option<String> {
     git(
         dir,
@@ -167,6 +187,52 @@ impl Vcs for GitVcs {
             &["show", &format!("{rev}:{}", self.top_path(path))],
         )?;
         Some(String::from_utf8_lossy(&b).into_owned())
+    }
+
+    fn show_dir(&self, rev: &str, dir: &str) -> Vec<(String, String)> {
+        let Ok(list) = git(
+            &self.root,
+            &["ls-tree", "-z", rev, "--", &format!("{dir}/")],
+        ) else {
+            return vec![];
+        };
+        // `<mode> <type> <sha>\t<path>`, the path relative to the ig root
+        let blobs: Vec<(&str, &str)> = (list.split('\0'))
+            .filter_map(|l| {
+                let (meta, path) = l.split_once('\t')?;
+                let mut m = meta.split(' ').skip(1);
+                (m.next()? == "blob").then_some((path, m.next()?))
+            })
+            .collect();
+        if blobs.is_empty() {
+            return vec![];
+        }
+        let shas: String = blobs.iter().map(|(_, s)| format!("{s}\n")).collect();
+        let Some(out) = cat_file(&self.root, &shas) else {
+            return vec![];
+        };
+        // each: `<sha> blob <size>\n<bytes>\n`
+        let mut rest = out.as_slice();
+        let mut v = vec![];
+        for (path, _) in blobs {
+            let Some(nl) = rest.iter().position(|&b| b == b'\n') else {
+                break;
+            };
+            let head = String::from_utf8_lossy(&rest[..nl]);
+            let Some(size) = head
+                .rsplit(' ')
+                .next()
+                .and_then(|n| n.parse::<usize>().ok())
+            else {
+                break;
+            };
+            let Some(body) = rest.get(nl + 1..nl + 1 + size) else {
+                break;
+            };
+            v.push((path.to_string(), String::from_utf8_lossy(body).into_owned()));
+            rest = rest.get(nl + 2 + size..).unwrap_or_default();
+        }
+        v
     }
 
     fn changed_files(&self, base: Option<&str>, notices: &mut Vec<String>) -> Vec<String> {

@@ -32,10 +32,11 @@ Design: `docs/specs/2026-10-27-ig-system-map-design.md` · Plan:
    - Repo text is fenced as data in the prompt.
    - ig validates every answer, re-asks once with the errors, and upgrades a claim to `extracted`
      when the code proves it.
-3. **Compiler.** It combines both into `.ig/map.json`, one committed file the team shares.
-   - It keeps annotations, pinned corrections and the agent's grouping across code changes.
-   - New boxes are marked "needs reading".
-   - It validates strictly and never saves a file it would reject later.
+3. **Compiler.** The first run combines both into `ig/*.kdl`, the committed spec the team shares;
+   ig never rewrites it, and later runs compare it with the code (built, to build, drift).
+   - A repo with `.ig/map.json` keeps its annotations, pinned corrections and the agent's grouping.
+   - Code no spec box claims is drawn as drift.
+   - It validates strictly and never writes a spec it would reject later.
    - The output is byte-identical on every run, so diffs stay clean.
 
 ## Layers on the map
@@ -104,10 +105,10 @@ cd <a copy of your repo>
 ig view --no-read | --read | --agent gemini | --no-open | --json
 ```
 
-- **Correct a box:** edit `.ig/map.json` and add the field name to that box's `"pinned"` list.
+- **Correct a box:** edit its node in `ig/*.kdl`.
 - **Simulate health:** create `.ig/layers/health.json`:
   `{ "layer": "health", "marks": [ { "target": "api", "state": "warn", "value": "p95 1.4 s" } ] }`
-- **Share the map:** commit `.ig/map.json`. Everything else in `.ig/` stays out of git.
+- **Share the map:** commit `ig/`. Everything in `.ig/` stays out of git.
 
 ## Removed (kept in git history)
 

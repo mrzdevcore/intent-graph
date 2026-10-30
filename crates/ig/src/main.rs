@@ -1,3 +1,4 @@
+mod accept;
 mod agent;
 mod cli;
 mod init;
@@ -10,7 +11,7 @@ mod tests;
 use anyhow::{Result, bail};
 use cli::{USAGE, parse_args};
 use ig_app::map::agent::{Agent, Ask};
-use ig_app::map::view;
+use ig_app::map::{edit, origin, spec, view};
 // `crate::model` for the modules (and their tests) that name model types.
 use ig_core::model;
 use ig_wire::Wired;
@@ -32,10 +33,6 @@ fn removed() -> Option<u8> {
         Some("hook") => {
             eprintln!("ig hook was removed; delete ig's Stop hook from .claude/settings.json");
             Some(0)
-        }
-        Some("check") => {
-            eprintln!("ig check was removed in this version; run ig view");
-            Some(2)
         }
         _ => None,
     }
@@ -89,7 +86,6 @@ fn real_main() -> Result<u8> {
             for n in &v.notices {
                 eprintln!("ig: {n}");
             }
-            render::ignore_ig_dir(&root)?;
             if a.json {
                 println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
@@ -99,7 +95,69 @@ fn real_main() -> Result<u8> {
                 }
                 println!("{}", path.display());
             }
+            // after the page: `.ig/` may not exist before it
+            render::ignore_ig_dir(&root)?;
             Ok(0)
+        }
+        "plan" | "check" => {
+            // check only reads: ig/ is written by plan and view
+            let spec = [format!("{}/*.kdl", spec::DIR)];
+            if a.cmd == "check" && env.files.glob(&spec)?.is_empty() {
+                eprintln!("ig: no ig/ yet: run `ig plan` or `ig view` to write it");
+                return Ok(2);
+            }
+            let v = view::run(&env)?;
+            for n in &v.notices {
+                eprintln!("ig: {n}");
+            }
+            if v.broken {
+                return Ok(2);
+            }
+            let unread = view::unread(&env, &v, &ig_fs::BUILD_DIRS)?;
+            let p = origin::plan_of(&v.boxes, &v.arrows, &unread);
+            println!("{}", p.text(&a.cmd));
+            Ok(u8::from(a.cmd == "check" && !p.is_empty()))
+        }
+        "fmt" => {
+            if env
+                .files
+                .glob(&[format!("{}/*.kdl", spec::DIR)])?
+                .is_empty()
+            {
+                eprintln!("ig: no ig/ yet: run `ig plan` or `ig view` to write it");
+                return Ok(2);
+            }
+            match edit::fmt(env.files, !a.check) {
+                Ok(changed) => {
+                    let verb = if a.check { "would format" } else { "formatted" };
+                    changed.iter().for_each(|p| println!("{verb} {p}"));
+                    Ok(u8::from(a.check && !changed.is_empty()))
+                }
+                Err(errs) => {
+                    errs.iter().for_each(|e| eprintln!("ig: {e}"));
+                    Ok(2)
+                }
+            }
+        }
+        "accept" => {
+            if env
+                .files
+                .glob(&[format!("{}/*.kdl", spec::DIR)])?
+                .is_empty()
+            {
+                eprintln!("ig: no ig/ yet: run `ig plan` or `ig view` to write it");
+                return Ok(2);
+            }
+            let ids: Vec<String> = a.sub.iter().chain(&a.more).cloned().collect();
+            if !a.all && ids.is_empty() {
+                bail!("accept: expected --all or one or more ids\n{USAGE}");
+            }
+            let v = view::run(&env)?;
+            if v.broken {
+                v.notices.iter().for_each(|n| eprintln!("ig: {n}"));
+                return Ok(2);
+            }
+            accept::run(env.files, &v, a.all, &ids)
         }
         "mcp" => {
             mcp::serve(&root)?;

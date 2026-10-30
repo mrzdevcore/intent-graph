@@ -131,3 +131,39 @@ fn history_from_git() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(v.at(&dir).history(100).is_empty());
 }
+
+#[test]
+fn show_dir_reads_the_files_of_a_folder_at_a_commit_in_one_batch() {
+    let (dir, g) = repo("showdir");
+    for (p, t) in [
+        ("app/ig/system.kdl", "system\n"),
+        ("app/ig/api.kdl", "api\n\nwith a blank line"),
+        ("app/ig/deeper/x.kdl", "no\n"),
+        ("app/other.kdl", "no\n"),
+    ] {
+        std::fs::create_dir_all(dir.join(p).parent().unwrap()).unwrap();
+        std::fs::write(dir.join(p), t).unwrap();
+    }
+    g(&["add", "-A"]);
+    g(&["commit", "-qm", "one"]);
+    // staged after the commit: HEAD still has the old name
+    g(&["mv", "app/ig/api.kdl", "app/ig/backend.kdl"]);
+    let v = GitVcs::open(&dir.join("app")).unwrap();
+    let head = v.head().unwrap();
+    assert_eq!(
+        v.show_dir(&head, "ig"),
+        [
+            (
+                "ig/api.kdl".to_string(),
+                "api\n\nwith a blank line".to_string()
+            ),
+            ("ig/system.kdl".to_string(), "system\n".to_string()),
+        ]
+    );
+    assert!(v.show_dir(&head, "nope").is_empty());
+    assert!(
+        v.show_dir("0123456789abcdef0123456789abcdef01234567", "ig")
+            .is_empty()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

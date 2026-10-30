@@ -74,8 +74,15 @@ ig view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|o
    `ig.yaml` rules) and `risks` (ig's own code analysis), computed each run; and your own, from
    `.ig/layers/*.json` (below).
 
-**The map file `.ig/map.json` is committed.** It holds boxes, arrows and marks, sorted so a diff shows
-only real changes. `ig init` adds `.ig/*` and `!.ig/map.json` to `.gitignore`. Boxes already described keep their words; plain `ig view` asks the agent only about the others.
+**The spec `ig/` is committed.** The first `ig view` writes the intended architecture as `ig/*.kdl`:
+from `.ig/map.json` when there is one (its readings and corrections kept), else from the code and
+the AI reading. After that `ig/` is yours: edit it by hand and commit it. ig changes it only
+through edits you ask for (`ig accept`, `ig fmt`, `ig view --read`, Claude's `ig_edit`), each
+in place: the nodes an edit touches change, every other line and comment keeps its text. Every run
+compares it with the code: what both have is built, what only `ig/` says is still to build, what
+only the code has is drift, and a box whose `at` changed since the last commit with the code still
+at the old place is to move. `.ig/map.json` is no longer written; delete it once `ig/` is committed. A broken
+`ig/` is left as is, with the file and line of each problem, and the map shows the code alone.
 
 ### Reading and consent
 
@@ -83,6 +90,9 @@ An agent only runs when you say so:
 
 - `ig view --read`: it runs, without asking, on every box, described ones included.
 - `ig view --no-read`: it never runs.
+- once `ig/` exists, the reading reads the drift and the boxes with no description and proposes
+  edits to `ig/` (adds and new titles, descriptions, tech): they are written, journaled as the
+  reading's, and you review them with `git diff ig/`.
 - plain `ig view` in a terminal: if boxes lack a reading, ig asks `Let an AI agent (claude) read the
   architecture? [Y/n]` and runs it on a yes. Without a terminal (a script, CI) it does not run.
 
@@ -129,11 +139,20 @@ files are dropped with a notice, never fatal. The layer appears in the **Layers*
 |---|---|
 | `ig view [--no-open] [--json] [--read \| --no-read] [--agent <name>]` | The system map (above). |
 | `ig init [claude\|codex\|all]` | Scaffolding: `ig.yaml`, the explore and view skills for the chosen agents (default all), an `AGENTS.md` snippet, `.gitignore` entries. Never overwrites your edits. |
-| `ig mcp` | MCP server on stdio with `ig_state` and `ig_show`: a coding agent shows an answer (a path or subgraph, with steps) in the viewer. |
+| `ig plan` | Writes `ig/` from the code the first time; then prints the plan: boxes and arrows still to build, boxes to move (their `at` changed since the last commit), drift (code in no box, arrows `ig/` does not have) and code ig does not read (outside every package). |
+| `ig check` | The plan, read-only: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. |
+| `ig fmt [--check]` | Re-indents `ig/*.kdl` (four spaces a level, at most one blank line between nodes); comments and order stay. `--check` writes nothing and exits 1 when a file would change. |
+| `ig accept [--all \| <id>...]` | Takes drift into `ig/`: each box or arrow id from `ig plan` (quote arrow ids: `ig accept 'web->api'`), written one by one. |
+| `ig mcp` | MCP server on stdio: `ig_state` and `ig_show` (a coding agent shows an answer, a path or subgraph with steps, in the viewer), `ig_plan` (the plan) and `ig_edit` (Claude edits `ig/`: add, remove, move, rename, set, arrow, unarrow; its edits are proposals you review with `git diff ig/`). |
 | `ig plugin export <dir>` | Writes the current Claude plugin (skills, `.mcp.json`) into `<dir>`, overwriting. The desktop app uses this for its own copy. |
 | `ig --version` | Prints the version. |
 
 Every command accepts `--root <dir>`. Exit codes: 0 ok, 2 usage or error.
+
+**Edits and the journal.** Every edit to `ig/` (`ig accept`, the reading's, Claude's) is recorded
+in `.ig/journal.json`: who made it (person, claude or reading), the edit and the edit that undoes it,
+whether you kept it and whether it is undone. It is local and not committed (`.ig/` is ignored);
+losing it loses undo, never the spec.
 
 ## Config (`ig.yaml`)
 

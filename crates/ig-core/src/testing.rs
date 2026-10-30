@@ -168,6 +168,18 @@ impl Vcs for FakeVcs {
     fn show(&self, rev: &str, path: &str) -> Option<String> {
         self.shows.get(&(rev.into(), path.into())).cloned()
     }
+    fn show_dir(&self, rev: &str, dir: &str) -> Vec<(String, String)> {
+        let mut v: Vec<(String, String)> = (self.shows.iter())
+            .filter(|((r, p), _)| {
+                r == rev
+                    && p.strip_prefix(&format!("{dir}/"))
+                        .is_some_and(|f| !f.contains('/'))
+            })
+            .map(|((_, p), t)| (p.clone(), t.clone()))
+            .collect();
+        v.sort();
+        v
+    }
     fn changed_files(&self, _base: Option<&str>, _notices: &mut Vec<String>) -> Vec<String> {
         self.changed.clone()
     }

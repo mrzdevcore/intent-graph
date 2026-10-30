@@ -29,6 +29,9 @@ export type MapBox = {
   pinned?: string[];
   needsReading?: boolean;
   stale?: boolean;
+  /** Against ig/: "build" is in the spec with no code yet, "drift" is code the spec does not describe, "moved" is in
+   * the spec at a new place with its code still at the old; absent is built. */
+  origin?: "build" | "drift" | "moved";
 };
 export type ArrowKind = "uses" | "depends" | "calls" | "network" | "event" | "implements" | "data" | "bundle";
 export type MapArrow = {
@@ -41,6 +44,7 @@ export type MapArrow = {
   count: number;
   kinds: ArrowKind[];
   inLoop?: boolean;
+  origin?: "build" | "drift";
 };
 export type MarkState = "ok" | "warn" | "bad" | "down";
 export type Mark = { layer: string; target: string; state: MarkState; badge?: string; value?: string; note?: string };
