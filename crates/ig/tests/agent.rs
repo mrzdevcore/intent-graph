@@ -88,7 +88,7 @@ fn agent_annotates() {
 }
 
 #[test]
-fn agent_garbage_still_writes_ig_and_ig_is_not_read_again() {
+fn agent_garbage_still_writes_ig_and_a_failed_reading_changes_nothing() {
     let (root, bin) = shop("garbage");
     fake(&bin, "claude", &["I looked at it and it is a nice shop."]);
     let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
@@ -102,14 +102,11 @@ fn agent_garbage_still_writes_ig_and_ig_is_not_read_again() {
     let before = spec(&root);
     let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
     assert_eq!(code, 0, "{out}");
-    assert!(!bin.join("prompt.3").exists(), "read again: {out}");
-    assert!(
-        out.contains(
-            "the AI reading runs when ig/ is written; it will propose edits in a later version"
-        ),
-        "{out}"
-    );
+    // with ig/ written, --read reads again: its edits would be proposals
+    assert!(bin.join("prompt.3").exists(), "not read again: {out}");
+    assert!(out.contains("reading was not used"), "{out}");
     assert_eq!(spec(&root), before);
+    assert!(!root.join(".ig/journal.json").exists(), "nothing recorded");
     assert!(!root.join(".ig/map.json").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }

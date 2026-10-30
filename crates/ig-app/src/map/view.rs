@@ -15,6 +15,8 @@ use ig_core::ports::{Files, LanguageFrontend};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod propose;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct View {
     pub version: u32,
@@ -148,14 +150,10 @@ pub fn run(env: &Env) -> crate::Result<View> {
     run_with(env, None)
 }
 
-/// Said on `--read` when `ig/` already exists.
-const LATER: &str =
-    "the AI reading runs when ig/ is written; it will propose edits in a later version";
-
 /// `ig view`: the spec in `ig/` compared with the code, then the view of it. The first run (no
 /// `ig/`) writes the spec from today's map: `.ig/map.json`'s reading when there is one, else the
-/// code, read by an AI agent when `ask` consents; `ig/` is never rewritten after that, and
-/// `.ig/map.json` is never written. A broken `ig/` is left as is: the view is then of the code.
+/// code, read by an AI agent when `ask` consents; after that `ig/` changes only by edits (with
+/// `--read`, the AI reading's proposals: `propose`), and `.ig/map.json` is never written. A broken `ig/` is left as is: the view is then of the code.
 pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     let config = crate::config::load(env.files)?;
     let built = crate::graph(env, env.files, &config, env.vcs.and_then(|v| v.head()))?;
@@ -185,12 +183,23 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     };
     let mut broken = false;
     let read = match spec::read(env.files) {
-        Ok(Some(s)) => {
-            if ask.is_some_and(|a| a.all) {
-                notices.push(LATER.into());
+        Ok(Some(s)) => match ask.filter(|a| a.all) {
+            // `--read`: the reading's edits are in ig/ now, so it is read again
+            Some(a) => {
+                let ev = Evidence::new(&boxes, &built.extras.imports, &config);
+                let cm = compare(&s, &boxes, g);
+                notices.extend(propose::propose(
+                    a,
+                    &cm,
+                    &ev,
+                    &config,
+                    env.files,
+                    env.progress,
+                ));
+                Ok(spec::read(env.files).ok().flatten().unwrap_or(s))
             }
-            Ok(s)
-        }
+            None => Ok(s),
+        },
         Err(e) => {
             broken = true;
             notices.extend(e);
