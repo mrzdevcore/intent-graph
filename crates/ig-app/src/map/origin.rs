@@ -2,6 +2,7 @@
 //! the spec only) or drift (in the code only). Pure: no I/O.
 
 use super::arrows::edge_kind;
+use super::facts::slug;
 use super::file::{MapBox, MapFile, fresh};
 use super::{ArrowKind, BoxKind, FactBox, Level, MapArrow, arrows};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
@@ -211,9 +212,12 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
         }
         out
     };
+    // shallowest first, so the deepest box claims a node (as `arrows` does)
     let mut owner: HashMap<&str, usize> = HashMap::new();
-    for (i, b) in boxes.iter().enumerate() {
-        owner.extend(b.nodes.iter().map(|n| (n.as_str(), i)));
+    let mut shallow_first: Vec<usize> = (0..boxes.len()).collect();
+    shallow_first.sort_by_key(|&i| chain(i).len());
+    for i in shallow_first {
+        owner.extend(boxes[i].nodes.iter().map(|n| (n.as_str(), i)));
     }
     let box_of = |id: &str| {
         let module = id.split('#').next().unwrap_or(id);
@@ -233,7 +237,8 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
         let (ca, cb) = (chain(a), chain(b));
         edges.push((ca.clone(), cb.clone(), kind));
         for &x in &ca {
-            for &y in cb.iter().filter(|&&y| y != x) {
+            // never a pair where one end holds the other (or the system root)
+            for &y in cb.iter().filter(|&&y| !ca.contains(&y) && !cb.contains(&x)) {
                 let s = between.entry((x, y)).or_default();
                 s.0 += 1;
                 s.1.insert(kind);
@@ -282,10 +287,12 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
         let (cf, ct) = (chain(f), chain(t));
         let says = |set: &HashSet<_>, cf: &[usize], ct: &[usize], kinds: &[ArrowKind]| {
             cf.iter().any(|&x| {
-                ct.iter().any(|&y| {
-                    set.contains(&(x, y, ArrowKind::Bundle))
-                        || kinds.iter().any(|&k| set.contains(&(x, y, k)))
-                })
+                ct.iter()
+                    .filter(|&&y| !cf.contains(&y) && !ct.contains(&x))
+                    .any(|&y| {
+                        set.contains(&(x, y, ArrowKind::Bundle))
+                            || kinds.iter().any(|&k| set.contains(&(x, y, k)))
+                    })
             })
         };
         if says(&said, &cf, &ct, &c.kinds) {
@@ -343,15 +350,19 @@ fn drift(
     // A container under the root, with a slug id no other box has.
     let place = |mut b: MapBox, out: &mut Vec<MapBox>| {
         let taken = |id: &str| spec.iter().chain(out.iter()).any(|b| b.id == id);
-        let base = slug(&b.id);
+        let base = slug(&b.id, "drift");
         let mut id = base.clone();
         let mut k = 1;
         while taken(&id) {
-            id = if k == 1 {
-                format!("{base}-drift")
+            let suffix = if k == 1 {
+                "-drift".to_string()
             } else {
-                format!("{base}-drift-{k}")
+                format!("-drift-{k}")
             };
+            // the base gives way, so the id stays a valid slug (at most 64 chars)
+            let mut head = base.clone();
+            head.truncate(64 - suffix.len());
+            id = format!("{}{suffix}", head.trim_end_matches('-'));
             k += 1;
         }
         b.id = id;
@@ -478,21 +489,6 @@ pub fn not_read(read: &BTreeSet<&str>, unread: &[&str]) -> Vec<String> {
     (left_over(read, unread).into_iter())
         .map(|(_, _, at, _)| at.join(", "))
         .collect()
-}
-
-/// `s` as a box id: lowercase `[a-z0-9-]`, no repeated or edge dashes; `drift` when nothing is left.
-fn slug(s: &str) -> String {
-    let mut out = String::new();
-    for c in s.to_lowercase().chars() {
-        let c = if c.is_ascii_alphanumeric() { c } else { '-' };
-        if c != '-' || !out.ends_with('-') {
-            out.push(c);
-        }
-    }
-    match out.trim_matches('-') {
-        "" => "drift".into(),
-        t => t.into(),
-    }
 }
 
 fn name<T: Serialize>(v: &T) -> String {

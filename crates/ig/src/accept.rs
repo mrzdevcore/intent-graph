@@ -69,10 +69,7 @@ pub fn run(files: &dyn Files, v: &view::View, all: bool, ids: &[String]) -> Resu
             continue;
         }
         // a bundle is written as its main kind
-        let kind = match a.kind {
-            ArrowKind::Bundle => a.kinds.first().copied().unwrap_or(ArrowKind::Uses),
-            k => k,
-        };
+        let kind = a.spec_kind();
         let edit = Edit::Arrow {
             from: a.from.clone(),
             to: a.to.clone(),

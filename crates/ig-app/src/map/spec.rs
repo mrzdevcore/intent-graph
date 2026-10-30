@@ -142,11 +142,7 @@ fn node(
     out.sort_by(|a, b| a.id.cmp(&b.id));
     for a in out {
         // A bundle is derived from its kinds: the spec says the main one.
-        let kind = match a.kind {
-            ArrowKind::Bundle => a.kinds.first().copied().unwrap_or(ArrowKind::Uses),
-            k => k,
-        };
-        let name = serde_json::to_value(kind).ok();
+        let name = serde_json::to_value(a.spec_kind()).ok();
         let mut an = KdlNode::new(name.as_ref().and_then(|k| k.as_str()).unwrap_or("uses"));
         an.push(KdlEntry::new(a.to.as_str()));
         // A bundle's label is a derived count, not intent.

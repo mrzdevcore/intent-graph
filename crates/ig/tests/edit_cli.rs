@@ -296,3 +296,19 @@ fn accept_slugs_ids_and_escapes_globs() {
     write(&dir, "apps/api/other/z.ts", "export const z = 1;\n");
     assert_eq!(run_ig(&dir, &["check"]).code, 1);
 }
+
+#[test]
+fn long_loose_files_get_valid_drift_ids_and_accept_all_passes() {
+    let dir = planned("long-ids");
+    let long = "w".repeat(90);
+    for name in ["a", "b", "c"] {
+        write(
+            &dir,
+            &format!("src/{long}{name}.ts"),
+            "export const q = 1;\n",
+        );
+    }
+    let out = run_ig(&dir, &["accept", "--all"]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
+    assert_eq!(run_ig(&dir, &["check"]).code, 0);
+}
