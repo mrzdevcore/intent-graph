@@ -1,6 +1,8 @@
 use super::*;
 use ig_core::testing::MemFiles;
 
+mod files;
+
 const H: &str = "// ig's intended architecture: edit freely; ig never rewrites this file.\n";
 
 const SYS: &str = r#"// ig's intended architecture: edit freely; ig never rewrites this file.
@@ -54,7 +56,10 @@ fn texts(f: &MemFiles) -> BTreeMap<String, String> {
 /// Applies `e` to the fixture, checks the files after it equal `want` (the paths named; every
 /// other file untouched), then that the inverse gives the fixture back byte for byte.
 fn check(e: Edit, want: &[(&str, &str)]) -> Edit {
-    let f = spec();
+    check_on(spec(), e, want)
+}
+
+fn check_on(f: MemFiles, e: Edit, want: &[(&str, &str)]) -> Edit {
     let before = texts(&f);
     let inv = apply(&f, &e).unwrap();
     let mut expect = before.clone();

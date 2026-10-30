@@ -120,6 +120,18 @@ fn set_str(e: &mut KdlEntry, v: &str) {
     });
 }
 
+/// The box ids written in `d`.
+fn ids(d: &KdlDocument) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for n in d.nodes() {
+        if let Some(id) = box_id(n) {
+            out.insert(id.to_string());
+            out.extend(n.children().map(ids).unwrap_or_default());
+        }
+    }
+    out
+}
+
 /// Where a node is: its file and the child indices down to it.
 type Loc = (String, Vec<usize>);
 
@@ -158,8 +170,10 @@ impl Spec {
         Ok(Spec { sys, docs, texts })
     }
 
-    /// Reads the edited spec back in memory, then writes what changed: other files, then
-    /// `system.kdl`, then deletes the files emptied (so a crash leaves a node twice, never lost).
+    /// Reads the edited spec back in memory, then changes the files so that a crash part way
+    /// leaves a node written twice, never lost: first the files that gain a box (new files
+    /// among them), then the files that only lose boxes or change, then the deletions, and
+    /// `ig/system.kdl` last of all.
     fn save(self, files: &dyn Files) -> Result<(), Vec<String>> {
         let new: BTreeMap<String, String> = (self.docs.iter())
             .map(|(p, d)| (p.clone(), d.to_string()))
@@ -170,15 +184,37 @@ impl Spec {
                 .collect(),
         )?;
         let sys = system_path();
-        let changed = new.iter().filter(|(p, t)| self.texts.get(*p) != Some(*t));
-        let (last, rest): (Vec<_>, Vec<_>) = changed.partition(|(p, _)| **p == sys);
-        for (p, t) in rest.into_iter().chain(last) {
+        let old_ids = |p: &str| {
+            let d = self
+                .texts
+                .get(p)
+                .and_then(|t| t.parse::<KdlDocument>().ok());
+            d.map(|d| ids(&d)).unwrap_or_default()
+        };
+        let (mut gain, mut lose) = (vec![], vec![]);
+        for (p, t) in &new {
+            if *p == sys || self.texts.get(p) == Some(t) {
+                continue;
+            }
+            let old = old_ids(p);
+            match ids(&self.docs[p]).iter().all(|id| old.contains(id)) {
+                true => lose.push(p),
+                false => gain.push(p),
+            }
+        }
+        let write = |p: &String| {
             files
-                .write_atomic(p, t.as_bytes())
-                .map_err(|e| vec![format!("{p}: {e}")])?;
+                .write_atomic(p, new[p].as_bytes())
+                .map_err(|e| vec![format!("{p}: {e}")])
+        };
+        for p in gain.into_iter().chain(lose) {
+            write(p)?;
         }
         for p in self.texts.keys().filter(|p| !new.contains_key(*p)) {
             files.remove(p).map_err(|e| vec![format!("{p}: {e}")])?;
+        }
+        if new.get(&sys) != self.texts.get(&sys) {
+            write(&sys)?;
         }
         Ok(())
     }

@@ -68,6 +68,55 @@ pub(crate) fn reindent(n: KdlNode, to: &str) -> KdlNode {
     }
 }
 
+/// Keeps the lines after a file's top node (`tail`) with the node as it leaves the file: at
+/// the end of its block, at the node's own indent (the block's own comments sit deeper), so
+/// that `split_tail` finds them again. kdl cannot read a comment after a `}` that has
+/// siblings after it, nor tell it from the next node's own comments.
+fn carry_tail(n: &mut KdlNode, tail: Option<String>) {
+    let Some(mut tail) = tail.filter(|t| !t.trim().is_empty()) else {
+        return;
+    };
+    if !tail.ends_with('\n') {
+        tail.push('\n');
+    }
+    if n.children().is_none() {
+        if let Some(f) = n.format_mut() {
+            f.before_children = " ".into();
+        }
+        n.set_children(KdlDocument::new());
+    }
+    let block = n.children_mut().as_mut().expect("just made");
+    let mut f = block.format().cloned().unwrap_or_default();
+    // a top node's `}` sits at column 0: nothing after the block's last line break
+    f.trailing.push_str(&tail);
+    block.set_format(f);
+}
+
+/// The tail `carry_tail` put in the block of `n`, a node at column 0, taken back out: the
+/// comment lines at column 0 at the block's end, with the blank lines just above them.
+fn split_tail(n: &mut KdlNode) -> String {
+    let Some(block) = n.children_mut().as_mut() else {
+        return String::new();
+    };
+    let Some(mut f) = block.format().cloned() else {
+        return String::new();
+    };
+    let lines: Vec<&str> = f.trailing.split_inclusive('\n').collect();
+    let Some(mut i) = lines
+        .iter()
+        .position(|l| !l.is_empty() && !l.starts_with(char::is_whitespace))
+    else {
+        return String::new();
+    };
+    while i > 0 && lines[i - 1].trim().is_empty() && lines[i - 1].ends_with('\n') {
+        i -= 1;
+    }
+    let tail = lines[i..].concat();
+    f.trailing = lines[..i].concat();
+    block.set_format(f);
+    tail
+}
+
 /// `n`'s leading without the line break that ends the `{` line (a first child has it).
 fn unfirst(n: &mut KdlNode) {
     if let Some(f) = n.format_mut().filter(|f| f.leading.starts_with('\n')) {
@@ -134,6 +183,7 @@ impl Spec {
             if let Some(f) = n.format_mut() {
                 f.leading = f.leading.strip_prefix(HEADER).unwrap_or(&f.leading).into();
             }
+            carry_tail(&mut n, d.format().map(|f| f.trailing.clone()));
             return (n, None);
         }
         let parent = self.parent(loc).unwrap_or_default();
@@ -182,7 +232,10 @@ impl Spec {
                 f.leading.insert_str(0, HEADER);
             }
             let mut d = KdlDocument::new();
-            d.set_format(KdlDocumentFormat::default());
+            d.set_format(KdlDocumentFormat {
+                leading: String::new(),
+                trailing: split_tail(&mut n),
+            });
             d.nodes_mut().push(n);
             self.docs.insert(path, d);
         } else if !full && self.own_file(&loc) {
