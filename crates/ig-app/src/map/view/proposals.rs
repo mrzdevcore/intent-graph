@@ -73,3 +73,52 @@ pub fn proposals(entries: &[Entry], boxes: &[MapBox]) -> Vec<Proposal> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_edit_kind_has_its_summary() {
+        let cases = [
+            (
+                r#"{"op":"add","parent":"p","kind":"store","id":"a","title":"A","at":[],"before":null}"#,
+                "add store A",
+            ),
+            (r#"{"op":"remove","id":"a"}"#, "remove a"),
+            (
+                r#"{"op":"move","id":"a","parent":"p","before":null}"#,
+                "move a → p",
+            ),
+            (r#"{"op":"rename","id":"a","to":"b"}"#, "rename a → b"),
+            (
+                r#"{"op":"set","id":"a","key":"tech","value":"x"}"#,
+                "a: tech",
+            ),
+            (
+                r#"{"op":"arrow","from":"a","to":"b","kind":"calls","label":"hi"}"#,
+                "arrow a calls b hi",
+            ),
+            (
+                r#"{"op":"unarrow","from":"a","to":"b","kind":"calls"}"#,
+                "unarrow a calls b",
+            ),
+            (
+                r#"{"op":"restore","parent":"p","before":null,"kdl":""}"#,
+                "restore",
+            ),
+        ];
+        for (json, want) in cases {
+            let edit: Edit = serde_json::from_str(json).unwrap();
+            let e = Entry {
+                n: 1,
+                by: By::Claude,
+                kept: false,
+                undone: false,
+                inverse: edit.clone(),
+                edit,
+            };
+            assert_eq!(proposals(&[e], &[])[0].summary, want, "{json}");
+        }
+    }
+}
