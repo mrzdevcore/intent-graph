@@ -187,7 +187,18 @@ fn mem(w: &BTreeMap<String, String>) -> ig_core::testing::MemFiles {
 
 #[test]
 fn what_is_written_reads_back_the_same() {
-    let m = shop_map();
+    use crate::map::file::Field;
+    let mut m = shop_map();
+    for b in m.boxes.iter_mut().filter(|b| b.id == "api") {
+        b.badges = Some(Field::person(vec!["core".into()]));
+        b.pattern = Some(Field::person(Pattern::Layered {
+            bands: vec![
+                "application".into(),
+                "domain".into(),
+                "infrastructure".into(),
+            ],
+        }));
+    }
     let r = read(&mem(&write(&m))).unwrap().unwrap();
     let key = |b: &MapBox| {
         (
@@ -238,4 +249,76 @@ fn a_broken_spec_names_file_and_line_and_reads_nothing() {
     let e = read(&files).unwrap_err();
     assert!(e[0].starts_with("ig/system.kdl:2:"), "{e:?}");
     assert_eq!(read(&MemFiles::with(&[])).unwrap(), None);
+}
+
+fn err_of(kdl: &str) -> Vec<String> {
+    read(&ig_core::testing::MemFiles::with(&[("ig/system.kdl", kdl)])).unwrap_err()
+}
+
+fn assert_err(kdl: &str, prefix: &str, what: &str) {
+    let e = err_of(kdl);
+    assert!(
+        e.iter().any(|x| x.starts_with(prefix) && x.contains(what)),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn every_kind_of_mistake_is_an_error_with_a_location() {
+    let sys = |inner: &str| format!("system \"s\" title=\"S\" {{\n{inner}\n}}\n");
+    assert_err(
+        &sys("  gizmo \"a\" title=\"A\""),
+        "ig/system.kdl:2:",
+        "gizmo",
+    );
+    assert_err(
+        &sys("  app \"a\" title=\"A\"\n  app \"a\" title=\"A\""),
+        "ig/system.kdl:3:",
+        "twice",
+    );
+    assert_err(
+        &sys("  app \"a\" title=\"A\" color=\"red\""),
+        "ig/system.kdl:2:",
+        "color",
+    );
+    assert_err(&sys("  app \"a\""), "ig/system.kdl:2:", "title");
+    assert_err(
+        &sys("  app \"a\" title=\"A\" {\n    pattern \"blob\"\n  }"),
+        "ig/system.kdl:3:",
+        "pattern",
+    );
+    assert_err(
+        &sys("  app \"a\" title=\"A\" {\n    at \"a/[\"\n  }"),
+        "ig/system.kdl:3:",
+        "bad glob",
+    );
+    assert_err("app \"a\" title=\"A\"\n", "ig/system.kdl:1:", "no system");
+    let two = "system \"s\" title=\"S\"\nsystem \"t\" title=\"T\"\n";
+    assert_err(two, "ig/system.kdl:2:", "second system");
+}
+
+#[test]
+fn a_file_of_two_nodes_and_a_bad_file_beside_a_good_one_read_nothing() {
+    use ig_core::testing::MemFiles;
+    let good = "system \"s\" title=\"S\"\n";
+    let files = MemFiles::with(&[
+        ("ig/system.kdl", good),
+        ("ig/x.kdl", "app \"a\" title=\"A\"\napp \"b\" title=\"B\"\n"),
+    ]);
+    let e = read(&files).unwrap_err();
+    assert!(e.iter().any(|x| x.starts_with("ig/x.kdl:1:")), "{e:?}");
+    let files = MemFiles::with(&[("ig/system.kdl", good), ("ig/x.kdl", "app \"a\" title=\n")]);
+    assert!(read(&files).is_err());
+}
+
+#[test]
+fn a_duplicate_id_with_an_arrow_to_it_is_an_error_not_a_hang() {
+    let e = err_of(
+        "system \"s\" title=\"S\" {\n  app \"x\" title=\"X\" {\n    app \"x\" title=\"X\"\n  }\n  calls \"x\"\n}\n",
+    );
+    assert!(
+        e.iter()
+            .any(|x| x.starts_with("ig/system.kdl:3:") && x.contains("twice")),
+        "{e:?}"
+    );
 }

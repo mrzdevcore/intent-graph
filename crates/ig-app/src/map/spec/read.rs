@@ -4,6 +4,7 @@
 use super::DIR;
 use crate::map::file::{Field, MapBox, MapFile, PINNABLE, Source, validate};
 use crate::map::{ArrowKind, BoxKind, Level, MapArrow, Pattern};
+use globset::GlobBuilder;
 use ig_core::ports::Files;
 use kdl::{KdlDocument, KdlNode};
 use serde::de::DeserializeOwned;
@@ -20,7 +21,10 @@ pub fn read(files: &dyn Files) -> Result<Option<MapFile>, Vec<String>> {
     let mut r = Reader::default();
     let mut docs = vec![];
     for p in paths {
-        let text = files.read(&p).unwrap_or_default();
+        let Some(text) = files.read(&p) else {
+            r.errs.push(format!("{p}: cannot be read"));
+            continue;
+        };
         match text.parse::<KdlDocument>() {
             Ok(doc) => docs.push((p, text, doc)),
             Err(e) => {
@@ -35,19 +39,29 @@ pub fn read(files: &dyn Files) -> Result<Option<MapFile>, Vec<String>> {
             }
         }
     }
-    let systems: Vec<&str> = docs
+    let systems: Vec<(&str, usize, &str)> = docs
         .iter()
-        .flat_map(|(_, _, d)| d.nodes())
-        .filter(|n| n.name().value() == "system")
-        .filter_map(|n| n.entries().first()?.value().as_string())
+        .flat_map(|(p, t, d)| d.nodes().iter().map(move |n| (p, t, n)))
+        .filter(|(_, _, n)| n.name().value() == "system")
+        .map(|(p, t, n)| {
+            let id = n.entries().first().and_then(|e| e.value().as_string());
+            (
+                p.as_str(),
+                line(t, n.span().offset()),
+                id.unwrap_or_default(),
+            )
+        })
         .collect();
-    if systems.len() != 1 && r.errs.is_empty() {
-        r.errs.push(format!(
-            "{DIR}: {} system nodes, expected exactly one",
-            systems.len()
-        ));
+    if r.errs.is_empty() {
+        match systems.get(1).or(systems.first()) {
+            None => r.errs.push(format!("{DIR}/system.kdl:1: no system node")),
+            Some((p, l, _)) if systems.len() > 1 => r.errs.push(format!(
+                "{p}:{l}: a second system node, expected exactly one"
+            )),
+            _ => {}
+        }
     }
-    let sys = systems.first().copied().unwrap_or_default().to_string();
+    let sys = systems.first().map(|s| s.2).unwrap_or_default().to_string();
     for (p, text, doc) in &docs {
         let top = doc.nodes();
         if top.len() != 1 && !p.ends_with("/system.kdl") {
@@ -153,7 +167,14 @@ impl Reader {
                 self.err(at, k, format!("`{kn}` is written twice"));
             }
             match (kn, strings(k)) {
-                ("at", Some(v)) => b.made_of = v,
+                ("at", Some(v)) => {
+                    for g in &v {
+                        if let Err(e) = GlobBuilder::new(g).literal_separator(true).build() {
+                            self.err(at, k, format!("bad glob `{g}`: {e}"));
+                        }
+                    }
+                    b.made_of = v
+                }
                 ("badges", Some(v)) => b.badges = Some(Field::person(v)),
                 ("pattern", Some(v)) => match pattern(&v) {
                     Ok(p) => b.pattern = Some(Field::person(p)),
@@ -235,13 +256,23 @@ impl Reader {
         let chain = |id: &str| {
             let mut out = vec![];
             let mut id = id.to_string();
-            while let Some(Some(p)) = parents.get(&id) {
+            while let Some(Some(p)) = parents.get(&id).filter(|_| out.len() <= parents.len()) {
                 out.push(p.clone());
                 id = p.clone();
             }
             out
         };
         let mut errs = std::mem::take(&mut self.errs);
+        // Duplicate ids make the parent chains unreliable.
+        if !errs.is_empty() {
+            errs.extend(
+                self.arrows
+                    .iter()
+                    .filter(|(a, _)| !parents.contains_key(&a.to))
+                    .map(|(a, place)| format!("{place}: arrow target `{}` does not exist", a.to)),
+            );
+            return Err(errs);
+        }
         let mut arrows = vec![];
         for (mut a, place) in self.arrows {
             if !parents.contains_key(&a.to) {
@@ -266,7 +297,11 @@ impl Reader {
             arrows,
             marks: vec![],
         };
-        validate(&m)?;
+        validate(&m).map_err(|e| {
+            e.into_iter()
+                .map(|x| format!("{DIR}/: {x}"))
+                .collect::<Vec<_>>()
+        })?;
         Ok(Some(m))
     }
 }
