@@ -116,6 +116,17 @@ fn ig_state_is_the_last_show() {
 }
 
 #[test]
+fn every_input_schema_is_a_plain_object() {
+    for t in schema::tools().as_array().unwrap() {
+        let s = &t["inputSchema"];
+        assert_eq!(s["type"], "object", "{}", t["name"]);
+        for k in ["oneOf", "anyOf", "allOf"] {
+            assert!(s.get(k).is_none(), "{} has a top-level {k}", t["name"]);
+        }
+    }
+}
+
+#[test]
 fn ig_show_offers_no_architecture_mode() {
     let t = schema::tools();
     let show = t
@@ -199,7 +210,10 @@ fn batch_stops_at_first_error_and_says_earlier_stay() {
     let r = call_tool(&dir, "ig_edit", json!({"edits": [ok, bad]}));
     assert_eq!(r["isError"], true, "{r}");
     assert!(text(&r).contains("edit 2"), "{r}");
-    assert!(text(&r).contains("stay recorded"), "{r}");
+    assert!(
+        text(&r).contains("journal entry 1 stays recorded"),
+        "{r}"
+    );
     assert!(
         std::fs::read_to_string(dir.join("ig/system.kdl"))
             .unwrap()
