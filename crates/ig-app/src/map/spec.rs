@@ -70,12 +70,20 @@ fn quote(nodes: &mut [KdlNode]) {
             let Some(s) = e.value().as_string().map(str::to_string) else {
                 continue;
             };
-            let esc = s
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"")
-                .replace('\n', "\\n")
-                .replace('\r', "\\r")
-                .replace('\t', "\\t");
+            let mut esc = String::new();
+            for c in s.chars() {
+                match c {
+                    '\\' => esc.push_str("\\\\"),
+                    '"' => esc.push_str("\\\""),
+                    '\n' => esc.push_str("\\n"),
+                    '\r' => esc.push_str("\\r"),
+                    '\t' => esc.push_str("\\t"),
+                    c if c.is_control() || disallowed(c) => {
+                        esc.push_str(&format!("\\u{{{:04X}}}", c as u32))
+                    }
+                    c => esc.push(c),
+                }
+            }
             e.set_format(KdlEntryFormat {
                 value_repr: format!("\"{esc}\""),
                 leading: " ".into(),
@@ -86,6 +94,11 @@ fn quote(nodes: &mut [KdlNode]) {
             quote(c.nodes_mut());
         }
     }
+}
+
+/// Code points KDL forbids in a document (bidi controls, the BOM) or reads as a newline.
+fn disallowed(c: char) -> bool {
+    matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' | '\u{2028}' | '\u{2029}')
 }
 
 /// A box as a node; `split` sees each direct child's node and may take it (to a file of its own).
@@ -111,7 +124,7 @@ fn node(
     }
     let body = n.ensure_children();
     if !b.made_of.is_empty() {
-        body.nodes_mut().push(strings("at", &b.made_of));
+        body.nodes_mut().push(strings("at", &narrow(b)));
     }
     if let Some(f) = b.badges.as_ref().filter(|f| !f.value.is_empty()) {
         body.nodes_mut().push(strings("badges", &f.value));
@@ -122,7 +135,12 @@ fn node(
     let mut out: Vec<&MapArrow> = m.arrows.iter().filter(|a| a.from == b.id).collect();
     out.sort_by(|a, b| a.id.cmp(&b.id));
     for a in out {
-        let name = serde_json::to_value(a.kind).ok();
+        // A bundle is derived from its kinds: the spec says the main one.
+        let kind = match a.kind {
+            ArrowKind::Bundle => a.kinds.first().copied().unwrap_or(ArrowKind::Uses),
+            k => k,
+        };
+        let name = serde_json::to_value(kind).ok();
         let mut an = KdlNode::new(name.as_ref().and_then(|k| k.as_str()).unwrap_or("uses"));
         an.push(KdlEntry::new(a.to.as_str()));
         // A bundle's label is a derived count, not intent.
@@ -141,6 +159,21 @@ fn node(
         n.clear_children();
     }
     n
+}
+
+/// A box (not the system) at `**`, a package at the repo root, is written at the top-level
+/// folders holding its files (`*` for loose root files), so that new code elsewhere is drift.
+fn narrow(b: &MapBox) -> Vec<String> {
+    if b.level == Level::System || b.made_of != ["**"] || b.nodes.is_empty() {
+        return b.made_of.clone();
+    }
+    let dirs: std::collections::BTreeSet<String> = (b.nodes.iter())
+        .map(|n| match n.split_once('/') {
+            Some((d, _)) => format!("{d}/**"),
+            None => "*".into(),
+        })
+        .collect();
+    dirs.into_iter().collect()
 }
 
 fn strings(name: &str, vals: &[String]) -> KdlNode {
@@ -164,7 +197,7 @@ fn pattern(p: &Pattern) -> KdlNode {
 }
 
 mod read;
-pub use read::read;
+pub use read::{parse, read};
 
 #[cfg(test)]
 mod tests;

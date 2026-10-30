@@ -72,7 +72,7 @@ fn no_code_level_kind_is_a_node_name() {
 fn bundle_arrows_lose_their_derived_label() {
     let files = write(&shop_map());
     let web = &files["ig/web.kdl"];
-    assert!(web.contains("bundle \"api-client\"\n") || web.contains("bundle \"api-client\" "));
+    assert!(web.contains("depends \"api-client\"\n"), "{web}");
     assert!(!web.contains("1 call"));
     assert!(web.contains("network \"api\" label=\"POST /checkout\""));
 }
@@ -236,7 +236,16 @@ fn what_is_written_reads_back_the_same() {
             .collect::<Vec<_>>(),
         m.arrows
             .iter()
-            .map(|a| (&a.from, &a.to, a.kind))
+            // a bundle is written as its main kind
+            .map(|a| (
+                &a.from,
+                &a.to,
+                if a.kind == ArrowKind::Bundle {
+                    a.kinds[0]
+                } else {
+                    a.kind
+                }
+            ))
             .collect::<Vec<_>>()
     );
 }
@@ -333,4 +342,36 @@ fn a_duplicate_id_with_an_arrow_to_it_is_an_error_not_a_hang() {
             .any(|x| x.starts_with("ig/system.kdl:3:") && x.contains("twice")),
         "{e:?}"
     );
+}
+
+#[test]
+fn a_bundle_is_written_as_its_main_kind() {
+    let files = write(&shop_map());
+    assert!(!files.values().any(|t| t.contains("bundle ")), "{files:#?}");
+    assert!(files["ig/web.kdl"].contains("depends \"api-client\""));
+}
+
+#[test]
+fn control_and_bidi_characters_round_trip() {
+    let mut m = shop_map();
+    let t = "a\u{1}b\u{202E}c\u{FEFF}d";
+    for b in m.boxes.iter_mut().filter(|b| b.id == "api") {
+        b.title.value = t.into();
+    }
+    let back = read(&mem(&write(&m))).unwrap().unwrap();
+    let api = back.boxes.iter().find(|b| b.id == "api").unwrap();
+    assert_eq!(api.title.value, t);
+}
+
+#[test]
+fn a_syntax_error_is_reported_alone() {
+    let e = read(&mem(&BTreeMap::from([
+        ("ig/system.kdl".to_string(), "system {".to_string()),
+        (
+            "ig/web.kdl".to_string(),
+            "app \"web\" title=\"Web\" {\n  uses \"api\"\n}\n".to_string(),
+        ),
+    ])))
+    .unwrap_err();
+    assert!(e.iter().all(|x| x.starts_with("ig/system.kdl:")), "{e:?}");
 }

@@ -18,10 +18,19 @@ pub fn read(files: &dyn Files) -> Result<Option<MapFile>, Vec<String>> {
     if paths.is_empty() {
         return Ok(None);
     }
+    let texts = paths.into_iter().map(|p| {
+        let t = files.read(&p);
+        (p, t)
+    });
+    parse(texts.collect()).map(Some)
+}
+
+/// The map in spec files given as (path, text; none when it cannot be read).
+pub fn parse(texts: Vec<(String, Option<String>)>) -> Result<MapFile, Vec<String>> {
     let mut r = Reader::default();
     let mut docs = vec![];
-    for p in paths {
-        let Some(text) = files.read(&p) else {
+    for (p, text) in texts {
+        let Some(text) = text else {
             r.errs.push(format!("{p}: cannot be read"));
             continue;
         };
@@ -39,6 +48,10 @@ pub fn read(files: &dyn Files) -> Result<Option<MapFile>, Vec<String>> {
             }
         }
     }
+    // what follows a syntax error is noise
+    if !r.errs.is_empty() {
+        return Err(r.errs);
+    }
     let systems: Vec<(&str, usize, &str)> = docs
         .iter()
         .flat_map(|(p, t, d)| d.nodes().iter().map(move |n| (p, t, n)))
@@ -52,14 +65,12 @@ pub fn read(files: &dyn Files) -> Result<Option<MapFile>, Vec<String>> {
             )
         })
         .collect();
-    if r.errs.is_empty() {
-        match systems.get(1).or(systems.first()) {
-            None => r.errs.push(format!("{DIR}/system.kdl:1: no system node")),
-            Some((p, l, _)) if systems.len() > 1 => r.errs.push(format!(
-                "{p}:{l}: a second system node, expected exactly one"
-            )),
-            _ => {}
-        }
+    match systems.get(1).or(systems.first()) {
+        None => r.errs.push(format!("{DIR}/system.kdl:1: no system node")),
+        Some((p, l, _)) if systems.len() > 1 => r.errs.push(format!(
+            "{p}:{l}: a second system node, expected exactly one"
+        )),
+        _ => {}
     }
     let sys = systems.first().map(|s| s.2).unwrap_or_default().to_string();
     for (p, text, doc) in &docs {
@@ -249,7 +260,7 @@ impl Reader {
         ));
     }
 
-    fn finish(mut self) -> Result<Option<MapFile>, Vec<String>> {
+    fn finish(mut self) -> Result<MapFile, Vec<String>> {
         let parents: BTreeMap<String, Option<String>> = self
             .boxes
             .iter()
@@ -304,7 +315,7 @@ impl Reader {
                 .map(|x| format!("{DIR}/: {x}"))
                 .collect::<Vec<_>>()
         })?;
-        Ok(Some(m))
+        Ok(m)
     }
 }
 

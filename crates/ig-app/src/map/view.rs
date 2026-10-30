@@ -28,7 +28,7 @@ pub struct View {
     /// The list each part box of a component holds, by box id.
     pub parts: BTreeMap<String, Vec<Part>>,
     pub notices: Vec<String>,
-    /// `ig/` could not be read: the view is of the code alone.
+    /// No spec could be read or written: the view is of the code alone.
     #[serde(skip)]
     pub broken: bool,
 }
@@ -208,10 +208,15 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
                     relift(&mut m, g, &findings);
                 }
                 let from = if old.is_some() { file::MAP } else { "the code" };
-                notices.push(write_spec(env.files, &m, from)?);
+                let (said, wrote) = write_spec(env.files, &m, from)?;
+                notices.push(said);
+                broken |= !wrote;
                 match spec::read(env.files) {
                     Ok(Some(s)) => Ok(s),
-                    Ok(None) => Err(m),
+                    Ok(None) => {
+                        broken = true;
+                        Err(m)
+                    }
                     Err(e) => {
                         broken = true;
                         notices.extend(e);
@@ -219,6 +224,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
                     }
                 }
             } else {
+                broken = true;
                 notices.extend(rejected);
                 notices.push(format!(
                     "{} left as is; fix or delete it to let ig write {}/",
@@ -262,22 +268,33 @@ fn marks(m: &mut MapFile, findings: &[ig_core::model::Finding]) {
     sort_marks(&mut m.marks);
 }
 
-/// Writes `m` as the spec in `ig/` unless `validate` rejects it; the notice either way (`from`:
-/// where its reading came from).
-fn write_spec(files: &dyn Files, m: &MapFile, from: &str) -> crate::Result<String> {
+/// Writes `m` as the spec in `ig/` unless `validate` or the reader would reject it (nothing
+/// is then written); the notice, and whether it was written (`from`: where its reading came
+/// from).
+fn write_spec(files: &dyn Files, m: &MapFile, from: &str) -> crate::Result<(String, bool)> {
+    let not = |why: &str, e: Vec<String>| {
+        let e = e.join("; ");
+        Ok((format!("{}/ not written, {why}: {e}", spec::DIR), false))
+    };
     if let Err(e) = file::validate(m) {
-        return Ok(format!(
-            "{}/ not written, ig's map is not valid: {}",
-            spec::DIR,
-            e.join("; ")
-        ));
+        return not("ig's map is not valid", e);
     }
-    for (path, text) in spec::write(m) {
+    let mut out: Vec<(String, String)> = spec::write(m).into_iter().collect();
+    let texts = out.iter().map(|(p, t)| (p.clone(), Some(t.clone())));
+    if let Err(e) = spec::parse(texts.collect()) {
+        return not("ig would not read it back", e);
+    }
+    // system.kdl last: an `ig/` without it is a broken spec, never a partial one read as whole
+    out.sort_by_key(|(p, _)| p.ends_with("/system.kdl"));
+    for (path, text) in out {
         files.write_atomic(&path, text.as_bytes())?;
     }
-    Ok(format!(
-        "wrote {}/: the intended architecture, from {from}; edit it, commit it",
-        spec::DIR
+    Ok((
+        format!(
+            "wrote {}/: the intended architecture, from {from}; edit it, commit it",
+            spec::DIR
+        ),
+        true,
     ))
 }
 
@@ -308,6 +325,7 @@ mod tests {
             files.read("ig/system.kdl").is_none(),
             "its reading is not lost"
         );
+        assert!(v.broken, "no spec, none written");
     }
 
     #[test]
@@ -319,12 +337,9 @@ mod tests {
             "{:?}",
             v.notices
         );
-        // a person narrows the package to `src/`
-        let pkg = files
-            .read("ig/pkg.kdl")
-            .unwrap()
-            .replacen("at \"**\"", "at \"src/**\"", 1);
-        files.write_atomic("ig/pkg.kdl", pkg.as_bytes()).unwrap();
+        // a root package is written with its own folders, not `**`
+        let pkg = files.read("ig/pkg.kdl").unwrap();
+        assert!(pkg.contains("at \"src/**\"\n"), "{pkg}");
         let before = files.read("ig/system.kdl").unwrap();
         files
             .write_atomic("lib/c.ts", b"export const y = 2;\n")
@@ -446,11 +461,30 @@ mod tests {
             arrows: vec![],
             marks: vec![],
         };
-        let n = write_spec(&files, &m, "the code").unwrap();
+        let (n, wrote) = write_spec(&files, &m, "the code").unwrap();
         assert!(n.contains("not written") && n.contains("version 2"), "{n}");
+        assert!(!wrote);
         assert!(files.glob(&["ig/*".into()]).unwrap().is_empty());
-        m.version = 1;
-        let n = write_spec(&files, &m, "the code").unwrap();
-        assert!(n.starts_with("wrote ig/"), "{n}");
+        let (ws, g, cfg) = crate::map::shop::load();
+        let b = super::super::facts(&ws, &g, &cfg);
+        m = refresh(None, &b, arrows(&b, &g), &[]).0;
+        let (n, wrote) = write_spec(&files, &m, "the code").unwrap();
+        assert!(n.starts_with("wrote ig/") && wrote, "{n}");
+    }
+
+    #[test]
+    fn a_spec_ig_would_reject_is_never_written() {
+        let (ws, g, cfg) = crate::map::shop::load();
+        let b = super::super::facts(&ws, &g, &cfg);
+        let mut m = refresh(None, &b, arrows(&b, &g), &[]).0;
+        // an arrow to no box passes the map's checks but not the reader's
+        let mut a = m.arrows[0].clone();
+        (a.id, a.to) = (format!("{}->nowhere", a.from), "nowhere".into());
+        m.arrows.push(a);
+        assert!(file::validate(&m).is_ok());
+        let files = MemFiles::with(&[]);
+        let (n, wrote) = write_spec(&files, &m, "the code").unwrap();
+        assert!(n.starts_with("ig/ not written") && !wrote, "{n}");
+        assert!(files.glob(&["ig/*".into()]).unwrap().is_empty());
     }
 }
