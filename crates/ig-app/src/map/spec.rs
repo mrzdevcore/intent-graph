@@ -20,13 +20,24 @@ pub fn write(m: &MapFile) -> BTreeMap<String, String> {
     let mut roots: Vec<&MapBox> = m
         .boxes
         .iter()
-        .filter(|b| b.parent.is_none() && b.level != Level::Code)
+        .filter(|b| b.parent.is_none() && in_spec(b))
         .collect();
     roots.sort_by_key(|b| (b.level != Level::System, b.id.as_str()));
+    // the boxes left out (code): arrows to them would end nowhere when read back
+    let mut written = std::collections::HashSet::new();
+    let mut todo = roots.clone();
+    while let Some(b) = todo.pop() {
+        written.insert(b.id.as_str());
+        todo.extend(kids(m, b));
+    }
+    let left_out: std::collections::HashSet<&str> = (m.boxes.iter())
+        .map(|b| b.id.as_str())
+        .filter(|id| !written.contains(id))
+        .collect();
     for (i, root) in roots.into_iter().enumerate() {
         // The first root is the system and owns system.kdl; any other root gets its own file.
         let first = i == 0 && root.level == Level::System;
-        let n = node(m, root, &mut |child, n| {
+        let n = node(m, &left_out, root, &mut |child, n| {
             if first && has_kids(m, child) {
                 files.insert(path(&child.id), text(vec![n]));
                 return None;
@@ -46,10 +57,16 @@ fn kids<'a>(m: &'a MapFile, b: &MapBox) -> Vec<&'a MapBox> {
     let mut v: Vec<_> = m
         .boxes
         .iter()
-        .filter(|c| c.parent.as_deref() == Some(&b.id) && c.level != Level::Code)
+        .filter(|c| c.parent.as_deref() == Some(&b.id) && in_spec(c))
         .collect();
     v.sort_by(|a, b| a.id.cmp(&b.id));
     v
+}
+
+/// Code is not architecture: a code-level box (by level, or by kind, as a reading may name one)
+/// stays out of `ig/`, and so does what is inside it.
+fn in_spec(b: &MapBox) -> bool {
+    b.level != Level::Code && !b.kind.value.code_level()
 }
 
 fn has_kids(m: &MapFile, b: &MapBox) -> bool {
@@ -112,6 +129,7 @@ fn disallowed(c: char) -> bool {
 /// A box as a node; `split` sees each direct child's node and may take it (to a file of its own).
 fn node(
     m: &MapFile,
+    left_out: &std::collections::HashSet<&str>,
     b: &MapBox,
     split: &mut dyn FnMut(&MapBox, KdlNode) -> Option<KdlNode>,
 ) -> KdlNode {
@@ -140,7 +158,9 @@ fn node(
     if let Some(f) = &b.pattern {
         body.nodes_mut().push(pattern(&f.value));
     }
-    let mut out: Vec<&MapArrow> = m.arrows.iter().filter(|a| a.from == b.id).collect();
+    let mut out: Vec<&MapArrow> = (m.arrows.iter())
+        .filter(|a| a.from == b.id && !left_out.contains(a.to.as_str()))
+        .collect();
     out.sort_by(|a, b| a.id.cmp(&b.id));
     for a in out {
         // A bundle is derived from its kinds: the spec says the main one.
@@ -154,7 +174,7 @@ fn node(
         body.nodes_mut().push(an);
     }
     for c in kids(m, b) {
-        let cn = node(m, c, &mut |_, n| Some(n));
+        let cn = node(m, left_out, c, &mut |_, n| Some(n));
         if let Some(cn) = split(c, cn) {
             body.nodes_mut().push(cn);
         }

@@ -135,8 +135,7 @@ impl Reader {
         let Some(kind) = named::<BoxKind>(name) else {
             return self.err(at, n, format!("`{name}` is not a box kind"));
         };
-        use BoxKind::{Class, File, Function, Method, Parts, Task};
-        if [Function, Class, Method, File, Parts, Task].contains(&kind) {
+        if kind.code_level() {
             return self.err(
                 at,
                 n,
