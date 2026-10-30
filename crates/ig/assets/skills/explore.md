@@ -6,7 +6,7 @@ description: Explain how part of this codebase fits together using the ig depend
 # Explore the code with the ig graph
 
 Read-only: never edit files. The only thing you may write is `.ig/show.json` (through `ig_show`);
-`ig view --json --no-read` also refreshes `.ig/map.json` on its own (ig's facts, your reading kept).
+`ig view --json --no-read` writes the spec `ig/` on its own the first time (the intended architecture), and never rewrites it.
 
 1. Find candidate ids. Run `ig view --json --no-read` and search `boxes[]` (`id`, `title`, `level`, `madeOf`)
    for the name; `arrows[]` (`from`, `to`, `kind`, `label`) holds the dependencies between boxes.

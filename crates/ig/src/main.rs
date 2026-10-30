@@ -89,7 +89,6 @@ fn real_main() -> Result<u8> {
             for n in &v.notices {
                 eprintln!("ig: {n}");
             }
-            render::ignore_ig_dir(&root)?;
             if a.json {
                 println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
@@ -99,6 +98,8 @@ fn real_main() -> Result<u8> {
                 }
                 println!("{}", path.display());
             }
+            // after the page: `.ig/` may not exist before it
+            render::ignore_ig_dir(&root)?;
             Ok(0)
         }
         "mcp" => {
