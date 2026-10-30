@@ -46,6 +46,14 @@ pub enum BoxKind {
     Group,
 }
 
+impl BoxKind {
+    /// Kinds that name code, not architecture: never written to (or read from) `ig/`.
+    pub fn code_level(self) -> bool {
+        use BoxKind::*;
+        matches!(self, Function | Class | Method | File | Parts | Task)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", try_from = "RawPattern")]
 pub enum Pattern {

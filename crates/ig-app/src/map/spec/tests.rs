@@ -421,3 +421,21 @@ fn every_written_file_starts_with_the_new_header() {
     );
     assert!(write(&shop_map()).values().all(|t| t.starts_with(HEADER)));
 }
+
+#[test]
+fn a_box_a_reading_named_with_a_code_level_kind_is_left_out_with_its_arrows() {
+    let mut m = shop_map();
+    let id = "api/application-checkout";
+    let b = m.boxes.iter_mut().find(|b| b.id == id).unwrap();
+    b.kind.value = crate::map::facts::BoxKind::Function;
+    let a = m
+        .arrows
+        .iter_mut()
+        .find(|a| a.id == "api->postgres")
+        .unwrap();
+    a.to = id.into();
+    let files = write(&m);
+    assert!(!files["ig/api.kdl"].contains(id), "{}", files["ig/api.kdl"]);
+    let texts: Vec<_> = files.into_iter().map(|(p, t)| (p, Some(t))).collect();
+    crate::map::spec::parse(texts).expect("read back");
+}
