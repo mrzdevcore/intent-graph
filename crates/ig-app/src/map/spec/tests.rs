@@ -385,3 +385,30 @@ fn a_bundle_is_written_as_its_most_telling_kind() {
     assert!(api.contains("calls \"postgres\""), "{api}");
     assert!(!api.contains("depends \"postgres\""), "{api}");
 }
+
+#[test]
+fn code_level_kinds_a_nested_system_self_and_bundle_arrows_do_not_read() {
+    let sys = |inner: &str| format!("system \"s\" title=\"S\" {{\n{inner}\n}}\n");
+    for k in ["function", "class", "method", "file", "parts", "task"] {
+        assert_err(
+            &sys(&format!("  {k} \"a\" title=\"A\"")),
+            "ig/system.kdl:2:",
+            "code-level",
+        );
+    }
+    assert_err(
+        &sys("  app \"a\" title=\"A\" {\n    system \"t\" title=\"T\"\n  }"),
+        "ig/system.kdl:3:",
+        "inside another box",
+    );
+    assert_err(
+        &sys("  app \"a\" title=\"A\" {\n    uses \"a\"\n  }"),
+        "ig/system.kdl:3:",
+        "its own box",
+    );
+    assert_err(
+        &sys("  app \"a\" title=\"A\" {\n    bundle \"b\"\n  }\n  app \"b\" title=\"B\""),
+        "ig/system.kdl:3:",
+        "`bundle`",
+    );
+}

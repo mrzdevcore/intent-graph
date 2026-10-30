@@ -135,6 +135,17 @@ impl Reader {
         let Some(kind) = named::<BoxKind>(name) else {
             return self.err(at, n, format!("`{name}` is not a box kind"));
         };
+        use BoxKind::{Class, File, Function, Method, Parts, Task};
+        if [Function, Class, Method, File, Parts, Task].contains(&kind) {
+            return self.err(
+                at,
+                n,
+                format!("`{name}` is a code-level kind, not one for ig/"),
+            );
+        }
+        if kind == BoxKind::System && parent.is_some() {
+            return self.err(at, n, "a `system` node inside another box".into());
+        }
         let Some(id) = n.entries().first().and_then(|e| e.value().as_string()) else {
             return self.err(at, n, format!("`{name}` needs an id string"));
         };
@@ -238,6 +249,16 @@ impl Reader {
         let Some(to) = n.entries().first().and_then(|e| e.value().as_string()) else {
             return self.err(at, n, "an arrow needs the id it points to".into());
         };
+        if kind == ArrowKind::Bundle {
+            return self.err(
+                at,
+                n,
+                "`bundle` is drawn, not written: write the arrow's kind".into(),
+            );
+        }
+        if to == from {
+            return self.err(at, n, format!("arrow `{from}->{to}` points at its own box"));
+        }
         let label = n.get("label").and_then(|v| v.as_string()).map(String::from);
         let id = format!("{from}->{to}");
         if self.arrows.iter().any(|(a, _)| a.id == id) {

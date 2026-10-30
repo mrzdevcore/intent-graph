@@ -217,3 +217,16 @@ fn batch_stops_at_first_error_and_says_earlier_stay() {
             .contains("\"db\"")
     );
 }
+
+#[test]
+fn ig_edit_never_gives_a_box_the_whole_repo() {
+    let dir = crate::tests::tmp_with(&[("ig/system.kdl", SPEC)]);
+    let add = json!({"op": "add", "parent": "shop", "kind": "app", "id": "all", "title": "All", "at": ["**"]});
+    let r = call_tool(&dir, "ig_edit", json!({"edits": [add]}));
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("claims `**`"), "{r}");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap(),
+        SPEC
+    );
+}
