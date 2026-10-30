@@ -7,6 +7,7 @@ import type { View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 import { prefill, slug } from "../src/map/edit/add";
 import { arrowLook, look } from "../src/map/looks";
+import MapHarness from "./MapHarness.svelte";
 import MovePicker from "../src/map/edit/MovePicker.svelte";
 import { parentsFor } from "../src/map/edit/menu";
 
@@ -437,4 +438,66 @@ test("a proposed box has the tag chip; hovering a row lights it; its card offers
   btn(target.querySelector("section.details")!, "Keep").click();
   await tick();
   expect(calls).toEqual([3]);
+});
+
+const row = (t: HTMLElement, i = 0) => t.querySelectorAll('section.list [role="group"]')[i];
+const fire = (el: Element, type: string) => { el.dispatchEvent(new (type.startsWith("pointer") ? PointerEvent : FocusEvent)(type, { bubbles: true })); flushSync(); };
+const review = (t: HTMLElement) => { btn(t, "Review").click(); flushSync(); };
+
+test("pointerenter, focusin, pointerleave, focusout leaves nothing lit", () => {
+  const { target } = setup(fake().api, withProposals(two));
+  review(target);
+  const r = row(target)!;
+  for (const e of ["pointerenter", "focusin", "pointerleave", "focusout"]) fire(r, e);
+  expect(target.querySelector(".traced, .faded")).toBeNull();
+});
+
+test("Keep on the hovered row clears the light", async () => {
+  const left = withProposals(two.slice(1));
+  const target = document.createElement("div");
+  document.body.append(target);
+  mount(MapHarness, { target, props: { start: withProposals(two), edit: fake({ keep: async () => left }).api, size } });
+  flushSync();
+  review(target);
+  fire(row(target)!, "pointerenter");
+  expect(target.querySelector(".traced")).not.toBeNull();
+  btn(row(target) as HTMLElement, "Keep").click();
+  await tick();
+  flushSync();
+  expect(target.querySelectorAll('section.list [role="group"]').length).toBe(2);
+  expect(target.querySelector(".traced")).toBeNull();
+});
+
+test("closing the list while a row is hovered clears the light", () => {
+  const { target } = setup(fake().api, withProposals(two));
+  review(target);
+  fire(row(target)!, "pointerenter");
+  btn(target, "Review").click();
+  flushSync();
+  expect(target.querySelector(".traced")).toBeNull();
+});
+
+test("a hover while the search lit a path gives the search path back", () => {
+  const { target } = setup(fake().api, withProposals(two));
+  const input = target.querySelector('input[aria-label="Search the map"]') as HTMLInputElement;
+  input.focus();
+  input.value = "web to postgres";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  flushSync();
+  const lit = () => [...target.querySelectorAll(".traced")].map((e) => (e as HTMLElement).dataset.box).sort();
+  const before = lit();
+  expect(before).toContain("postgres");
+  review(target);
+  fire(row(target, 1)!, "pointerenter");
+  expect(lit()).toEqual(["api"]);
+  fire(row(target, 1)!, "pointerleave");
+  expect(lit()).toEqual(before);
+});
+
+test("a proposed arrow is dashed in the map", () => {
+  const { target } = setup(fake().api, withProposals(two));
+  const path = target.querySelector('[data-arrow="api->postgres"] path[stroke-dasharray], [data-arrow="api->postgres"] path[style*="dash"]');
+  expect(path).not.toBeNull();
 });

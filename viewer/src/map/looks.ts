@@ -1,4 +1,4 @@
-import type { BoxKind, MapArrow, MapBox, Mark, MarkState, View } from "./types";
+import type { BoxKind, Proposal, MapArrow, MapBox, Mark, MarkState, View } from "./types";
 
 export type Tone = "neutral" | "warn" | "bad" | "down";
 export type Look = {
@@ -22,13 +22,13 @@ const ORIGIN: Record<NonNullable<MapBox["origin"]>, { edge: string; label: strin
   moved: { edge: "var(--map-blue)", label: "to move", tone: "neutral" },
 };
 /** The chip of a proposal: who made the edit. */
-export const tag = (by: string) => (by === "claude" ? "Claude" : "reading");
+export const tag = (by: Proposal["by"]) => (by === "claude" ? "Claude" : "reading");
 const RANK: Record<MarkState, number> = { ok: 0, warn: 1, down: 2, bad: 3 };
 const worst = (ms: Mark[]) => ms.reduce<Mark | null>((w, m) => (!w || RANK[m.state] > RANK[w.state] ? m : w), null);
 const shown = (marks: Mark[], on: Set<string>, target: string) => marks.filter((m) => m.target === target && on.has(m.layer));
 
 /** Precedence: health > highlight (other layers' marks) > origin (build, drift, moved) > status (stale) > kind. */
-export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox, by?: string): Look {
+export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox, by?: Proposal["by"]): Look {
   const mine = shown(marks, on, id);
   const health = worst(mine.filter((m) => m.layer === "health"));
   const other = worst(mine.filter((m) => m.layer !== "health" && m.state !== "ok"));
@@ -82,7 +82,7 @@ const ARROW: Record<string, { color: string; dash: string | null; head: "filled"
   implements: { color: "var(--map-faint)", dash: "6 4", head: "hollow" },
 };
 
-export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>, by?: string) {
+export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>, by?: Proposal["by"]) {
   const base = ARROW[arrow.kind];
   const hit = worst(shown(marks, on, arrow.id).filter((m) => m.state !== "ok"));
   const s = hit ? STATE[hit.state as Exclude<MarkState, "ok">] : null;
