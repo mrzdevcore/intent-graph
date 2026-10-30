@@ -10,7 +10,7 @@ Examples to read alongside: `docs/specs/system-text/` (`shop.kdl`, `queries.md`)
 ig's value is that it describes the **intended architecture** of a system, not the code itself. The
 architecture is written down as a file, the way HTML is the text of a DOM: a spec people and agents
 read, review and edit, that the code is checked against, and that an agent can build a whole system
-from (`ig generate`).
+from (`ig apply`).
 
 Everything else in ig renders or uses that model: the map, Claude through MCP, the CLI, CI. None of
 them works out facts on its own.
@@ -105,7 +105,7 @@ The user's rule: few features, built very well.
 - **`ig plan`**: the difference between the file and the code: to build, to remove, to move. Text in
   the terminal; on the map, the same as dashed (to build), struck through (to remove) and arrows
   (moved).
-- **`ig generate`**: hands the plan to an agent (Claude) to build; on an empty repo, the whole
+- **`ig apply`**: hands the plan to an agent (Claude) to build; on an empty repo, the whole
   system. Claude builds with its usual tools and permissions.
 - **`ig check`**: exits non-zero while code and file differ; locally, in CI, and as "done" while
   Claude builds. **You check what you write** (decided with the user):
@@ -117,10 +117,21 @@ The user's rule: few features, built very well.
   - code inside a node's `at` that the file does not describe is fine;
   - never checked: what ig cannot detect (people, labels, descriptions, `tech`); those are
     declarations.
+- **`ig fmt`**: rewrites `ig/*.kdl` in canonical form (layout, indentation), keeping comments and
+  the user's order; `ig fmt --check` fails in CI when a file is not formatted. The one command that
+  rewrites spec files, and only their formatting, because the user asks (decided with the user).
 - **`ig accept <selector>`**: takes drift into the file (the code wins, deliberately); Claude can
   propose the same edit. Either way it shows in review.
 - A planned node says where its code will live (`at="src/billing/**"`); ig judges "built" with its
   own deterministic analysis, never an agent's word.
+- **The spec drives the file system; ig never moves files itself** (decided with the user). When a
+  node's `at` changes (it was moved or renamed in the spec), `ig plan` lists the concrete file
+  operations: `move apps/api/src/refund/** → billing/src/refund/`, plus the folders to create for
+  planned nodes. `ig apply` hands that list to the agent, which moves the files and fixes
+  imports, configs and tests (a folder move alone breaks code, and fixing it is language work an
+  agent already does). `ig check` then verifies the code sits where the spec says and has only the
+  arrows the spec allows. ig decides what should be where and verifies it; it does not edit the
+  repo's layout.
 
 ## Selectors
 
@@ -194,11 +205,12 @@ Each step ships on its own and is excellent before the next.
 
 1. The model and `ig.kdl`: build the model from code + file, `ig init` and the migration from
    `.ig/map.json`, the map rendering origins (to build, drift, moved), `ig plan` and `ig check`.
+   `ig fmt` comes with step 4 (it shares the tidy step for edits).
 2. Selectors and the read API: `ig_query`, `ig_get`, the CLI's `ig query`, the map's search on
    selectors.
 3. @ mentions on `ig_get`.
 4. Editing: `ig_edit`, the journal, the map's editing, Claude's gold edits, `ig accept`.
-5. `ig generate`.
+5. `ig apply`.
 6. Attributes: `ig_set`, `.ig/attrs/` loading, layers from attributes.
 
 ## Later directions (not in this work; nothing above may block them)
