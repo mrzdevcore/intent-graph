@@ -98,7 +98,7 @@ fn a_container_folding_back_is_written_before_its_file_goes() {
     );
 }
 
-const WEB: &str = r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+const WEB: &str = r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 app "web" title="Web" {
     at "apps/web/**"
     uses "api"

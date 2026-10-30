@@ -2,7 +2,7 @@
 //! nodes it did not touch keep their text.
 
 use super::{Loc, Spec, box_id, sibling_id};
-use crate::map::spec::{self, HEADER};
+use crate::map::spec::{self, HEADER, OLD_HEADER};
 use kdl::{KdlDocument, KdlDocumentFormat, KdlNode, KdlNodeFormat};
 
 /// Lays out at `indent` every node in `block` that has no layout yet (built in code), and its
@@ -181,7 +181,9 @@ impl Spec {
             let mut d = self.docs.remove(&loc.0).unwrap_or_default();
             let mut n = d.nodes_mut().remove(0);
             if let Some(f) = n.format_mut() {
-                f.leading = f.leading.strip_prefix(HEADER).unwrap_or(&f.leading).into();
+                let l = &f.leading;
+                let l = (l.strip_prefix(HEADER).or(l.strip_prefix(OLD_HEADER))).unwrap_or(l);
+                f.leading = l.into();
             }
             carry_tail(&mut n, d.format().map(|f| f.trailing.clone()));
             return (n, None);

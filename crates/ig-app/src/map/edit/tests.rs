@@ -7,9 +7,9 @@ mod guard;
 mod journal;
 mod slot;
 
-const H: &str = "// ig's intended architecture: edit freely; ig never rewrites this file.\n";
+const H: &str = "// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).\n";
 
-const SYS: &str = r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+const SYS: &str = r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 // the shop
 system "shop" title="Shop" {
     // where the code is
@@ -28,7 +28,7 @@ system "shop" title="Shop" {
 // eof
 "#;
 
-const API: &str = r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+const API: &str = r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 // the backend
 app "api" title="Api" {
     at "apps/api/**"
@@ -112,7 +112,7 @@ fn add_a_component_before_a_sibling() {
         },
         &[(
             "ig/api.kdl",
-            r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+            r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 // the backend
 app "api" title="Api" {
     at "apps/api/**"
@@ -154,7 +154,7 @@ fn add_a_container_goes_before_the_blocks_trailing_comment() {
         },
         &[(
             "ig/system.kdl",
-            r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+            r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 // the shop
 system "shop" title="Shop" {
     // where the code is
@@ -177,7 +177,7 @@ system "shop" title="Shop" {
     );
 }
 
-const SYS_WITHOUT_WEB: &str = r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+const SYS_WITHOUT_WEB: &str = r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 // the shop
 system "shop" title="Shop" {
     // where the code is
@@ -229,7 +229,7 @@ fn remove_takes_the_comments_above_and_restores_them() {
         },
         &[(
             "ig/api.kdl",
-            r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+            r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 // the backend
 app "api" title="Api" {
     at "apps/api/**"
@@ -278,7 +278,7 @@ fn move_a_component_to_another_container_keeps_its_id_and_arrows() {
         &[
             (
                 "ig/api.kdl",
-                r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+                r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 // the backend
 app "api" title="Api" {
     at "apps/api/**"
@@ -347,7 +347,7 @@ fn move_reorders_a_subtree_with_its_block() {
         },
         &[(
             "ig/system.kdl",
-            r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+            r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 // the shop
 system "shop" title="Shop" {
     // where the code is

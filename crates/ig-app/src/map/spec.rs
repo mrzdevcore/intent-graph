@@ -9,7 +9,9 @@ use std::collections::BTreeMap;
 
 /// The spec directory, relative to the ig root.
 pub const DIR: &str = "ig";
-pub(crate) const HEADER: &str =
+pub(crate) const HEADER: &str = "// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).\n";
+/// The header older files still carry: recognized, never written.
+pub(crate) const OLD_HEADER: &str =
     "// ig's intended architecture: edit freely; ig never rewrites this file.\n";
 
 /// The spec files for `m`: relative path to text. Code-level boxes are not written.
