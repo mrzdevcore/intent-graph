@@ -6,7 +6,12 @@ description: Explain how part of this codebase fits together using the ig depend
 # Explore the code with the ig graph
 
 Read-only: never edit files. The only thing you may write is `.ig/show.json` (through `ig_show`);
-`ig view --json --no-read` writes the spec `ig/` on its own the first time (the intended architecture), and never rewrites it.
+`ig view --json --no-read` writes the spec `ig/` (the intended architecture) on its own the first time.
+
+Only when the user asks to change the architecture: `ig_plan` prints what is left to build or move
+and the drift; `ig_edit` edits `ig/` (`{"edits": [...]}`: add, remove, move, rename, set, arrow,
+unarrow). Your edits are proposals the user reviews (`git diff ig/`). Give `at` (code globs) for a
+new box, and use `move` to put a box elsewhere: it keeps its id.
 
 1. Find candidate ids. Run `ig view --json --no-read` and search `boxes[]` (`id`, `title`, `level`, `madeOf`)
    for the name; `arrows[]` (`from`, `to`, `kind`, `label`) holds the dependencies between boxes.
