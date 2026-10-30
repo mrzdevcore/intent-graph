@@ -186,6 +186,29 @@ fn a_move_is_named_after_its_spec_file_is_renamed() {
 }
 
 #[test]
+fn a_move_is_named_after_a_staged_git_mv_of_its_spec_file() {
+    let dir = committed_shop("staged");
+    git(&dir, &["mv", "ig/api.kdl", "ig/backend.kdl"]);
+    let (old, new) = (
+        "apps/api/src/application/refund/**",
+        "apps/api/src/billing/refund/**",
+    );
+    let p = dir.join("ig/backend.kdl");
+    let text = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(&p, text.replace(old, new)).unwrap();
+    git(&dir, &["add", "ig/backend.kdl"]);
+    let out = run_ig(&dir, &["plan"]);
+    assert!(
+        out.stdout
+            .contains(&format!("move: {old} → {new} (api/application-refund)")),
+        "{}{}",
+        out.stdout,
+        out.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn root_files_dot_folders_and_build_output_are_not_listed_as_not_read() {
     let dir = committed_shop("unread");
     for (p, s) in [

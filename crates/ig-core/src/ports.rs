@@ -86,6 +86,9 @@ pub trait Vcs: Send + Sync {
     fn verify(&self, rev: &str) -> Option<String>;
     /// `path` at `rev`; None when missing.
     fn show(&self, rev: &str, path: &str) -> Option<String>;
+    /// The files directly in `dir` at `rev` (paths relative to the ig root) with their text,
+    /// read in one batch; empty when there are none or `rev` is not a commit.
+    fn show_dir(&self, rev: &str, dir: &str) -> Vec<(String, String)>;
     /// Untracked files plus, with a base, files changed against it; may include deleted ones
     /// (callers filter with `Files::exists`). Failures become notices.
     fn changed_files(&self, base: Option<&str>, notices: &mut Vec<String>) -> Vec<String>;
