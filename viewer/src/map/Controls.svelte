@@ -3,19 +3,22 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset, children }: {
+  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset, bar, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void; onzoom: (f: number) => void; onfit: () => void;
-    onreset?: () => void; children?: Snippet;
+    onreset?: () => void; bar?: Snippet; children?: Snippet;
   } = $props();
 </script>
 
+<div class="head">
 <nav class="crumbs" aria-label="Where you are">
   {#each crumbs as c, i (c.id)}
     {#if i}<span aria-hidden="true">›</span>{/if}
     <button type="button" aria-current={i === crumbs.length - 1 ? "location" : undefined} onclick={() => oncrumb(c.id)}>{c.title}</button>
   {/each}
 </nav>
+{@render bar?.()}
+</div>
 
 <div class="tools">
   {@render children?.()}
@@ -34,7 +37,9 @@
 </div>
 
 <style>
-  .crumbs { position: absolute; left: var(--space-4); top: var(--space-3); right: 36rem; display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; color: var(--map-faint); font-size: var(--text-md); }
+  .head { position: absolute; left: var(--space-4); top: var(--space-3); right: 36rem; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1-5); pointer-events: none; }
+  .head > :global(*) { pointer-events: auto; }
+  .crumbs { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; color: var(--map-faint); font-size: var(--text-md); }
   .tools { position: absolute; z-index: 3; right: var(--space-4); top: var(--space-3); display: flex; gap: var(--space-2); align-items: start; }
   button, summary { font: inherit; font-size: var(--text-md); border: 1px solid var(--map-line); background: var(--map-surface); color: var(--map-fg); border-radius: var(--radius-lg); padding: 0.1875rem var(--space-2-5); cursor: pointer; }
   .crumbs button { border-color: transparent; background: none; padding: var(--space-0-5) var(--space-1-5); }
@@ -45,5 +50,5 @@
   .layers summary { list-style: none; }
   .layers label { display: flex; gap: var(--space-1-5); align-items: center; padding: var(--space-0-5) var(--space-2-5); font-size: var(--text-md); white-space: nowrap; }
   .zoom { display: flex; gap: var(--space-0-5); }
-  @media (max-width: 47.5rem) { .crumbs { right: var(--space-4); top: 3.25rem; } }
+  @media (max-width: 47.5rem) { .head { right: var(--space-4); top: 3.25rem; } }
 </style>
