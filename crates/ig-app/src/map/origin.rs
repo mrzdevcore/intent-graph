@@ -366,6 +366,8 @@ fn drift(
             k += 1;
         }
         b.id = id;
+        // a long file name makes a long title; the map allows 60
+        b.title.value = b.title.value.chars().take(60).collect();
         b.parent = Some(root.into());
         b.level = Level::Container;
         b.slot = None;
