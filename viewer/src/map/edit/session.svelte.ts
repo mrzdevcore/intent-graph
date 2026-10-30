@@ -53,6 +53,11 @@ export class EditSession {
     this.link = this.ui = this.adding = null;
     this.release();
   }
+  /** A lost pointer drops the arrow in flight; open forms keep what was typed. */
+  dropLink() {
+    this.link = null;
+    this.release();
+  }
   /** A pointer press outside the open popover closes it. */
   outside(e: Event) {
     if (this.ui && !(e.target as Element | null)?.closest?.("[data-popover]")) this.ui = null;

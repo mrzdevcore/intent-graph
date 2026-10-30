@@ -288,7 +288,7 @@
   }
   // a cancelled pointer, or the window losing focus mid-gesture, leaves nothing half done
   function abort() {
-    sess.cancel();
+    sess.dropLink();
     live = null;
     drag = null;
   }
