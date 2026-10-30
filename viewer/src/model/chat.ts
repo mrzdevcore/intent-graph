@@ -236,6 +236,9 @@ export function groupTools(items: Item[]): Row[] {
 
 /** A command without a leading `cd <root> &&`, the root itself shown as `.`. */
 export function shortCommand(title: string, root: string): string {
+  // an MCP tool reads as its own name: mcp__plugin_ig_ig__ig_edit -> "ig edit"
+  const mcp = /^mcp__.+__([^_].*)$/.exec(title);
+  if (mcp) return mcp[1].replace(/_/g, " ");
   const r = root.replace(/\/$/, "");
   if (!r) return title;
   const esc = r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -114,6 +114,7 @@ test("commands drop a leading cd to the project root and show the root as .", ()
   const root = "/Users/me/p/front";
   expect(shortCommand("cd /Users/me/p/front && grep -rn home /Users/me/p/front/core", root)).toBe("grep -rn home ./core");
   expect(shortCommand('cd "/Users/me/p/front" && ls', root)).toBe("ls");
+  expect(shortCommand("mcp__plugin_ig_ig__ig_edit", root)).toBe("ig edit");
   expect(shortCommand("ls /Users/me/p/front", root)).toBe("ls .");
   expect(shortCommand("ls /Users/me/p/frontend", root)).toBe("ls /Users/me/p/frontend");
   expect(shortCommand("cd /Users/me/p/front/core && ls", root)).toBe("cd ./core && ls");
