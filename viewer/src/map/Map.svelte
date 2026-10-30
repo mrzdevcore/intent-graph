@@ -42,7 +42,13 @@
     clearTimeout(noteTimer);
     noteTimer = setTimeout(() => (note = ""), 6000);
   }
-  const run = (p: Promise<View>) => p.then((v) => onview?.(v), toast);
+  // one edit call at a time: the journal is read-modify-write, so a call made while one is in flight is dropped
+  let busy = false;
+  const run = (call: () => Promise<View>) => {
+    if (busy) return;
+    busy = true;
+    call().then((v) => onview?.(v), toast).finally(() => (busy = false));
+  };
   const typing = (t: EventTarget | null) => {
     const el = t as HTMLElement | null;
     return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
@@ -217,7 +223,7 @@
       const k = e.key.toLowerCase();
       if ((e.metaKey || e.ctrlKey) && k === "z") {
         e.preventDefault();
-        run(e.shiftKey ? edit.redo() : edit.undo());
+        run(() => e.shiftKey ? edit.redo() : edit.undo());
         return;
       }
       if (!e.metaKey && !e.ctrlKey && !e.altKey && selected && shortcuts[k]) {
@@ -326,7 +332,7 @@
     const parent = sess.adding!.parent;
     sess.adding = null;
     tool.current = "select";
-    run(edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null }));
+    run(() => edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null }));
   }
 
   /** The deepest box holding the view's centre and filling >= 60% of the view's width or height. */
@@ -388,6 +394,10 @@
   $effect(() => {
     if (selected && !byId.has(selected)) selected = null;
     if (traced && !traced.boxes.every((id) => byId.has(id))) traced = null;
+    // an open popover or form on a box that is gone has nothing to act on
+    const gone = (id: string) => id !== ROOT && !byId.has(id);
+    const u = sess.ui;
+    if ((u && (gone(u.t === "arrow" ? u.from : u.id) || (u.t === "arrow" && gone(u.to)))) || (sess.adding && gone(sess.adding.parent))) sess.cancel();
   });
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
 
@@ -458,7 +468,7 @@
     onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
     onreset={Object.keys(moves).length ? () => keep({}) : undefined}>
     {#snippet bar()}
-      {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={() => run(edit.undo())} onredo={() => run(edit.redo())} {note} />{/if}
+      {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={() => run(() => edit.undo())} onredo={() => run(() => edit.redo())} {note} />{/if}
     {/snippet}
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>

@@ -6,6 +6,7 @@ import type { EditApi } from "../src/api";
 import type { View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 import { prefill, slug } from "../src/map/edit/add";
+import { proposed } from "../src/map/edit/proposals";
 import { arrowLook, look } from "../src/map/looks";
 import MapHarness from "./MapHarness.svelte";
 import MovePicker from "../src/map/edit/MovePicker.svelte";
@@ -166,6 +167,8 @@ test("Esc closes the form and sends nothing", async () => {
 test("prefill and slug edge cases", () => {
   expect(prefill(["apps/api/**", "libs/x/**"], "Billing")).toBe("apps/api/billing/**");
   expect(prefill(["apps/api/main.ts"], "Billing")).toBe("apps/api/billing/**");
+  expect(prefill(["apps/api/src/**/*.ts"], "Billing")).toBe("apps/api/src/billing/**");
+  expect(prefill(["apps/api/src/*/x.ts"], "Billing")).toBe("apps/api/src/billing/**");
   expect(prefill([], "Billing")).toBe("billing/**");
   expect(slug("Kelvin")).toBe("elvin"); // non-ASCII is a dash, like Rust
 });
@@ -331,6 +334,7 @@ test("Backspace and Delete with a box selected send Remove", async () => {
   const { target } = setup(api);
   select(target, "web");
   press("Backspace");
+  await tick();
   press("Delete");
   await tick();
   expect(got).toEqual([{ op: "remove", id: "web" }, { op: "remove", id: "web" }]);
@@ -387,9 +391,9 @@ test("without edit, F2, M and Backspace do nothing", () => {
 
 const withProposals = (ps: NonNullable<View["proposals"]>) => ({ ...fresh(), proposals: ps });
 const two = [
-  { n: 3, by: "claude" as const, summary: "add usecase Refund", ids: ["web"] },
-  { n: 4, by: "reading" as const, summary: "api: tech", ids: ["api"] },
-  { n: 5, by: "claude" as const, summary: "arrow web uses api", ids: ["api->postgres"] },
+  { n: 3, by: "claude" as const, summary: "add usecase Refund", ids: ["web"], marks: ["web"] },
+  { n: 4, by: "reading" as const, summary: "api: tech", ids: ["api"], marks: ["api"] },
+  { n: 5, by: "claude" as const, summary: "arrow web uses api", ids: ["api->postgres"], marks: ["api->postgres"] },
 ];
 const btn = (t: HTMLElement, name: string) => [...t.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent === name)!;
 
@@ -405,6 +409,7 @@ test("two authors: counts per author; Keep on a row calls keep(n), Drop all call
   btn(target, "Review").click();
   flushSync();
   btn(target.querySelector("section.list")!, "Keep").click();
+  await tick();
   btn(target, "Drop all").click();
   await tick();
   expect(calls).toEqual([["keep", 3], "dropAll"]);
@@ -500,4 +505,65 @@ test("a proposed arrow is dashed in the map", () => {
   const { target } = setup(fake().api, withProposals(two));
   const path = target.querySelector('[data-arrow="api->postgres"] path[stroke-dasharray], [data-arrow="api->postgres"] path[style*="dash"]');
   expect(path).not.toBeNull();
+});
+
+// --- final review
+const harness = (api: EditApi, start: View = fresh()) => {
+  const target = document.createElement("div");
+  document.body.append(target);
+  mount(MapHarness, { target, props: { start, edit: api, size } });
+  flushSync();
+  return target;
+};
+
+test("a new view for the selected box keeps focus in the chat and the paths expanded", async () => {
+  const start = fresh();
+  start.boxes.find((b) => b.id === "web")!.madeOf = Array.from({ length: 8 }, (_, i) => `apps/web/p${i}.ts`);
+  const next = structuredClone(start);
+  const target = harness(fake({ undo: async () => next }).api, start);
+  select(target, "web");
+  btn(target.querySelector("section.details")!, "Show all 8").click();
+  flushSync();
+  const area = document.createElement("textarea");
+  document.body.append(area);
+  area.focus();
+  (target.querySelector('[aria-label="Undo"]') as HTMLElement).click();
+  await tick();
+  flushSync();
+  expect(document.activeElement).toBe(area);
+  expect(target.querySelector("section.details")!.textContent).toContain("Show fewer");
+});
+
+test("a second undo while the first is pending is ignored", async () => {
+  let release!: () => void;
+  let n = 0;
+  const v = fresh();
+  const { api } = fake({ undo: () => (n++, new Promise<View>((r) => (release = () => r(v)))) });
+  setup(api);
+  press("z", { metaKey: true });
+  press("z", { metaKey: true });
+  expect(n).toBe(1);
+  release();
+  await tick();
+  press("z", { metaKey: true });
+  expect(n).toBe(2);
+});
+
+test("a popover on a box the new view lacks is cancelled", async () => {
+  const gone = fresh();
+  gone.boxes = gone.boxes.filter((b) => b.id !== "web" && b.parent !== "web");
+  gone.arrows = gone.arrows.filter((a) => !a.from.startsWith("web") && !a.to.startsWith("web"));
+  const target = harness(fake({ undo: async () => gone }).api);
+  select(target, "web");
+  press("F2");
+  expect(target.querySelector('input[aria-label="Rename box"]')).not.toBeNull();
+  (target.querySelector('[aria-label="Undo"]') as HTMLElement).click();
+  await tick();
+  flushSync();
+  expect(target.querySelector('input[aria-label="Rename box"]')).toBeNull();
+});
+
+test("a move proposal marks only the moved box, hover still lights both", () => {
+  const p = { n: 1, by: "claude" as const, summary: "move web → api", ids: ["web", "api"], marks: ["web"] };
+  expect([...proposed([p]).keys()]).toEqual(["web"]);
 });

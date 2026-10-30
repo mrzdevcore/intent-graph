@@ -9,7 +9,7 @@
   import { barText, lit } from "./proposals";
 
   let { view, edit, run, onlight }: {
-    view: View; edit?: EditApi; run: (p: Promise<View>) => void; onlight: (t: Trace | null) => void;
+    view: View; edit?: EditApi; run: (p: () => Promise<View>) => void; onlight: (t: Trace | null) => void;
   } = $props();
   const list = $derived(view.proposals ?? []);
   let open = $state(false);
@@ -28,8 +28,8 @@
     <span><b>{barText(list)}</b></span>
     <button type="button" aria-expanded={open} onclick={() => (open = !open)}>Review</button>
     {#if edit}
-      <button type="button" onclick={() => run(edit.dropAll())}>Drop all</button>
-      <button type="button" class="go" onclick={() => run(edit.keep())}>Keep all</button>
+      <button type="button" onclick={() => run(() => edit.dropAll())}>Drop all</button>
+      <button type="button" class="go" onclick={() => run(() => edit.keep())}>Keep all</button>
     {/if}
   </div>
   {#if open}
@@ -40,8 +40,8 @@
           onfocusin={() => (hover = p.n)} onfocusout={() => (hover = null)}>
           <span class="text"><span class="tag">{tag(p.by)}</span> {p.summary}</span>
           {#if edit}
-            <button type="button" onclick={() => run(edit.drop(p.n))}>Drop</button>
-            <button type="button" class="go" onclick={() => run(edit.keep(p.n))}>Keep</button>
+            <button type="button" onclick={() => run(() => edit.drop(p.n))}>Drop</button>
+            <button type="button" class="go" onclick={() => run(() => edit.keep(p.n))}>Keep</button>
           {/if}
         </div>
       {/each}

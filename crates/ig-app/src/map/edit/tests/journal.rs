@@ -39,6 +39,16 @@ fn claude_edits_start_not_kept_and_keep_marks_them() {
 }
 
 #[test]
+fn keep_all_skips_undone_entries() {
+    let f = spec();
+    record(&f, By::Claude, &add("cache")).unwrap();
+    undo(&f).unwrap();
+    keep(&f, None).unwrap();
+    redo(&f).unwrap();
+    assert!(!entries(&f).0[0].kept);
+}
+
+#[test]
 fn drop_gives_the_files_back_and_removes_the_entry() {
     let f = spec();
     let before = ig(&f);

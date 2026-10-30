@@ -114,7 +114,7 @@ pub fn keep(files: &dyn Files, n: Option<u64>) -> Result<(), Vec<String>> {
     }
     j.entries
         .iter_mut()
-        .filter(|x| n.is_none_or(|n| x.n == n))
+        .filter(|x| n.map_or(!x.undone, |n| x.n == n))
         .for_each(|x| x.kept = true);
     save(files, &j)
 }

@@ -4,10 +4,10 @@ import type { Trace } from "../search";
 
 const ROOT = "system";
 
-/** Box and arrow id -> who proposed it (the first proposal wins). */
+/** Edited box and arrow id (not a move's destination) -> who proposed it (the first proposal wins). */
 export function proposed(ps: Proposal[] | undefined): Map<string, Proposal["by"]> {
   const out = new Map<string, Proposal["by"]>();
-  for (const p of ps ?? []) for (const id of p.ids) if (!out.has(id)) out.set(id, p.by);
+  for (const p of ps ?? []) for (const id of p.marks) if (!out.has(id)) out.set(id, p.by);
   return out;
 }
 

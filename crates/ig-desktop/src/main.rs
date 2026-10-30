@@ -163,6 +163,7 @@ fn main() {
         .manage(Project::default())
         .manage(agent::Agent::default())
         .manage(bounded::Gate::default())
+        .manage(edits::EditLock::default())
         .manage(exit::ExitGate::default())
         .invoke_handler(tauri::generate_handler![
             commands::view_data,

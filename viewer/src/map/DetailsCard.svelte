@@ -8,10 +8,10 @@
 
   let { view, box, onclose, onopen, onmenu, edit, run }: {
     view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void; onmenu?: (e: MouseEvent) => void;
-    edit?: EditApi; run?: (p: Promise<View>) => void;
+    edit?: EditApi; run?: (p: () => Promise<View>) => void;
   } = $props();
   // the edits Claude or the reading proposed on this box, to keep or drop here
-  const proposals = $derived((view.proposals ?? []).filter((p) => p.ids.includes(box.id)));
+  const proposals = $derived((view.proposals ?? []).filter((p) => p.marks.includes(box.id)));
 
   const titleOf = (id: string) => view.boxes.find((b) => b.id === id)?.title.value ?? id;
   // a part named like a component on the map (a tag it renders): a link to it
@@ -44,8 +44,10 @@
   );
   let card: HTMLElement;
   // focus follows the selection into the card
+  // a new view builds a new `box` object for the same id: only a change of id moves the focus
+  const id = $derived(box.id);
   $effect(() => {
-    void box.id;
+    void id;
     allPaths = false;
     // a menu opened by right-click keeps the focus it took
     if (!document.activeElement?.closest?.("[data-popover]")) card.focus({ preventScroll: true });
@@ -64,8 +66,8 @@
   {#if edit && run}
     {#each proposals as p (p.n)}
       <div class="prop"><span class="text"><span class="ptag">{tag(p.by)}</span> {p.summary}</span>
-        <button type="button" onclick={() => run(edit.drop(p.n))}>Drop</button>
-        <button type="button" class="go" onclick={() => run(edit.keep(p.n))}>Keep</button></div>
+        <button type="button" onclick={() => run(() => edit.drop(p.n))}>Drop</button>
+        <button type="button" class="go" onclick={() => run(() => edit.keep(p.n))}>Keep</button></div>
     {/each}
   {/if}
   {#if box.description}<p>{box.description.value}</p>{/if}

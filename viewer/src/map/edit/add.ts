@@ -27,11 +27,12 @@ export function freeId(name: string, taken: Set<string>): string {
   return id;
 }
 
-/** The parent's first glob with its trailing `**` replaced by `<slug>/**`; `<slug>/**` when it has none. */
+/** The parent's first glob up to its last `/` before any glob character, then `<slug>/**`; `<slug>/**` when it has none. */
 export function prefill(globs: string[], name: string): string {
   const s = name.trim() ? slug(name) : "";
   const g = globs[0];
-  // the folder of the parent's first glob: `apps/api/**` and `apps/api/main.ts` both give `apps/api/`
-  const dir = g ? g.slice(0, g.lastIndexOf("/") + 1) : "";
+  // the folder of the parent's first glob: `apps/api/**`, `apps/api/main.ts` and `apps/api/*/x.ts` all give `apps/api/`
+  const lit = g ? g.slice(0, g.search(/[*?[{]/) < 0 ? undefined : g.search(/[*?[{]/)) : "";
+  const dir = lit.slice(0, lit.lastIndexOf("/") + 1);
   return `${dir}${s}/**`;
 }
