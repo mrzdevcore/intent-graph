@@ -77,25 +77,30 @@ fn fmt_fixes_indentation_and_keeps_comments() {
     assert_eq!(run_ig(&dir, &["fmt", "--check"]).code, 0);
     let p = dir.join("ig/system.kdl");
     let text = std::fs::read_to_string(&p).unwrap();
-    let mangled = text
-        .replacen('\n', "\n// keep me\n", 1)
-        .replace("\n  ", "\n          ");
-    let mangled = format!("{mangled}// tail comment\n");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[2], "    at \"**\"", "{text}");
+    // a comment in every place: own line, end of a node's line, after `at`, inline between
+    // entries, after the closing `}`, at the file's end
+    let commented = format!(
+        "{}\n// own line\n{} // the root\n    at /* inline */ \"**\" // everything\n}} // after the close\n// eof\n",
+        lines[0], lines[1]
+    );
+    let mangled = commented
+        .replace("\n    at", "\n\n\n \t      at")
+        .replace("\n}", "\n   }");
     std::fs::write(&p, &mangled).unwrap();
     let out = run_ig(&dir, &["fmt", "--check"]);
     assert_eq!(out.code, 1, "{}{}", out.stdout, out.stderr);
+    assert!(out.stdout.contains("would format ig/system.kdl"), "{}", out.stdout);
     assert_eq!(
         std::fs::read_to_string(&p).unwrap(),
         mangled,
         "check writes nothing"
     );
-    assert_eq!(run_ig(&dir, &["fmt"]).code, 0);
+    let out = run_ig(&dir, &["fmt"]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
     let fixed = std::fs::read_to_string(&p).unwrap();
-    assert!(
-        fixed.contains("// keep me") && fixed.contains("// tail comment"),
-        "{fixed}"
-    );
-    assert!(!fixed.contains("          "), "{fixed}");
+    assert_eq!(fixed, commented.replace("\n    at", "\n\n    at"));
     assert_eq!(run_ig(&dir, &["fmt", "--check"]).code, 0);
     assert_eq!(run_ig(&dir, &["check"]).code, 0);
 }

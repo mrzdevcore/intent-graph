@@ -2,6 +2,7 @@ use super::*;
 use ig_core::testing::MemFiles;
 
 mod files;
+mod fmt;
 mod journal;
 
 const H: &str = "// ig's intended architecture: edit freely; ig never rewrites this file.\n";
