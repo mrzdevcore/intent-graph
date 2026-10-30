@@ -125,6 +125,9 @@ pub struct MapBox {
     pub needs_reading: bool,
     #[serde(skip_serializing_if = "no", default)]
     pub stale: bool,
+    /// Built, to build or drift: the spec against the code.
+    #[serde(skip_serializing_if = "super::origin::is_built", default)]
+    pub origin: super::origin::Origin,
     /// The box's files (module node ids), from the facts of this run; not stored.
     #[serde(skip)]
     pub nodes: Vec<String>,
@@ -353,6 +356,7 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
                 needs_reading: false,
                 stale: false,
                 nodes: vec![],
+                origin: Default::default(),
             });
             if !b.pins("madeOf") {
                 b.made_of = a.made_of.clone().unwrap_or_default();
@@ -384,7 +388,7 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
     n
 }
 
-fn globs(patterns: &[String]) -> Result<GlobSet, globset::Error> {
+pub(super) fn globs(patterns: &[String]) -> Result<GlobSet, globset::Error> {
     let mut set = GlobSetBuilder::new();
     for p in patterns {
         set.add(GlobBuilder::new(p).literal_separator(true).build()?);

@@ -153,6 +153,7 @@ impl Reader {
             needs_reading: false,
             stale: false,
             nodes: vec![],
+            origin: Default::default(),
         };
         self.props(at, n, &mut b);
         if self.boxes.iter().any(|x| x.id == id) {
@@ -242,6 +243,7 @@ impl Reader {
                 count: 0,
                 kinds: vec![kind],
                 in_loop: false,
+                origin: Default::default(),
             },
             place,
         ));
