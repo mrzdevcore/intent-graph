@@ -364,14 +364,6 @@
     const t = anchor === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(anchor);
     return { x: t.x * cam.k + cam.x, y: t.y * cam.k + cam.y, k: t.s * cam.k };
   });
-  // a new anchor mounts again what was already shown: no fade-in then
-  let calm = $state(true);
-  $effect(() => {
-    void anchor;
-    calm = false;
-    const t = setTimeout(() => (calm = true), 450);
-    return () => clearTimeout(t);
-  });
   /** Whether box `id` is on screen, or near it (half a view around). */
   function seen(id: string) {
     const f = world.get(id)!, x = f.x * cam.k + cam.x, y = f.y * cam.k + cam.y;
@@ -441,7 +433,7 @@
       {/if}
       {#if open}
         {@const t = local(b.id)}
-        <div class="inside" class:fade={calm} style:width="{t.iw}px" style:height="{t.ih}px"
+        <div class="inside" style:width="{t.iw}px" style:height="{t.ih}px"
           style:transform="translate({t.x}px, {t.y}px) scale({t.s})">{@render level(b.id)}</div>
       {/if}
     </div>
@@ -501,9 +493,7 @@
   .slot.faded { opacity: 0.35; transition: opacity 150ms; }
   .arrow { display: contents; }
   .inside { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
-  .inside.fade { animation: ig-fade 400ms ease-out; }
   .inside > .slot { pointer-events: auto; }
-  @keyframes ig-fade { from { opacity: 0; } }
   /* app.css's global .row (list rows) must not restyle the boxes' title row */
   .map :global(.row) { padding: 0; background: none; cursor: inherit; }
   .reading { position: absolute; left: 50%; bottom: var(--space-4); transform: translateX(-50%); margin: 0; padding: var(--space-1-5) var(--space-3-5);
