@@ -191,6 +191,7 @@ fn what_is_written_reads_back_the_same() {
     let mut m = shop_map();
     for b in m.boxes.iter_mut().filter(|b| b.id == "api") {
         b.badges = Some(Field::person(vec!["core".into()]));
+        b.description = Some(Field::person("Takes orders".into()));
         b.pattern = Some(Field::person(Pattern::Layered {
             bands: vec![
                 "application".into(),
@@ -207,8 +208,19 @@ fn what_is_written_reads_back_the_same() {
             b.kind.value,
             b.title.value.clone(),
             b.made_of.clone(),
+            b.description.as_ref().map(|f| f.value.clone()),
+            b.tech.as_ref().map(|f| f.value.clone()),
+            b.badges.as_ref().map(|f| f.value.clone()),
+            b.pattern.as_ref().map(|f| f.value.clone()),
         )
     };
+    let api = r.boxes.iter().find(|b| b.id == "api").unwrap();
+    assert_eq!(api.description.as_ref().unwrap().value, "Takes orders");
+    assert!(api.badges.is_some() && api.pattern.is_some());
+    for b in &r.boxes {
+        assert_eq!(b.pinned, crate::map::file::PINNABLE, "{}", b.id);
+        assert_eq!(b.made_of_source, crate::map::file::Source::Person);
+    }
     assert_eq!(
         r.boxes.iter().map(key).collect::<Vec<_>>(),
         m.boxes
