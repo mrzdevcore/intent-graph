@@ -273,26 +273,23 @@ fn drift(
         covered.extend(f.nodes.iter().map(String::as_str));
         place(fresh(f), &mut out);
     }
-    // Left over: one box per top-level folder; loose root files make `root-files`.
-    let mut left: BTreeMap<Option<&str>, Vec<&str>> = BTreeMap::new();
-    for n in unclaimed.iter().filter(|n| !covered.contains(*n)) {
-        left.entry(n.split_once('/').map(|(d, _)| d))
-            .or_default()
-            .push(n);
-    }
-    for (folder, files) in left {
-        let (id, title, at) = match folder {
-            Some(d) => (d.to_string(), d.to_string(), format!("{d}/**")),
-            None => ("root-files".into(), "root files".into(), "*".into()),
-        };
+    // Left over: where the spec claims nothing, the highest folder with no claimed code.
+    let claimed: BTreeSet<&str> = spec
+        .iter()
+        .flat_map(|b| b.nodes.iter().map(String::as_str))
+        .collect();
+    let left: Vec<&str> = (unclaimed.iter().copied())
+        .filter(|n| !covered.contains(n))
+        .collect();
+    for (id, title, at, files) in left_over(&claimed, &left) {
         let f = FactBox {
             id: id.clone(),
             parent: Some(root.into()),
             level: Level::Container,
-            made_of: vec![at],
+            made_of: at,
             package: None,
             files: files.len() as u32,
-            nodes: files.iter().map(|s| s.to_string()).collect(),
+            nodes: files,
             guess: super::Guess {
                 kind: super::BoxKind::Group,
                 title,
@@ -302,6 +299,73 @@ fn drift(
             },
         };
         place(fresh(&f), &mut out);
+    }
+    out
+}
+
+/// A drift box for left-over files: (id, title, `at`, files).
+type Piece = (String, String, Vec<String>, Vec<String>);
+
+/// Groups the unclaimed `left` files by the highest folder holding no claimed code (`dir/**`).
+/// A file whose every folder holds claimed code is a loose file: its folder's direct files go
+/// in one `dir/*` box when none of them is claimed, else each is listed by its own path.
+fn left_over(claimed: &BTreeSet<&str>, left: &[&str]) -> Vec<Piece> {
+    let holds = |dir: &str| {
+        let p = format!("{dir}/");
+        claimed.iter().any(|c| c.starts_with(&p))
+    };
+    let mut folders: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut loose: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for f in left {
+        let parts: Vec<&str> = f.split('/').collect();
+        let dirs = &parts[..parts.len() - 1];
+        match (1..=dirs.len())
+            .map(|i| dirs[..i].join("/"))
+            .find(|d| !holds(d))
+        {
+            Some(d) => folders.entry(d).or_default().push(f.to_string()),
+            None => loose.entry(dirs.join("/")).or_default().push(f.to_string()),
+        }
+    }
+    let mut out: Vec<Piece> = folders
+        .into_iter()
+        .map(|(d, files)| {
+            let title = d.rsplit('/').next().unwrap_or(&d).to_string();
+            (d.clone(), title, vec![format!("{d}/**")], files)
+        })
+        .collect();
+    for (dir, files) in loose {
+        let direct = |c: &&str| match c.rsplit_once('/') {
+            Some((d, _)) => d == dir,
+            None => dir.is_empty(),
+        };
+        let prefix = if dir.is_empty() {
+            String::new()
+        } else {
+            format!("{dir}/")
+        };
+        if !claimed.iter().any(direct) {
+            let (id, title) = match dir.is_empty() {
+                true => ("root-files".to_string(), "root files".to_string()),
+                false => (
+                    dir.clone(),
+                    format!("{} files", dir.rsplit('/').next().unwrap_or(&dir)),
+                ),
+            };
+            out.push((id, title, vec![format!("{prefix}*")], files));
+            continue;
+        }
+        for f in files {
+            let stem = f
+                .rsplit('/')
+                .next()
+                .unwrap_or(&f)
+                .split('.')
+                .next()
+                .unwrap_or(&f)
+                .to_string();
+            out.push((f.replace('.', "-"), stem, vec![f.clone()], vec![f]));
+        }
     }
     out
 }
