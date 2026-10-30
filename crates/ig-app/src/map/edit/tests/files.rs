@@ -40,7 +40,7 @@ impl Files for Logged {
 }
 
 #[test]
-fn files_that_gain_nodes_are_written_first_and_system_kdl_last() {
+fn files_that_gain_nodes_are_written_first_system_kdl_last_then_deletions() {
     let f = Logged {
         files: spec(),
         log: Mutex::default(),
@@ -68,9 +68,32 @@ fn files_that_gain_nodes_are_written_first_and_system_kdl_last() {
         take(),
         [
             "write ig/api.kdl",
-            "remove ig/web.kdl",
-            "write ig/system.kdl"
+            "write ig/system.kdl",
+            "remove ig/web.kdl"
         ]
+    );
+}
+
+#[test]
+fn a_container_folding_back_is_written_before_its_file_goes() {
+    let f = Logged {
+        files: MemFiles::with(&[
+            ("ig/system.kdl", SYS_WITHOUT_WEB),
+            ("ig/api.kdl", API),
+            ("ig/web.kdl", WEB),
+        ]),
+        log: Mutex::default(),
+    };
+    apply(
+        &f,
+        &Edit::Remove {
+            id: "web/cart".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        *f.log.lock().unwrap(),
+        ["write ig/system.kdl", "remove ig/web.kdl"]
     );
 }
 

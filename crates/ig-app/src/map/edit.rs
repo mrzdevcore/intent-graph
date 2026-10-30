@@ -171,9 +171,9 @@ impl Spec {
     }
 
     /// Reads the edited spec back in memory, then changes the files so that a crash part way
-    /// leaves a node written twice, never lost: first the files that gain a box (new files
-    /// among them), then the files that only lose boxes or change, then the deletions, and
-    /// `ig/system.kdl` last of all.
+    /// leaves a node written twice, never lost: every write first (the files that gain a box,
+    /// new files among them, then the files that only lose boxes or change, then
+    /// `ig/system.kdl` last of the writes), and the deletions after every write.
     fn save(self, files: &dyn Files) -> Result<(), Vec<String>> {
         let new: BTreeMap<String, String> = (self.docs.iter())
             .map(|(p, d)| (p.clone(), d.to_string()))
@@ -210,11 +210,11 @@ impl Spec {
         for p in gain.into_iter().chain(lose) {
             write(p)?;
         }
-        for p in self.texts.keys().filter(|p| !new.contains_key(*p)) {
-            files.remove(p).map_err(|e| vec![format!("{p}: {e}")])?;
-        }
         if new.get(&sys) != self.texts.get(&sys) {
             write(&sys)?;
+        }
+        for p in self.texts.keys().filter(|p| !new.contains_key(*p)) {
+            files.remove(p).map_err(|e| vec![format!("{p}: {e}")])?;
         }
         Ok(())
     }
