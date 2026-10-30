@@ -190,7 +190,8 @@
   }
   const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow" };
   function key(e: KeyboardEvent) {
-    if (edit && !typing(e.target)) {
+    if (typing(e.target)) return;
+    if (edit) {
       const k = e.key.toLowerCase();
       if ((e.metaKey || e.ctrlKey) && k === "z") {
         e.preventDefault();
@@ -396,11 +397,11 @@
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
     onreset={Object.keys(moves).length ? () => keep({}) : undefined}>
+    {#snippet bar()}
+      {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={() => run(edit.undo())} onredo={() => run(edit.redo())} {note} />{/if}
+    {/snippet}
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
-  {#if edit}
-    <Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={() => run(edit.undo())} onredo={() => run(edit.redo())} {note} />
-  {/if}
   {#if reading}
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}

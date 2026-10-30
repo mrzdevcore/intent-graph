@@ -65,9 +65,16 @@ test("shortcuts are ignored while an input has focus", async () => {
   const { api, calls } = fake();
   const { target } = setup(api);
   const input = document.createElement("input");
-  target.append(input);
-  press("b", {}, input);
-  press("z", { metaKey: true }, input);
+  const area = document.createElement("textarea");
+  target.append(input, area);
+  for (const el of [input, area]) {
+    press("b", {}, el);
+    press("z", { metaKey: true }, el);
+  }
+  press("a");
+  press("Escape", {}, input);
+  expect(pressed(target)).toContain("Arrow");
+  press("v");
   await tick();
   expect(pressed(target)).toContain("Select");
   expect(calls).toEqual([]);
@@ -81,4 +88,15 @@ test("a rejected call shows its message in the live region", async () => {
   flushSync();
   expect(target.querySelector('[aria-live="polite"]')!.textContent).toBe("changed by hand");
   expect(seen).toEqual([]);
+});
+
+test("contenteditable: happy-dom's isContentEditable", () => {
+  const { target } = setup(fake().api);
+  const div = document.createElement("div");
+  div.contentEditable = "true";
+  target.append(div);
+  // ponytail: happy-dom may not implement isContentEditable; then the guard is untested here
+  if (!div.isContentEditable) return console.warn("happy-dom: no isContentEditable");
+  press("b", {}, div);
+  expect(pressed(target)).toContain("Select");
 });
