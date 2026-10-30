@@ -6,16 +6,18 @@ import type { EditApi } from "../src/api";
 import type { View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 import { prefill, slug } from "../src/map/edit/add";
+import MovePicker from "../src/map/edit/MovePicker.svelte";
+import { parentsFor } from "../src/map/edit/menu";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const fresh = () => structuredClone(shop) as unknown as View;
 const size = { w: 1000, h: 800 };
 
-function setup(edit?: EditApi) {
+function setup(edit?: EditApi, view: View = fresh()) {
   const target = document.createElement("div");
   document.body.append(target);
   const seen: View[] = [];
-  mount(Map, { target, props: { view: fresh(), size, edit, onview: (v: View) => seen.push(v) } });
+  mount(Map, { target, props: { view, size, edit, onview: (v: View) => seen.push(v) } });
   flushSync();
   return { target, seen };
 }
@@ -164,4 +166,119 @@ test("prefill and slug edge cases", () => {
   expect(prefill(["apps/api/main.ts"], "Billing")).toBe("apps/api/billing/**");
   expect(prefill([], "Billing")).toBe("billing/**");
   expect(slug("Kelvin")).toBe("elvin"); // non-ASCII is a dash, like Rust
+});
+
+// --- draw an arrow; the box menu
+const recorder = () => {
+  const got: any[] = [];
+  const f = fake({ apply: async (e) => (got.push(e), fresh()) });
+  return { ...f, got };
+};
+const ptr = (el: EventTarget, type: string, init: PointerEventInit = {}) => {
+  el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, clientX: 10, clientY: 10, ...init }));
+  flushSync();
+};
+const boxEl = (t: HTMLElement, id: string) => t.querySelector(`[data-box="${id}"] > button`)!;
+const menuOf = (t: HTMLElement) => t.querySelector('[role="menu"]') as HTMLElement | null;
+const item = (t: HTMLElement, name: string) => [...menuOf(t)!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => b.textContent!.startsWith(name))!;
+
+test("Arrow tool: drag A to B lights B, Enter draws; the last kind is preselected next time", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(boxEl(target, "api"), "pointermove");
+  expect(target.querySelector('[data-box="api"]')!.classList.contains("target")).toBe(true);
+  ptr(boxEl(target, "api"), "pointerup");
+  const f = target.querySelector('form[aria-label^="Arrow"]') as HTMLFormElement;
+  expect(f).not.toBeNull();
+  expect(f.querySelector('[aria-checked="true"]')!.textContent).toBe("calls");
+  (f.querySelectorAll<HTMLElement>('[role="radio"]')[2]).click();
+  flushSync();
+  f.requestSubmit();
+  await tick();
+  expect(got).toEqual([{ op: "arrow", from: "web", to: "api", kind: "data", label: null }]);
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(boxEl(target, "api"), "pointermove");
+  ptr(boxEl(target, "api"), "pointerup");
+  expect(target.querySelector('form[aria-label^="Arrow"] [aria-checked="true"]')!.textContent).toBe("data");
+});
+
+test("Arrow released on the same box or empty ground cancels", () => {
+  const { target } = setup(recorder().api);
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(boxEl(target, "web"), "pointerup");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(target.querySelector(".stage")!, "pointermove");
+  ptr(target.querySelector(".stage")!, "pointerup");
+  expect(target.querySelector('form[aria-label^="Arrow"]')).toBeNull();
+});
+
+test("right-click opens the menu, Esc closes it", () => {
+  const { target } = setup(recorder().api);
+  boxEl(target, "web").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  flushSync();
+  expect([...menuOf(target)!.querySelectorAll('[role="menuitem"]')].map((b) => b.firstElementChild!.textContent))
+    .toEqual(["Rename", "Move to…", "Add box inside", "Arrow from here", "Delete"]);
+  press("ArrowDown", {}, document.activeElement!);
+  press("Escape", {}, document.activeElement!);
+  expect(menuOf(target)).toBeNull();
+});
+
+test("F2, typing and Enter sets the title", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  (boxEl(target, "web") as HTMLElement).click();
+  flushSync();
+  press("F2");
+  const i = target.querySelector('input[aria-label="Rename box"]') as HTMLInputElement;
+  type(i, "Storefront");
+  press("Enter", {}, i);
+  await tick();
+  expect(got).toEqual([{ op: "set", id: "web", key: "title", value: "Storefront" }]);
+});
+
+test("Move to… on a box nothing can hold says so; the picker filters and picks", async () => {
+  const { target } = setup(recorder().api);
+  boxEl(target, "api").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  flushSync();
+  item(target, "Move to").click();
+  flushSync();
+  expect(target.querySelector('[role="dialog"]')!.textContent).toContain("No box can hold it.");
+  const picks: string[] = [];
+  const t = document.createElement("div");
+  document.body.append(t);
+  mount(MovePicker, { target: t, props: { title: "x", x: 0, y: 0, onclose() {}, onpick: (id: string) => picks.push(id),
+    options: [{ id: "web", title: "Web", kind: "app" }, { id: "api", title: "Api", kind: "app" }] } });
+  flushSync();
+  type(t.querySelector("input")!, "ap");
+  expect([...t.querySelectorAll("li")].length).toBe(1);
+  press("Enter", {}, t.querySelector("input")!);
+  expect(picks).toEqual(["api"]);
+});
+
+test("parentsFor: a container kind goes under apps and containers, not its parent, itself, its descendants or external", () => {
+  const v = fresh();
+  const ids = (id: string) => parentsFor(v.boxes, id, "system").map((b) => b.id);
+  expect(ids("api/domain-order")).toEqual(expect.arrayContaining(["web", "api-client"]));
+  expect(ids("api/domain-order")).not.toContain("api");
+  expect(ids("api/domain-order")).not.toContain("stripe");
+  expect(ids("api/domain-order")).not.toContain("api/domain-order");
+  expect(ids("api")).toEqual([]); // system-level kind: only the root, which is its parent
+  expect(ids("web")).not.toContain("web/pages");
+});
+
+test("Delete sends Remove and shows the refusal", async () => {
+  const got: any[] = [];
+  const { api } = fake({ apply: async (e) => (got.push(e), Promise.reject(new Error("`api` still holds 9 boxes"))) });
+  const { target } = setup(api);
+  boxEl(target, "api").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  flushSync();
+  item(target, "Delete").click();
+  await tick();
+  flushSync();
+  expect(got).toEqual([{ op: "remove", id: "api" }]);
+  expect(target.querySelector('[aria-live="polite"]')!.textContent).toBe("`api` still holds 9 boxes");
 });
