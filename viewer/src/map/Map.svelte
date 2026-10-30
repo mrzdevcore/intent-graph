@@ -471,7 +471,7 @@
   <Proposals {view} {edit} {run} onlight={glow} />
   {#if edit}<EditLayer s={sess} boxes={view.boxes} root={ROOT} />{/if}
   {#if reading}
-    <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
+    <p class="reading" class:lifted={!!view.proposals?.length}>Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
     <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} {edit} {run} />
@@ -498,5 +498,6 @@
   .map :global(.row) { padding: 0; background: none; cursor: inherit; }
   .reading { position: absolute; left: 50%; bottom: var(--space-4); transform: translateX(-50%); margin: 0; padding: var(--space-1-5) var(--space-3-5);
     border: 1px dotted var(--map-gold); border-radius: var(--radius-pill); background: var(--map-surface); font-size: var(--text-md); color: var(--map-fg-2); max-width: calc(100% - 2rem); }
+  .reading.lifted { bottom: 4.5rem; }
   .reading code { background: var(--map-sunken); }
 </style>

@@ -1,4 +1,4 @@
-<!-- The proposals bar (top centre) and its list: one row per edit Claude or the AI reading made that nobody
+<!-- The proposals bar (bottom centre, clear of the tools and search) and its list, opening upward: one row per edit Claude or the AI reading made that nobody
      kept. Hovering a row lights its boxes and arrows on the map. Without `edit` (ig view) it only shows. -->
 <script lang="ts">
   import { untrack } from "svelte";
@@ -41,7 +41,7 @@
           <span class="text"><span class="tag">{tag(p.by)}</span> {p.summary}</span>
           {#if edit}
             <button type="button" onclick={() => run(() => edit.drop(p.n))}>Drop</button>
-            <button type="button" class="go" onclick={() => run(() => edit.keep(p.n))}>Keep</button>
+            <button type="button" onclick={() => run(() => edit.keep(p.n))}>Keep</button>
           {/if}
         </div>
       {/each}
@@ -51,14 +51,19 @@
 {/if}
 
 <style>
-  .bar { position: absolute; left: 50%; top: var(--space-3); transform: translateX(-50%); display: flex; align-items: center; gap: var(--space-2-5);
-    padding: var(--space-1-5) var(--space-2) var(--space-1-5) var(--space-3-5); border-radius: var(--radius-xl); background: var(--map-surface); border: 1px solid var(--map-trace); color: var(--map-fg); font-size: var(--text-md); }
-  .list { position: absolute; right: var(--space-4); top: 4.375rem; width: 22.5rem; max-height: calc(100% - 8rem); overflow: auto; display: flex; flex-direction: column; gap: var(--space-2);
-    background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-xl); padding: var(--space-3) var(--space-3-5); font-size: var(--text-md); color: var(--map-fg); box-shadow: 0 6px 20px var(--map-shadow); }
-  .item { display: flex; align-items: center; gap: var(--space-1-5); }
+  .bar { position: absolute; left: 50%; bottom: var(--space-4); transform: translateX(-50%); display: flex; align-items: center; gap: var(--space-2-5); max-width: calc(100% - 2rem);
+    padding: var(--space-1-5) var(--space-2) var(--space-1-5) var(--space-3-5); border-radius: var(--radius-xl); background: var(--map-surface); border: 1px solid var(--map-trace); color: var(--map-fg); font-size: var(--text-md); box-shadow: 0 6px 20px var(--map-shadow); white-space: nowrap; }
+  .list { position: absolute; left: 50%; bottom: 4.5rem; transform: translateX(-50%); width: min(28rem, calc(100% - 2rem)); max-height: calc(100% - 10rem); overflow: auto; display: flex; flex-direction: column; gap: var(--space-0-5);
+    background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-xl); padding: var(--space-2-5) var(--space-2); font-size: var(--text-md); color: var(--map-fg); box-shadow: 0 6px 20px var(--map-shadow); }
+  .list > b { padding: 0 var(--space-1-5) var(--space-1); }
+  .item { display: flex; align-items: center; gap: var(--space-1-5); padding: var(--space-1) var(--space-1-5); border-radius: var(--radius-lg); min-height: 2rem; }
+  .item:hover, .item:focus-within { background: var(--map-sunken); }
+  /* a row's keep and drop show on the row in hand: one gold button on screen, Keep all */
+  .item button { opacity: 0; }
+  .item:hover button, .item:focus-within button { opacity: 1; }
   .text { flex: 1; overflow-wrap: anywhere; }
   .tag { font-size: var(--text-xs); padding: var(--space-0-5) 0.4375rem; border-radius: var(--radius-pill); background: var(--map-sunken); color: var(--map-trace); font-weight: 600; }
-  .hint { font-size: var(--text-sm); color: var(--map-muted); }
+  .hint { font-size: var(--text-sm); color: var(--map-muted); padding: var(--space-1) var(--space-1-5) 0; }
   button { font: inherit; font-size: var(--text-md); border: 1px solid var(--map-line); background: var(--map-surface); color: var(--map-fg); border-radius: var(--radius-lg); padding: 0.25rem var(--space-2-5); min-height: 2rem; cursor: pointer; }
   button.go { border-color: var(--map-trace); background: var(--map-trace); color: var(--map-ground); font-weight: 600; }
   button:focus-visible { outline: 2px solid var(--map-trace); outline-offset: 2px; }
