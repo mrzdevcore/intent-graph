@@ -47,7 +47,7 @@ fn drop_gives_the_files_back_and_removes_the_entry() {
     drop(&f, a.n).unwrap();
     assert_eq!(ig(&f), before);
     assert!(entries(&f).0.is_empty());
-    assert_eq!(record(&f, By::Claude, &add("cache")).unwrap().n, 1);
+    assert_eq!(record(&f, By::Claude, &add("cache")).unwrap().n, 2);
 }
 
 #[test]
@@ -97,4 +97,24 @@ fn a_corrupt_journal_is_empty_with_a_notice() {
     assert!(list.is_empty() && notice.is_some());
     assert_eq!(record(&f, By::Person, &add("cache")).unwrap().n, 1);
     assert!(entries(&f).1.is_none());
+    assert_eq!(f.read_bytes(&format!("{JOURNAL}.bad")).unwrap(), b"{nope");
+}
+
+#[test]
+fn undo_then_record_never_reuses_the_undone_number() {
+    let f = spec();
+    record(&f, By::Person, &add("cache")).unwrap();
+    undo(&f).unwrap();
+    assert_eq!(record(&f, By::Person, &add("queue")).unwrap().n, 2);
+}
+
+#[test]
+fn dropping_an_undone_entry_leaves_the_spec_alone() {
+    let f = spec();
+    let before = ig(&f);
+    let a = record(&f, By::Claude, &add("cache")).unwrap();
+    undo(&f).unwrap();
+    drop(&f, a.n).unwrap();
+    assert_eq!(ig(&f), before);
+    assert!(entries(&f).0.is_empty());
 }
