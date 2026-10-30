@@ -14,7 +14,7 @@ pub const MAP: &str = ".ig/map.json";
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_CHILDREN: usize = 12;
 /// Field names a box may pin (as written in the JSON).
-const PINNABLE: &[&str] = &[
+pub(super) const PINNABLE: &[&str] = &[
     "kind",
     "title",
     "tech",
