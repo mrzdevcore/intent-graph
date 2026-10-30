@@ -90,13 +90,12 @@ test("a rejected call shows its message in the live region", async () => {
   expect(seen).toEqual([]);
 });
 
-test("contenteditable: happy-dom's isContentEditable", () => {
+test("contenteditable: shortcuts ignored", () => {
   const { target } = setup(fake().api);
   const div = document.createElement("div");
   div.contentEditable = "true";
   target.append(div);
-  // ponytail: happy-dom may not implement isContentEditable; then the guard is untested here
-  if (!div.isContentEditable) return console.warn("happy-dom: no isContentEditable");
+  expect(div.isContentEditable).toBe(true);
   press("b", {}, div);
   expect(pressed(target)).toContain("Select");
 });
