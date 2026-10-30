@@ -50,6 +50,8 @@
     <button type="button" aria-label="Close" onclick={onclose}>×</button>
   </div>
   <ul class="chips">{#each chips as c}<li>{c}</li>{/each}</ul>
+  {#if box.origin === "build"}<p class="muted">To build: no code under <code>{box.madeOf[0] ?? box.id}</code> yet</p>
+  {:else if box.origin === "drift"}<p class="muted">Drift: this code is in no box of ig/</p>{/if}
   {#if box.description}<p>{box.description.value}</p>{/if}
   {#if inside || mine.length}
     <dl class="stats">
