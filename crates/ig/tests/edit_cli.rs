@@ -259,3 +259,40 @@ fn accept_refuses_a_box_claiming_the_whole_repo() {
         before
     );
 }
+
+#[test]
+fn accept_slugs_ids_and_escapes_globs() {
+    let dir = repo(
+        "slug",
+        &[
+            ("package.json", r#"{"name":"r","workspaces":["apps/*"]}"#),
+            ("apps/api/package.json", r#"{"name":"api"}"#),
+            ("apps/api/src/a.ts", "export function f() {}\n"),
+            ("apps/web/package.json", r#"{"name":"web"}"#),
+            ("apps/web/b.ts", "export const b = 1;\n"),
+        ],
+    );
+    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    for k in ["api", "web"] {
+        let p = dir.join(format!("ig/{k}.kdl"));
+        let t = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(&p, t.replace(&format!("    at \"apps/{k}/**\"\n"), "")).unwrap();
+    }
+    // web's component claims only b.ts, so Button.tsx beside it is loose
+    let p = dir.join("ig/web.kdl");
+    let t = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(&p, t.replace("\"apps/web/*\"", "\"apps/web/b.ts\"")).unwrap();
+    write(&dir, "apps/web/Button.tsx", "export const B = 1;\n");
+    write(&dir, "apps/api/[slug]/x.ts", "export const x = 1;\n");
+    let out = run_ig(&dir, &["accept", "--all"]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
+    let spec: String = ["api", "web", "system"]
+        .iter()
+        .map(|k| std::fs::read_to_string(dir.join(format!("ig/{k}.kdl"))).unwrap())
+        .collect();
+    assert!(spec.contains("at \"apps/api/[[]slug[]]/**\""), "{spec}");
+    assert!(spec.contains("at \"apps/web/Button.tsx\""), "{spec}");
+    assert_eq!(run_ig(&dir, &["check"]).code, 0);
+    write(&dir, "apps/api/other/z.ts", "export const z = 1;\n");
+    assert_eq!(run_ig(&dir, &["check"]).code, 1);
+}
