@@ -1,4 +1,4 @@
-.PHONY: viewer viewer-app build install test app app-dev
+.PHONY: viewer viewer-app build install test app app-dev app-install
 
 # The viewer first (viewer/dist/index.html), then the binary that embeds it.
 viewer:
@@ -33,3 +33,9 @@ app: viewer viewer-app
 	cargo build --release -p intent-graph
 	mkdir -p crates/ig-desktop/bin && cp "$${CARGO_TARGET_DIR:-target}/release/ig" crates/ig-desktop/bin/ig
 	$(TAURI) build
+
+# Everything on this Mac: the app in /Applications (replacing the old one) and `ig` on the PATH,
+# so `ig .` opens the app on a folder.
+app-install: app install
+	rm -rf /Applications/ig.app
+	cp -R "$${CARGO_TARGET_DIR:-target}/release/bundle/macos/ig.app" /Applications/
