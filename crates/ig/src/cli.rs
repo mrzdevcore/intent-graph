@@ -3,7 +3,7 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-pub const USAGE: &str = "usage: ig [--version] | init [claude|codex|all]
+pub const USAGE: &str = "usage: ig [--version] | <dir> | app [<dir>] | init [claude|codex|all]
    | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|ollama] | plan | check | fmt [--check] | accept [--all | <id>...] | mcp | plugin export <dir>
    (all accept --root <dir>; accept writes items one by one, an error stops it with the
    items before it accepted; quote arrow ids: ig accept 'web->api')";

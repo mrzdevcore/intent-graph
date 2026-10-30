@@ -1,5 +1,6 @@
 mod accept;
 mod agent;
+mod app;
 mod cli;
 mod init;
 mod mcp;
@@ -179,11 +180,30 @@ fn real_main() -> Result<u8> {
                 Some(name) => vec![skills::agent(name)?],
             };
             init::run(&root, &agents)?;
+            // ig/ starts as ig's map of the code: an empty repo gets an empty system
+            if env
+                .files
+                .glob(&[format!("{}/*.kdl", spec::DIR)])?
+                .is_empty()
+            {
+                for n in view::run(&env)?.notices {
+                    eprintln!("ig: {n}");
+                }
+            }
             Ok(0)
         }
         "" => {
             eprintln!("{USAGE}");
             Ok(2)
+        }
+        "app" => {
+            app::open(a.sub.as_deref().map_or(&root, Path::new))?;
+            Ok(0)
+        }
+        // `ig .`, `ig ../shop`: a directory opens in the app
+        other if Path::new(other).is_dir() => {
+            app::open(Path::new(other))?;
+            Ok(0)
         }
         other => bail!("unknown command {other:?}\n{USAGE}"),
     }
