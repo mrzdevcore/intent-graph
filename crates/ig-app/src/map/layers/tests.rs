@@ -85,6 +85,7 @@ fn three_network_hops_is_risk() {
         count: 1,
         kinds: vec![ArrowKind::Network],
         in_loop: false,
+        origin: Default::default(),
     };
     // web -> api (already there) -> b -> c, and a cycle back that must not loop forever
     m.arrows

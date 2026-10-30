@@ -35,6 +35,9 @@ pub struct MapArrow {
     pub kinds: Vec<ArrowKind>,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub in_loop: bool,
+    /// Built, to build or drift: the spec against the code.
+    #[serde(skip_serializing_if = "super::origin::is_built", default)]
+    pub origin: super::origin::Origin,
 }
 
 /// The graph edges lifted into one arrow, with their arrow kinds.
@@ -177,6 +180,7 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
                 count: edges.len() as u32,
                 kinds,
                 in_loop: edges.iter().any(|(e, _)| e.in_loop),
+                origin: Default::default(),
             }
         })
         .collect();

@@ -155,6 +155,7 @@ pub(crate) fn fresh(f: &FactBox) -> MapBox {
         needs_reading: true,
         stale: false,
         nodes: f.nodes.clone(),
+        origin: Default::default(),
     }
 }
 
@@ -229,6 +230,7 @@ fn drawn_components(
             needs_reading: true,
             stale: false,
             nodes: rest,
+            origin: Default::default(),
         });
     }
     out
