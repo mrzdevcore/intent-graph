@@ -443,16 +443,21 @@ fn apply(m: &mut MapFile, reply: &str, ev: &Evidence) -> Result<usize, Vec<Strin
 }
 
 /// A small model often wraps the array: `{"annotations": [...]}` is its array, one annotation
-/// `{"id": ...}` a list of one. Anything else is left for `annotate` to reject.
+/// `{"id": ...}` a list of one. Only the first JSON value counts: a model may write more after
+/// it (gpt-oss through ollama did). Anything else is left for `annotate` to reject.
 fn as_list(json: &str) -> String {
-    match serde_json::from_str::<Value>(json) {
-        Ok(Value::Object(o)) if o.contains_key("id") => {
+    match serde_json::Deserializer::from_str(json)
+        .into_iter::<Value>()
+        .next()
+    {
+        Some(Ok(Value::Object(o))) if o.contains_key("id") => {
             Value::Array(vec![Value::Object(o)]).to_string()
         }
-        Ok(Value::Object(o)) => match o.into_values().find(Value::is_array) {
+        Some(Ok(Value::Object(o))) => match o.into_values().find(Value::is_array) {
             Some(a) => a.to_string(),
             None => json.to_string(),
         },
+        Some(Ok(v)) => v.to_string(),
         _ => json.to_string(),
     }
 }
