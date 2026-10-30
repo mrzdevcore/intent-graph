@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 
 /// The spec directory, relative to the ig root.
 pub const DIR: &str = "ig";
-const HEADER: &str = "// ig's intended architecture: edit freely; ig never rewrites this file.\n";
+pub(crate) const HEADER: &str =
+    "// ig's intended architecture: edit freely; ig never rewrites this file.\n";
 
 /// The spec files for `m`: relative path to text. Code-level boxes are not written.
 pub fn write(m: &MapFile) -> BTreeMap<String, String> {
@@ -35,7 +36,7 @@ pub fn write(m: &MapFile) -> BTreeMap<String, String> {
     files
 }
 
-fn path(id: &str) -> String {
+pub(crate) fn path(id: &str) -> String {
     format!("{DIR}/{}.kdl", id.replace('/', "-"))
 }
 
@@ -64,28 +65,14 @@ fn text(nodes: Vec<KdlNode>) -> String {
 }
 
 /// Autoformat writes plain words bare; the spec quotes every string so that it reads one way.
-fn quote(nodes: &mut [KdlNode]) {
+pub(crate) fn quote(nodes: &mut [KdlNode]) {
     for n in nodes {
         for e in n.entries_mut() {
             let Some(s) = e.value().as_string().map(str::to_string) else {
                 continue;
             };
-            let mut esc = String::new();
-            for c in s.chars() {
-                match c {
-                    '\\' => esc.push_str("\\\\"),
-                    '"' => esc.push_str("\\\""),
-                    '\n' => esc.push_str("\\n"),
-                    '\r' => esc.push_str("\\r"),
-                    '\t' => esc.push_str("\\t"),
-                    c if c.is_control() || disallowed(c) => {
-                        esc.push_str(&format!("\\u{{{:04X}}}", c as u32))
-                    }
-                    c => esc.push(c),
-                }
-            }
             e.set_format(KdlEntryFormat {
-                value_repr: format!("\"{esc}\""),
+                value_repr: repr(&s),
                 leading: " ".into(),
                 ..Default::default()
             });
@@ -94,6 +81,25 @@ fn quote(nodes: &mut [KdlNode]) {
             quote(c.nodes_mut());
         }
     }
+}
+
+/// `s` as a quoted KDL string, control and bidi characters escaped.
+pub(crate) fn repr(s: &str) -> String {
+    let mut esc = String::new();
+    for c in s.chars() {
+        match c {
+            '\\' => esc.push_str("\\\\"),
+            '"' => esc.push_str("\\\""),
+            '\n' => esc.push_str("\\n"),
+            '\r' => esc.push_str("\\r"),
+            '\t' => esc.push_str("\\t"),
+            c if c.is_control() || disallowed(c) => {
+                esc.push_str(&format!("\\u{{{:04X}}}", c as u32))
+            }
+            c => esc.push(c),
+        }
+    }
+    format!("\"{esc}\"")
 }
 
 /// Code points KDL forbids in a document (bidi controls, the BOM) or reads as a newline.
@@ -176,7 +182,7 @@ fn narrow(b: &MapBox) -> Vec<String> {
     dirs.into_iter().collect()
 }
 
-fn strings(name: &str, vals: &[String]) -> KdlNode {
+pub(crate) fn strings(name: &str, vals: &[String]) -> KdlNode {
     let mut n = KdlNode::new(name);
     for v in vals {
         n.push(KdlEntry::new(v.as_str()));
