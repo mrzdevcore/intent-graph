@@ -88,7 +88,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "ig_plan",
-            "description": "The plan, as `ig plan` prints it: boxes in ig/ still to build and drift (code in no box). Read-only.",
+            "description": "The plan, as `ig plan` prints it: boxes in ig/ still to build, boxes to move (their `at` changed since the last commit, the code is still at the old place), drift (code in no box) and code ig does not read (outside every package). Read-only.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {

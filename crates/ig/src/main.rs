@@ -113,7 +113,8 @@ fn real_main() -> Result<u8> {
             if v.broken {
                 return Ok(2);
             }
-            let p = origin::plan_of(&v.boxes, &v.arrows, &v.not_read);
+            let unread = view::unread(&env, &v, &ig_fs::BUILD_DIRS)?;
+            let p = origin::plan_of(&v.boxes, &v.arrows, &unread);
             println!("{}", p.text(&a.cmd));
             Ok(u8::from(a.cmd == "check" && !p.is_empty()))
         }

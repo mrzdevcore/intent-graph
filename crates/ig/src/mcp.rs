@@ -92,7 +92,8 @@ fn plan_text(w: &Wired) -> anyhow::Result<(String, Value)> {
     if v.broken {
         anyhow::bail!("ig/ does not read: {}", v.notices.join("; "));
     }
-    let p = origin::plan_of(&v.boxes, &v.arrows, &v.not_read);
+    let unread = view::unread(&w.env(), &v, &ig_fs::BUILD_DIRS)?;
+    let p = origin::plan_of(&v.boxes, &v.arrows, &unread);
     let s = json!({"build": p.build, "move": p.moves, "drift": p.drift, "notRead": p.not_read});
     Ok((p.text("plan"), s))
 }
