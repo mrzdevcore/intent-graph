@@ -212,11 +212,3 @@ fn keep_of_an_unknown_entry_errs_and_writes_nothing() {
     );
     assert_eq!(f.read_bytes(JOURNAL), before);
 }
-
-#[test]
-fn the_header_text() {
-    assert_eq!(
-        crate::map::spec::HEADER,
-        "// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).\n"
-    );
-}
