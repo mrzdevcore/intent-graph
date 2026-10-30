@@ -129,8 +129,13 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         b.pattern = patterns.get(&b.id).cloned().map(Field::ig);
     }
     boxes.sort_by(|a, b| a.id.cmp(&b.id));
-    let mut arrows: Vec<MapArrow> = m.arrows.iter().cloned().chain(code.arrows).collect();
-    arrows.sort_by(|a, b| a.id.cmp(&b.id));
+    let parents: HashMap<&str, &str> = (boxes.iter())
+        .filter_map(|b| Some((b.id.as_str(), b.parent.as_deref()?)))
+        .collect();
+    let arrows = arrows::lift(
+        &parents,
+        m.arrows.iter().cloned().chain(code.arrows).collect(),
+    );
     let known: HashSet<&str> = boxes
         .iter()
         .map(|b| b.id.as_str())
