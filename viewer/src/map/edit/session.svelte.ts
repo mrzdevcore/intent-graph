@@ -9,7 +9,7 @@ export type Ui = { t: "menu" | "rename" | "move"; id: string; x: number; y: numb
 export type Ctx = {
   edit: () => EditApi | undefined; box: (id: string) => MapBox | undefined; frame: (id: string) => Frame;
   cam: () => { x: number; y: number; k: number }; stage: () => HTMLElement;
-  selected: () => string | null; select: (id: string | null) => void; tool: (t: Tool) => void; run: (p: Promise<View>) => void;
+  selected: () => string | null; select: (id: string | null) => void; tool: (t: Tool) => void; run: (p: () => Promise<View>) => void;
 };
 
 export class EditSession {
@@ -105,7 +105,7 @@ export class EditSession {
     if (u?.t !== "arrow") return;
     this.shut();
     this.c.tool("select");
-    this.c.run(this.c.edit()!.apply({ op: "arrow", from: u.from, to: u.to, kind, label }));
+    this.c.run(() => this.c.edit()!.apply({ op: "arrow", from: u.from, to: u.to, kind, label }));
   }
 
   act(a: Act, id: string, p = this.at(id)) {
@@ -115,14 +115,14 @@ export class EditSession {
     else if (a === "arrow") {
       this.c.select(id);
       this.c.tool("arrow");
-    } else this.c.run(this.c.edit()!.apply({ op: "remove", id }));
+    } else this.c.run(() => this.c.edit()!.apply({ op: "remove", id }));
   }
   /** Close the rename or move popover and send the edit it makes for its box (read before ui is cleared). */
   settle(make: (id: string) => Edit | null) {
     const u = this.ui;
     this.shut();
     const e = u && u.t !== "arrow" ? make(u.id) : null;
-    if (e) this.c.run(this.c.edit()!.apply(e));
+    if (e) this.c.run(() => this.c.edit()!.apply(e));
   }
   menuAt(e: MouseEvent) {
     const id = ((e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;

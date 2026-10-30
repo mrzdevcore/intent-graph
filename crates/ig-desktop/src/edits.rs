@@ -8,6 +8,17 @@ use ig_app::map::edit::journal::{self, By, entries};
 use ig_wire::Wired;
 use serde_json::Value;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+/// Held for a whole edit command: the journal is load, modify, save, so edits run one at a time.
+#[derive(Default)]
+pub struct EditLock(Arc<Mutex<()>>);
+
+/// Runs `f` with the lock held (a panicked earlier edit does not wedge the rest).
+fn locked(lock: &Mutex<()>, root: &Path, f: impl FnOnce(&Path) -> Done) -> Done {
+    let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    f(root)
+}
 
 type Done = Result<Value, String>;
 
@@ -65,7 +76,7 @@ pub fn redo(root: &Path) -> Done {
     then_view(root, |f| journal::redo(f).map(drop))
 }
 
-async fn in_project<F>(project: &Project, gate: &Gate, f: F) -> Done
+async fn in_project<F>(project: &Project, gate: &Gate, lock: &EditLock, f: F) -> Done
 where
     F: FnOnce(&Path) -> Done + Send + 'static,
 {
@@ -73,52 +84,65 @@ where
     let Some(root) = root else {
         return Err("no project open: Project > Open… (⌘O)".into());
     };
-    gate.run(move || f(&root)).await?
+    let lock = lock.0.clone();
+    gate.run(move || locked(&lock, &root, f)).await?
 }
 
 #[tauri::command]
 pub async fn edit_apply(
     project: tauri::State<'_, Project>,
     gate: tauri::State<'_, Gate>,
+    lock: tauri::State<'_, EditLock>,
     edit: Edit,
 ) -> Done {
-    in_project(&project, &gate, move |r| apply(r, edit)).await
+    in_project(&project, &gate, &lock, move |r| apply(r, edit)).await
 }
 
 #[tauri::command]
 pub async fn edit_keep(
     project: tauri::State<'_, Project>,
     gate: tauri::State<'_, Gate>,
+    lock: tauri::State<'_, EditLock>,
     n: Option<u64>,
 ) -> Done {
-    in_project(&project, &gate, move |r| keep(r, n)).await
+    in_project(&project, &gate, &lock, move |r| keep(r, n)).await
 }
 
 #[tauri::command]
 pub async fn edit_drop(
     project: tauri::State<'_, Project>,
     gate: tauri::State<'_, Gate>,
+    lock: tauri::State<'_, EditLock>,
     n: u64,
 ) -> Done {
-    in_project(&project, &gate, move |r| drop_one(r, n)).await
+    in_project(&project, &gate, &lock, move |r| drop_one(r, n)).await
 }
 
 #[tauri::command]
 pub async fn edit_drop_all(
     project: tauri::State<'_, Project>,
     gate: tauri::State<'_, Gate>,
+    lock: tauri::State<'_, EditLock>,
 ) -> Done {
-    in_project(&project, &gate, drop_all).await
+    in_project(&project, &gate, &lock, drop_all).await
 }
 
 #[tauri::command]
-pub async fn edit_undo(project: tauri::State<'_, Project>, gate: tauri::State<'_, Gate>) -> Done {
-    in_project(&project, &gate, undo).await
+pub async fn edit_undo(
+    project: tauri::State<'_, Project>,
+    gate: tauri::State<'_, Gate>,
+    lock: tauri::State<'_, EditLock>,
+) -> Done {
+    in_project(&project, &gate, &lock, undo).await
 }
 
 #[tauri::command]
-pub async fn edit_redo(project: tauri::State<'_, Project>, gate: tauri::State<'_, Gate>) -> Done {
-    in_project(&project, &gate, redo).await
+pub async fn edit_redo(
+    project: tauri::State<'_, Project>,
+    gate: tauri::State<'_, Gate>,
+    lock: tauri::State<'_, EditLock>,
+) -> Done {
+    in_project(&project, &gate, &lock, redo).await
 }
 
 #[cfg(test)]
@@ -268,5 +292,25 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn concurrent_apply_and_undo_keep_the_journal_whole() {
+        let r = scratch("race");
+        let p = parent(&r);
+        apply(&r, add(&p, "first")).unwrap();
+        let lock = Mutex::new(());
+        std::thread::scope(|s| {
+            s.spawn(|| locked(&lock, &r, |r| apply(r, add(&p, "second"))).unwrap());
+            s.spawn(|| locked(&lock, &r, undo).unwrap());
+        });
+        let w = Wired::new(&r);
+        let list = entries(w.env().files).0;
+        assert_eq!(list.len(), 2);
+        let v = view_data_for(&r).unwrap();
+        let live = |id| has(&v, id).is_some();
+        // either order: one effect is left, the other undone, no entry lost
+        assert!(live("first") != live("second"));
+        assert_eq!(list.iter().filter(|e| e.undone).count(), 1);
     }
 }

@@ -12,6 +12,8 @@ pub struct Proposal {
     pub summary: String,
     /// The box and arrow ids the edit touches, for highlighting.
     pub ids: Vec<String>,
+    /// The edited box or arrow ids only: what gets the proposal look, chip and Keep/Drop.
+    pub marks: Vec<String>,
 }
 
 fn word<T: Serialize>(v: &T) -> String {
@@ -64,11 +66,17 @@ pub fn proposals(entries: &[Entry], boxes: &[MapBox]) -> Vec<Proposal> {
                 ),
                 Edit::Restore { parent, .. } => ("restore".into(), ids(&[parent])),
             };
+            // a move's destination is lit on hover but is not what changed
+            let marks = match &e.edit {
+                Edit::Move { id, .. } => vec![id.clone()],
+                _ => ids.clone(),
+            };
             Proposal {
                 n: e.n,
                 by: e.by,
                 summary,
                 ids,
+                marks,
             }
         })
         .collect()
@@ -120,5 +128,24 @@ mod tests {
             };
             assert_eq!(proposals(&[e], &[])[0].summary, want, "{json}");
         }
+    }
+
+    #[test]
+    fn a_move_marks_only_the_moved_box() {
+        let edit: Edit =
+            serde_json::from_str(r#"{"op":"move","id":"a","parent":"p","before":null}"#).unwrap();
+        let e = Entry {
+            n: 1,
+            by: By::Claude,
+            kept: false,
+            undone: false,
+            inverse: edit.clone(),
+            edit,
+        };
+        let p = &proposals(&[e], &[])[0];
+        assert_eq!(
+            (p.ids.clone(), p.marks.clone()),
+            (vec!["a".into(), "p".into()], vec!["a".into()])
+        );
     }
 }
