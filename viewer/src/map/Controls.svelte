@@ -37,7 +37,7 @@
 </div>
 
 <style>
-  .head { position: absolute; left: var(--space-4); top: var(--space-3); right: 36rem; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1-5); pointer-events: none; }
+  .head { position: absolute; z-index: 3; left: var(--space-4); top: var(--space-3); right: 36rem; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1-5); pointer-events: none; }
   .head > :global(*) { pointer-events: auto; }
   .crumbs { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; color: var(--map-faint); font-size: var(--text-md); }
   .tools { position: absolute; z-index: 3; right: var(--space-4); top: var(--space-3); display: flex; gap: var(--space-2); align-items: start; }
