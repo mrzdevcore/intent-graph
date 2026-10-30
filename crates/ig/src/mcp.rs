@@ -1,39 +1,16 @@
 //! `ig mcp`: hand-rolled MCP server (JSON-RPC 2.0 over stdio, one message per line).
 
+mod schema;
+
 use crate::model::{Graph, TOOL_VERSION};
+use ig_app::map::edit::Edit;
+use ig_app::map::edit::journal::{self, By};
+use ig_app::map::{origin, spec, view};
+use ig_core::ports::Files;
 use ig_wire::Wired;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use std::path::Path;
-
-fn tools() -> Value {
-    json!([
-        {
-            "name": "ig_state",
-            "description": "What the ig viewer is showing: the last answer written with ig_show (title, nodes, edges, steps), or none.",
-            "inputSchema": {"type": "object", "properties": {}}
-        },
-        {
-            "name": "ig_show",
-            "description": "Record an answer for the ig viewer: the nodes and edges of a path or subgraph, highlighted, with ordered steps. Every id is checked against the graph. Writes only .ig/show.json; the system map does not draw it yet (shown in a later version).",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "What is shown, like 'How the export reaches the database'"},
-                    "nodes": {"type": "array", "items": {"type": "string"}, "maxItems": 60, "description": "Node ids; the first starts a chain"},
-                    "edges": {"type": "array", "items": {"anyOf": [
-                        {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2},
-                        {"type": "string", "description": "from|kind|to"}]}},
-                    "steps": {"type": "array", "maxItems": 40, "items": {"type": "object", "properties": {
-                        "target": {"type": "string", "description": "A node id, or from|to for an edge"},
-                        "text": {"type": "string"}}, "required": ["target", "text"]}},
-                    "mode": {"type": "string", "enum": ["focus", "chain"]}
-                },
-                "required": ["title", "nodes"]
-            }
-        }
-    ])
-}
 
 pub fn serve(root: &Path) -> anyhow::Result<()> {
     let mut out = std::io::stdout();
@@ -66,7 +43,7 @@ fn handle(root: &Path, msg: &Value) -> Option<Value> {
             "serverInfo": {"name": "ig", "version": TOOL_VERSION}
         })),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools": tools()})),
+        "tools/list" => Ok(json!({"tools": schema::tools()})),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -100,6 +77,33 @@ fn head_graph(root: &Path) -> anyhow::Result<Graph> {
     Ok(ig_app::graph(&env, env.files, &cfg, None)?.graph)
 }
 
+const NO_SPEC: &str = "no ig/ yet: run `ig plan` or `ig view` to write it";
+
+fn has_spec(w: &Wired) -> anyhow::Result<bool> {
+    Ok(!w
+        .files()
+        .glob(&[format!("{}/*.kdl", spec::DIR)])?
+        .is_empty())
+}
+
+/// The lines `ig plan` prints, and `{build, drift}`.
+fn plan_text(w: &Wired) -> anyhow::Result<(String, Value)> {
+    let v = view::run(&w.env())?;
+    if v.broken {
+        anyhow::bail!("ig/ does not read: {}", v.notices.join("; "));
+    }
+    let p = origin::plan_of(&v.boxes, &v.arrows);
+    let mut t = format!(
+        "ig plan: {} to build, {} drift",
+        p.build.len(),
+        p.drift.len()
+    );
+    for l in p.build.iter().chain(&p.drift) {
+        t = format!("{t}\n{l}");
+    }
+    Ok((t, json!({"build": p.build, "drift": p.drift})))
+}
+
 fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option<Value>)> {
     match name {
         "ig_state" => {
@@ -125,6 +129,45 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
                 "no viewer is open; answer with a diagram too"
             };
             Ok((text.into(), None))
+        }
+        "ig_plan" => {
+            let w = Wired::new(root);
+            if !has_spec(&w)? {
+                return Ok((NO_SPEC.into(), None));
+            }
+            let (text, p) = plan_text(&w)?;
+            Ok((text, Some(p)))
+        }
+        "ig_edit" => {
+            let w = Wired::new(root);
+            if !has_spec(&w)? {
+                anyhow::bail!(NO_SPEC);
+            }
+            let edits: Vec<Value> = match args.get("edits") {
+                Some(Value::Array(a)) => a.clone(),
+                Some(_) => anyhow::bail!("edits must be an array"),
+                None => vec![args.clone()],
+            };
+            let mut recorded = vec![];
+            for (i, raw) in edits.iter().enumerate() {
+                let kept = if recorded.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (edits {recorded:?} stay recorded)")
+                };
+                let e: Edit = serde_json::from_value(raw.clone())
+                    .map_err(|e| anyhow::anyhow!("edit {}: {e}{kept}", i + 1))?;
+                if matches!(e, Edit::Restore { .. }) {
+                    anyhow::bail!("edit {}: restore is not an edit you can make{kept}", i + 1);
+                }
+                match journal::record(w.files(), By::Claude, &e) {
+                    Ok(en) => recorded.push(en.n),
+                    Err(m) => anyhow::bail!("edit {}: {}{kept}", i + 1, m.join("; ")),
+                }
+            }
+            let (plan, mut p) = plan_text(&w)?;
+            p["recorded"] = json!(recorded);
+            Ok((format!("recorded {recorded:?}\n{plan}"), Some(p)))
         }
         _ => anyhow::bail!("unknown tool {name}"),
     }
