@@ -29,7 +29,7 @@ pub fn write(w: &Wired, v: &View) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Writes `.ig/.gitignore` (all but the map) when `.ig` exists and neither it nor the repo's
+/// Writes `.ig/.gitignore` (everything in it; the spec lives in `ig/`) when `.ig` exists and neither it nor the repo's
 /// `.gitignore` ignores `.ig/*` already, so the page and ig's other files are never committed by
 /// accident.
 pub fn ignore_ig_dir(root: &Path) -> Result<()> {
@@ -46,7 +46,7 @@ pub fn ignore_ig_dir(root: &Path) -> Result<()> {
         )
     };
     if !repo.lines().any(ignores) {
-        std::fs::write(own, "*\n!map.json\n!.gitignore\n")?;
+        std::fs::write(own, "*\n!.gitignore\n")?;
     }
     Ok(())
 }

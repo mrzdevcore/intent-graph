@@ -4,11 +4,24 @@ use super::{git_fixture, scratch};
 use ig_app::map::view;
 use ig_wire::Wired;
 
+/// The files of `dir/ig/`, by name.
+fn spec(dir: &std::path::Path) -> std::collections::BTreeMap<String, String> {
+    std::fs::read_dir(dir.join("ig"))
+        .unwrap()
+        .map(|e| {
+            let e = e.unwrap();
+            let text = std::fs::read_to_string(e.path()).unwrap();
+            (e.file_name().to_string_lossy().into_owned(), text)
+        })
+        .collect()
+}
+
 #[test]
 fn view_json_shape() {
     let dir = git_fixture("shop");
     let w = Wired::new(&dir);
-    let v = serde_json::to_value(view::run(&w.env()).unwrap()).unwrap();
+    let mut drawn = view::run(&w.env()).unwrap();
+    let v = serde_json::to_value(&drawn).unwrap();
     for key in ["boxes", "arrows", "marks", "placed", "notices"] {
         assert!(v.get(key).is_some(), "no `{key}` in {v}");
     }
@@ -32,10 +45,19 @@ fn view_json_shape() {
             .iter()
             .any(|m| m["badge"] == "breaks: domain → infrastructure")
     );
-    // the map was written, and a second run leaves it byte-identical
-    let first = std::fs::read(dir.join(".ig/map.json")).unwrap();
-    view::run(&w.env()).unwrap();
-    assert_eq!(std::fs::read(dir.join(".ig/map.json")).unwrap(), first);
+    // ig/ was written, and later runs leave it and the JSON byte-identical
+    let first = spec(&dir);
+    assert!(first.contains_key("system.kdl"), "{first:?}");
+    let json = |v: view::View| serde_json::to_string_pretty(&v).unwrap();
+    let once = view::run(&w.env()).unwrap();
+    assert!(once.notices.is_empty(), "{:?}", once.notices);
+    let once = json(once);
+    assert_eq!(json(view::run(&w.env()).unwrap()), once);
+    assert_eq!(spec(&dir), first);
+    // the first run drew what later runs draw
+    drawn.notices.retain(|n| !n.starts_with("wrote ig/"));
+    assert_eq!(json(drawn), once);
+    assert!(!dir.join(".ig/map.json").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -88,11 +110,14 @@ fn many_containers_stay_loadable() {
     let dir = super::tmp_with(&refs);
     let w = Wired::new(&dir);
     let v = view::run(&w.env()).unwrap();
-    assert!(v.notices.is_empty(), "{:?}", v.notices);
-    let first = std::fs::read(dir.join(".ig/map.json")).unwrap();
+    assert_eq!(
+        v.notices,
+        ["wrote ig/: the intended architecture, from the code; edit it, commit it"]
+    );
+    let first = spec(&dir);
     let again = view::run(&w.env()).unwrap();
     assert!(again.notices.is_empty(), "{:?}", again.notices);
-    assert_eq!(std::fs::read(dir.join(".ig/map.json")).unwrap(), first);
+    assert_eq!(spec(&dir), first);
     let ids: Vec<&str> = v
         .boxes
         .iter()

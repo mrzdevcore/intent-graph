@@ -74,8 +74,12 @@ ig view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|o
    `ig.yaml` rules) and `risks` (ig's own code analysis), computed each run; and your own, from
    `.ig/layers/*.json` (below).
 
-**The map file `.ig/map.json` is committed.** It holds boxes, arrows and marks, sorted so a diff shows
-only real changes. `ig init` adds `.ig/*` and `!.ig/map.json` to `.gitignore`. Boxes already described keep their words; plain `ig view` asks the agent only about the others.
+**The spec `ig/` is committed.** The first `ig view` writes the intended architecture as `ig/*.kdl`:
+from `.ig/map.json` when there is one (its readings and corrections kept), else from the code and
+the AI reading. After that ig never rewrites `ig/`: edit it and commit it. Every run compares it
+with the code: what both have is built, what only `ig/` says is still to build, what only the code
+has is drift. `.ig/map.json` is no longer written; delete it once `ig/` is committed. A broken
+`ig/` is left as is, with the file and line of each problem, and the map shows the code alone.
 
 ### Reading and consent
 
@@ -83,6 +87,7 @@ An agent only runs when you say so:
 
 - `ig view --read`: it runs, without asking, on every box, described ones included.
 - `ig view --no-read`: it never runs.
+- the reading runs only on the run that writes `ig/`; once `ig/` exists, `--read` says so and reads nothing.
 - plain `ig view` in a terminal: if boxes lack a reading, ig asks `Let an AI agent (claude) read the
   architecture? [Y/n]` and runs it on a yes. Without a terminal (a script, CI) it does not run.
 

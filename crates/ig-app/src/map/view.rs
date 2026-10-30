@@ -6,7 +6,8 @@ use super::file::{self, Field, MapBox, MapFile, refresh};
 use super::layers::{Mark, file_layers, risks, rules, sort_marks};
 use super::layout::layout;
 pub use super::layout::{Frame, Placed, Region, RegionKind};
-use super::{MapArrow, Pattern, arrows, facts};
+use super::origin::compare;
+use super::{MapArrow, Pattern, arrows, facts, spec};
 use crate::Env;
 use ig_core::config::Config;
 use ig_core::model::{Anatomy, Graph, Part, Range};
@@ -143,9 +144,14 @@ pub fn run(env: &Env) -> crate::Result<View> {
     run_with(env, None)
 }
 
-/// `ig view`: the facts of the working tree, refreshed into `.ig/map.json` and, with `ask`, read
-/// by an AI agent (written back unless the file there was rejected: it is left for its owner to
-/// fix), then the view of it.
+/// Said on `--read` when `ig/` already exists.
+const LATER: &str =
+    "the AI reading runs when ig/ is written; it will propose edits in a later version";
+
+/// `ig view`: the spec in `ig/` compared with the code, then the view of it. The first run (no
+/// `ig/`) writes the spec from today's map: `.ig/map.json`'s reading when there is one, else the
+/// code, read by an AI agent when `ask` consents; `ig/` is never rewritten after that, and
+/// `.ig/map.json` is never written. A broken `ig/` is left as is: the view is then of the code.
 pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     let config = crate::config::load(env.files)?;
     let built = crate::graph(env, env.files, &config, env.vcs.and_then(|v| v.head()))?;
@@ -162,29 +168,70 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
         None => facts(&built.workspace, g, &config),
     };
     let findings = ig_core::rules::arch(g, &config, &ws.packages);
-    let (old, rejected) = file::load(env.files);
-    let (mut m, reset) = refresh(old.as_ref(), &boxes, arrows(&boxes, g), &findings);
-    relift(&mut m, g, &findings);
     let mut notices: Vec<String> = config
         .notices
         .iter()
         .map(|k| format!("ig.yaml: `{k}` is no longer read; ignored"))
         .collect();
-    if rejected.is_empty() {
-        if let Some(a) = ask {
-            let ev = Evidence::new(&boxes, &built.extras.imports, &config);
-            notices.extend(offer(a, &mut m, &ev, &config, env.files, env.progress));
-            relift(&mut m, g, &findings);
+    // today's map of the code, refreshed over `old`
+    let today = |old: Option<&MapFile>| {
+        let (mut m, reset) = refresh(old, &boxes, arrows(&boxes, g), &findings);
+        relift(&mut m, g, &findings);
+        (m, reset)
+    };
+    let read = match spec::read(env.files) {
+        Ok(Some(s)) => {
+            if ask.is_some_and(|a| a.all) {
+                notices.push(LATER.into());
+            }
+            Ok(s)
         }
-        notices.extend(save_valid(env.files, &m)?);
-    } else {
-        notices.extend(rejected);
-        notices.push(format!(
-            "{} left as is; fix or delete it to let ig rewrite it",
-            file::MAP
-        ));
-    }
-    notices.extend(reset);
+        Err(e) => {
+            notices.extend(e);
+            notices.push(format!("{}/ left as is; fix it", spec::DIR));
+            Err(today(None).0)
+        }
+        Ok(None) => {
+            let (old, rejected) = file::load(env.files);
+            let (mut m, reset) = today(old.as_ref());
+            notices.extend(reset);
+            if rejected.is_empty() {
+                if let Some(a) = ask {
+                    let ev = Evidence::new(&boxes, &built.extras.imports, &config);
+                    notices.extend(offer(a, &mut m, &ev, &config, env.files, env.progress));
+                    relift(&mut m, g, &findings);
+                }
+                let from = if old.is_some() { file::MAP } else { "the code" };
+                notices.push(write_spec(env.files, &m, from)?);
+                match spec::read(env.files) {
+                    Ok(Some(s)) => Ok(s),
+                    Ok(None) => Err(m),
+                    Err(e) => {
+                        notices.extend(e);
+                        Err(m)
+                    }
+                }
+            } else {
+                notices.extend(rejected);
+                notices.push(format!(
+                    "{} left as is; fix or delete it to let ig write {}/",
+                    file::MAP,
+                    spec::DIR
+                ));
+                Err(m)
+            }
+        }
+    };
+    let mut m = match read {
+        Ok(s) => {
+            let mut m = compare(&s, &boxes, g);
+            marks(&mut m, &findings);
+            m
+        }
+        Err(m) => m,
+    };
+    // what is not read now is read only when ig/ is written: no "ig's guess" banner
+    m.boxes.iter_mut().for_each(|b| b.needs_reading = false);
     let ui = components(env.files, g, env.frontends, &config);
     let mut v = view(env.files, &m, g, &ui);
     notices.append(&mut v.notices);
@@ -197,27 +244,38 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
 fn relift(m: &mut MapFile, g: &Graph, findings: &[ig_core::model::Finding]) {
     let live: Vec<_> = m.boxes.iter().filter(|b| !b.stale).map(as_fact).collect();
     m.arrows = arrows(&live, g);
+    marks(m, findings);
+}
+
+/// `m`'s marks: the `rules` (with `findings`) and `risks` layers.
+fn marks(m: &mut MapFile, findings: &[ig_core::model::Finding]) {
     m.marks = rules(m, findings);
     m.marks.extend(risks(m));
     sort_marks(&mut m.marks);
 }
 
-/// Saves `m` unless `validate` rejects it (the next run would drop the whole file): then the
-/// notice why.
-fn save_valid(files: &dyn Files, m: &MapFile) -> crate::Result<Option<String>> {
+/// Writes `m` as the spec in `ig/` unless `validate` rejects it; the notice either way (`from`:
+/// where its reading came from).
+fn write_spec(files: &dyn Files, m: &MapFile, from: &str) -> crate::Result<String> {
     if let Err(e) = file::validate(m) {
-        return Ok(Some(format!(
-            "{} not written, ig's map is not valid: {}",
-            file::MAP,
+        return Ok(format!(
+            "{}/ not written, ig's map is not valid: {}",
+            spec::DIR,
             e.join("; ")
-        )));
+        ));
     }
-    file::save(files, m)?;
-    Ok(None)
+    for (path, text) in spec::write(m) {
+        files.write_atomic(&path, text.as_bytes())?;
+    }
+    Ok(format!(
+        "wrote {}/: the intended architecture, from {from}; edit it, commit it",
+        spec::DIR
+    ))
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::origin::Origin;
     use super::*;
     use crate::testing::{Fake, env};
     use ig_core::testing::MemFiles;
@@ -238,9 +296,88 @@ mod tests {
             v.notices
         );
         assert_eq!(files.read(file::MAP).as_deref(), Some("{ not json"));
-        let fresh = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
-        run(&env(&fresh, None, &fe)).unwrap();
-        assert!(file::load(&fresh).0.is_some(), "a missing map is written");
+        assert!(
+            files.read("ig/system.kdl").is_none(),
+            "its reading is not lost"
+        );
+    }
+
+    #[test]
+    fn the_first_run_writes_ig_and_later_runs_never_rewrite_it() {
+        let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
+        let v = run(&env(&files, None, &Fake)).unwrap();
+        assert!(
+            v.notices.iter().any(|n| n.starts_with("wrote ig/")),
+            "{:?}",
+            v.notices
+        );
+        // a person narrows the package to `src/`
+        let pkg = files
+            .read("ig/pkg.kdl")
+            .unwrap()
+            .replacen("at \"**\"", "at \"src/**\"", 1);
+        files.write_atomic("ig/pkg.kdl", pkg.as_bytes()).unwrap();
+        let before = files.read("ig/system.kdl").unwrap();
+        files
+            .write_atomic("lib/c.ts", b"export const y = 2;\n")
+            .unwrap(); // outside every `at`: drift
+        let v = run(&env(&files, None, &Fake)).unwrap();
+        assert_eq!(files.read("ig/system.kdl").unwrap(), before);
+        assert_eq!(files.read("ig/pkg.kdl").unwrap(), pkg);
+        assert!(v.boxes.iter().any(|b| b.origin == Origin::Drift));
+        assert!(!v.notices.iter().any(|n| n.starts_with("wrote ig/")));
+        assert!(v.boxes.iter().all(|b| !b.needs_reading));
+        assert!(
+            files.read(file::MAP).is_none(),
+            "the map file is never written"
+        );
+    }
+
+    #[test]
+    fn a_map_json_is_migrated_with_its_readings() {
+        let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
+        let e = env(&files, None, &Fake);
+        let cfg = crate::config::load(&files).unwrap();
+        let built = crate::graph(&e, &files, &cfg, None).unwrap();
+        let b = super::super::facts(&built.workspace, &built.graph, &cfg);
+        let mut m = refresh(None, &b, arrows(&b, &built.graph), &[]).0;
+        let sys = (m.boxes.iter_mut())
+            .find(|b| b.level == super::super::Level::System)
+            .unwrap();
+        sys.title = Field::person("Core".into());
+        sys.pinned.push("title".into());
+        file::save(&files, &m).unwrap();
+        let map = files.read(file::MAP).unwrap();
+        let v = run(&e).unwrap();
+        assert!(
+            files
+                .read("ig/system.kdl")
+                .unwrap()
+                .contains("title=\"Core\"")
+        );
+        assert!(
+            v.notices.iter().any(|n| n.contains("from .ig/map.json")),
+            "{:?}",
+            v.notices
+        );
+        assert_eq!(files.read(file::MAP).unwrap(), map, "left where it is");
+    }
+
+    #[test]
+    fn a_broken_spec_is_reported_and_kept() {
+        let files = MemFiles::with(&[
+            ("src/a.ts", "export function f() {}\n"),
+            ("ig/system.kdl", "system {"),
+        ]);
+        let v = run(&env(&files, None, &Fake)).unwrap();
+        assert!(
+            v.notices.iter().any(|n| n.starts_with("ig/system.kdl:")),
+            "{:?}",
+            v.notices
+        );
+        assert!(v.notices.iter().any(|n| n == "ig/ left as is; fix it"));
+        assert!(!v.boxes.is_empty(), "the code is still drawn");
+        assert_eq!(files.read("ig/system.kdl").as_deref(), Some("system {"));
     }
 
     #[test]
@@ -301,11 +438,11 @@ mod tests {
             arrows: vec![],
             marks: vec![],
         };
-        let n = save_valid(&files, &m).unwrap().unwrap();
+        let n = write_spec(&files, &m, "the code").unwrap();
         assert!(n.contains("not written") && n.contains("version 2"), "{n}");
-        assert!(files.read(file::MAP).is_none());
+        assert!(files.glob(&["ig/*".into()]).unwrap().is_empty());
         m.version = 1;
-        assert_eq!(save_valid(&files, &m).unwrap(), None);
-        assert!(files.read(file::MAP).is_some());
+        let n = write_spec(&files, &m, "the code").unwrap();
+        assert!(n.starts_with("wrote ig/"), "{n}");
     }
 }
