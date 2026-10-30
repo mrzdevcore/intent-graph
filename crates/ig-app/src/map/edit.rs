@@ -26,13 +26,13 @@ pub enum Edit {
     Remove {
         id: String,
     },
-    /// A component moved to another container takes that container's id prefix.
+    /// The id stays: arrows pointing at it still resolve.
     Move {
         id: String,
         parent: String,
         before: Option<String>,
     },
-    /// The id; arrows pointing at it, and a container's components, follow.
+    /// The id; arrows pointing at it follow. A container's components keep theirs.
     Rename {
         id: String,
         to: String,
@@ -273,24 +273,14 @@ impl Spec {
                     up = self.find(&p).and_then(|l| self.parent(&l));
                 }
                 let old = self.parent(&loc).ok_or("the system cannot be moved")?;
-                let new = match id.strip_prefix(&format!("{old}/")) {
-                    Some(slug) if old != *parent && *parent != self.sys => {
-                        format!("{parent}/{slug}")
-                    }
-                    _ => id.clone(),
-                };
-                if new != *id {
-                    self.unused(&new)?;
-                }
                 let (n, was) = self.take(&loc);
                 let (loc, i) = self.place(parent, before.as_deref())?;
                 self.put(&loc, i, n);
-                self.rekey(id, &new);
-                for c in [&old, parent, &new] {
+                for c in [&old, parent, id] {
                     self.settle(c)?;
                 }
                 Ok(Edit::Move {
-                    id: new,
+                    id: id.clone(),
                     parent: old,
                     before: was,
                 })
@@ -514,7 +504,7 @@ impl Spec {
         out
     }
 
-    /// Renames box `old` to `new`, ids under it (`old/…`) and the arrows pointing at them.
+    /// Renames box `old` to `new` and the arrows pointing at it.
     fn rekey(&mut self, old: &str, new: &str) {
         fn walk(d: &mut KdlDocument, re: &dyn Fn(&str) -> Option<String>) {
             for n in d.nodes_mut() {
@@ -529,12 +519,7 @@ impl Spec {
                 }
             }
         }
-        let below = format!("{old}/");
-        let re = |s: &str| match s.strip_prefix(&below) {
-            _ if s == old => Some(new.to_string()),
-            Some(rest) => Some(format!("{new}/{rest}")),
-            None => None,
-        };
+        let re = |s: &str| (s == old).then(|| new.to_string());
         for d in self.docs.values_mut() {
             walk(d, &re);
         }
