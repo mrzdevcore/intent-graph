@@ -75,7 +75,7 @@ export type View = {
   /** The journal's entries nobody kept yet. */
   proposals?: Proposal[];
 };
-export type Proposal = { n: number; by: "person" | "agent"; summary: string; ids: string[] };
+export type Proposal = { n: number; by: "claude" | "reading"; summary: string; ids: string[] };
 
 /** Mirrors `Edit` in crates/ig-app/src/map/edit.rs. */
 export type Edit =

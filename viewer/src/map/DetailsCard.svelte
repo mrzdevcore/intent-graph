@@ -1,10 +1,17 @@
 <!-- The selected box: health, what needs attention, what it uses and what uses it, what it is made of and
      where each annotated field came from. All text, never HTML. -->
 <script lang="ts">
+  import type { EditApi } from "../api";
+  import { tag } from "./looks";
   import type { Field, MapBox, View } from "./types";
   import Code from "./Code.svelte";
 
-  let { view, box, onclose, onopen, onmenu }: { view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void; onmenu?: (e: MouseEvent) => void } = $props();
+  let { view, box, onclose, onopen, onmenu, edit, run }: {
+    view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void; onmenu?: (e: MouseEvent) => void;
+    edit?: EditApi; run?: (p: Promise<View>) => void;
+  } = $props();
+  // the edits Claude or the reading proposed on this box, to keep or drop here
+  const proposals = $derived((view.proposals ?? []).filter((p) => p.ids.includes(box.id)));
 
   const titleOf = (id: string) => view.boxes.find((b) => b.id === id)?.title.value ?? id;
   // a part named like a component on the map (a tag it renders): a link to it
@@ -54,6 +61,13 @@
   <ul class="chips">{#each chips as c}<li>{c}</li>{/each}</ul>
   {#if box.origin === "build"}<p class="muted">To build: no code under <code>{box.madeOf[0] ?? box.id}</code> yet</p>
   {:else if box.origin === "drift"}<p class="muted">Drift: this code is in no box of ig/</p>{/if}
+  {#if edit && run}
+    {#each proposals as p (p.n)}
+      <div class="prop"><span class="text"><span class="ptag">{tag(p.by)}</span> {p.summary}</span>
+        <button type="button" onclick={() => run(edit.drop(p.n))}>Drop</button>
+        <button type="button" class="go" onclick={() => run(edit.keep(p.n))}>Keep</button></div>
+    {/each}
+  {/if}
   {#if box.description}<p>{box.description.value}</p>{/if}
   {#if inside || mine.length}
     <dl class="stats">
@@ -153,6 +167,12 @@
   .more { margin-top: var(--space-1); font: inherit; font-size: var(--text-sm); border: 1px solid var(--map-line); background: var(--map-surface); color: inherit; border-radius: var(--radius-md); padding: var(--space-1) var(--space-2-5); cursor: pointer; }
   details { margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--map-line-soft); }
   summary { cursor: pointer; }
+  .prop { display: flex; align-items: center; gap: var(--space-1-5); margin: var(--space-1-5) 0; padding: var(--space-1-5) var(--space-2); border: 1px dashed var(--map-trace); border-radius: var(--radius-lg); }
+  .prop .text { flex: 1; }
+  .ptag { font-size: var(--text-xs); padding: var(--space-0-5) 0.4375rem; border-radius: var(--radius-pill); background: var(--map-sunken); color: var(--map-trace); font-weight: 600; }
+  .prop button { font: inherit; font-size: var(--text-sm); border: 1px solid var(--map-line); background: var(--map-surface); color: var(--map-fg); border-radius: var(--radius-md); padding: var(--space-1) var(--space-2); cursor: pointer; }
+  .prop button.go { border-color: var(--map-trace); background: var(--map-trace); color: var(--map-ground); font-weight: 600; }
+  .prop button:focus-visible { outline: 2px solid var(--map-trace); outline-offset: 2px; }
   .tag { font: inherit; color: inherit; border: 0; padding: 0; background: none; cursor: pointer; text-decoration: underline; text-decoration-color: var(--map-blue); }
   .warn { color: var(--map-warn-text); } .bad { color: var(--map-bad-text); } .down { color: var(--map-fg-2); } .ok { color: var(--map-green); }
   @media (max-width: 47.5rem) { .details, .details.wide { left: var(--space-4); right: var(--space-4); width: auto; top: auto; bottom: 3.5rem; max-height: 50%; } }

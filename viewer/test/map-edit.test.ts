@@ -6,6 +6,7 @@ import type { EditApi } from "../src/api";
 import type { View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 import { prefill, slug } from "../src/map/edit/add";
+import { arrowLook, look } from "../src/map/looks";
 import MovePicker from "../src/map/edit/MovePicker.svelte";
 import { parentsFor } from "../src/map/edit/menu";
 
@@ -381,4 +382,59 @@ test("without edit, F2, M and Backspace do nothing", () => {
   for (const k of ["F2", "m", "Backspace"]) press(k);
   expect(target.querySelector("[data-popover]")).toBeNull();
   expect(target.querySelector('input[aria-label="Rename box"]')).toBeNull();
+});
+
+const withProposals = (ps: NonNullable<View["proposals"]>) => ({ ...fresh(), proposals: ps });
+const two = [
+  { n: 3, by: "claude" as const, summary: "add usecase Refund", ids: ["web"] },
+  { n: 4, by: "reading" as const, summary: "api: tech", ids: ["api"] },
+  { n: 5, by: "claude" as const, summary: "arrow web uses api", ids: ["api->postgres"] },
+];
+const btn = (t: HTMLElement, name: string) => [...t.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent === name)!;
+
+test("no proposals: no bar", () => {
+  expect(setup(fake().api).target.querySelector('[aria-label="Proposed edits"]')).toBeNull();
+});
+
+test("two authors: counts per author; Keep on a row calls keep(n), Drop all calls dropAll", async () => {
+  const calls: unknown[] = [];
+  const { api } = fake({ keep: async (n) => (calls.push(["keep", n]), fresh()), dropAll: async () => (calls.push("dropAll"), fresh()) });
+  const { target } = setup(api, withProposals(two));
+  expect(target.querySelector('[aria-label="Proposed edits"]')!.textContent).toContain("Claude proposed 2 edits · AI reading 1");
+  btn(target, "Review").click();
+  flushSync();
+  btn(target.querySelector("section.list")!, "Keep").click();
+  btn(target, "Drop all").click();
+  await tick();
+  expect(calls).toEqual([["keep", 3], "dropAll"]);
+});
+
+test("read-only: the bar shows but nothing acts", () => {
+  const { target } = setup(undefined, withProposals(two));
+  btn(target, "Review").click();
+  flushSync();
+  expect(target.textContent).toContain("Claude proposed 2 edits");
+  for (const n of ["Keep all", "Drop all", "Keep", "Drop"]) expect(btn(target, n)).toBeUndefined();
+});
+
+test("a proposed box has the tag chip; hovering a row lights it; its card offers Keep", async () => {
+  const calls: unknown[] = [];
+  const { target } = setup(fake({ keep: async (n) => (calls.push(n), fresh()) }).api, withProposals(two));
+  const web = fresh().boxes.find((b) => b.id === "web")!;
+  expect(look("web", [], new Set(), web, "claude")).toMatchObject({ edge: "var(--map-trace)", dashed: true, chips: [{ label: "Claude" }] });
+  expect(look("web", [], new Set(), web, "reading").chips.at(-1)!.label).toBe("reading");
+  expect(arrowLook(fresh().arrows[0], [], new Set(), "claude")).toMatchObject({ color: "var(--map-trace)", dash: "6 4", label: "Claude" });
+  btn(target, "Review").click();
+  flushSync();
+  const row = target.querySelector('section.list [role="group"]')!;
+  row.dispatchEvent(new PointerEvent("pointerenter"));
+  flushSync();
+  expect(target.querySelector('[data-box="web"].traced')).not.toBeNull();
+  row.dispatchEvent(new PointerEvent("pointerleave"));
+  flushSync();
+  expect(target.querySelector(".traced")).toBeNull();
+  select(target, "web");
+  btn(target.querySelector("section.details")!, "Keep").click();
+  await tick();
+  expect(calls).toEqual([3]);
 });

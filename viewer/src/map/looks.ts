@@ -21,12 +21,14 @@ const ORIGIN: Record<NonNullable<MapBox["origin"]>, { edge: string; label: strin
   drift: { edge: WARN, label: "not in ig/", tone: "warn" },
   moved: { edge: "var(--map-blue)", label: "to move", tone: "neutral" },
 };
+/** The chip of a proposal: who made the edit. */
+export const tag = (by: string) => (by === "claude" ? "Claude" : "reading");
 const RANK: Record<MarkState, number> = { ok: 0, warn: 1, down: 2, bad: 3 };
 const worst = (ms: Mark[]) => ms.reduce<Mark | null>((w, m) => (!w || RANK[m.state] > RANK[w.state] ? m : w), null);
 const shown = (marks: Mark[], on: Set<string>, target: string) => marks.filter((m) => m.target === target && on.has(m.layer));
 
 /** Precedence: health > highlight (other layers' marks) > origin (build, drift, moved) > status (stale) > kind. */
-export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox): Look {
+export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox, by?: string): Look {
   const mine = shown(marks, on, id);
   const health = worst(mine.filter((m) => m.layer === "health"));
   const other = worst(mine.filter((m) => m.layer !== "health" && m.state !== "ok"));
@@ -39,10 +41,11 @@ export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox): L
   const o = box.origin ? ORIGIN[box.origin] : null;
   if (o) chips.push({ label: o.label, tone: o.tone });
   if (box.stale) chips.push({ label: "stale", tone: "neutral" });
+  if (by) chips.push({ label: tag(by), tone: "neutral" });
   return {
-    edge: s?.edge ?? o?.edge ?? kind?.edge ?? NEUTRAL,
+    edge: s?.edge ?? (by ? TRACE : o?.edge) ?? kind?.edge ?? NEUTRAL,
     width: s && s.tone !== "down" ? 2.5 : 1.5,
-    dashed: s ? s.tone === "down" : !!(o || box.stale || kind?.dashed),
+    dashed: s ? s.tone === "down" : !!(by || o || box.stale || kind?.dashed),
     glow: s && s.tone !== "down" ? s.edge : null,
     bg: s?.bg ?? "var(--map-surface)",
     fade: s?.tone === "down" || (!s && !o && box.stale) ? 0.6 : !s && box.origin === "build" ? 0.85 : 1,
@@ -79,18 +82,18 @@ const ARROW: Record<string, { color: string; dash: string | null; head: "filled"
   implements: { color: "var(--map-faint)", dash: "6 4", head: "hollow" },
 };
 
-export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>) {
+export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>, by?: string) {
   const base = ARROW[arrow.kind];
   const hit = worst(shown(marks, on, arrow.id).filter((m) => m.state !== "ok"));
   const s = hit ? STATE[hit.state as Exclude<MarkState, "ok">] : null;
-  const o = arrow.origin === "build" ? { color: TRACE, dash: "6 4" } : arrow.origin === "drift" ? { color: WARN, dash: "2 4" } : null;
+  const o = by ? { color: TRACE, dash: "6 4" } : arrow.origin === "build" ? { color: TRACE, dash: "6 4" } : arrow.origin === "drift" ? { color: WARN, dash: "2 4" } : null;
   return {
     color: s?.edge ?? o?.color ?? base.color,
     // thicker the more edges it lifts: 1 → +0, 10 → +0.75, 100 and more → +1.5
     width: (s ? 2.5 : 1.5) + Math.min(1.5, 0.75 * Math.log10(Math.max(1, arrow.count))),
     dash: o?.dash ?? base.dash,
     head: base.head,
-    label: arrow.label ?? hit?.badge ?? (arrow.origin === "drift" ? "not in ig/" : null),
+    label: arrow.label ?? hit?.badge ?? (by ? tag(by) : null) ?? (arrow.origin === "drift" ? "not in ig/" : null),
     tone: (s?.tone ?? "neutral") as Tone,
   };
 }
