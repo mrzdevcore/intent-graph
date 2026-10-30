@@ -41,3 +41,16 @@ test("insideCounts stops at a parent loop", () => {
   expect(c.get("zzz")).toBeUndefined(); // its own mark, under no other box
   expect([c.get("x"), c.get("y")]).toEqual([undefined, 1]);
 });
+
+test("a box to build is dashed gold with a chip; drift is dashed amber", () => {
+  const b = (origin?: "build" | "drift") => ({ ...box, origin });
+  expect(look(box.id, [], new Set(), b("build"))).toMatchObject({ edge: "var(--map-trace)", dashed: true, fade: 0.85, chips: [{ label: "to build" }] });
+  expect(look(box.id, [], new Set(), b("drift"))).toMatchObject({ edge: "var(--map-warn)", dashed: true, chips: [{ label: "not in ig/" }] });
+  expect(look(box.id, [], new Set(), b())).toMatchObject({ dashed: false });
+  expect(look(box.id, [bad], new Set(["health"]), b("build")).edge).toBe("var(--map-bad)");
+});
+
+test("an arrow to build or in drift", () => {
+  expect(arrowLook({ ...arrow("calls"), origin: "build" }, [], new Set())).toMatchObject({ color: "var(--map-trace)", dash: "6 4" });
+  expect(arrowLook({ ...arrow("calls"), origin: "drift" }, [], new Set())).toMatchObject({ color: "var(--map-warn)", dash: "2 4", label: "not in ig/" });
+});
