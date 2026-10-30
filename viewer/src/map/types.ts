@@ -72,4 +72,18 @@ export type View = {
   /** The list each part box of a component holds (inputs, state, uses, renders), by box id. */
   parts?: Record<string, Part[]>;
   notices: string[];
+  /** The journal's entries nobody kept yet. */
+  proposals?: Proposal[];
 };
+export type Proposal = { n: number; by: "person" | "agent"; summary: string; ids: string[] };
+
+/** Mirrors `Edit` in crates/ig-app/src/map/edit.rs. */
+export type Edit =
+  | { op: "add"; parent: string; kind: BoxKind; id: string; title: string; at: string[]; before: string | null }
+  | { op: "remove"; id: string }
+  | { op: "move"; id: string; parent: string; before: string | null; slot?: string }
+  | { op: "rename"; id: string; to: string }
+  | { op: "set"; id: string; key: string; value: string | null }
+  | { op: "arrow"; from: string; to: string; kind: ArrowKind; label: string | null }
+  | { op: "unarrow"; from: string; to: string; kind: ArrowKind }
+  | { op: "restore"; parent: string; before: string | null; kdl: string };

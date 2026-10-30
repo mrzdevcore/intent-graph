@@ -16,10 +16,30 @@
   import Controls from "./Controls.svelte";
   import Search from "./Search.svelte";
   import type { Trace } from "./search";
+  import type { EditApi } from "../api";
+  import Toolbar from "./edit/Toolbar.svelte";
+  import { ToolState, type Tool } from "./edit/tool.svelte";
 
-  let { view, camera = new Camera(), size }: {
+  let { view, camera = new Camera(), size, edit, onview }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
+    /** Only where the host can edit (the desktop app); `onview` takes the view an edit returns. */
+    edit?: EditApi; onview?: (v: View) => void;
   } = $props();
+
+  const tool = new ToolState();
+  let note = $state("");
+  let noteTimer: ReturnType<typeof setTimeout> | undefined;
+  onDestroy(() => clearTimeout(noteTimer));
+  function toast(e: unknown) {
+    note = String((e as Error)?.message ?? e);
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => (note = ""), 6000);
+  }
+  const run = (p: Promise<View>) => p.then((v) => onview?.(v), toast);
+  const typing = (t: EventTarget | null) => {
+    const el = t as HTMLElement | null;
+    return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
+  };
 
   const ROOT = "system";
   // the boxes moved by hand: their shift from where ig placed them, in their parent's inner units
@@ -168,8 +188,19 @@
     selected = null;
     if (id) (stage.querySelector(`[data-box="${CSS.escape(id)}"] > button`) as HTMLElement | null)?.focus({ preventScroll: true });
   }
+  const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow" };
   function key(e: KeyboardEvent) {
+    if (edit && !typing(e.target)) {
+      const k = e.key.toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && k === "z") {
+        e.preventDefault();
+        run(e.shiftKey ? edit.redo() : edit.undo());
+        return;
+      }
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && tools[k]) tool.current = tools[k];
+    }
     if (e.key !== "Escape") return;
+    tool.current = "select";
     if (selected) close();
     else traced = null;
   }
@@ -367,6 +398,9 @@
     onreset={Object.keys(moves).length ? () => keep({}) : undefined}>
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
+  {#if edit}
+    <Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={() => run(edit.undo())} onredo={() => run(edit.redo())} {note} />
+  {/if}
   {#if reading}
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
