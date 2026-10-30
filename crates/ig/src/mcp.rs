@@ -144,10 +144,11 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
             };
             let mut recorded = vec![];
             for (i, raw) in edits.iter().enumerate() {
-                let kept = if recorded.is_empty() {
-                    String::new()
-                } else {
-                    format!(" (edits {recorded:?} stay recorded)")
+                let ns: Vec<String> = recorded.iter().map(|n: &u64| n.to_string()).collect();
+                let kept = match ns.len() {
+                    0 => String::new(),
+                    1 => format!("; journal entry {} stays recorded", ns[0]),
+                    _ => format!("; journal entries {} stay recorded", ns.join(", ")),
                 };
                 let e: Edit = serde_json::from_value(raw.clone())
                     .map_err(|e| anyhow::anyhow!("edit {}: {e}{kept}", i + 1))?;

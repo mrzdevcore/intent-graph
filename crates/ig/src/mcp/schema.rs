@@ -2,10 +2,10 @@
 
 use serde_json::{Value, json};
 
-// `file` and `parts` (and the code-level kinds) are left out: they never live in ig/.
-const KINDS: [&str; 15] = [
+// `system` (one root, already written), `file`, `parts` and the code-level kinds are left out:
+// they never live in ig/ as a new box.
+const KINDS: [&str; 14] = [
     "person",
-    "system",
     "external",
     "app",
     "api",
@@ -20,7 +20,8 @@ const KINDS: [&str; 15] = [
     "folder",
     "component",
 ];
-const ARROWS: [&str; 8] = [
+// `bundle` is derived, never written
+const ARROWS: [&str; 7] = [
     "uses",
     "depends",
     "calls",
@@ -28,7 +29,6 @@ const ARROWS: [&str; 8] = [
     "event",
     "implements",
     "data",
-    "bundle",
 ];
 
 fn op(name: &str, props: Value, required: &[&str]) -> Value {
@@ -107,11 +107,12 @@ pub fn tools() -> Value {
         },
         {
             "name": "ig_edit",
-            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow). Your edits are proposals: the user keeps or drops each one. Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. Pass one edit object, or {\"edits\": [...]} applied in order, stopping at the first error. Returns the journal numbers and the plan after the edits.",
-            "inputSchema": {"oneOf": [
-                one.clone(),
-                {"type": "object", "properties": {"edits": {"type": "array", "minItems": 1, "items": one}}, "required": ["edits"], "additionalProperties": false}
-            ]}
+            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow). Your edits are proposals the user reviews (`git diff ig/`). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"edits": {"type": "array", "minItems": 1, "items": one}},
+                "required": ["edits"]
+            }
         }
     ])
 }
