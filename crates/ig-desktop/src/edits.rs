@@ -155,9 +155,10 @@ mod tests {
     }
 
     fn add(parent: &str, id: &str) -> Edit {
+        // a glob that matches no code: the box is to build
         serde_json::from_value(serde_json::json!({
             "op": "add", "parent": parent, "kind": "store", "id": id,
-            "title": id, "at": [], "before": null
+            "title": id, "at": ["src/nothing/**"], "before": null
         }))
         .unwrap()
     }
@@ -193,7 +194,7 @@ mod tests {
         let r = scratch("apply");
         let p = parent(&r);
         let v = apply(&r, add(&p, "cache")).unwrap();
-        // no commit here, so no `origin: build` (that is "not in HEAD's spec")
+        assert_eq!(has(&v, "cache").unwrap()["origin"], "build");
         assert_eq!(has(&v, "cache").unwrap()["title"]["source"], "person");
         assert_eq!(proposed(&v), 0);
     }

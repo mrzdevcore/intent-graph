@@ -273,7 +273,9 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     notices.append(&mut v.notices);
     v.notices = notices;
     v.broken = broken;
-    v.proposals = proposals::proposals(&super::edit::journal::entries(env.files).0, &v.boxes);
+    let (entries, notice) = super::edit::journal::entries(env.files);
+    v.notices.extend(notice);
+    v.proposals = proposals::proposals(&entries, &v.boxes);
     Ok(v)
 }
 
