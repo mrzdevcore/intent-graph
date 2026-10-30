@@ -42,3 +42,137 @@ fn writing_is_deterministic_and_every_file_parses() {
         t.parse::<kdl::KdlDocument>().unwrap();
     }
 }
+
+fn names(doc: &kdl::KdlDocument, out: &mut Vec<String>) {
+    for n in doc.nodes() {
+        out.push(n.name().value().to_string());
+        if let Some(c) = n.children() {
+            names(c, out);
+        }
+    }
+}
+
+fn parse(t: &str) -> kdl::KdlDocument {
+    t.parse().unwrap()
+}
+
+#[test]
+fn no_code_level_kind_is_a_node_name() {
+    let mut all = vec![];
+    for t in write(&shop_map()).values() {
+        names(&parse(t), &mut all);
+    }
+    for k in ["function", "class", "method", "file", "parts", "task"] {
+        assert!(!all.iter().any(|n| n == k), "{k} written");
+    }
+    assert!(all.iter().any(|n| n == "usecase"));
+}
+
+#[test]
+fn bundle_arrows_lose_their_derived_label() {
+    let files = write(&shop_map());
+    let web = &files["ig/web.kdl"];
+    assert!(web.contains("bundle \"api-client\"\n") || web.contains("bundle \"api-client\" "));
+    assert!(!web.contains("1 call"));
+    assert!(web.contains("network \"api\" label=\"POST /checkout\""));
+}
+
+#[test]
+fn fields_are_written_and_dropped_as_the_brief_says() {
+    use crate::map::file::{Confidence, Field};
+    let mut m = shop_map();
+    for b in m.boxes.iter_mut().filter(|b| b.id == "api") {
+        b.badges = Some(Field::person(vec!["core".into(), "paid".into()]));
+        b.pattern = Some(Field::agent(
+            Pattern::Layered {
+                bands: vec!["ui".into(), "db".into()],
+            },
+            Some(Confidence::Ambiguous),
+        ));
+        b.package = Some("@shop/api".into());
+        b.service_name = Some("svc-name".into());
+        b.pinned = vec!["title".into()];
+        b.needs_reading = true;
+        b.stale = true;
+    }
+    let api = &write(&m)["ig/api.kdl"];
+    assert!(api.contains("badges \"core\" \"paid\""), "{api}");
+    assert!(api.contains("pattern \"layered\" \"ui\" \"db\""), "{api}");
+    for dropped in [
+        "pinned",
+        "files",
+        "package",
+        "svc-name",
+        "needsReading",
+        "stale",
+        "count",
+        "source",
+        "confidence",
+        "ambiguous",
+    ] {
+        assert!(!api.contains(dropped), "{dropped} written");
+    }
+    let ids: Vec<_> = parse(api).nodes()[0]
+        .children()
+        .unwrap()
+        .nodes()
+        .iter()
+        .filter_map(|n| n.entries()[0].value().as_string().map(String::from))
+        .filter(|s| s.starts_with("api/"))
+        .collect();
+    let mut sorted = ids.clone();
+    sorted.sort();
+    assert!(ids.len() > 3);
+    assert_eq!(ids, sorted);
+}
+
+#[test]
+fn arrows_are_sorted_and_a_nested_id_maps_to_a_stem() {
+    let mut m = shop_map();
+    let mut c = m.boxes.iter().find(|b| b.id == "api").unwrap().clone();
+    c.id = "api/inner".into();
+    c.parent = Some("system".into());
+    m.boxes.push(c);
+    let mut k = m.boxes.iter().find(|b| b.id == "api/root").unwrap().clone();
+    k.id = "api/inner/x".into();
+    k.parent = Some("api/inner".into());
+    m.boxes.push(k);
+    let files = write(&m);
+    assert!(files.contains_key("ig/api-inner.kdl"), "{:?}", files.keys());
+    let api = parse(&files["ig/api.kdl"]);
+    let arrows: Vec<_> = api.nodes()[0]
+        .children()
+        .unwrap()
+        .nodes()
+        .iter()
+        .filter(|n| ["data", "network"].contains(&n.name().value()))
+        .map(|n| n.name().value().to_string() + n.entries()[0].value().as_string().unwrap())
+        .collect();
+    assert_eq!(arrows, ["datapostgres", "networkstripe"]);
+}
+
+#[test]
+fn a_second_root_never_overwrites_the_system_file() {
+    let mut m = shop_map();
+    let mut other = m.boxes.iter().find(|b| b.id == "postgres").unwrap().clone();
+    other.id = "zed".into();
+    other.parent = None;
+    m.boxes.push(other);
+    let files = write(&m);
+    assert!(files["ig/system.kdl"].contains("system \"system\""));
+    assert!(files["ig/zed.kdl"].contains("\"zed\""));
+}
+
+#[test]
+fn awkward_strings_round_trip() {
+    let mut m = shop_map();
+    let (t, d) = ("a \"q\" \\ b\n\tc", "x\\\"\n\t\r y");
+    for b in m.boxes.iter_mut().filter(|b| b.id == "api") {
+        b.title.value = t.into();
+        b.description = Some(crate::map::file::Field::ig(d.into()));
+    }
+    let doc = parse(&write(&m)["ig/api.kdl"]);
+    let n = &doc.nodes()[0];
+    assert_eq!(n.get("title").unwrap().as_string(), Some(t));
+    assert_eq!(n.get("description").unwrap().as_string(), Some(d));
+}

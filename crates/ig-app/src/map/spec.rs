@@ -3,7 +3,7 @@
 //! a file. Facts that are not intent (sources, pins, file counts, marks) are not written.
 
 use super::file::{MapBox, MapFile};
-use super::{Level, MapArrow, Pattern};
+use super::{ArrowKind, Level, MapArrow, Pattern};
 use kdl::{KdlDocument, KdlEntry, KdlEntryFormat, KdlNode};
 use std::collections::BTreeMap;
 
@@ -14,19 +14,23 @@ const HEADER: &str = "// ig's intended architecture: edit freely; ig never rewri
 /// The spec files for `m`: relative path to text. Code-level boxes are not written.
 pub fn write(m: &MapFile) -> BTreeMap<String, String> {
     let mut files = BTreeMap::new();
-    for root in m
+    let mut roots: Vec<&MapBox> = m
         .boxes
         .iter()
         .filter(|b| b.parent.is_none() && b.level != Level::Code)
-    {
-        let sys = node(m, root, &mut |child, n| {
-            if root.level == Level::System && has_kids(m, child) {
+        .collect();
+    roots.sort_by_key(|b| (b.level != Level::System, b.id.as_str()));
+    for (i, root) in roots.into_iter().enumerate() {
+        // The first root is the system and owns system.kdl; any other root gets its own file.
+        let first = i == 0 && root.level == Level::System;
+        let n = node(m, root, &mut |child, n| {
+            if first && has_kids(m, child) {
                 files.insert(path(&child.id), text(vec![n]));
                 return None;
             }
             Some(n)
         });
-        files.insert(path("system"), text(vec![sys]));
+        files.insert(path(if first { "system" } else { &root.id }), text(vec![n]));
     }
     files
 }
@@ -121,7 +125,8 @@ fn node(
         let name = serde_json::to_value(a.kind).ok();
         let mut an = KdlNode::new(name.as_ref().and_then(|k| k.as_str()).unwrap_or("uses"));
         an.push(KdlEntry::new(a.to.as_str()));
-        if let Some(l) = &a.label {
+        // A bundle's label is a derived count, not intent.
+        if let Some(l) = a.label.as_ref().filter(|_| a.kind != ArrowKind::Bundle) {
             an.push(KdlEntry::new_prop("label", l.as_str()));
         }
         body.nodes_mut().push(an);
