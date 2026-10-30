@@ -133,7 +133,7 @@ fn code_in_no_box_and_unlisted_arrows_are_drift() {
     assert!(
         p.drift
             .iter()
-            .any(|l| l == "drift: web network api, not in ig/"),
+            .any(|l| l == "drift: web network api, not in ig/ (web->api)"),
         "{p:?}"
     );
     let mut sorted = p.drift.clone();
@@ -236,10 +236,8 @@ fn files_left_in_a_partly_claimed_box_are_drift_by_their_folder() {
     assert_eq!(d.parent.as_deref(), Some("system"));
     let p = plan(&m);
     assert!(
-        p.drift.contains(
-            &"drift: code under apps/api/src/infra/prisma/** is in no box (api-infra-prisma)"
-                .into()
-        ),
+        p.drift
+            .contains(&"drift: code under apps/** is in no box (apps)".into()),
         "{p:?}"
     );
 }

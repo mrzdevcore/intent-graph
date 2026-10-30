@@ -31,6 +31,16 @@ pub fn run(files: &dyn Files, v: &view::View, all: bool, ids: &[String]) -> Resu
     let Some(root) = v.boxes.iter().find(|b| b.level == Level::System) else {
         bail!("no system box in ig/");
     };
+    // a box claiming the whole repo would hide every later drift
+    if let Some(b) = boxes
+        .iter()
+        .find(|b| want(&b.id) && b.made_of.iter().any(|g| g == "**"))
+    {
+        bail!(
+            "refusing to accept {}: it claims `**`, the whole repo",
+            b.id
+        );
+    }
     let mut done: Vec<String> = vec![];
     let mut msgs: Vec<String> = vec![];
     for b in boxes.iter().filter(|b| want(&b.id)) {

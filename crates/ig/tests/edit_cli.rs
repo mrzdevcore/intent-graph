@@ -51,9 +51,7 @@ fn accept_adds_the_drift_box_and_check_passes() {
     add_lib(&dir);
     let out = run_ig(&dir, &["check"]);
     assert_eq!(out.code, 1);
-    // the drift box takes the repo's slug, printed at the end of its line
-    let id = out.stdout.lines().find(|l| l.contains("no box (")).unwrap();
-    let id = id.rsplit('(').next().unwrap().trim_end_matches(')');
+    let id = "lib";
     let out = run_ig(&dir, &["accept", id]);
     assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
     assert!(out.stdout.contains(id), "{}", out.stdout);
@@ -108,4 +106,93 @@ fn fmt_without_ig_exits_2() {
     let out = run_ig(&dir, &["fmt"]);
     assert_eq!(out.code, 2);
     assert!(out.stderr.contains("no ig/ yet"), "{}", out.stderr);
+}
+
+fn write(dir: &Path, p: &str, t: &str) {
+    std::fs::create_dir_all(dir.join(p).parent().unwrap()).unwrap();
+    std::fs::write(dir.join(p), t).unwrap();
+}
+
+#[test]
+fn drift_in_two_folders_is_two_boxes_never_the_whole_repo() {
+    let dir = planned("two");
+    write(&dir, "lib/c.ts", "export const y = 2;\n");
+    write(&dir, "tools/d.ts", "export const z = 3;\n");
+    let out = run_ig(&dir, &["check"]);
+    assert!(
+        out.stdout.contains("under lib/** is in no box (lib)"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("under tools/** is in no box (tools)"),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(run_ig(&dir, &["accept", "--all"]).code, 0);
+    let spec = std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap();
+    assert!(
+        spec.contains("at \"lib/**\"") && spec.contains("at \"tools/**\""),
+        "{spec}"
+    );
+    // only the system itself claims `**`
+    assert_eq!(spec.matches("at \"**\"").count(), 1, "{spec}");
+    assert_eq!(run_ig(&dir, &["check"]).code, 0);
+    write(&dir, "later/n.ts", "export const n = 1;\n");
+    assert_eq!(run_ig(&dir, &["check"]).code, 1);
+}
+
+/// The system id (first node of system.kdl) and the drift arrow lines of `check`.
+fn arrow_drift(dir: &Path) -> Vec<String> {
+    let out = run_ig(dir, &["check"]);
+    out.stdout
+        .lines()
+        .filter(|l| l.contains("not in ig/ ("))
+        .map(String::from)
+        .collect()
+}
+
+fn arrow_id(line: &str) -> &str {
+    line.rsplit('(').next().unwrap().trim_end_matches(')')
+}
+
+#[test]
+fn accept_an_arrow_needs_its_box_first_then_adds_one_line() {
+    let dir = planned("arrow");
+    write(
+        &dir,
+        "lib/c.ts",
+        "import { f } from '../src/a';\nexport const y = f;\n",
+    );
+    let lines = arrow_drift(&dir);
+    assert!(!lines.is_empty(), "{}", run_ig(&dir, &["check"]).stdout);
+    let id = arrow_id(&lines[0]).to_string();
+    let before = std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap();
+    let out = run_ig(&dir, &["accept", &id]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.contains("accept its box first"),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap(),
+        before
+    );
+    // box first, then the arrow: exactly one new line in the file for it
+    assert_eq!(run_ig(&dir, &["accept", "lib"]).code, 0);
+    let lines = arrow_drift(&dir);
+    let id = arrow_id(&lines[0]).to_string();
+    let boxed = std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap();
+    let out = run_ig(&dir, &["accept", &id]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
+    let after = std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap();
+    let added: Vec<&str> = after
+        .lines()
+        .filter(|l| !boxed.lines().any(|b| b == *l))
+        .collect();
+    assert_eq!(added.len(), 1, "{added:?}\n{after}");
+    // a bundle is written as its main kind, never as `bundle`
+    assert!(!added[0].contains("bundle"), "{added:?}");
+    assert!(arrow_drift(&dir).is_empty(), "{:?}", arrow_drift(&dir));
 }

@@ -273,30 +273,29 @@ fn drift(
         covered.extend(f.nodes.iter().map(String::as_str));
         place(fresh(f), &mut out);
     }
-    // Left over: grouped by the deepest fact box holding each file.
+    // Left over: one box per top-level folder; loose root files make `root-files`.
     let mut left: BTreeMap<Option<&str>, Vec<&str>> = BTreeMap::new();
     for n in unclaimed.iter().filter(|n| !covered.contains(*n)) {
-        let home = order.iter().rev().find(|f| f.nodes.iter().any(|x| x == n));
-        left.entry(home.map(|f| f.id.as_str())).or_default().push(n);
+        left.entry(n.split_once('/').map(|(d, _)| d))
+            .or_default()
+            .push(n);
     }
-    for (home, files) in left {
-        let folder = common_folder(&files);
-        let id = home.unwrap_or("code").to_string();
+    for (folder, files) in left {
+        let (id, title, at) = match folder {
+            Some(d) => (d.to_string(), d.to_string(), format!("{d}/**")),
+            None => ("root-files".into(), "root files".into(), "*".into()),
+        };
         let f = FactBox {
             id: id.clone(),
             parent: Some(root.into()),
             level: Level::Container,
-            made_of: vec![if folder.is_empty() {
-                "**".into()
-            } else {
-                format!("{folder}/**")
-            }],
+            made_of: vec![at],
             package: None,
             files: files.len() as u32,
             nodes: files.iter().map(|s| s.to_string()).collect(),
             guess: super::Guess {
                 kind: super::BoxKind::Group,
-                title: id,
+                title,
                 pattern: None,
                 slot: None,
                 logo: None,
@@ -305,25 +304,6 @@ fn drift(
         place(fresh(&f), &mut out);
     }
     out
-}
-
-/// The deepest folder holding every one of `files`.
-fn common_folder(files: &[&str]) -> String {
-    let dirs: Vec<Vec<&str>> = files
-        .iter()
-        .map(|f| {
-            let mut p: Vec<&str> = f.split('/').collect();
-            p.pop();
-            p
-        })
-        .collect();
-    let Some(first) = dirs.first() else {
-        return String::new();
-    };
-    let n = (0..first.len())
-        .take_while(|&i| dirs.iter().all(|d| d.get(i) == Some(&first[i])))
-        .count();
-    first[..n].join("/")
 }
 
 fn name<T: Serialize>(v: &T) -> String {
@@ -374,7 +354,7 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow]) -> Plan {
             Origin::Build => p.build.push(format!("to build: {from} {kind} {to}")),
             Origin::Drift => p
                 .drift
-                .push(format!("drift: {from} {kind} {to}, not in ig/")),
+                .push(format!("drift: {from} {kind} {to}, not in ig/ ({})", a.id)),
         }
     }
     p.build.sort();
