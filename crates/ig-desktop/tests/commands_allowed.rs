@@ -10,8 +10,14 @@ fn every_registered_command_is_allowed() {
     let list = list.split(']').next().unwrap();
     for cmd in list.split(',').map(|c| c.trim()).filter(|c| !c.is_empty()) {
         let name = cmd.rsplit("::").next().unwrap();
-        assert!(build.contains(&format!("\"{name}\"")), "{name} missing from build.rs");
+        assert!(
+            build.contains(&format!("\"{name}\"")),
+            "{name} missing from build.rs"
+        );
         let perm = format!("\"allow-{}\"", name.replace('_', "-"));
-        assert!(caps.contains(&perm), "{perm} missing from capabilities/default.json");
+        assert!(
+            caps.contains(&perm),
+            "{perm} missing from capabilities/default.json"
+        );
     }
 }
