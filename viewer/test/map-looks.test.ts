@@ -50,6 +50,12 @@ test("a box to build is dashed gold with a chip; drift is dashed amber", () => {
   expect(look(box.id, [bad], new Set(["health"]), b("build")).edge).toBe("var(--map-bad)");
 });
 
+test("a box to move is dashed blue with a chip", () => {
+  expect(look(box.id, [], new Set(), { ...box, origin: "moved" })).toMatchObject({
+    edge: "var(--map-blue)", dashed: true, fade: 1, chips: [{ label: "to move", tone: "neutral" }],
+  });
+});
+
 test("an arrow to build or in drift", () => {
   expect(arrowLook({ ...arrow("calls"), origin: "build" }, [], new Set())).toMatchObject({ color: "var(--map-trace)", dash: "6 4" });
   expect(arrowLook({ ...arrow("calls"), origin: "drift" }, [], new Set())).toMatchObject({ color: "var(--map-warn)", dash: "2 4", label: "not in ig/" });

@@ -29,8 +29,9 @@ export type MapBox = {
   pinned?: string[];
   needsReading?: boolean;
   stale?: boolean;
-  /** Against ig/: "build" is in the spec with no code yet, "drift" is code the spec does not describe; absent is built. */
-  origin?: "build" | "drift";
+  /** Against ig/: "build" is in the spec with no code yet, "drift" is code the spec does not describe, "moved" is in
+   * the spec at a new place with its code still at the old; absent is built. */
+  origin?: "build" | "drift" | "moved";
 };
 export type ArrowKind = "uses" | "depends" | "calls" | "network" | "event" | "implements" | "data" | "bundle";
 export type MapArrow = {

@@ -16,17 +16,66 @@ pub enum Origin {
     Built,
     Build,
     Drift,
+    /// In the spec at a new place (`at` changed since the last commit), its code still at the old.
+    Moved,
 }
 
 pub fn is_built(o: &Origin) -> bool {
     *o == Origin::Built
 }
 
-/// What is left to build and what the code does that the spec does not say, one line each.
+/// What is left to build or move, what the code does that the spec does not say and the code
+/// ig does not read, one line each.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
     pub build: Vec<String>,
+    pub moves: Vec<String>,
     pub drift: Vec<String>,
+    pub not_read: Vec<String>,
+}
+
+impl Plan {
+    /// Nothing left to build, move, describe or read.
+    pub fn is_empty(&self) -> bool {
+        self.lines().next().is_none()
+    }
+
+    pub fn lines(&self) -> impl Iterator<Item = &String> {
+        (self.build.iter())
+            .chain(&self.moves)
+            .chain(&self.drift)
+            .chain(&self.not_read)
+    }
+
+    /// `ig <cmd>: …` and every line; moves and code not read are counted only when there are some.
+    pub fn text(&self, cmd: &str) -> String {
+        let mut t = format!(
+            "ig {cmd}: {} to build, {} drift",
+            self.build.len(),
+            self.drift.len()
+        );
+        if !self.moves.is_empty() {
+            t += &format!(", {} to move", self.moves.len());
+        }
+        if !self.not_read.is_empty() {
+            t += &format!(", {} not read", self.not_read.len());
+        }
+        self.lines().fold(t, |t, l| format!("{t}\n{l}"))
+    }
+}
+
+fn glob(g: &str) -> Option<globset::Glob> {
+    GlobBuilder::new(g).literal_separator(true).build().ok()
+}
+
+/// Some file of `files` under `globs`.
+fn holds(globs: &[String], files: &[&str]) -> bool {
+    let mut b = GlobSetBuilder::new();
+    globs.iter().filter_map(|g| glob(g)).for_each(|g| {
+        b.add(g);
+    });
+    let set = b.build().unwrap_or_else(|_| GlobSet::empty());
+    files.iter().any(|f| set.is_match(f))
 }
 
 /// Parent hops from `id` to the root (bounded, so a bad parent chain cannot loop).
@@ -43,8 +92,9 @@ fn depth<'a>(parents: &HashMap<&'a str, Option<&'a str>>, id: &'a str) -> usize 
 /// The spec's boxes and arrows, each with its origin, plus the code's drift. A module file is
 /// claimed by the deepest spec box whose `at` matches it; the system's own `at` claims nothing
 /// (it is the whole repo). A fact box without globs (an outside system) is claimed by the spec
-/// box of the same id.
-pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
+/// box of the same id. A box whose `at` differs from `prior`'s (the last commit's spec), with no
+/// code at its new place and some at its old, is moved: it claims the code at its old place.
+pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph, prior: Option<&MapFile>) -> MapFile {
     let mut m = spec.clone();
     let root = m
         .boxes
@@ -57,6 +107,21 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
         .map(|b| (b.id.as_str(), b.parent.as_deref()))
         .collect();
     let depths: Vec<usize> = spec.boxes.iter().map(|b| depth(&parents, &b.id)).collect();
+    let modules: Vec<&str> = (g.nodes.iter().filter(|n| n.is_module()))
+        .map(|n| n.file.as_str())
+        .collect();
+    let moved: Vec<Option<&Vec<String>>> = (spec.boxes.iter())
+        .map(|b| {
+            let old = prior?.boxes.iter().find(|p| p.id == b.id)?;
+            let moved = b.level != Level::System
+                && !b.made_of.is_empty()
+                && !old.made_of.is_empty()
+                && old.made_of != b.made_of
+                && !holds(&b.made_of, &modules)
+                && holds(&old.made_of, &modules);
+            moved.then_some(&old.made_of)
+        })
+        .collect();
     // One glob set for every box's `at`, each glob back to its box: one match per file.
     let mut set = GlobSetBuilder::new();
     let mut glob_box: Vec<usize> = vec![];
@@ -65,9 +130,9 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
         if b.level == Level::System || b.made_of.is_empty() {
             continue;
         }
-        let built: Option<Vec<_>> = (b.made_of.iter())
-            .map(|g| GlobBuilder::new(g).literal_separator(true).build().ok())
-            .collect();
+        // a moved box's code is at its old place
+        let at = moved[i].unwrap_or(&b.made_of);
+        let built: Option<Vec<_>> = at.iter().map(|g| glob(g)).collect();
         for g in built.into_iter().flatten() {
             set.add(g);
             glob_box.push(i);
@@ -114,7 +179,10 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph) -> MapFile {
             true => matched[i],
             false => kids.is_empty() || kids.iter().any(|&j| built[j]),
         };
-        if !built[i] {
+        if let Some(old) = moved[i] {
+            m.boxes[i].origin = Origin::Moved;
+            m.boxes[i].moved_from = old.clone();
+        } else if !built[i] {
             m.boxes[i].origin = Origin::Build;
         }
     }
@@ -176,10 +244,20 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
             .is_some_and(|&i| boxes[i].kind.value == BoxKind::Person)
     };
     let mut said: HashSet<(usize, usize, ArrowKind)> = HashSet::new();
+    // the ancestors of a moved box's arrows: their code is lifted over the box's new place
+    let mut moved: HashSet<(usize, usize)> = HashSet::new();
+    let is_moved = |i: usize| boxes[i].origin == Origin::Moved;
     for a in &mut m.arrows {
         let ends = index.get(a.from.as_str()).zip(index.get(a.to.as_str()));
         if let Some((&f, &t)) = ends {
             said.insert((f, t, a.kind));
+            if is_moved(f) || is_moved(t) {
+                moved.extend(
+                    chain(f)
+                        .into_iter()
+                        .flat_map(|x| chain(t).into_iter().map(move |y| (x, y))),
+                );
+            }
         }
         if person(&a.from) || person(&a.to) {
             a.origin = Origin::Built;
@@ -203,12 +281,13 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
             continue;
         };
         let (cf, ct) = (chain(f), chain(t));
-        let covered = cf.iter().any(|&x| {
-            ct.iter().any(|&y| {
-                said.contains(&(x, y, ArrowKind::Bundle))
-                    || c.kinds.iter().any(|&k| said.contains(&(x, y, k)))
-            })
-        });
+        let covered = moved.contains(&(f, t))
+            || cf.iter().any(|&x| {
+                ct.iter().any(|&y| {
+                    said.contains(&(x, y, ArrowKind::Bundle))
+                        || c.kinds.iter().any(|&k| said.contains(&(x, y, k)))
+                })
+            });
         if !covered {
             drift.push(c);
         }
@@ -375,6 +454,14 @@ fn left_over(claimed: &BTreeSet<&str>, left: &[&str]) -> Vec<Piece> {
     out
 }
 
+/// The `at` of each group of `unread` files (the code ig does not read), by the highest folder
+/// holding none of the `read` ones, as for left-over drift.
+pub fn not_read(read: &BTreeSet<&str>, unread: &[&str]) -> Vec<String> {
+    (left_over(read, unread).into_iter())
+        .map(|(_, _, at, _)| at.join(", "))
+        .collect()
+}
+
 /// `s` as a box id: lowercase `[a-z0-9-]`, no repeated or edge dashes; `drift` when nothing is left.
 fn slug(s: &str) -> String {
     let mut out = String::new();
@@ -399,14 +486,18 @@ fn name<T: Serialize>(v: &T) -> String {
 
 /// One line per box or arrow not built, sorted.
 pub fn plan(m: &MapFile) -> Plan {
-    plan_of(&m.boxes, &m.arrows)
+    plan_of(&m.boxes, &m.arrows, &[])
 }
 
-/// `plan` over a view's boxes and arrows.
-pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow]) -> Plan {
+/// `plan` over a view's boxes and arrows, and the code ig does not read (`not_read`'s globs).
+pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow], unread: &[String]) -> Plan {
     let mut p = Plan {
         build: vec![],
+        moves: vec![],
         drift: vec![],
+        not_read: (unread.iter())
+            .map(|g| format!("not read: {g} (outside every package ig reads)"))
+            .collect(),
     };
     for b in boxes {
         match b.origin {
@@ -421,6 +512,12 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow]) -> Plan {
                 b.id,
                 b.made_of.join(", ")
             )),
+            Origin::Moved => p.moves.push(format!(
+                "move: {} → {} ({})",
+                b.moved_from.join(", "),
+                b.made_of.join(", "),
+                b.id
+            )),
             Origin::Drift => p.drift.push(match b.made_of.first() {
                 Some(g) => format!("drift: code under {g} is in no box ({})", b.id),
                 None => format!(
@@ -434,7 +531,7 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow]) -> Plan {
     for a in arrows {
         let (from, kind, to) = (&a.from, name::<ArrowKind>(&a.kind), &a.to);
         match a.origin {
-            Origin::Built => {}
+            Origin::Built | Origin::Moved => {}
             Origin::Build => p.build.push(format!("to build: {from} {kind} {to}")),
             Origin::Drift => p
                 .drift
@@ -442,7 +539,9 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow]) -> Plan {
         }
     }
     p.build.sort();
+    p.moves.sort();
     p.drift.sort();
+    p.not_read.sort();
     p
 }
 

@@ -6,6 +6,8 @@ use ig_core::model::Graph;
 use ig_core::testing::MemFiles;
 use std::collections::BTreeMap;
 
+mod moves;
+
 fn graph() -> Graph {
     crate::map::shop::load().1
 }
@@ -81,7 +83,7 @@ fn arrow_origin(m: &MapFile, from: &str, to: &str) -> Origin {
 
 #[test]
 fn the_unchanged_code_matches_its_spec() {
-    let m = compare(&spec(), &facts(), &graph());
+    let m = compare(&spec(), &facts(), &graph(), None);
     for b in &m.boxes {
         assert_eq!(b.origin, Origin::Built, "{}", b.id);
     }
@@ -92,14 +94,16 @@ fn the_unchanged_code_matches_its_spec() {
         plan(&m),
         Plan {
             build: vec![],
-            drift: vec![]
+            moves: vec![],
+            drift: vec![],
+            not_read: vec![],
         }
     );
 }
 
 #[test]
 fn a_planned_box_and_its_arrow_are_to_build() {
-    let m = compare(&with_billing(), &facts(), &graph());
+    let m = compare(&with_billing(), &facts(), &graph(), None);
     assert_eq!(origin_of(&m, "billing"), Origin::Build);
     assert_eq!(arrow_origin(&m, "billing", "stripe"), Origin::Build);
     let p = plan(&m);
@@ -117,7 +121,7 @@ fn a_planned_box_and_its_arrow_are_to_build() {
 
 #[test]
 fn code_in_no_box_and_unlisted_arrows_are_drift() {
-    let m = compare(&without(spec(), "web"), &facts(), &graph());
+    let m = compare(&without(spec(), "web"), &facts(), &graph(), None);
     assert_eq!(origin_of(&m, "web"), Origin::Drift);
     assert_eq!(arrow_origin(&m, "web", "api"), Origin::Drift);
     assert!(
@@ -143,7 +147,7 @@ fn code_in_no_box_and_unlisted_arrows_are_drift() {
 
 #[test]
 fn the_deepest_box_claims_a_file() {
-    let m = compare(&spec(), &facts(), &graph());
+    let m = compare(&spec(), &facts(), &graph(), None);
     let api = m.boxes.iter().find(|b| b.id == "api").unwrap();
     assert!(
         api.nodes
@@ -160,7 +164,7 @@ fn the_deepest_box_claims_a_file() {
 
 #[test]
 fn code_inside_a_described_box_needs_no_description() {
-    let m = compare(&without_children(spec(), "api"), &facts(), &graph());
+    let m = compare(&without_children(spec(), "api"), &facts(), &graph(), None);
     assert!(plan(&m).drift.is_empty(), "{:?}", plan(&m));
     assert_eq!(origin_of(&m, "api"), Origin::Built);
 }
@@ -176,7 +180,7 @@ fn an_unlisted_arrow_between_spec_boxes_is_drift_and_a_kind_mismatch_is_to_build
         .unwrap();
     a.kind = ArrowKind::Event;
     a.kinds = vec![ArrowKind::Event];
-    let m = compare(&s, &facts(), &graph());
+    let m = compare(&s, &facts(), &graph(), None);
     assert_eq!(arrow_origin(&m, "api", "stripe"), Origin::Drift);
     let both: Vec<_> = m
         .arrows
@@ -211,7 +215,7 @@ fn a_spec_box_whose_code_moved_is_to_build_and_the_code_drift_under_another_id()
     {
         b.made_of = vec!["apps/web/nothing/**".into()];
     }
-    let m = compare(&s, &facts(), &graph());
+    let m = compare(&s, &facts(), &graph(), None);
     assert_eq!(origin_of(&m, "web"), Origin::Build);
     assert_eq!(origin_of(&m, "web-drift"), Origin::Drift);
     assert_eq!(m.boxes.iter().filter(|b| b.id == "web").count(), 1);
@@ -229,7 +233,7 @@ fn files_left_in_a_partly_claimed_box_are_drift_by_their_folder() {
             _ => {}
         }
     }
-    let m = compare(&s, &facts(), &graph());
+    let m = compare(&s, &facts(), &graph(), None);
     assert_eq!(origin_of(&m, "api"), Origin::Built);
     let d = m.boxes.iter().find(|b| b.origin == Origin::Drift).unwrap();
     assert_eq!(d.nodes, ["apps/api/src/infra/prisma/order-repo.ts"]);
@@ -249,7 +253,7 @@ fn a_box_with_no_files_and_only_unbuilt_children_is_to_build() {
         "ig/ops.kdl".into(),
         "worker \"ops\" title=\"Ops\" {\n  worker \"ops/jobs\" title=\"Jobs\" {\n    at \"ops/**\"\n  }\n}\n".into(),
     );
-    let m = compare(&read_files(&w), &facts(), &graph());
+    let m = compare(&read_files(&w), &facts(), &graph(), None);
     assert_eq!(origin_of(&m, "ops"), Origin::Build);
     assert_eq!(origin_of(&m, "ops/jobs"), Origin::Build);
     assert!(
@@ -264,7 +268,7 @@ fn an_outside_system_missing_from_the_spec_is_drift() {
     let mut s = with_billing();
     s.boxes.retain(|b| b.id != "postgres");
     s.arrows.retain(|a| a.to != "postgres");
-    let m = compare(&s, &facts(), &graph());
+    let m = compare(&s, &facts(), &graph(), None);
     assert_eq!(origin_of(&m, "postgres"), Origin::Drift);
     assert!(
         plan(&m)
@@ -281,10 +285,10 @@ fn an_outside_system_missing_from_the_spec_is_drift() {
 
 #[test]
 fn origin_is_not_written_when_built() {
-    let m = compare(&spec(), &facts(), &graph());
+    let m = compare(&spec(), &facts(), &graph(), None);
     let j = serde_json::to_string(&m).unwrap();
     assert!(!j.contains("origin"));
-    let w = compare(&without(spec(), "web"), &facts(), &graph());
+    let w = compare(&without(spec(), "web"), &facts(), &graph(), None);
     assert!(
         serde_json::to_string(&w)
             .unwrap()
@@ -299,7 +303,7 @@ fn a_box_with_no_files_whose_children_are_declarations_is_built() {
         "ig/vendors.kdl".into(),
         "external \"vendors\" title=\"Vendors\" {\n  external \"vendors/mail\" title=\"Mail\"\n  external \"vendors/sms\" title=\"Sms\"\n}\n".into(),
     );
-    let m = compare(&read_files(&w), &facts(), &graph());
+    let m = compare(&read_files(&w), &facts(), &graph(), None);
     assert_eq!(origin_of(&m, "vendors"), Origin::Built);
     assert_eq!(origin_of(&m, "vendors/mail"), Origin::Built);
     assert!(plan(&m).build.is_empty(), "{:?}", plan(&m));
@@ -317,7 +321,7 @@ fn without_a_component() -> MapFile {
 
 #[test]
 fn a_drift_component_comes_back_as_a_container_with_a_slug_id() {
-    let m = compare(&without_a_component(), &facts(), &graph());
+    let m = compare(&without_a_component(), &facts(), &graph(), None);
     let d = m.boxes.iter().find(|b| b.origin == Origin::Drift).unwrap();
     assert_eq!(d.id, "api-domain-order");
     assert_eq!(d.level, Level::Container);
@@ -357,7 +361,7 @@ fn every_drift_fixture_is_a_valid_map() {
         ("component", without_a_component()),
         ("kinds", kinds),
     ] {
-        let m = compare(&s, &facts(), &graph());
+        let m = compare(&s, &facts(), &graph(), None);
         assert!(m.boxes.iter().any(|b| b.origin == Origin::Drift) || name == "kinds");
         if let Err(e) = crate::map::file::validate(&m) {
             panic!("{name}: {e:?}");
@@ -387,7 +391,7 @@ fn an_arrow_from_a_person_is_a_declaration() {
         "ig/patient.kdl".into(),
         "person \"patient\" title=\"Patient\" {\n  uses \"web\"\n}\n".into(),
     );
-    let m = compare(&read_files(&w), &facts(), &graph());
+    let m = compare(&read_files(&w), &facts(), &graph(), None);
     assert_eq!(arrow_origin(&m, "patient", "web"), Origin::Built);
     assert!(plan(&m).build.is_empty(), "{:?}", plan(&m));
 }
@@ -399,7 +403,7 @@ fn a_bundle_arrow_in_the_spec_matches_any_code_arrow_between_the_pair() {
         a.kind = ArrowKind::Bundle;
         a.kinds = vec![ArrowKind::Bundle];
     }
-    let m = compare(&s, &facts(), &graph());
+    let m = compare(&s, &facts(), &graph(), None);
     assert_eq!(arrow_origin(&m, "api", "postgres"), Origin::Built);
     assert!(plan(&m).drift.is_empty(), "{:?}", plan(&m));
 }
@@ -407,7 +411,7 @@ fn a_bundle_arrow_in_the_spec_matches_any_code_arrow_between_the_pair() {
 #[test]
 fn a_cross_level_arrow_is_built_by_code_under_its_ends() {
     let s = spec();
-    let built = compare(&s, &facts(), &graph());
+    let built = compare(&s, &facts(), &graph(), None);
     let owner = |file: &str| {
         let b = built
             .boxes
@@ -426,7 +430,7 @@ fn a_cross_level_arrow_is_built_by_code_under_its_ends() {
         .push(spec_arrow(&checkout, ArrowKind::Calls, "api-client"));
     s.arrows
         .push(spec_arrow(&other, ArrowKind::Calls, "api-client"));
-    let m = compare(&s, &facts(), &graph());
+    let m = compare(&s, &facts(), &graph(), None);
     assert_eq!(arrow_origin(&m, &checkout, "api-client"), Origin::Built);
     assert_eq!(arrow_origin(&m, &other, "api-client"), Origin::Build);
     assert!(plan(&m).drift.is_empty(), "{:?}", plan(&m));
@@ -437,7 +441,7 @@ fn a_code_arrow_under_a_spec_arrow_between_ancestors_is_not_drift() {
     // a spec arrow from a component to its own container covers the code between that
     // component and its siblings
     let s = spec();
-    let built = compare(&s, &facts(), &graph());
+    let built = compare(&s, &facts(), &graph(), None);
     let a = (built.arrows.iter())
         .find(|a| a.parent == "api" && a.from.starts_with("api/"))
         .unwrap()
@@ -445,7 +449,7 @@ fn a_code_arrow_under_a_spec_arrow_between_ancestors_is_not_drift() {
     let mut s = s;
     s.arrows.retain(|x| x.id != a.id);
     s.arrows.push(spec_arrow(&a.from, a.kind, "api"));
-    let m = compare(&s, &facts(), &graph());
+    let m = compare(&s, &facts(), &graph(), None);
     assert!(
         !m.arrows.iter().any(|x| x.id == a.id),
         "{} is covered: {:?}",

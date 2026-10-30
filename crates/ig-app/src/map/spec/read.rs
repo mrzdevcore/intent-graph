@@ -164,6 +164,7 @@ impl Reader {
             needs_reading: false,
             stale: false,
             nodes: vec![],
+            moved_from: vec![],
             origin: Default::default(),
         };
         self.props(at, n, &mut b);

@@ -86,22 +86,15 @@ fn has_spec(w: &Wired) -> anyhow::Result<bool> {
         .is_empty())
 }
 
-/// The lines `ig plan` prints, and `{build, drift}`.
+/// The lines `ig plan` prints, and `{build, move, drift, notRead}`.
 fn plan_text(w: &Wired) -> anyhow::Result<(String, Value)> {
     let v = view::run(&w.env())?;
     if v.broken {
         anyhow::bail!("ig/ does not read: {}", v.notices.join("; "));
     }
-    let p = origin::plan_of(&v.boxes, &v.arrows);
-    let mut t = format!(
-        "ig plan: {} to build, {} drift",
-        p.build.len(),
-        p.drift.len()
-    );
-    for l in p.build.iter().chain(&p.drift) {
-        t = format!("{t}\n{l}");
-    }
-    Ok((t, json!({"build": p.build, "drift": p.drift})))
+    let p = origin::plan_of(&v.boxes, &v.arrows, &v.not_read);
+    let s = json!({"build": p.build, "move": p.moves, "drift": p.drift, "notRead": p.not_read});
+    Ok((p.text("plan"), s))
 }
 
 fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option<Value>)> {
