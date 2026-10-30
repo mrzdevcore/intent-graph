@@ -137,3 +137,26 @@ fn a_files_last_comment_moves_with_its_container_and_back() {
         ],
     );
 }
+
+#[test]
+fn an_old_header_is_not_carried_into_system_and_the_file_comes_back_with_the_new_one() {
+    let old = WEB.replace(crate::map::spec::HEADER, crate::map::spec::OLD_HEADER);
+    let f = MemFiles::with(&[
+        ("ig/system.kdl", SYS_WITHOUT_WEB),
+        ("ig/api.kdl", API),
+        ("ig/web.kdl", &old),
+    ]);
+    let inv = apply(
+        &f,
+        &Edit::Remove {
+            id: "web/cart".into(),
+        },
+    )
+    .unwrap();
+    let t = texts(&f);
+    assert!(!t.contains_key("ig/web.kdl"));
+    assert!(!t["ig/system.kdl"].contains("never rewrites"));
+    assert!(Spec::load(&f).is_ok());
+    apply(&f, &inv).unwrap();
+    assert_eq!(texts(&f)["ig/web.kdl"], WEB);
+}

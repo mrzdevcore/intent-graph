@@ -412,3 +412,12 @@ fn code_level_kinds_a_nested_system_self_and_bundle_arrows_do_not_read() {
         "`bundle`",
     );
 }
+
+#[test]
+fn every_written_file_starts_with_the_new_header() {
+    assert_eq!(
+        HEADER,
+        "// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).\n"
+    );
+    assert!(write(&shop_map()).values().all(|t| t.starts_with(HEADER)));
+}
