@@ -109,6 +109,9 @@ pub fn record(files: &dyn Files, by: By, e: &Edit) -> Result<Entry, Vec<String>>
 /// Marks entry `n` kept, or every entry not kept yet. Never touches the spec.
 pub fn keep(files: &dyn Files, n: Option<u64>) -> Result<(), Vec<String>> {
     let mut j = load(files)?;
+    if let Some(n) = n.filter(|n| j.entries.iter().all(|x| x.n != *n)) {
+        return Err(vec![format!("no journal entry {n}")]);
+    }
     j.entries
         .iter_mut()
         .filter(|x| n.is_none_or(|n| x.n == n))
@@ -126,7 +129,7 @@ pub fn drop(files: &dyn Files, n: u64) -> Result<(), Vec<String>> {
         .position(|x| x.n == n)
         .ok_or_else(|| vec![format!("no journal entry {n}")])?;
     if !j.entries[i].undone {
-        still(files, &j.entries[i])?;
+        still(files, &j.entries[i], false)?;
         apply(files, &j.entries[i].inverse)?;
     }
     j.entries.remove(i);
@@ -139,7 +142,7 @@ pub fn undo(files: &dyn Files) -> Result<Option<Entry>, Vec<String>> {
     let Some(i) = j.entries.iter().rposition(|x| !x.undone) else {
         return Ok(None);
     };
-    still(files, &j.entries[i])?;
+    still(files, &j.entries[i], false)?;
     apply(files, &j.entries[i].inverse)?;
     j.entries[i].undone = true;
     save(files, &j)?;
@@ -154,16 +157,18 @@ pub fn redo(files: &dyn Files) -> Result<Option<Entry>, Vec<String>> {
     let Some(i) = j.entries.iter().position(|x| x.undone) else {
         return Ok(None);
     };
+    still(files, &j.entries[i], true)?;
     apply(files, &j.entries[i].edit)?;
     j.entries[i].undone = false;
     save(files, &j)?;
     Ok(Some(j.entries[i].clone()))
 }
 
-/// Errs unless what `x` did still holds: its inverse would otherwise undo a later edit.
-fn still(files: &dyn Files, x: &Entry) -> Result<(), Vec<String>> {
+/// Errs unless what `x` did still holds (or, `undone`, what its undo left): applying the other
+/// way would otherwise undo a later edit.
+fn still(files: &dyn Files, x: &Entry, undone: bool) -> Result<(), Vec<String>> {
     let s = Spec::load(files)?;
-    match s.holds(&x.edit) {
+    match s.holds(if undone { &x.inverse } else { &x.edit }) {
         true => Ok(()),
         false => Err(vec![format!("entry {} changed since; nothing done", x.n)]),
     }

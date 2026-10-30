@@ -1,12 +1,13 @@
 ---
 name: explore
-description: Explain how part of this codebase fits together using the ig dependency graph - who uses a module, what it depends on, how a request flows. Read-only. Use when asked how something works, what depends on X, or what would be affected.
+description: Explain how part of this codebase fits together using the ig dependency graph - who uses a module, what it depends on, how a request flows. Use when asked how something works, what depends on X, or what would be affected.
 ---
 
 # Explore the code with the ig graph
 
-Read-only: never edit files. The only thing you may write is `.ig/show.json` (through `ig_show`);
+You read code freely. The only file you write yourself is `.ig/show.json` (through `ig_show`);
 `ig view --json --no-read` writes the spec `ig/` (the intended architecture) on its own the first time.
+The architecture changes only through `ig_edit` (proposals), below.
 
 Only when the user asks to change the architecture: `ig_plan` prints what is left to build or move
 and the drift; `ig_edit` edits `ig/` (`{"edits": [...]}`: add, remove, move, rename, set, arrow,

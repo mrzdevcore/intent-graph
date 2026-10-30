@@ -2,7 +2,7 @@
 
 use super::*;
 
-const SYS2: &str = r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+const SYS2: &str = r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 system "shop" title="Shop" {
     at "**"
     app "billing" title="Billing" {
@@ -11,7 +11,7 @@ system "shop" title="Shop" {
 }
 "#;
 
-const ONION: &str = r#"// ig's intended architecture: edit freely; ig never rewrites this file.
+const ONION: &str = r#"// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
 app "api" title="Api" {
     at "apps/api/**"
     pattern "onion"

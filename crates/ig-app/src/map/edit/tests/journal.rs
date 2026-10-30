@@ -185,3 +185,38 @@ fn drop_checks_each_kind_of_edit_still_holds() {
     record(&f, By::Person, &add("cache")).unwrap();
     assert!(drop(&f, a.n).is_err());
 }
+
+#[test]
+fn redo_refuses_when_the_spec_changed_since_the_undo() {
+    let f = spec();
+    record(&f, By::Person, &set("db", "X")).unwrap();
+    undo(&f).unwrap();
+    let t = ig(&f)["ig/system.kdl"].replace(r#"title="Postgres""#, r#"title="Z""#);
+    f.write_atomic("ig/system.kdl", t.as_bytes()).unwrap();
+    let (files, list) = (ig(&f), entries(&f).0);
+    assert_eq!(
+        redo(&f).unwrap_err(),
+        vec!["entry 1 changed since; nothing done".to_string()]
+    );
+    assert_eq!((ig(&f), entries(&f).0), (files, list));
+}
+
+#[test]
+fn keep_of_an_unknown_entry_errs_and_writes_nothing() {
+    let f = spec();
+    record(&f, By::Claude, &add("cache")).unwrap();
+    let before = f.read_bytes(JOURNAL);
+    assert_eq!(
+        keep(&f, Some(9)).unwrap_err(),
+        vec!["no journal entry 9".to_string()]
+    );
+    assert_eq!(f.read_bytes(JOURNAL), before);
+}
+
+#[test]
+fn the_header_text() {
+    assert_eq!(
+        crate::map::spec::HEADER,
+        "// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).\n"
+    );
+}

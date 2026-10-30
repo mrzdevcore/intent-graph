@@ -2,7 +2,7 @@
 //! line between nodes and none at the ends or after the header. Only the whitespace before a
 //! line and blank lines change: comments, order and the rest of every line stay.
 
-use super::super::spec::{self, DIR, HEADER};
+use super::super::spec::{self, DIR, HEADER, OLD_HEADER};
 use ig_core::ports::Files;
 
 /// Formats every `ig/*.kdl` and writes the ones that change (`write` false: writes nothing);
@@ -170,7 +170,7 @@ fn format(t: &str) -> String {
             continue;
         }
         let closes = body.starts_with('}');
-        if gap && !opens && !closes && !out.is_empty() && out != HEADER {
+        if gap && !opens && !closes && !out.is_empty() && out != HEADER && out != OLD_HEADER {
             out.push('\n');
         }
         gap = false;
