@@ -162,7 +162,7 @@ fn accept_an_arrow_needs_its_box_first_then_adds_one_line() {
     write(
         &dir,
         "lib/c.ts",
-        "import { f } from '../src/a';\nexport const y = f;\n",
+        "import { f } from '../src/a';\nexport const y = f();\n",
     );
     let lines = arrow_drift(&dir);
     assert!(!lines.is_empty(), "{}", run_ig(&dir, &["check"]).stdout);
@@ -192,7 +192,70 @@ fn accept_an_arrow_needs_its_box_first_then_adds_one_line() {
         .filter(|l| !boxed.lines().any(|b| b == *l))
         .collect();
     assert_eq!(added.len(), 1, "{added:?}\n{after}");
-    // a bundle is written as its main kind, never as `bundle`
-    assert!(!added[0].contains("bundle"), "{added:?}");
+    // two kinds between the pair (an import and a call): written as the main kind, and the
+    // derived count is not a label
+    assert!(lines[0].contains(" bundle "), "{lines:?}");
+    assert!(added[0].trim_start().starts_with("depends "), "{added:?}");
+    assert!(
+        !added[0].contains("label") && !added[0].contains("bundle"),
+        "{added:?}"
+    );
     assert!(arrow_drift(&dir).is_empty(), "{:?}", arrow_drift(&dir));
+}
+
+#[test]
+fn accepting_a_stray_script_does_not_hide_a_new_package() {
+    let dir = repo(
+        "scripts",
+        &[
+            ("package.json", r#"{"name":"r","workspaces":["apps/*"]}"#),
+            ("apps/api/package.json", r#"{"name":"api"}"#),
+            ("apps/api/src/a.ts", "export function f() {}\n"),
+            ("apps/web/package.json", r#"{"name":"web"}"#),
+            ("apps/web/b.ts", "export const b = 1;\n"),
+        ],
+    );
+    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    let p = dir.join("ig/api.kdl");
+    let t = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(&p, t.replace("    at \"apps/api/**\"\n", "")).unwrap();
+    write(&dir, "apps/api/scripts/seed.ts", "export const s = 1;\n");
+    let out = run_ig(&dir, &["check"]);
+    assert!(
+        out.stdout
+            .contains("code under apps/api/scripts/** is in no box"),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(run_ig(&dir, &["accept", "--all"]).code, 0);
+    assert_eq!(run_ig(&dir, &["check"]).code, 0);
+    write(&dir, "apps/billing/package.json", r#"{"name":"billing"}"#);
+    write(&dir, "apps/billing/y.ts", "export const y = 1;\n");
+    assert_eq!(run_ig(&dir, &["check"]).code, 1);
+}
+
+#[test]
+fn accept_refuses_a_box_claiming_the_whole_repo() {
+    let dir = planned("whole");
+    // drop the package: its code is unclaimed, and the code's package box is made of `**`
+    for f in std::fs::read_dir(dir.join("ig")).unwrap() {
+        let f = f.unwrap().path();
+        if !f.ends_with("system.kdl") {
+            std::fs::remove_file(f).unwrap();
+        }
+    }
+    let out = run_ig(&dir, &["check"]);
+    assert!(
+        out.stdout.contains("code under ** is in no box"),
+        "{}",
+        out.stdout
+    );
+    let before = std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap();
+    let out = run_ig(&dir, &["accept", "--all"]);
+    assert_eq!(out.code, 2, "{}{}", out.stdout, out.stderr);
+    assert!(out.stderr.contains("claims `**`"), "{}", out.stderr);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap(),
+        before
+    );
 }

@@ -237,7 +237,7 @@ fn files_left_in_a_partly_claimed_box_are_drift_by_their_folder() {
     let p = plan(&m);
     assert!(
         p.drift
-            .contains(&"drift: code under apps/** is in no box (apps)".into()),
+            .contains(&"drift: code under apps/api/src/infra/prisma/order-repo.ts is in no box (apps-api-src-infra-prisma-order-repo-ts)".into()),
         "{p:?}"
     );
 }
@@ -451,5 +451,67 @@ fn a_code_arrow_under_a_spec_arrow_between_ancestors_is_not_drift() {
         "{} is covered: {:?}",
         a.id,
         plan(&m)
+    );
+}
+
+fn pieces(claimed: &[&str], left: &[&str]) -> Vec<(String, Vec<String>)> {
+    let c: BTreeSet<&str> = claimed.iter().copied().collect();
+    left_over(&c, left)
+        .into_iter()
+        .map(|(id, _, at, _)| (id, at))
+        .collect()
+}
+
+#[test]
+fn left_over_takes_the_highest_folder_without_claimed_code() {
+    let claimed = ["apps/api/src/a.ts", "apps/web/b.ts"];
+    // a claimed sibling: the folder under it
+    assert_eq!(
+        pieces(&claimed, &["apps/api/scripts/seed.ts"]),
+        [(
+            "apps/api/scripts".into(),
+            vec!["apps/api/scripts/**".into()]
+        )]
+    );
+    // a fresh folder under apps/
+    assert_eq!(
+        pieces(&claimed, &["apps/admin/x.ts", "apps/admin/y/z.ts"]),
+        [("apps/admin".into(), vec!["apps/admin/**".into()])]
+    );
+    // no claimed code in lib
+    assert_eq!(
+        pieces(&claimed, &["lib/c.ts"]),
+        [("lib".into(), vec!["lib/**".into()])]
+    );
+    // never `**`
+    assert!(
+        pieces(&[], &["lib/c.ts", "tools/d.ts"])
+            .iter()
+            .all(|p| p.1[0] != "**")
+    );
+}
+
+#[test]
+fn left_over_loose_files_are_listed_unless_the_folder_has_none_claimed() {
+    let claimed = ["apps/api/src/a.ts", "apps/api/main.ts", "top.ts"];
+    // apps/api holds claimed main.ts: the loose file is named
+    assert_eq!(
+        pieces(&claimed, &["apps/api/seed.ts"]),
+        [("apps/api/seed-ts".into(), vec!["apps/api/seed.ts".into()])]
+    );
+    // apps/ has claimed code below but no claimed direct file: one glob
+    assert_eq!(
+        pieces(&claimed, &["apps/x.ts", "apps/y.ts"]),
+        [("apps".into(), vec!["apps/*".into()])]
+    );
+    // the repo root, with a claimed root file
+    assert_eq!(
+        pieces(&claimed, &["other.ts"]),
+        [("other-ts".into(), vec!["other.ts".into()])]
+    );
+    // the repo root, with none claimed
+    assert_eq!(
+        pieces(&["apps/api/src/a.ts"], &["other.ts", "more.ts"]),
+        [("root-files".into(), vec!["*".into()])]
     );
 }

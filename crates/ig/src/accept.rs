@@ -77,7 +77,8 @@ pub fn run(files: &dyn Files, v: &view::View, all: bool, ids: &[String]) -> Resu
             from: a.from.clone(),
             to: a.to.clone(),
             kind,
-            label: a.label.clone(),
+            // a bundle's label is a derived count, not intent
+            label: a.label.clone().filter(|_| a.kind != ArrowKind::Bundle),
         };
         record(files, By::Person, &edit).map_err(|e| anyhow::anyhow!(e.join("\n")))?;
         done.push(a.id.clone());
