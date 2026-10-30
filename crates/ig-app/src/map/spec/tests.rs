@@ -176,3 +176,66 @@ fn awkward_strings_round_trip() {
     assert_eq!(n.get("title").unwrap().as_string(), Some(t));
     assert_eq!(n.get("description").unwrap().as_string(), Some(d));
 }
+
+fn mem(w: &BTreeMap<String, String>) -> ig_core::testing::MemFiles {
+    ig_core::testing::MemFiles::with(
+        &w.iter()
+            .map(|(p, t)| (p.as_str(), t.as_str()))
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[test]
+fn what_is_written_reads_back_the_same() {
+    let m = shop_map();
+    let r = read(&mem(&write(&m))).unwrap().unwrap();
+    let key = |b: &MapBox| {
+        (
+            b.id.clone(),
+            b.parent.clone(),
+            b.kind.value,
+            b.title.value.clone(),
+            b.made_of.clone(),
+        )
+    };
+    assert_eq!(
+        r.boxes.iter().map(key).collect::<Vec<_>>(),
+        m.boxes
+            .iter()
+            .filter(|b| !b.stale)
+            .map(key)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        r.arrows
+            .iter()
+            .map(|a| (&a.from, &a.to, a.kind))
+            .collect::<Vec<_>>(),
+        m.arrows
+            .iter()
+            .map(|a| (&a.from, &a.to, a.kind))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_broken_spec_names_file_and_line_and_reads_nothing() {
+    use ig_core::testing::MemFiles;
+    let files = MemFiles::with(&[(
+        "ig/system.kdl",
+        "system \"system\" {\n  app \"web\" {\n    calls \"nowhere\"\n  }\n}\n",
+    )]);
+    let e = read(&files).unwrap_err();
+    assert!(
+        e.iter()
+            .any(|x| x.starts_with("ig/system.kdl:3:") && x.contains("nowhere")),
+        "{e:?}"
+    );
+    let files = MemFiles::with(&[(
+        "ig/system.kdl",
+        "system \"system\" {\n  app \"web\" title=\n}\n",
+    )]);
+    let e = read(&files).unwrap_err();
+    assert!(e[0].starts_with("ig/system.kdl:2:"), "{e:?}");
+    assert_eq!(read(&MemFiles::with(&[])).unwrap(), None);
+}
