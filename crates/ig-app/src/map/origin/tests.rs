@@ -497,7 +497,7 @@ fn left_over_loose_files_are_listed_unless_the_folder_has_none_claimed() {
     // apps/api holds claimed main.ts: the loose file is named
     assert_eq!(
         pieces(&claimed, &["apps/api/seed.ts"]),
-        [("apps/api/seed-ts".into(), vec!["apps/api/seed.ts".into()])]
+        [("apps/api/seed.ts".into(), vec!["apps/api/seed.ts".into()])]
     );
     // apps/ has claimed code below but no claimed direct file: one glob
     assert_eq!(
@@ -507,11 +507,28 @@ fn left_over_loose_files_are_listed_unless_the_folder_has_none_claimed() {
     // the repo root, with a claimed root file
     assert_eq!(
         pieces(&claimed, &["other.ts"]),
-        [("other-ts".into(), vec!["other.ts".into()])]
+        [("other.ts".into(), vec!["other.ts".into()])]
     );
     // the repo root, with none claimed
     assert_eq!(
         pieces(&["apps/api/src/a.ts"], &["other.ts", "more.ts"]),
         [("root-files".into(), vec!["*".into()])]
+    );
+}
+
+#[test]
+fn slug_ids_and_escaped_globs() {
+    assert_eq!(slug("apps/web/Button.tsx"), "apps-web-button-tsx");
+    assert_eq!(slug("apps/web/[id].tsx"), "apps-web-id-tsx");
+    assert_eq!(slug("..."), "drift");
+    let c: BTreeSet<&str> = ["apps/api/a.ts"].into();
+    let p = left_over(&c, &["apps/api/[slug]/x.ts", "apps/api/.env.ts"]);
+    assert_eq!(p[0].2, ["apps/api/[[]slug[]]/**"]);
+    // loose and claimed sibling: by path, escaped; the title drops only the last extension
+    let c: BTreeSet<&str> = ["apps/api/a.ts"].into();
+    let p = left_over(&c, &["apps/api/.env.ts"]);
+    assert_eq!(
+        (p[0].1.as_str(), p[0].2[0].as_str()),
+        (".env", "apps/api/.env.ts")
     );
 }

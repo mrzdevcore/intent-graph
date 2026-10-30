@@ -246,7 +246,7 @@ fn drift(
     // A container under the root, with a slug id no other box has.
     let place = |mut b: MapBox, out: &mut Vec<MapBox>| {
         let taken = |id: &str| spec.iter().chain(out.iter()).any(|b| b.id == id);
-        let base = b.id.replace('/', "-");
+        let base = slug(&b.id);
         let mut id = base.clone();
         let mut k = 1;
         while taken(&id) {
@@ -331,7 +331,12 @@ fn left_over(claimed: &BTreeSet<&str>, left: &[&str]) -> Vec<Piece> {
         .into_iter()
         .map(|(d, files)| {
             let title = d.rsplit('/').next().unwrap_or(&d).to_string();
-            (d.clone(), title, vec![format!("{d}/**")], files)
+            (
+                d.clone(),
+                title,
+                vec![format!("{}/**", globset::escape(&d))],
+                files,
+            )
         })
         .collect();
     for (dir, files) in loose {
@@ -352,22 +357,37 @@ fn left_over(claimed: &BTreeSet<&str>, left: &[&str]) -> Vec<Piece> {
                     format!("{} files", dir.rsplit('/').next().unwrap_or(&dir)),
                 ),
             };
-            out.push((id, title, vec![format!("{prefix}*")], files));
+            out.push((
+                id,
+                title,
+                vec![format!("{}*", globset::escape(&prefix))],
+                files,
+            ));
             continue;
         }
         for f in files {
-            let stem = f
-                .rsplit('/')
-                .next()
-                .unwrap_or(&f)
-                .split('.')
-                .next()
-                .unwrap_or(&f)
-                .to_string();
-            out.push((f.replace('.', "-"), stem, vec![f.clone()], vec![f]));
+            let file = f.rsplit('/').next().unwrap_or(&f);
+            let title = file.rsplit_once('.').map_or(file, |(t, _)| t);
+            let title = if title.is_empty() { file } else { title }.to_string();
+            out.push((f.clone(), title, vec![globset::escape(&f)], vec![f]));
         }
     }
     out
+}
+
+/// `s` as a box id: lowercase `[a-z0-9-]`, no repeated or edge dashes; `drift` when nothing is left.
+fn slug(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.to_lowercase().chars() {
+        let c = if c.is_ascii_alphanumeric() { c } else { '-' };
+        if c != '-' || !out.ends_with('-') {
+            out.push(c);
+        }
+    }
+    match out.trim_matches('-') {
+        "" => "drift".into(),
+        t => t.into(),
+    }
 }
 
 fn name<T: Serialize>(v: &T) -> String {
