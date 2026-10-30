@@ -10,7 +10,7 @@ mod tests;
 use anyhow::{Result, bail};
 use cli::{USAGE, parse_args};
 use ig_app::map::agent::{Agent, Ask};
-use ig_app::map::{origin, view};
+use ig_app::map::{origin, spec, view};
 // `crate::model` for the modules (and their tests) that name model types.
 use ig_core::model;
 use ig_wire::Wired;
@@ -99,6 +99,12 @@ fn real_main() -> Result<u8> {
             Ok(0)
         }
         "plan" | "check" => {
+            // check only reads: ig/ is written by plan and view
+            let spec = [format!("{}/*.kdl", spec::DIR)];
+            if a.cmd == "check" && env.files.glob(&spec)?.is_empty() {
+                eprintln!("ig: no ig/ yet: run `ig plan` or `ig view` to write it");
+                return Ok(2);
+            }
             let v = view::run(&env)?;
             for n in &v.notices {
                 eprintln!("ig: {n}");
@@ -108,7 +114,8 @@ fn real_main() -> Result<u8> {
             }
             let p = origin::plan_of(&v.boxes, &v.arrows);
             println!(
-                "ig plan: {} to build, {} drift",
+                "ig {}: {} to build, {} drift",
+                a.cmd,
                 p.build.len(),
                 p.drift.len()
             );
