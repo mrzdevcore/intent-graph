@@ -16,7 +16,9 @@ use ig_core::ports::{Files, LanguageFrontend};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+mod proposals;
 mod propose;
+pub use proposals::Proposal;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct View {
@@ -31,6 +33,9 @@ pub struct View {
     /// The list each part box of a component holds, by box id.
     pub parts: BTreeMap<String, Vec<Part>>,
     pub notices: Vec<String>,
+    /// The journal's entries nobody kept yet.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub proposals: Vec<Proposal>,
     /// The files ig read (the graph's modules), for `unread`.
     #[serde(skip)]
     pub read: BTreeSet<String>,
@@ -145,6 +150,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         sources,
         parts,
         notices,
+        proposals: vec![],
         read: (g.nodes.iter().filter(|n| n.is_module()))
             .map(|n| n.file.clone())
             .collect(),
@@ -267,6 +273,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     notices.append(&mut v.notices);
     v.notices = notices;
     v.broken = broken;
+    v.proposals = proposals::proposals(&super::edit::journal::entries(env.files).0, &v.boxes);
     Ok(v)
 }
 

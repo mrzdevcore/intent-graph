@@ -4,6 +4,7 @@
 mod agent;
 mod bounded;
 mod commands;
+mod edits;
 mod events;
 mod exit;
 mod permissions;
@@ -177,6 +178,12 @@ fn main() {
             agent::agent_install,
             agent::agent_reply,
             agent::agent_set_config,
+            edits::edit_apply,
+            edits::edit_keep,
+            edits::edit_drop,
+            edits::edit_drop_all,
+            edits::edit_undo,
+            edits::edit_redo,
             commands::open_url,
             exit::exit_flushed
         ])
