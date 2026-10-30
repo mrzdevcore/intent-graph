@@ -10,6 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub mod journal;
 pub(crate) mod tidy;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
