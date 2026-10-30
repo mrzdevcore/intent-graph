@@ -358,7 +358,7 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow]) -> Plan {
                 b.made_of.join(", ")
             )),
             Origin::Drift => p.drift.push(match b.made_of.first() {
-                Some(g) => format!("drift: code under {g} is in no box"),
+                Some(g) => format!("drift: code under {g} is in no box ({})", b.id),
                 None => format!(
                     "drift: {} {} is in the code, not in ig/",
                     name(&b.kind.value),
