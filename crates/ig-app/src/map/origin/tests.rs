@@ -437,9 +437,9 @@ fn a_cross_level_arrow_is_built_by_code_under_its_ends() {
 }
 
 #[test]
-fn a_code_arrow_under_a_spec_arrow_between_ancestors_is_not_drift() {
-    // a spec arrow from a component to its own container covers the code between that
-    // component and its siblings
+fn a_spec_arrow_to_its_own_container_covers_no_code_inside_it() {
+    // a component's arrow to its own container is not satisfied by, and covers none of, the
+    // code between that component and its siblings
     let s = spec();
     let built = compare(&s, &facts(), &graph(), None);
     let a = (built.arrows.iter())
@@ -451,11 +451,11 @@ fn a_code_arrow_under_a_spec_arrow_between_ancestors_is_not_drift() {
     s.arrows.push(spec_arrow(&a.from, a.kind, "api"));
     let m = compare(&s, &facts(), &graph(), None);
     assert!(
-        !m.arrows.iter().any(|x| x.id == a.id),
-        "{} is covered: {:?}",
-        a.id,
-        plan(&m)
+        m.arrows
+            .iter()
+            .any(|x| x.id == a.id && x.origin == Origin::Drift)
     );
+    assert_eq!(arrow_origin(&m, &a.from, "api"), Origin::Build);
 }
 
 fn pieces(claimed: &[&str], left: &[&str]) -> Vec<(String, Vec<String>)> {
@@ -522,9 +522,9 @@ fn left_over_loose_files_are_listed_unless_the_folder_has_none_claimed() {
 
 #[test]
 fn slug_ids_and_escaped_globs() {
-    assert_eq!(slug("apps/web/Button.tsx"), "apps-web-button-tsx");
-    assert_eq!(slug("apps/web/[id].tsx"), "apps-web-id-tsx");
-    assert_eq!(slug("..."), "drift");
+    assert_eq!(slug("apps/web/Button.tsx", "drift"), "apps-web-button-tsx");
+    assert_eq!(slug("apps/web/[id].tsx", "drift"), "apps-web-id-tsx");
+    assert_eq!(slug("...", "drift"), "drift");
     let c: BTreeSet<&str> = ["apps/api/a.ts"].into();
     let p = left_over(&c, &["apps/api/[slug]/x.ts", "apps/api/.env.ts"]);
     assert_eq!(p[0].2, ["apps/api/[[]slug[]]/**"]);

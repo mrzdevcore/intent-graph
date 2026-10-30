@@ -72,7 +72,7 @@ fn no_code_level_kind_is_a_node_name() {
 fn bundle_arrows_lose_their_derived_label() {
     let files = write(&shop_map());
     let web = &files["ig/web.kdl"];
-    assert!(web.contains("depends \"api-client\"\n"), "{web}");
+    assert!(web.contains("calls \"api-client\"\n"), "{web}");
     assert!(!web.contains("1 call"));
     assert!(web.contains("network \"api\" label=\"POST /checkout\""));
 }
@@ -237,15 +237,7 @@ fn what_is_written_reads_back_the_same() {
         m.arrows
             .iter()
             // a bundle is written as its main kind
-            .map(|a| (
-                &a.from,
-                &a.to,
-                if a.kind == ArrowKind::Bundle {
-                    a.kinds[0]
-                } else {
-                    a.kind
-                }
-            ))
+            .map(|a| (&a.from, &a.to, a.spec_kind()))
             .collect::<Vec<_>>()
     );
 }
@@ -348,7 +340,7 @@ fn a_duplicate_id_with_an_arrow_to_it_is_an_error_not_a_hang() {
 fn a_bundle_is_written_as_its_main_kind() {
     let files = write(&shop_map());
     assert!(!files.values().any(|t| t.contains("bundle ")), "{files:#?}");
-    assert!(files["ig/web.kdl"].contains("depends \"api-client\""));
+    assert!(files["ig/web.kdl"].contains("calls \"api-client\""));
 }
 
 #[test]
@@ -374,4 +366,22 @@ fn a_syntax_error_is_reported_alone() {
     ])))
     .unwrap_err();
     assert!(e.iter().all(|x| x.starts_with("ig/system.kdl:")), "{e:?}");
+}
+
+#[test]
+fn a_bundle_is_written_as_its_most_telling_kind() {
+    let mut m = shop_map();
+    let a = m
+        .arrows
+        .iter_mut()
+        .find(|a| a.id == "api->postgres")
+        .unwrap();
+    (a.kind, a.kinds) = (
+        ArrowKind::Bundle,
+        vec![ArrowKind::Depends, ArrowKind::Calls],
+    );
+    assert_eq!(a.spec_kind(), ArrowKind::Calls);
+    let api = &write(&m)["ig/api.kdl"];
+    assert!(api.contains("calls \"postgres\""), "{api}");
+    assert!(!api.contains("depends \"postgres\""), "{api}");
 }

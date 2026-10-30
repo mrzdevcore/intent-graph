@@ -18,6 +18,17 @@ pub enum ArrowKind {
     Bundle,
 }
 
+/// What a bundle is written as in the spec: its most telling kind.
+const TELLING: [ArrowKind; 7] = [
+    ArrowKind::Calls,
+    ArrowKind::Network,
+    ArrowKind::Event,
+    ArrowKind::Data,
+    ArrowKind::Implements,
+    ArrowKind::Uses,
+    ArrowKind::Depends,
+];
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MapArrow {
@@ -38,6 +49,17 @@ pub struct MapArrow {
     /// Built, to build or drift: the spec against the code.
     #[serde(skip_serializing_if = "super::origin::is_built", default)]
     pub origin: super::origin::Origin,
+}
+
+impl MapArrow {
+    /// The kind the spec says: a bundle's most telling kind, any other arrow's own.
+    pub fn spec_kind(&self) -> ArrowKind {
+        if self.kind != ArrowKind::Bundle {
+            return self.kind;
+        }
+        let first = TELLING.iter().find(|k| self.kinds.contains(k));
+        first.copied().unwrap_or(ArrowKind::Uses)
+    }
 }
 
 /// The graph edges lifted into one arrow, with their arrow kinds.

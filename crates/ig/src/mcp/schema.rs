@@ -2,9 +2,10 @@
 
 use serde_json::{Value, json};
 
-const KINDS: [&str; 12] = [
+// `file` and `parts` (and the code-level kinds) are left out: they never live in ig/.
+const KINDS: [&str; 15] = [
     "person", "system", "external", "app", "api", "worker", "store", "queue", "library", "entry",
-    "usecase", "port",
+    "usecase", "port", "domain", "folder", "component",
 ];
 const ARROWS: [&str; 8] = [
     "uses",
