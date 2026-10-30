@@ -305,3 +305,60 @@ fn accept_slugs_ids_and_escapes_globs() {
     write(&dir, "apps/api/other/z.ts", "export const z = 1;\n");
     assert_eq!(run_ig(&dir, &["check"]).code, 1);
 }
+
+#[test]
+fn accept_all_prints_each_item_and_skips_an_arrow_of_another_kind() {
+    let dir = repo(
+        "kind",
+        &[
+            ("package.json", r#"{"name":"r","workspaces":["apps/*"]}"#),
+            ("apps/api/package.json", r#"{"name":"api"}"#),
+            ("apps/api/src/a.ts", "export function f() {}\n"),
+            ("apps/web/package.json", r#"{"name":"web"}"#),
+            (
+                "apps/web/b.ts",
+                "import { f } from '../api/src/a';\nexport const b = f();\n",
+            ),
+        ],
+    );
+    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    let p = dir.join("ig/api.kdl");
+    let t = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(&p, t.replace("    at \"apps/api/**\"\n", "")).unwrap();
+    let p = dir.join("ig/web.kdl");
+    let t = std::fs::read_to_string(&p).unwrap();
+    assert!(t.contains("calls \"api\""), "{t}");
+    std::fs::write(&p, t.replace("calls \"api\"", "event \"api\"")).unwrap();
+    write(&dir, "apps/api/scripts/seed.ts", "export const s = 1;\n");
+    let out = run_ig(&dir, &["check"]);
+    assert!(out.stdout.contains("(web->api~drift)"), "{}", out.stdout);
+    let out = run_ig(&dir, &["accept", "--all"]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.contains("accepted apps-api-scripts"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains(
+            "skipped web->api~drift: ig/ already has a `event` arrow `web->api`; change its kind first"
+        ),
+        "{}",
+        out.stdout
+    );
+}
+
+#[test]
+fn accept_says_to_quote_arrow_ids() {
+    let dir = planned("quote");
+    // what the shell leaves of an unquoted `web->api`
+    let out = run_ig(&dir, &["accept", "web-"]);
+    assert_eq!(out.code, 2);
+    assert!(
+        out.stderr.contains("ig accept 'web->api'"),
+        "{}",
+        out.stderr
+    );
+    let out = run_ig(&dir, &["--help"]);
+    assert!(out.stdout.contains("one by one"), "{}", out.stdout);
+}

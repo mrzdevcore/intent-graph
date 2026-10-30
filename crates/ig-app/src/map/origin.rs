@@ -512,7 +512,9 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow], unread: &[String]) -> Plan
         moves: vec![],
         drift: vec![],
         not_read: (unread.iter())
-            .map(|g| format!("not read: {g} (outside every package ig reads)"))
+            .map(|g| format!(
+                    "not read: {g} (outside every package ig reads; add it to a workspace or to `ignore` in ig.yaml)"
+                ))
             .collect(),
     };
     for b in boxes {

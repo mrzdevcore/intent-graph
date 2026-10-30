@@ -156,7 +156,7 @@ fn check_names_a_move_since_the_last_commit_and_code_ig_does_not_read() {
         [
             "ig check: 0 to build, 0 drift, 1 to move, 1 not read",
             &format!("move: {old} → {new} (api/application-refund)"),
-            "not read: scripts/** (outside every package ig reads)",
+            "not read: scripts/** (outside every package ig reads; add it to a workspace or to `ignore` in ig.yaml)",
         ],
         "{}",
         out.stderr
@@ -205,7 +205,9 @@ fn root_files_dot_folders_and_build_output_are_not_listed_as_not_read() {
         .collect();
     assert_eq!(
         unread,
-        ["not read: scripts/** (outside every package ig reads)"],
+        [
+            "not read: scripts/** (outside every package ig reads; add it to a workspace or to `ignore` in ig.yaml)"
+        ],
         "{}",
         out.stdout
     );
