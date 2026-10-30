@@ -4,7 +4,7 @@
   import type { Field, MapBox, View } from "./types";
   import Code from "./Code.svelte";
 
-  let { view, box, onclose, onopen }: { view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void } = $props();
+  let { view, box, onclose, onopen, onmenu }: { view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void; onmenu?: (e: MouseEvent) => void } = $props();
 
   const titleOf = (id: string) => view.boxes.find((b) => b.id === id)?.title.value ?? id;
   // a part named like a component on the map (a tag it renders): a link to it
@@ -47,6 +47,7 @@
 <section class="details" class:wide={!!source} aria-label="Details" tabindex="-1" bind:this={card}>
   <div class="head">
     <b>{box.title.value}</b>
+    {#if onmenu}<button type="button" aria-label="Box menu" aria-haspopup="menu" onclick={onmenu}>⋯</button>{/if}
     <button type="button" aria-label="Close" onclick={onclose}>×</button>
   </div>
   <ul class="chips">{#each chips as c}<li>{c}</li>{/each}</ul>
