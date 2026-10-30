@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The viewer: read the graph and follow rebuilds, and drive the agent. Nothing else.",
+  "description": "The viewer: read the graph and follow rebuilds, drive the agent, and edit the map. Nothing else.",
   "windows": ["main"],
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-destroy", "allow-view-data", "allow-trust-inventory", "allow-trust-project", "allow-agent-start", "allow-agent-prompt", "allow-agent-load", "allow-agent-restart", "allow-agent-cancel", "allow-agent-answer", "allow-agent-list", "allow-agent-install", "allow-agent-reply", "allow-agent-set-config", "allow-open-url", "allow-exit-flushed"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-destroy", "allow-view-data", "allow-trust-inventory", "allow-trust-project", "allow-agent-start", "allow-agent-prompt", "allow-agent-load", "allow-agent-restart", "allow-agent-cancel", "allow-agent-answer", "allow-agent-list", "allow-agent-install", "allow-agent-reply", "allow-agent-set-config", "allow-edit-apply", "allow-edit-keep", "allow-edit-drop", "allow-edit-drop-all", "allow-edit-undo", "allow-edit-redo", "allow-open-url", "allow-exit-flushed"]
 }
