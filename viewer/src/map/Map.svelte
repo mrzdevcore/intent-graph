@@ -24,6 +24,8 @@
   import EditLayer from "./edit/EditLayer.svelte";
   import { EditSession } from "./edit/session.svelte";
   import type { Act } from "./edit/menu";
+  import Proposals from "./edit/Proposals.svelte";
+  import { proposed } from "./edit/proposals";
 
   let { view, camera = new Camera(), size, edit, onview }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -134,6 +136,18 @@
       fly(t.parent);
     }
   }
+  // a hovered proposal lights through the same path; the search's own path comes back when it ends
+  let held: Trace | null | undefined;
+  function glow(t: Trace | null) {
+    if (t) {
+      held ??= traced;
+      traced = t;
+    } else if (held !== undefined) {
+      traced = held;
+      held = undefined;
+    }
+  }
+  const by = $derived(proposed(view.proposals));
   // under the pointer: the deepest box, and an arrow
   let hot = $state<string | null>(null);
   let hotArrow = $state<string | null>(null);
@@ -394,7 +408,7 @@
   {#each all as a (a.id)}
     {@const c = pathOf(a)}
     <div class="arrow" data-arrow={a.id}>
-      <MapArrow d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom}
+      <MapArrow d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on, by.get(a.id))} {zoom}
         lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
         onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
     </div>
@@ -409,7 +423,7 @@
     {@const reads = !open && (!!source || !!list) && (showsInside(sw) || (!!list && detailFor(sw) === "near"))}
     {@const anatomy = anatomies.get(b.id)?.map((k) => ({ title: k.title.value, parts: view.parts?.[k.id] ?? [] }))}
     <div class="slot" class:target={sess.aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path && !path.boxes.includes(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
-      <MapBox box={b} look={look(b.id, view.marks, on, b)} detail={open ? "open" : reads ? "source" : detailFor(sw)}
+      <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)} />
       {#if edit && selected === b.id && !open}
@@ -452,12 +466,13 @@
     <AddBox parentTitle={addParent?.title.value ?? view.boxes.find((b) => b.id === ROOT)?.title.value ?? ROOT} system={sess.adding.parent === ROOT}
       globs={addParent?.madeOf ?? []} x={sess.adding.x} y={sess.adding.y} onadd={add} onclose={() => sess.cancel()} />
   {/if}
+  <Proposals {view} {edit} {run} onlight={glow} />
   {#if edit}<EditLayer s={sess} boxes={view.boxes} root={ROOT} />{/if}
   {#if reading}
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
-    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} />
+    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} {edit} {run} />
   {/if}
 </div>
 
