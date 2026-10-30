@@ -29,7 +29,7 @@
 {/if}
 {#if pick}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <form aria-label="Arrow {pick.from} to {pick.to}" style:left="{pick.x}px" style:top="{pick.y}px" onsubmit={submit} onkeydown={keydown}>
+  <form data-popover aria-label="Arrow {pick.from} to {pick.to}" style:left="{pick.x}px" style:top="{pick.y}px" onsubmit={submit} onkeydown={keydown}>
     <b>{pick.from} → {pick.to}</b>
     <div class="chips" role="radiogroup" aria-label="Kind">
       {#each ARROW_KINDS as k (k)}

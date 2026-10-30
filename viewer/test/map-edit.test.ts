@@ -282,3 +282,103 @@ test("Delete sends Remove and shows the refusal", async () => {
   expect(got).toEqual([{ op: "remove", id: "api" }]);
   expect(target.querySelector('[aria-live="polite"]')!.textContent).toBe("`api` still holds 9 boxes");
 });
+
+// --- fix round 1
+const select = (t: HTMLElement, id: string) => { (boxEl(t, id) as HTMLElement).click(); flushSync(); };
+const rightClick = (t: HTMLElement, id: string) => {
+  boxEl(t, id).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  flushSync();
+};
+
+test("right-click on an unselected box leaves focus on a menu item", () => {
+  const { target } = setup(recorder().api);
+  rightClick(target, "web");
+  expect(document.activeElement!.getAttribute("role")).toBe("menuitem");
+});
+
+test("closing the menu with Esc returns focus to the box", () => {
+  const { target } = setup(recorder().api);
+  rightClick(target, "web");
+  press("Escape", {}, document.activeElement!);
+  expect(document.activeElement).toBe(boxEl(target, "web"));
+});
+
+test("a press outside an open popover closes it", () => {
+  const { target } = setup(recorder().api);
+  rightClick(target, "web");
+  ptr(document.body, "pointerdown");
+  expect(menuOf(target)).toBeNull();
+});
+
+test("Map-level Move: pick a parent and Move is sent", async () => {
+  const { api, got } = recorder();
+  const v = fresh();
+  v.boxes.find((b) => b.id === "api/application-refund")!.parent = "system"; // a container-kind box on the ground
+  const { target } = setup(api, v);
+  rightClick(target, "api/application-refund");
+  item(target, "Move to").click();
+  flushSync();
+  const web = [...target.querySelectorAll<HTMLElement>('[role="dialog"] li button')].find((b) => b.textContent!.startsWith("Web"))!;
+  web.click();
+  await tick();
+  expect(got).toEqual([{ op: "move", id: "api/application-refund", parent: "web", before: null }]);
+});
+
+test("Backspace and Delete with a box selected send Remove", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  select(target, "web");
+  press("Backspace");
+  press("Delete");
+  await tick();
+  expect(got).toEqual([{ op: "remove", id: "web" }, { op: "remove", id: "web" }]);
+});
+
+test("Backspace inside the rename input sends nothing", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  select(target, "web");
+  press("F2");
+  press("Backspace", {}, target.querySelector('input[aria-label="Rename box"]')!);
+  await tick();
+  expect(got).toEqual([]);
+});
+
+test("Backspace with an arrow chip focused sends nothing; so does a held key", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  select(target, "web");
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(boxEl(target, "api"), "pointermove");
+  ptr(boxEl(target, "api"), "pointerup");
+  const chip = target.querySelector<HTMLElement>('form[aria-label^="Arrow"] [role="radio"]')!;
+  chip.focus();
+  press("Backspace", {}, chip);
+  press("Backspace");
+  expect(got).toEqual([]);
+  press("Escape", {}, chip);
+  press("Delete", { repeat: true });
+  await tick();
+  expect(got).toEqual([]);
+});
+
+test("pointercancel drops an arrow in flight", () => {
+  const { target } = setup(recorder().api);
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(boxEl(target, "api"), "pointermove");
+  window.dispatchEvent(new Event("pointercancel"));
+  flushSync();
+  ptr(boxEl(target, "api"), "pointerup");
+  expect(target.querySelector('form[aria-label^="Arrow"]')).toBeNull();
+  expect(target.querySelector(".target")).toBeNull();
+});
+
+test("without edit, F2, M and Backspace do nothing", () => {
+  const { target } = setup();
+  select(target, "web");
+  for (const k of ["F2", "m", "Backspace"]) press(k);
+  expect(target.querySelector("[data-popover]")).toBeNull();
+  expect(target.querySelector('input[aria-label="Rename box"]')).toBeNull();
+});

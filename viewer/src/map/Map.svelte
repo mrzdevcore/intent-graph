@@ -4,7 +4,7 @@
      in localStorage); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import type { BoxKind, Edit, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
+  import type { BoxKind, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, insideCounts, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
@@ -21,11 +21,9 @@
   import { ToolState, type Tool } from "./edit/tool.svelte";
   import AddBox from "./edit/AddBox.svelte";
   import { freeId } from "./edit/add";
-  import ArrowDraw from "./edit/ArrowDraw.svelte";
-  import BoxMenu, { type Act } from "./edit/BoxMenu.svelte";
-  import MovePicker from "./edit/MovePicker.svelte";
-  import RenameBox from "./edit/RenameBox.svelte";
-  import { parentsFor } from "./edit/menu";
+  import EditLayer from "./edit/EditLayer.svelte";
+  import { EditSession } from "./edit/session.svelte";
+  import type { Act } from "./edit/menu";
 
   let { view, camera = new Camera(), size, edit, onview }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -193,13 +191,15 @@
   function close() {
     const id = selected;
     selected = null;
-    if (id) (stage.querySelector(`[data-box="${CSS.escape(id)}"] > button`) as HTMLElement | null)?.focus({ preventScroll: true });
+    if (id) sess.focusBox(id);
   }
   const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow" };
   const shortcuts: Record<string, Act> = { f2: "rename", m: "move", delete: "delete", backspace: "delete" };
   function key(e: KeyboardEvent) {
     if (typing(e.target)) return;
-    if (edit) {
+    if (edit && e.key !== "Escape") {
+      // a popover owns the keys while it is open or has focus
+      if (e.repeat || sess.ui || (e.target as Element | null)?.closest?.("[data-popover]")) return;
       const k = e.key.toLowerCase();
       if ((e.metaKey || e.ctrlKey) && k === "z") {
         e.preventDefault();
@@ -208,14 +208,14 @@
       }
       if (!e.metaKey && !e.ctrlKey && !e.altKey && selected && shortcuts[k]) {
         e.preventDefault();
-        act(shortcuts[k], selected);
+        sess.act(shortcuts[k], selected);
         return;
       }
       if (!e.metaKey && !e.ctrlKey && !e.altKey && tools[k]) tool.current = tools[k];
     }
     if (e.key !== "Escape") return;
     tool.current = "select";
-    adding = ui = link = null;
+    sess.cancel();
     if (selected) close();
     else traced = null;
   }
@@ -240,18 +240,13 @@
 
   // Drag pans, or moves the closed box under the pointer (`box`: its id, its shift at the start
   // and screen pixels per unit of its parent); a drag's trailing click must not open a box.
-  let drag: { x: number; y: number; from: Cam; moved: boolean; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
+  let drag: { x: number; y: number; from: Cam; moved: boolean; pointer: number; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
   let swallow = false;
   function down(e: PointerEvent) {
     swallow = false;
     if (e.button !== 0) return;
-    ui = null;
-    const from = ((e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;
-    if (edit && from && byId.has(from) && (tool.current === "arrow" || (e.target as Element).closest("[data-handle]"))) {
-      link = { from, to: null, ...rel(e) };
-      return;
-    }
-    drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false };
+    if (sess.startLink(e, tool.current === "arrow")) return;
+    drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     const id = el && !el.hasAttribute("data-open") ? el.dataset.box : undefined;
     const b = id ? byId.get(id) : undefined;
@@ -271,97 +266,51 @@
     };
   }
   function move(e: PointerEvent) {
-    if (link) {
-      const to = ((e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;
-      link = { ...link, to: to && to !== link.from && byId.has(to) ? to : null, ...rel(e) };
-      return;
-    }
-    if (!drag) return;
+    if (sess.moveLink(e) || !drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+    if (!drag.moved) sess.grab(drag.pointer);
     drag.moved = true;
     const b = drag.box;
     if (b && b.k > 0) live = { id: b.id, ...within(b.id, { x: b.at.x + dx / b.k, y: b.at.y + dy / b.k }) };
     else jump({ k: drag.from.k, x: drag.from.x + dx, y: drag.from.y + dy });
   }
   function up() {
-    if (link) {
-      const l = link;
-      link = null;
+    if (sess.endLink()) {
       swallow = true;
-      if (l.to) ui = { t: "arrow", from: l.from, to: l.to, x: l.x, y: l.y };
       return;
     }
+    sess.release();
     swallow = !!drag?.moved;
     if (live) keep({ ...moves, [live.id]: { x: live.x, y: live.y } });
     live = null;
     drag = null;
   }
-  // the arrow being drawn (press on a box, release on another); the popover, menu, rename and move picker
-  let link = $state<{ from: string; to: string | null; x: number; y: number } | null>(null);
-  type Ui = { t: "menu" | "rename" | "move"; id: string; x: number; y: number } | { t: "arrow"; from: string; to: string; x: number; y: number };
-  let ui = $state<Ui | null>(null);
-  const rel = (e: { clientX: number; clientY: number }) => {
-    const r = stage.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
-  };
-  const titleOf = (id: string) => byId.get(id)?.title.value ?? id;
-  /** The box's top-left on screen. */
-  const at = (id: string) => {
-    const f = frameOf(id);
-    return { x: f.x * cam.k + cam.x, y: f.y * cam.k + cam.y };
-  };
-  const aim = $derived(link?.to ?? (ui?.t === "arrow" ? ui.to : null));
-  const band = $derived.by(() => {
-    if (!link) return undefined;
-    const f = frameOf(link.from);
-    return { x1: (f.x + f.w / 2) * cam.k + cam.x, y1: (f.y + f.h / 2) * cam.k + cam.y, x2: link.x, y2: link.y };
+  // a cancelled pointer, or the window losing focus mid-gesture, leaves nothing half done
+  function abort() {
+    sess.cancel();
+    live = null;
+    drag = null;
+  }
+  const sess = new EditSession({
+    edit: () => edit, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
+    selected: () => selected, select: (id) => (selected = id), tool: (t) => (tool.current = t), run,
   });
-  function act(a: Act, id: string, p = at(id)) {
-    ui = null;
-    if (a === "rename" || a === "move") ui = { t: a, id, ...p };
-    else if (a === "add") adding = { parent: id, ...p };
-    else if (a === "arrow") {
-      selected = id;
-      tool.current = "arrow";
-    } else run(edit!.apply({ op: "remove", id }));
-  }
-  /** Close the rename or move popover and send the edit it makes for its box (read before ui is cleared). */
-  function settle(make: (id: string) => Edit | null) {
-    const u = ui;
-    ui = null;
-    const e = u && u.t !== "arrow" ? make(u.id) : null;
-    if (e) run(edit!.apply(e));
-  }
-  function menuAt(e: MouseEvent) {
-    const id = ((e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;
-    if (!edit || !id || !byId.has(id)) return;
-    e.preventDefault();
-    selected = id;
-    ui = { t: "menu", id, ...rel(e) };
-  }
-  /** The card's ⋯ button: the menu opens under it. */
-  function menuFrom(e: MouseEvent) {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect(), s = stage.getBoundingClientRect();
-    ui = { t: "menu", id: selected!, x: r.left - s.left, y: r.bottom - s.top };
-  }
-  // the add form: inside the box clicked with the Box tool (the system ground when none), at the click
-  let adding = $state<{ parent: string; x: number; y: number } | null>(null);
-  const addParent = $derived(adding ? byId.get(adding.parent) : undefined);
+  const addParent = $derived(sess.adding ? byId.get(sess.adding.parent) : undefined);
   function clickCapture(e: MouseEvent) {
     if (swallow) {
       swallow = false;
     } else if (edit && tool.current === "box") {
       const id = ((e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;
       const r = stage.getBoundingClientRect();
-      adding = { parent: id && byId.has(id) ? id : ROOT, x: e.clientX - r.left, y: e.clientY - r.top };
+      sess.adding = { parent: id && byId.has(id) ? id : ROOT, x: e.clientX - r.left, y: e.clientY - r.top };
     } else return;
     e.stopPropagation();
     e.preventDefault();
   }
   function add(a: { kind: BoxKind; name: string; at: string[] }) {
-    const parent = adding!.parent;
-    adding = null;
+    const parent = sess.adding!.parent;
+    sess.adding = null;
     tool.current = "select";
     run(edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null }));
   }
@@ -459,7 +408,7 @@
     <!-- a part box shows its list once it is near; code waits for more room -->
     {@const reads = !open && (!!source || !!list) && (showsInside(sw) || (!!list && detailFor(sw) === "near"))}
     {@const anatomy = anatomies.get(b.id)?.map((k) => ({ title: k.title.value, parts: view.parts?.[k.id] ?? [] }))}
-    <div class="slot" class:target={aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path && !path.boxes.includes(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
+    <div class="slot" class:target={sess.aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path && !path.boxes.includes(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
       <MapBox box={b} look={look(b.id, view.marks, on, b)} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)} />
@@ -482,11 +431,11 @@
   {/each}
 {/snippet}
 
-<svelte:window onpointermove={move} onpointerup={up} onkeydown={key} />
+<svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={(e) => sess.outside(e)} onkeydown={key} />
 
 <!-- the dot grid pans with the world; it keeps its size at any zoom -->
 <div class="map" bind:clientWidth={cw} bind:clientHeight={ch} style:background-position="{base.x}px {base.y}px">
-  <div class="stage" bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture} oncontextmenu={menuAt}
+  <div class="stage" bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture} oncontextmenu={(e) => sess.menuAt(e)}
     onpointerover={over} onpointerleave={() => (hot = hotArrow = null)}>
     <div class="world" style:transform="translate({base.x}px, {base.y}px) scale({base.k})">{@render level(anchor)}</div>
   </div>
@@ -499,37 +448,16 @@
     {/snippet}
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
-  {#if edit && adding}
-    <AddBox parentTitle={addParent?.title.value ?? view.boxes.find((b) => b.id === ROOT)?.title.value ?? ROOT} system={adding.parent === ROOT}
-      globs={addParent?.madeOf ?? []} x={adding.x} y={adding.y} onadd={add} onclose={() => (adding = null)} />
+  {#if edit && sess.adding}
+    <AddBox parentTitle={addParent?.title.value ?? view.boxes.find((b) => b.id === ROOT)?.title.value ?? ROOT} system={sess.adding.parent === ROOT}
+      globs={addParent?.madeOf ?? []} x={sess.adding.x} y={sess.adding.y} onadd={add} onclose={() => sess.cancel()} />
   {/if}
-  {#if edit && (link || ui?.t === "arrow")}
-    <ArrowDraw line={band} pick={ui?.t === "arrow" ? { from: titleOf(ui.from), to: titleOf(ui.to), x: ui.x, y: ui.y } : undefined}
-      onpick={(kind, label) => {
-        const u = ui as Extract<Ui, { t: "arrow" }>;
-        ui = null;
-        tool.current = "select";
-        run(edit.apply({ op: "arrow", from: u.from, to: u.to, kind, label }));
-      }} onclose={() => (ui = null)} />
-  {/if}
-  {#if edit && ui && ui.t !== "arrow"}
-    {@const id = ui?.id ?? ""}
-    {#if ui.t === "menu"}
-      <BoxMenu x={ui.x} y={ui.y} title={titleOf(id)} onpick={(a) => act(a, id, { x: ui!.x, y: ui!.y })} onclose={() => (ui = null)} />
-    {:else if ui.t === "rename"}
-      <RenameBox value={titleOf(id)} x={ui.x} y={ui.y} w={frameOf(id).w * cam.k} onclose={() => (ui = null)}
-        onsubmit={(v) => settle((id) => v && v !== titleOf(id) ? { op: "set", id, key: "title", value: v } : null)} />
-    {:else}
-      <MovePicker title={titleOf(id)} x={ui.x} y={ui.y} onclose={() => (ui = null)}
-        options={parentsFor(view.boxes, id, ROOT).map((b) => ({ id: b.id, title: b.title.value, kind: b.kind.value }))}
-        onpick={(parent) => settle((id) => ({ op: "move", id, parent, before: null }))} />
-    {/if}
-  {/if}
+  {#if edit}<EditLayer s={sess} boxes={view.boxes} root={ROOT} />{/if}
   {#if reading}
     <p class="reading">Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
-    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? menuFrom : undefined} />
+    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} />
   {/if}
 </div>
 

@@ -25,7 +25,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div role="dialog" tabindex="-1" aria-label="Move {title} to" bind:this={box} style:left="{x}px" style:top="{y}px" onkeydown={keydown}>
+<div role="dialog" data-popover tabindex="-1" aria-label="Move {title} to" bind:this={box} style:left="{x}px" style:top="{y}px" onkeydown={keydown}>
   <b>Move {title} to</b>
   <input bind:this={field} bind:value={q} placeholder="Search boxes" aria-label="Search boxes" autocomplete="off" spellcheck="false" />
   {#if shown.length}

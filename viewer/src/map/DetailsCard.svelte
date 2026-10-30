@@ -40,7 +40,8 @@
   $effect(() => {
     void box.id;
     allPaths = false;
-    card.focus({ preventScroll: true });
+    // a menu opened by right-click keeps the focus it took
+    if (!document.activeElement?.closest?.("[data-popover]")) card.focus({ preventScroll: true });
   });
 </script>
 
