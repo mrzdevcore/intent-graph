@@ -78,6 +78,22 @@ The user's rule: few features, built very well.
 - **Migration:** `.ig/map.json` (today's committed map) is converted once into `ig.kdl`, keeping its
   readings, pins and corrections; then it is no longer written.
 
+## What a spike showed (2026-10-30, `kdl` crate)
+
+- Parse then print gives back the identical text; a deleted node takes its own comment with it.
+- Whitespace belongs to nodes: the line break after a `{` is part of the first child's `leading`,
+  each node ends with its `terminator`, and nodes built in code have neither. Inserts, deletes and
+  moves therefore need a small tidy step on the edited block (about 15 lines in the spike: first
+  child starts with a line break, every node ends its line, comment lines take the block's
+  indentation; a moved subtree is re-indented to its new depth).
+- `-> stripe` and `calls -> stripe` are valid KDL v2 (a node named `->`), so arrows have room to
+  grow if wanted; `calls stripe` stays the form.
+- `kdl` 6.7.1 needs Rust 1.95; 6.5.0 works on 1.93. Pin the version the toolchain supports, or
+  raise the toolchain. Its KQL query functions are commented out in 6.x: selectors are ig's own.
+- Claude wrote valid KDL v2 in 8 of 8 tries; with an example in the prompt it followed ig's shape
+  exactly, without one it invented its own (`path=` for `at=`, extra grouping nodes). ig gives
+  Claude an example and validates every write.
+
 ## Truth and drift: the verbs
 
 - **`ig init`** (or the first run in a repo without `ig.kdl`) writes the file from the code, so the
