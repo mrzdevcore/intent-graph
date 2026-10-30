@@ -295,6 +295,11 @@
       if (selected && !camera.moving && !trail.includes(selected) && !under(selected, at)) selected = null;
     });
   });
+  // a reload can drop the selected box or the lit path's boxes
+  $effect(() => {
+    if (selected && !byId.has(selected)) selected = null;
+    if (traced && !traced.boxes.every((id) => byId.has(id))) traced = null;
+  });
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
 
   /** A box's inner space inside its own frame, below its header (as place.inside, locally). */

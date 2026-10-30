@@ -1,6 +1,7 @@
-<!-- The app: a header, the map (in `ig view`; the desktop app keeps an empty `#map` for now) and, in the desktop app, the chat. -->
+<!-- The app: a header, the map (reloaded on every rebuild in the desktop app) and, in the desktop app, the chat. -->
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onDestroy, untrack } from "svelte";
+  import type { View } from "../map/types";
   import type { IgApi } from "../api";
   import { ChatSession } from "./chat/session.svelte";
   import Chat from "./chat/Chat.svelte";
@@ -10,6 +11,28 @@
 
   let hint = $state("");
   const msg = (e: unknown) => String((e as Error)?.message ?? e);
+
+  // The map: loaded once, then again on every rebuild. A newer load wins; a failed reload keeps the last map.
+  let view = $state<View | null>(null);
+  let loadError = $state("");
+  let latest = 0;
+  async function load() {
+    const n = ++latest;
+    try {
+      const v = await host.view!();
+      if (n === latest) { view = v; if (hint === lastErr) hint = ""; lastErr = ""; }
+    } catch (e) {
+      if (n !== latest) return;
+      if (view) hint = lastErr = msg(e); else loadError = msg(e);
+    }
+  }
+  let lastErr = "";
+  const host = untrack(() => api);
+  if (host.view) {
+    void load();
+    const off = host.onRebuild?.(() => void load());
+    onDestroy(() => { off?.(); latest = Infinity; });
+  }
 
   /** The chat (desktop app only), docked on the right; "Chat" in the header hides it. */
   let chatOpen = $state(true);
@@ -28,9 +51,7 @@
 </header>
 <main>
   <div id="map">
-    {#if api.view}
-      {#await api.view() then view}<Map {view} />{:catch e}<p class="map-error">Could not read the map: {msg(e)}</p>{/await}
-    {/if}
+    {#if view}<Map {view} />{:else if loadError}<p class="map-error">Could not read the map: {loadError}</p>{/if}
   </div>
   {#if chatApi}
     <aside id="chat" hidden={!chatOpen}>
