@@ -235,6 +235,16 @@ vocabulary.
 - An old map that stops reading, or a rename ig does without the user seeing it.
 - Kinds whose meaning lives in their name only: every kind has a one-line meaning Claude reads.
 
+## Each kind looks like what it is (added with the user)
+
+Run blocks get a shape of their own, so a map reads at a glance: `store` a cylinder, `queue` a
+pipe, `service` a plain rounded box, `app` a window frame (a terminal frame for a CLI), `job` a box
+marked as running then exiting, `model` and `agent` shapes that set AI apart, `external` a dashed
+outline, `person` a figure (as today), `group` a thin dotted frame with its name on the edge.
+Design blocks stay cards with their icons. Shape says the kind; colour keeps saying the status
+(built, to build, drift). Every shape keeps the same footprint, so the layout is unchanged. A
+team's kind takes its base's shape. The shapes are sketched and approved on the canvas first.
+
 ## Design before code
 
 The add-box form (kinds grouped as "runs" / "inside", each with its one-line meaning and icon), the
