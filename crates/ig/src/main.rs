@@ -10,7 +10,7 @@ mod tests;
 use anyhow::{Result, bail};
 use cli::{USAGE, parse_args};
 use ig_app::map::agent::{Agent, Ask};
-use ig_app::map::view;
+use ig_app::map::{origin, view};
 // `crate::model` for the modules (and their tests) that name model types.
 use ig_core::model;
 use ig_wire::Wired;
@@ -32,10 +32,6 @@ fn removed() -> Option<u8> {
         Some("hook") => {
             eprintln!("ig hook was removed; delete ig's Stop hook from .claude/settings.json");
             Some(0)
-        }
-        Some("check") => {
-            eprintln!("ig check was removed in this version; run ig view");
-            Some(2)
         }
         _ => None,
     }
@@ -101,6 +97,24 @@ fn real_main() -> Result<u8> {
             // after the page: `.ig/` may not exist before it
             render::ignore_ig_dir(&root)?;
             Ok(0)
+        }
+        "plan" | "check" => {
+            let v = view::run(&env)?;
+            for n in &v.notices {
+                eprintln!("ig: {n}");
+            }
+            if v.broken {
+                return Ok(2);
+            }
+            let p = origin::plan_of(&v.boxes, &v.arrows);
+            println!(
+                "ig plan: {} to build, {} drift",
+                p.build.len(),
+                p.drift.len()
+            );
+            p.build.iter().chain(&p.drift).for_each(|l| println!("{l}"));
+            let open = !p.build.is_empty() || !p.drift.is_empty();
+            Ok(u8::from(a.cmd == "check" && open))
         }
         "mcp" => {
             mcp::serve(&root)?;
