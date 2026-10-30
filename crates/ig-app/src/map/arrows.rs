@@ -217,6 +217,75 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
     out
 }
 
+/// `arrows` as drawn: each end lifted to the child of the arrow's parent that holds it, so an
+/// arrow between boxes at different depths (a spec's `integrations/gmail -> gmail`) starts and
+/// ends at boxes of the level it is drawn in. Lifted arrows of one origin that land on the same
+/// pair merge (a bundle when their kinds differ) under the first one's id; an arrow already
+/// between boxes of its level is left as it is.
+pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArrow> {
+    let up = |id: &str, parent: &str| -> Option<String> {
+        let mut id = id.to_string();
+        for _ in 0..=parents.len() {
+            let p = *parents.get(id.as_str())?;
+            if p == parent {
+                return Some(id);
+            }
+            id = p.to_string();
+        }
+        None
+    };
+    let mut out = vec![];
+    let mut pairs: BTreeMap<(String, String, String, String), Vec<MapArrow>> = BTreeMap::new();
+    for mut a in arrows {
+        let (Some(from), Some(to)) = (up(&a.from, &a.parent), up(&a.to, &a.parent)) else {
+            continue;
+        };
+        if (from.as_str(), to.as_str()) == (a.from.as_str(), a.to.as_str()) {
+            out.push(a);
+        } else if from != to {
+            let key = (
+                a.parent.clone(),
+                from.clone(),
+                to.clone(),
+                format!("{:?}", a.origin),
+            );
+            (a.from, a.to) = (from, to);
+            pairs.entry(key).or_default().push(a);
+        }
+    }
+    out.extend(pairs.into_values().map(|mut list| {
+        if list.len() == 1 {
+            return list.pop().unwrap();
+        }
+        let mut kinds: Vec<ArrowKind> = list.iter().flat_map(|a| a.kinds.clone()).collect();
+        kinds.sort();
+        kinds.dedup();
+        let bundle = kinds.len() > 1;
+        let label = bundle.then(|| {
+            (NOUNS.iter())
+                .filter_map(|(k, noun)| {
+                    let n = list.iter().filter(|a| a.kinds.contains(k)).count();
+                    (n > 0).then(|| format!("{n} {noun}{}", if n > 1 { "s" } else { "" }))
+                })
+                .collect::<Vec<_>>()
+                .join(" · ")
+        });
+        let count = list.iter().map(|a| a.count.max(1)).sum();
+        let in_loop = list.iter().any(|a| a.in_loop);
+        let first = list.swap_remove(0);
+        MapArrow {
+            kind: if bundle { ArrowKind::Bundle } else { kinds[0] },
+            label: label.or(first.label.clone().filter(|_| list.is_empty())),
+            count,
+            kinds,
+            in_loop,
+            ..first
+        }
+    }));
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +369,65 @@ mod tests {
         assert_eq!(a[0].label.as_deref(), Some("3 calls · 1 import"));
         assert_eq!(a[0].count, 4);
         assert_eq!(a[0].kinds, [ArrowKind::Depends, ArrowKind::Calls]);
+    }
+
+    fn arrow(from: &str, to: &str, parent: &str, kind: ArrowKind) -> MapArrow {
+        MapArrow {
+            id: format!("{from}->{to}"),
+            parent: parent.into(),
+            from: from.into(),
+            to: to.into(),
+            kind,
+            label: None,
+            count: 0,
+            kinds: vec![kind],
+            in_loop: false,
+            origin: Default::default(),
+        }
+    }
+
+    #[test]
+    fn arrows_between_depths_are_drawn_between_the_boxes_of_their_level() {
+        let parents: HashMap<&str, &str> = [
+            ("ad", "system"),
+            ("ad/gmail", "ad"),
+            ("ad/sqlite", "ad"),
+            ("agent", "system"),
+            ("agent/ports", "agent"),
+            ("agent/cli", "agent"),
+            ("gmail", "system"),
+            ("me", "system"),
+        ]
+        .into();
+        let a = lift(
+            &parents,
+            vec![
+                arrow("ad/gmail", "gmail", "system", ArrowKind::Network),
+                arrow("ad/gmail", "agent/ports", "system", ArrowKind::Implements),
+                arrow("ad/sqlite", "agent/ports", "system", ArrowKind::Implements),
+                arrow("ad/sqlite", "agent/cli", "system", ArrowKind::Calls),
+                arrow("ad", "agent", "system", ArrowKind::Depends),
+                arrow("me", "agent/cli", "system", ArrowKind::Uses),
+                arrow("agent/cli", "agent/ports", "agent", ArrowKind::Uses),
+            ],
+        );
+        let ends: Vec<(&str, &str, &str)> = (a.iter())
+            .map(|a| (a.id.as_str(), a.from.as_str(), a.to.as_str()))
+            .collect();
+        assert_eq!(
+            ends,
+            [
+                ("ad->agent", "ad", "agent"),
+                ("ad/gmail->agent/ports", "ad", "agent"),
+                ("ad/gmail->gmail", "ad", "gmail"),
+                ("agent/cli->agent/ports", "agent/cli", "agent/ports"),
+                ("me->agent/cli", "me", "agent"),
+            ]
+        );
+        // the direct `depends` stays as written; the three lifted ones merge into one bundle
+        assert_eq!(a[0].kind, ArrowKind::Depends);
+        assert_eq!(a[1].kind, ArrowKind::Bundle);
+        assert_eq!(a[1].label.as_deref(), Some("1 call · 2 implementations"));
+        assert_eq!(a[1].count, 3);
     }
 }
