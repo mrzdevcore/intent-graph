@@ -2,7 +2,7 @@
 //! nothing partial is returned. Every field read is a person's and pinned.
 
 use super::DIR;
-use crate::map::file::{Field, MapBox, MapFile, PINNABLE, Source, validate};
+use crate::map::file::{Field, MapBox, MapFile, PINNABLE, Source, validate_spec};
 use crate::map::{ArrowKind, BoxKind, Level, MapArrow, Pattern};
 use globset::GlobBuilder;
 use ig_core::ports::Files;
@@ -310,7 +310,7 @@ impl Reader {
             arrows,
             marks: vec![],
         };
-        validate(&m).map_err(|e| {
+        validate_spec(&m).map_err(|e| {
             e.into_iter()
                 .map(|x| format!("{DIR}/: {x}"))
                 .collect::<Vec<_>>()

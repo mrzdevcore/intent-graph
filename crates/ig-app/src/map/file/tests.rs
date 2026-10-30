@@ -240,6 +240,20 @@ fn validate_checks_slots_and_globs() {
 }
 
 #[test]
+fn only_the_spec_lets_a_component_keep_another_containers_prefix() {
+    let mut m = shop();
+    let web = m.boxes.iter().find(|b| b.id == "web").unwrap().id.clone();
+    get_mut(&mut m, "api/routers").parent = Some(web);
+    get_mut(&mut m, "api/routers").slot = None; // web has no pattern
+    let e = validate(&m).unwrap_err();
+    assert!(
+        e.iter().any(|e| e.contains("`api/routers` is not a slug")),
+        "{e:?}"
+    );
+    assert_eq!(validate_spec(&m), Ok(()));
+}
+
+#[test]
 fn save_is_stable() {
     let files = MemFiles::default();
     let mut m = shop();

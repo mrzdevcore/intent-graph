@@ -258,7 +258,7 @@ fn removing_a_first_child_keeps_the_block_shaped() {
 }
 
 #[test]
-fn move_a_component_to_another_container_rekeys_it_and_its_arrows() {
+fn move_a_component_to_another_container_keeps_its_id_and_arrows() {
     let inv = check(
         Edit::Move {
             id: "api/orders".into(),
@@ -278,7 +278,7 @@ app "api" title="Api" {
     // checkout
     usecase "api/checkout" title="Checkout" {
         at "apps/api/src/checkout/**"
-        uses "web/orders"
+        uses "api/orders"
     }
     // more to come
 }
@@ -292,7 +292,7 @@ app "api" title="Api" {
                     r#"app "web" title="Web" {
     at "apps/web/**"
     uses "api"
-    usecase "web/orders" title="Orders" // the orders
+    usecase "api/orders" title="Orders" // the orders
 }
 "#
                 ),
@@ -302,11 +302,26 @@ app "api" title="Api" {
     assert_eq!(
         inv,
         Edit::Move {
-            id: "web/orders".into(),
+            id: "api/orders".into(),
             parent: "api".into(),
             before: None,
         }
     );
+    // the moved spec reads back: the box sits in web, the arrow still points at it
+    let f = spec();
+    apply(
+        &f,
+        &Edit::Move {
+            id: "api/orders".into(),
+            parent: "web".into(),
+            before: None,
+        },
+    )
+    .unwrap();
+    let m = spec::read(&f).unwrap().unwrap();
+    let b = m.boxes.iter().find(|b| b.id == "api/orders").unwrap();
+    assert_eq!(b.parent.as_deref(), Some("web"));
+    assert!(m.arrows.iter().any(|a| a.id == "api/checkout->api/orders"));
 }
 
 #[test]
@@ -356,7 +371,7 @@ fn rename_takes_the_arrows_pointing_at_it() {
 }
 
 #[test]
-fn renaming_a_container_takes_its_components_and_its_file() {
+fn renaming_a_container_takes_its_file_and_leaves_its_components_ids() {
     check(
         Edit::Rename {
             id: "api".into(),
@@ -364,7 +379,7 @@ fn renaming_a_container_takes_its_components_and_its_file() {
         },
         &[
             ("ig/api.kdl", ""),
-            ("ig/core.kdl", &API.replace("\"api", "\"core")),
+            ("ig/core.kdl", &API.replace("app \"api\"", "app \"core\"")),
             (
                 "ig/system.kdl",
                 &SYS.replace("uses \"api\"", "uses \"core\""),

@@ -422,6 +422,18 @@ pub(crate) fn slots(p: Option<&Pattern>) -> Vec<&str> {
 /// Every problem with the map: version, ids, parents and levels, lengths, globs, slots,
 /// children counts, pins.
 pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
+    check(m, true)
+}
+
+/// `validate` for a map read from the spec in `ig/`: a component's id is a slug path
+/// (`api/orders`) that need not start with its container's id, so that it stays the same
+/// when the component moves.
+pub fn validate_spec(m: &MapFile) -> Result<(), Vec<String>> {
+    check(m, false)
+}
+
+/// `prefixed`: a component's id is `<container>/<slug>`.
+fn check(m: &MapFile, prefixed: bool) -> Result<(), Vec<String>> {
     let mut errs = vec![];
     let by_id: BTreeMap<&str, &MapBox> = m.boxes.iter().map(|b| (b.id.as_str(), b)).collect();
     if by_id.len() != m.boxes.len() {
@@ -437,7 +449,7 @@ pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
         let ok = match (b.level, b.parent.as_deref()) {
             (Level::Component | Level::Code, Some(p)) => id
                 .split_once('/')
-                .is_some_and(|(c, s)| c == p && is_slug(c) && is_slug(s)),
+                .is_some_and(|(c, s)| (c == p || !prefixed) && is_slug(c) && is_slug(s)),
             _ => is_slug(id),
         };
         if !ok {
