@@ -270,25 +270,18 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     Ok(v)
 }
 
-/// The spec at HEAD: today's `ig/*.kdl`, `ig/system.kdl` and the `ig/*.kdl` changed since (a
-/// renamed or deleted one) as committed; None without a commit or when it does not read.
+/// The spec at HEAD: the `ig/*.kdl` committed there, read in one batch; None without a commit
+/// or when it does not read.
 fn prior(env: &Env) -> Option<MapFile> {
     let vcs = env.vcs?;
     let head = vcs.head()?;
-    let mut paths: BTreeSet<String> = (env.files.glob(&[format!("{}/*.kdl", spec::DIR)]).ok()?)
-        .into_iter()
+    let texts: Vec<(String, Option<String>)> = (vcs.show_dir(&head, spec::DIR).into_iter())
+        .filter(|(p, _)| p.ends_with(".kdl"))
+        .map(|(p, t)| (p, Some(t)))
         .collect();
-    paths.insert(format!("{}/system.kdl", spec::DIR));
-    let pre = format!("{}/", spec::DIR);
-    paths.extend(
-        (vcs.changed_files(Some(&head), &mut vec![]).into_iter()).filter(|p| {
-            p.strip_prefix(&pre)
-                .is_some_and(|f| !f.contains('/') && f.ends_with(".kdl"))
-        }),
-    );
-    let texts = (paths.into_iter())
-        .filter_map(|p| vcs.show(&head, &p).map(|t| (p, Some(t))))
-        .collect();
+    if texts.is_empty() {
+        return None;
+    }
     spec::parse(texts).ok()
 }
 
