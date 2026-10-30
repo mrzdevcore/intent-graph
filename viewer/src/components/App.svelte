@@ -13,7 +13,7 @@
   const msg = (e: unknown) => String((e as Error)?.message ?? e);
 
   // The map: loaded once, then again on every rebuild. A newer load wins; a failed reload keeps the last map.
-  let view = $state<View | null>(null);
+  let view = $state.raw<View | null>(null);
   let loadError = $state("");
   let latest = 0;
   async function load() {
@@ -27,6 +27,18 @@
     }
   }
   let lastErr = "";
+  // an edit's view wins over any older load in flight
+  function onview(v: View) { latest++; view = v; }
+  // a refused edit (dropAll may have dropped some first): read the map again, and let the caller show why
+  const guard = (p: Promise<View>) => p.catch((e) => { void load(); throw e; });
+  const edit = untrack(() => {
+    const e = api.edit;
+    return e && {
+      apply: (x: Parameters<typeof e.apply>[0]) => guard(e.apply(x)), keep: (n?: number) => guard(e.keep(n)),
+      drop: (n: number) => guard(e.drop(n)), dropAll: () => guard(e.dropAll()),
+      undo: () => guard(e.undo()), redo: () => guard(e.redo()),
+    };
+  });
   const host = untrack(() => api);
   if (host.view) {
     void load();
@@ -51,7 +63,7 @@
 </header>
 <main>
   <div id="map">
-    {#if view}<Map {view} />{:else if loadError}<p class="map-error">Could not read the map: {loadError}</p>{/if}
+    {#if view}<Map {view} {edit} {onview} />{:else if loadError}<p class="map-error">Could not read the map: {loadError}</p>{/if}
   </div>
   {#if chatApi}
     <aside id="chat" hidden={!chatOpen}>

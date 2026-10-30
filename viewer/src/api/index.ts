@@ -1,7 +1,7 @@
 // How the viewer reaches its host. Two hosts: `ig view`'s page, which has only the embedded map,
 // and the desktop app (Tauri): the trust gate, the agent and links.
 
-import type { View } from "../map/types";
+import type { Edit, View } from "../map/types";
 import { embedded } from "./embedded";
 import { tauri } from "./tauri";
 
@@ -98,6 +98,16 @@ export interface AgentApi {
   onEvent(cb: (e: AgentEvent) => void): () => void;
 }
 
+/** Edits to the architecture map (desktop only). Each resolves with the fresh view, or rejects with the reader's message. */
+export interface EditApi {
+  apply(edit: Edit): Promise<View>;
+  keep(n?: number): Promise<View>;
+  drop(n: number): Promise<View>;
+  dropAll(): Promise<View>;
+  undo(): Promise<View>;
+  redo(): Promise<View>;
+}
+
 /** Desktop app members are absent in `ig view`'s page, which has only `view`. */
 export interface IgApi {
   /** The trust gate. Show `Trust.svelte` before starting an agent unless `trusted`. */
@@ -108,6 +118,8 @@ export interface IgApi {
   agent?: AgentApi;
   /** Opens an http(s) link in the system browser. */
   openUrl?(url: string): Promise<void>;
+  /** Edit the map. */
+  edit?: EditApi;
   /** The map (both hosts). */
   view?(): Promise<View>;
   /** The project's files changed and the host rebuilt (desktop only): read `view` again. Returns the unsubscribe. */

@@ -25,6 +25,14 @@ export function tauri(): IgApi {
     trustProject: (hash) => invoke<void>("trust_project", { hash }),
     view: () => invoke<View>("view_data"),
     onRebuild: (cb) => subscribe<void>("rebuild", () => cb()),
+    edit: {
+      apply: (edit) => invoke<View>("edit_apply", { edit }),
+      keep: (n) => invoke<View>("edit_keep", { n }),
+      drop: (n) => invoke<View>("edit_drop", { n }),
+      dropAll: () => invoke<View>("edit_drop_all"),
+      undo: () => invoke<View>("edit_undo"),
+      redo: () => invoke<View>("edit_redo"),
+    },
     openUrl: (url) => invoke<void>("open_url", { url }),
     agent: {
       start: (feature) => invoke<string>("agent_start", { feature }),
