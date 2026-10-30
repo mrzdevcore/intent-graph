@@ -148,6 +148,7 @@ fn drop_checks_each_kind_of_edit_still_holds() {
         id: "api/orders".into(),
         parent: p.into(),
         before: None,
+        slot: None,
     };
     let arrow = Edit::Arrow {
         from: "web".into(),

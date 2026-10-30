@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 
 pub(crate) mod fmt;
 pub mod journal;
+mod moves;
 pub(crate) mod tidy;
 pub use fmt::fmt;
 
@@ -29,11 +30,14 @@ pub enum Edit {
     Remove {
         id: String,
     },
-    /// The id stays: arrows pointing at it still resolve.
+    /// The id stays: arrows pointing at it still resolve. A slot the new parent does not offer
+    /// is cleared; `slot` (only in an inverse) is set after the move.
     Move {
         id: String,
         parent: String,
         before: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        slot: Option<String>,
     },
     /// The id; arrows pointing at it follow. A container's components keep theirs.
     Rename {
@@ -301,29 +305,12 @@ impl Spec {
                 self.settle(parent)?;
                 Ok(inverse)
             }
-            Edit::Move { id, parent, before } => {
-                let loc = self.must(id)?;
-                self.must(parent)?;
-                let mut up = Some(parent.clone());
-                while let Some(p) = up {
-                    if p == *id {
-                        return Err(format!("cannot move `{id}` into itself or below it"));
-                    }
-                    up = self.find(&p).and_then(|l| self.parent(&l));
-                }
-                let old = self.parent(&loc).ok_or("the system cannot be moved")?;
-                let (n, was) = self.take(&loc);
-                let (loc, i) = self.place(parent, before.as_deref())?;
-                self.put(&loc, i, n);
-                for c in [&old, parent, id] {
-                    self.settle(c)?;
-                }
-                Ok(Edit::Move {
-                    id: id.clone(),
-                    parent: old,
-                    before: was,
-                })
-            }
+            Edit::Move {
+                id,
+                parent,
+                before,
+                slot,
+            } => self.mv(id, parent, before.as_deref(), slot.as_deref()),
             Edit::Rename { id, to } => {
                 let loc = self.must(id)?;
                 self.unused(to)?;

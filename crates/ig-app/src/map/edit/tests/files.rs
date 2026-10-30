@@ -52,6 +52,7 @@ fn files_that_gain_nodes_are_written_first_system_kdl_last_then_deletions() {
             id: "api/orders".into(),
             parent: "web".into(),
             before: None,
+            slot: None,
         },
     )
     .unwrap();

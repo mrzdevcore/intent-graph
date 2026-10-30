@@ -198,7 +198,7 @@ fn pattern(p: &Pattern) -> KdlNode {
     }
 }
 
-mod read;
+pub(crate) mod read;
 pub use read::{parse, read};
 
 #[cfg(test)]
