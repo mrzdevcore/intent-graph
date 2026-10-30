@@ -174,7 +174,11 @@ fn format(t: &str) -> String {
             out.push('\n');
         }
         gap = false;
-        let d = if closes { depth.saturating_sub(1) } else { depth };
+        let d = if closes {
+            depth.saturating_sub(1)
+        } else {
+            depth
+        };
         out.push_str(&"    ".repeat(d));
         out.push_str(body);
         opens = body.trim_end().ends_with('{');

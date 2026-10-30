@@ -51,7 +51,10 @@ fn fmt_reindents_and_keeps_every_comment() {
     assert_eq!(texts(&f)["ig/system.kdl"], MANGLED, "check writes nothing");
     assert_eq!(fmt(&f, true).unwrap(), vec!["ig/system.kdl".to_string()]);
     assert_eq!(texts(&f)["ig/system.kdl"], FORMATTED);
-    assert!(fmt(&f, false).unwrap().is_empty(), "formatted stays formatted");
+    assert!(
+        fmt(&f, false).unwrap().is_empty(),
+        "formatted stays formatted"
+    );
 }
 
 #[test]

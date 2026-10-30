@@ -91,7 +91,11 @@ fn fmt_fixes_indentation_and_keeps_comments() {
     std::fs::write(&p, &mangled).unwrap();
     let out = run_ig(&dir, &["fmt", "--check"]);
     assert_eq!(out.code, 1, "{}{}", out.stdout, out.stderr);
-    assert!(out.stdout.contains("would format ig/system.kdl"), "{}", out.stdout);
+    assert!(
+        out.stdout.contains("would format ig/system.kdl"),
+        "{}",
+        out.stdout
+    );
     assert_eq!(
         std::fs::read_to_string(&p).unwrap(),
         mangled,

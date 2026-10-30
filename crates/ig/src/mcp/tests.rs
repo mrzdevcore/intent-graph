@@ -210,10 +210,7 @@ fn batch_stops_at_first_error_and_says_earlier_stay() {
     let r = call_tool(&dir, "ig_edit", json!({"edits": [ok, bad]}));
     assert_eq!(r["isError"], true, "{r}");
     assert!(text(&r).contains("edit 2"), "{r}");
-    assert!(
-        text(&r).contains("journal entry 1 stays recorded"),
-        "{r}"
-    );
+    assert!(text(&r).contains("journal entry 1 stays recorded"), "{r}");
     assert!(
         std::fs::read_to_string(dir.join("ig/system.kdl"))
             .unwrap()
