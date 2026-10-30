@@ -1,5 +1,5 @@
 //! `ig view --read` with a spec in `ig/`: the AI reading of the drift and of the spec boxes with
-//! no description, recorded as `reading` edits for the person to keep or drop.
+//! no description, recorded as `reading` edits for the person to review.
 
 use super::super::Level;
 use super::super::agent::{Agent, Ask, Evidence, NO_AGENT, read};
@@ -12,7 +12,7 @@ use ig_core::ports::Files;
 use std::collections::{BTreeSet, HashMap};
 
 /// Reads `cm` (the compared map) and records what the reading changed, by box id; the notices.
-/// A reading that fails records nothing; an edit that cannot be recorded stops the rest.
+/// A reading that fails records nothing; an edit that cannot be recorded is skipped and named.
 pub fn propose(
     a: &mut Ask,
     cm: &MapFile,
@@ -108,18 +108,23 @@ pub fn propose(
             }
         }
     }
-    let mut notices = vec![];
+    // each edit stands alone: one that does not record is skipped, the rest still are
+    let mut skipped = vec![];
     let mut n = 0;
     for e in &edits {
-        if let Err(err) = record(files, By::Reading, e) {
-            notices.push(format!(
-                "the AI reading stopped: an edit to {} was not recorded: {}",
-                target(e),
-                err.join("; ")
-            ));
-            break;
+        match record(files, By::Reading, e) {
+            Ok(_) => n += 1,
+            Err(err) => skipped.push(format!("{}: {}", target(e), err.join("; "))),
         }
-        n += 1;
+    }
+    let mut notices = vec![];
+    if !skipped.is_empty() {
+        let k = skipped.len();
+        notices.push(format!(
+            "the AI reading skipped {k} edit{} that did not record: {}",
+            if k == 1 { "" } else { "s" },
+            skipped.join("; ")
+        ));
     }
     if n > 0 {
         let edits = if n == 1 {
@@ -128,8 +133,7 @@ pub fn propose(
             format!("{n} edits")
         };
         notices.push(format!(
-            "the AI reading proposed {edits}; keep or drop them in the app, or review with git \
-             diff ig/"
+            "the AI reading proposed {edits}; review with `git diff ig/`"
         ));
     } else if notices.is_empty() {
         notices.push("the AI reading found nothing to propose".into());
@@ -218,7 +222,7 @@ mod tests {
         assert!(!es.is_empty());
         assert!(es.iter().all(|e| e.by == By::Reading && !e.kept), "{es:?}");
         let want = format!(
-            "the AI reading proposed {} edits; keep or drop them in the app, or review with git diff ig/",
+            "the AI reading proposed {} edits; review with `git diff ig/`",
             es.len()
         );
         assert!(v.notices.contains(&want), "{:?}", v.notices);
@@ -294,8 +298,9 @@ mod tests {
             ))
         });
         assert!(
-            v.notices.iter().any(|n| n
-                == "the AI reading proposed 1 edit; keep or drop them in the app, or review with git diff ig/"),
+            v.notices
+                .iter()
+                .any(|n| n == "the AI reading proposed 1 edit; review with `git diff ig/`"),
             "{:?}",
             v.notices
         );
@@ -335,5 +340,42 @@ mod tests {
             "{:?}",
             v.notices
         );
+    }
+
+    #[test]
+    fn an_edit_that_does_not_record_is_skipped_and_named() {
+        // the package's file gone: its code is drift at `**`, which no box but the system takes
+        let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
+        super::super::run(&env(&files, None, &Fake)).unwrap();
+        for p in files.glob(&["ig/*.kdl".into()]).unwrap() {
+            if !p.ends_with("/system.kdl") {
+                files.remove(&p).unwrap();
+            }
+        }
+        let v = read(&files, &describe);
+        let (es, _) = entries(&files);
+        // the system's description still recorded, after the drift's Add failed
+        assert!(
+            es.iter().any(|e| matches!(&e.edit,
+                Edit::Set { key, value: Some(d), .. } if key == "description" && d == "What it does")),
+            "{:?} {es:?}",
+            v.notices
+        );
+        assert!(
+            es.iter().all(|e| !matches!(&e.edit, Edit::Add { .. })),
+            "{es:?}"
+        );
+        let skipped = v
+            .notices
+            .iter()
+            .find(|n| n.starts_with("the AI reading skipped"));
+        let skipped = skipped.unwrap_or_else(|| panic!("{:?}", v.notices));
+        assert!(skipped.contains("claims `**`"), "{skipped}");
+        let n = es.len();
+        let want = match n {
+            1 => "the AI reading proposed 1 edit; review with `git diff ig/`".to_string(),
+            n => format!("the AI reading proposed {n} edits; review with `git diff ig/`"),
+        };
+        assert!(v.notices.contains(&want), "{:?}", v.notices);
     }
 }
