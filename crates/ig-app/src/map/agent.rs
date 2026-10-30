@@ -163,6 +163,8 @@ pub struct Evidence {
     systems: BTreeMap<String, BTreeSet<String>>,
     /// Box → ig's kind for it, when ig's facts (folders, files) gave one.
     kinds: BTreeMap<String, BoxKind>,
+    /// The map is read from the spec: its component ids need not start with their container's.
+    spec: bool,
 }
 
 impl Evidence {
@@ -190,7 +192,13 @@ impl Evidence {
             by_file,
             systems,
             kinds,
+            spec: false,
         }
+    }
+
+    /// For a map read from the spec (`file::annotate_spec` checks the reading).
+    pub fn for_spec(self) -> Self {
+        Evidence { spec: true, ..self }
     }
 
     /// The outside packages `b`'s files import (a blueprint system: its packages in use).
@@ -435,7 +443,11 @@ fn apply(m: &mut MapFile, reply: &str, ev: &Evidence) -> Result<usize, Vec<Strin
     let json =
         extract(reply).ok_or_else(|| vec![format!("the answer has no {OPEN}…{CLOSE} block")])?;
     let json = &as_list(json);
-    file::annotate(m, json)?;
+    if ev.spec {
+        file::annotate_spec(m, json)?;
+    } else {
+        file::annotate(m, json)?;
+    }
     upgrade(m, ev);
     let notes: Vec<Value> = serde_json::from_str(json).unwrap_or_default();
     let ids: BTreeSet<&str> = notes.iter().filter_map(|a| a["id"].as_str()).collect();
@@ -443,16 +455,21 @@ fn apply(m: &mut MapFile, reply: &str, ev: &Evidence) -> Result<usize, Vec<Strin
 }
 
 /// A small model often wraps the array: `{"annotations": [...]}` is its array, one annotation
-/// `{"id": ...}` a list of one. Anything else is left for `annotate` to reject.
+/// `{"id": ...}` a list of one. Only the first JSON value counts: a model may write more after
+/// it (gpt-oss through ollama did). Anything else is left for `annotate` to reject.
 fn as_list(json: &str) -> String {
-    match serde_json::from_str::<Value>(json) {
-        Ok(Value::Object(o)) if o.contains_key("id") => {
+    match serde_json::Deserializer::from_str(json)
+        .into_iter::<Value>()
+        .next()
+    {
+        Some(Ok(Value::Object(o))) if o.contains_key("id") => {
             Value::Array(vec![Value::Object(o)]).to_string()
         }
-        Ok(Value::Object(o)) => match o.into_values().find(Value::is_array) {
+        Some(Ok(Value::Object(o))) => match o.into_values().find(Value::is_array) {
             Some(a) => a.to_string(),
             None => json.to_string(),
         },
+        Some(Ok(v)) => v.to_string(),
         _ => json.to_string(),
     }
 }

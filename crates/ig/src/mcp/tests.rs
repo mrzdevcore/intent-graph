@@ -14,7 +14,7 @@ fn protocol_basics() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["ig_state", "ig_show"]);
+    assert_eq!(names, ["ig_state", "ig_show", "ig_plan", "ig_edit"]);
     let r = handle(
         root,
         &json!({"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}}),
@@ -116,8 +116,19 @@ fn ig_state_is_the_last_show() {
 }
 
 #[test]
+fn every_input_schema_is_a_plain_object() {
+    for t in schema::tools().as_array().unwrap() {
+        let s = &t["inputSchema"];
+        assert_eq!(s["type"], "object", "{}", t["name"]);
+        for k in ["oneOf", "anyOf", "allOf"] {
+            assert!(s.get(k).is_none(), "{} has a top-level {k}", t["name"]);
+        }
+    }
+}
+
+#[test]
 fn ig_show_offers_no_architecture_mode() {
-    let t = tools();
+    let t = schema::tools();
     let show = t
         .as_array()
         .unwrap()
@@ -128,4 +139,94 @@ fn ig_show_offers_no_architecture_mode() {
     assert_eq!(modes, &json!(["focus", "chain"]));
     let d = show["description"].as_str().unwrap();
     assert!(d.contains("shown in a later version"), "{d}");
+}
+
+const SPEC: &str = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n}\n";
+
+fn text(r: &Value) -> String {
+    r["content"][0]["text"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn plan_without_spec_writes_nothing() {
+    let dir = crate::tests::tmp_with(&[("a.txt", "x")]);
+    let r = call_tool(&dir, "ig_plan", json!({}));
+    assert!(r.get("isError").is_none(), "{r}");
+    assert!(text(&r).contains("no ig/ yet"), "{r}");
+    assert!(!dir.join("ig").exists() && !dir.join(".ig").exists());
+    let r = call_tool(&dir, "ig_edit", json!({"op": "remove", "id": "x"}));
+    assert_eq!(r["isError"], true);
+    assert!(text(&r).contains("no ig/ yet"), "{r}");
+    assert!(!dir.join("ig").exists());
+}
+
+#[test]
+fn edit_then_plan_records_claude_not_kept() {
+    let dir = crate::tests::tmp_with(&[("ig/system.kdl", SPEC), ("web/a.txt", "x")]);
+    let add = json!({"op": "add", "parent": "shop", "kind": "app", "id": "web", "title": "Web", "at": ["web/**"]});
+    let r = call_tool(&dir, "ig_edit", add);
+    assert!(r.get("isError").is_none(), "{r}");
+    assert_eq!(r["structuredContent"]["recorded"], json!([1]), "{r}");
+    assert!(text(&r).contains("to build: app web"), "{r}");
+    let p = call_tool(&dir, "ig_plan", json!({}));
+    assert!(text(&p).contains("to build: app web"), "{p}");
+    assert!(
+        p["structuredContent"]["build"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|l| l.as_str().unwrap().starts_with("to build: app web"))
+    );
+    let j = std::fs::read_to_string(dir.join(".ig/journal.json")).unwrap();
+    let j: Value = serde_json::from_str(&j).unwrap();
+    assert_eq!(j["entries"][0]["by"], "claude", "{j}");
+    assert_eq!(j["entries"][0]["kept"], false);
+}
+
+#[test]
+fn bad_edit_is_an_error_and_changes_nothing() {
+    let dir = crate::tests::tmp_with(&[("ig/system.kdl", SPEC)]);
+    let bad = json!({"op": "remove", "id": "nope"});
+    let r = call_tool(&dir, "ig_edit", bad);
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap(),
+        SPEC
+    );
+    // restore is not Claude's to make
+    let r = call_tool(
+        &dir,
+        "ig_edit",
+        json!({"op": "restore", "parent": "shop", "kdl": "x"}),
+    );
+    assert_eq!(r["isError"], true, "{r}");
+}
+
+#[test]
+fn batch_stops_at_first_error_and_says_earlier_stay() {
+    let dir = crate::tests::tmp_with(&[("ig/system.kdl", SPEC)]);
+    let ok = json!({"op": "add", "parent": "shop", "kind": "store", "id": "db", "title": "Db", "at": ["db/**"]});
+    let bad = json!({"op": "remove", "id": "nope"});
+    let r = call_tool(&dir, "ig_edit", json!({"edits": [ok, bad]}));
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("edit 2"), "{r}");
+    assert!(text(&r).contains("journal entry 1 stays recorded"), "{r}");
+    assert!(
+        std::fs::read_to_string(dir.join("ig/system.kdl"))
+            .unwrap()
+            .contains("\"db\"")
+    );
+}
+
+#[test]
+fn ig_edit_never_gives_a_box_the_whole_repo() {
+    let dir = crate::tests::tmp_with(&[("ig/system.kdl", SPEC)]);
+    let add = json!({"op": "add", "parent": "shop", "kind": "app", "id": "all", "title": "All", "at": ["**"]});
+    let r = call_tool(&dir, "ig_edit", json!({"edits": [add]}));
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("claims `**`"), "{r}");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap(),
+        SPEC
+    );
 }

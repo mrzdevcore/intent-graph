@@ -463,6 +463,12 @@ fn a_wrapped_array_is_its_array() {
         as_list(r#"{"id": "a", "title": "A"}"#),
         r#"[{"id":"a","title":"A"}]"#
     );
-    assert_eq!(as_list(r#"[{"id": "a"}]"#), r#"[{"id": "a"}]"#);
+    assert_eq!(as_list(r#"[{"id": "a"}]"#), r#"[{"id":"a"}]"#);
     assert_eq!(as_list("not json"), "not json");
+    // what follows the first value is left out
+    assert_eq!(
+        as_list("{\"annotations\": [{\"id\": \"a\"}]}\n{\"annotations\": []}"),
+        r#"[{"id":"a"}]"#
+    );
+    assert_eq!(as_list("[{\"id\": \"a\"}]\nDone."), r#"[{"id":"a"}]"#);
 }

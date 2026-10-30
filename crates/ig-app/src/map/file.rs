@@ -14,7 +14,7 @@ pub const MAP: &str = ".ig/map.json";
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_CHILDREN: usize = 12;
 /// Field names a box may pin (as written in the JSON).
-const PINNABLE: &[&str] = &[
+pub(super) const PINNABLE: &[&str] = &[
     "kind",
     "title",
     "tech",
@@ -125,6 +125,12 @@ pub struct MapBox {
     pub needs_reading: bool,
     #[serde(skip_serializing_if = "no", default)]
     pub stale: bool,
+    /// Built, to build or drift: the spec against the code.
+    #[serde(skip_serializing_if = "super::origin::is_built", default)]
+    pub origin: super::origin::Origin,
+    /// A moved box's `at` at the last commit; not stored.
+    #[serde(skip)]
+    pub moved_from: Vec<String>,
     /// The box's files (module node ids), from the facts of this run; not stored.
     #[serde(skip)]
     pub nodes: Vec<String>,
@@ -213,6 +219,16 @@ fn sort_keys(v: &mut serde_json::Value) {
 /// each annotated box no longer needs reading. Returns the count of fields set, or every
 /// problem found (the map is then unchanged).
 pub fn annotate(map: &mut MapFile, json: &str) -> Result<usize, Vec<String>> {
+    annotate_with(map, json, true)
+}
+
+/// `annotate` for a map read from the spec: checked with `validate_spec`.
+pub fn annotate_spec(map: &mut MapFile, json: &str) -> Result<usize, Vec<String>> {
+    annotate_with(map, json, false)
+}
+
+/// `prefixed`: as `check`.
+fn annotate_with(map: &mut MapFile, json: &str, prefixed: bool) -> Result<usize, Vec<String>> {
     let notes: Vec<Annotation> =
         serde_json::from_str(json).map_err(|e| vec![format!("annotations: {e}")])?;
     let mut m = map.clone();
@@ -269,7 +285,7 @@ pub fn annotate(map: &mut MapFile, json: &str) -> Result<usize, Vec<String>> {
     // ig's own slots follow a pattern the agent changed; its own and pinned ones must fit
     let igs = |b: &MapBox| !b.pins("slot") && b.slot.as_ref().is_some_and(|s| is_ig(&s.source));
     refresh::fit_slots(&mut m.boxes, &[], &igs);
-    if let Err(e) = validate(&m) {
+    if let Err(e) = check(&m, prefixed) {
         errs.extend(e);
     }
     if !errs.is_empty() {
@@ -353,6 +369,8 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
                 needs_reading: false,
                 stale: false,
                 nodes: vec![],
+                moved_from: vec![],
+                origin: Default::default(),
             });
             if !b.pins("madeOf") {
                 b.made_of = a.made_of.clone().unwrap_or_default();
@@ -384,7 +402,7 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
     n
 }
 
-fn globs(patterns: &[String]) -> Result<GlobSet, globset::Error> {
+pub(super) fn globs(patterns: &[String]) -> Result<GlobSet, globset::Error> {
     let mut set = GlobSetBuilder::new();
     for p in patterns {
         set.add(GlobBuilder::new(p).literal_separator(true).build()?);
@@ -418,6 +436,18 @@ pub(crate) fn slots(p: Option<&Pattern>) -> Vec<&str> {
 /// Every problem with the map: version, ids, parents and levels, lengths, globs, slots,
 /// children counts, pins.
 pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
+    check(m, true)
+}
+
+/// `validate` for a map read from the spec in `ig/`: a component's id is a slug path
+/// (`api/orders`) that need not start with its container's id, so that it stays the same
+/// when the component moves.
+pub fn validate_spec(m: &MapFile) -> Result<(), Vec<String>> {
+    check(m, false)
+}
+
+/// `prefixed`: a component's id is `<container>/<slug>`.
+fn check(m: &MapFile, prefixed: bool) -> Result<(), Vec<String>> {
     let mut errs = vec![];
     let by_id: BTreeMap<&str, &MapBox> = m.boxes.iter().map(|b| (b.id.as_str(), b)).collect();
     if by_id.len() != m.boxes.len() {
@@ -433,7 +463,7 @@ pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
         let ok = match (b.level, b.parent.as_deref()) {
             (Level::Component | Level::Code, Some(p)) => id
                 .split_once('/')
-                .is_some_and(|(c, s)| c == p && is_slug(c) && is_slug(s)),
+                .is_some_and(|(c, s)| (c == p || !prefixed) && is_slug(c) && is_slug(s)),
             _ => is_slug(id),
         };
         if !ok {

@@ -189,7 +189,7 @@ pub fn discover(root: &Path, config: &Config) -> Result<WorkspaceInfo, PortError
 }
 
 /// Build output and dependencies, never source, at any depth (`.`-folders are skipped too).
-const BUILD_DIRS: [&str; 15] = [
+pub const BUILD_DIRS: [&str; 15] = [
     "target",
     "dist",
     "build",

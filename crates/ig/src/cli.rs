@@ -4,8 +4,9 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 pub const USAGE: &str = "usage: ig [--version] | init [claude|codex|all]
-   | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|ollama] | mcp | plugin export <dir>
-   (all accept --root <dir>)";
+   | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|ollama] | plan | check | fmt [--check] | accept [--all | <id>...] | mcp | plugin export <dir>
+   (all accept --root <dir>; accept writes items one by one, an error stops it with the
+   items before it accepted; quote arrow ids: ig accept 'web->api')";
 
 #[derive(Default)]
 pub struct Args {
@@ -17,6 +18,10 @@ pub struct Args {
     /// `--read`: an agent reads every box, without asking.
     pub read: bool,
     pub no_read: bool,
+    /// `fmt --check`: write nothing, exit 1 when a file would change.
+    pub check: bool,
+    /// `accept --all`: every drift box and arrow.
+    pub all: bool,
     pub agent: Option<String>,
     pub version: bool,
     pub more: Vec<String>,
@@ -38,10 +43,12 @@ pub fn parse_args() -> Result<Args> {
             Long("no-open") => a.no_open = true,
             Long("read") => a.read = true,
             Long("no-read") => a.no_read = true,
+            Long("check") => a.check = true,
+            Long("all") => a.all = true,
             Long("agent") => a.agent = Some(p.value()?.string()?),
             Value(v) if a.cmd.is_empty() => a.cmd = v.string()?,
             Value(v) if a.sub.is_none() => a.sub = Some(v.string()?),
-            Value(v) if a.cmd == "plugin" => a.more.push(v.string()?),
+            Value(v) if matches!(a.cmd.as_str(), "plugin" | "accept") => a.more.push(v.string()?),
             _ => return Err(arg.unexpected().into()),
         }
     }

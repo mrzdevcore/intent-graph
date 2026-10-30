@@ -55,16 +55,17 @@ fn ig(root: &Path, path: &Path, args: &[&str]) -> (i32, String) {
     (out.status.code().unwrap(), text)
 }
 
-fn box_of(root: &Path, id: &str) -> serde_json::Value {
-    let m: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join(".ig/map.json")).unwrap()).unwrap();
-    m["boxes"]
-        .as_array()
+/// Every file of `root/ig/`, one after the other, by name.
+fn spec(root: &Path) -> String {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(root.join("ig"))
         .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    paths.sort();
+    paths
         .iter()
-        .find(|b| b["id"] == id)
-        .unwrap_or_else(|| panic!("no box {id}"))
-        .clone()
+        .map(|p| std::fs::read_to_string(p).unwrap())
+        .collect()
 }
 
 const CHECKOUT: &str = "<ig-annotations>[{\"id\": \"api/application-checkout\", \
@@ -76,9 +77,10 @@ fn agent_annotates() {
     fake(&bin, "claude", &[&format!("Here it is.\n{CHECKOUT}\n")]);
     let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
     assert_eq!(code, 0, "{out}");
-    let d = &box_of(&root, "api/application-checkout")["description"];
-    assert_eq!(d["value"], "Takes an order and charges it.", "{out}");
-    assert_eq!(d["source"], "agent");
+    assert!(
+        spec(&root).contains("description=\"Takes an order and charges it.\""),
+        "{out}"
+    );
     let prompt = std::fs::read_to_string(bin.join("prompt.1")).unwrap();
     assert!(prompt.contains("<ig-annotations>"), "{prompt}");
     assert!(prompt.contains("api/application-checkout"), "{prompt}");
@@ -86,17 +88,26 @@ fn agent_annotates() {
 }
 
 #[test]
-fn agent_garbage_keeps_map() {
+fn agent_garbage_still_writes_ig_and_a_failed_reading_changes_nothing() {
     let (root, bin) = shop("garbage");
-    let (code, out) = ig(&root, &bin, &["view", "--no-read", "--no-open"]);
-    assert_eq!(code, 0, "{out}");
-    let before = std::fs::read(root.join(".ig/map.json")).unwrap();
     fake(&bin, "claude", &["I looked at it and it is a nice shop."]);
     let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("<ig-annotations>"), "the reason: {out}");
     assert!(bin.join("prompt.2").exists(), "asked twice");
-    assert_eq!(std::fs::read(root.join(".ig/map.json")).unwrap(), before);
+    assert!(
+        out.contains("wrote ig/: the intended architecture, from the code"),
+        "{out}"
+    );
+    let before = spec(&root);
+    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    // with ig/ written, --read reads again: its edits would be proposals
+    assert!(bin.join("prompt.3").exists(), "not read again: {out}");
+    assert!(out.contains("reading was not used"), "{out}");
+    assert_eq!(spec(&root), before);
+    assert!(!root.join(".ig/journal.json").exists(), "nothing recorded");
+    assert!(!root.join(".ig/map.json").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
 
@@ -113,8 +124,10 @@ fn agent_retry_on_errors() {
         second.contains("must be relative, without `..`"),
         "{second}"
     );
-    let d = &box_of(&root, "api/application-checkout")["description"];
-    assert_eq!(d["value"], "Takes an order and charges it.", "{out}");
+    assert!(
+        spec(&root).contains("description=\"Takes an order and charges it.\""),
+        "{out}"
+    );
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
 
@@ -168,7 +181,7 @@ fn read_and_no_read_together_is_a_usage_error() {
     let (code, out) = ig(&root, &bin, &["view", "--read", "--no-read", "--no-open"]);
     assert_eq!(code, 2, "{out}");
     assert!(out.contains("--read and --no-read"), "{out}");
-    assert!(!root.join(".ig/map.json").exists());
+    assert!(!root.join("ig").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
 
@@ -181,9 +194,6 @@ fn removed_commands_say_so() {
         out,
         "ig hook was removed; delete ig's Stop hook from .claude/settings.json\n"
     );
-    let (code, out) = ig(&root, &bin, &["check", "--agent"]);
-    assert_eq!(code, 2, "{out}");
-    assert_eq!(out, "ig check was removed in this version; run ig view\n");
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
 
@@ -198,11 +208,11 @@ fn no_git_noise_and_the_page_is_ignored() {
     assert!(!out.contains("fatal"), "{out}");
     assert_eq!(
         std::fs::read_to_string(root.join(".ig/.gitignore")).unwrap(),
-        "*\n!map.json\n!.gitignore\n"
+        "*\n!.gitignore\n"
     );
     // a repo that ignores `.ig/*` itself gets no `.ig/.gitignore`
     std::fs::remove_dir_all(root.join(".ig")).unwrap();
-    std::fs::write(root.join(".gitignore"), ".ig/*\n!.ig/map.json\n").unwrap();
+    std::fs::write(root.join(".gitignore"), ".ig/*\n").unwrap();
     let (code, out) = ig(&root, Path::new(&path), &["view", "--no-read", "--no-open"]);
     assert_eq!(code, 0, "{out}");
     assert!(!root.join(".ig/.gitignore").exists());

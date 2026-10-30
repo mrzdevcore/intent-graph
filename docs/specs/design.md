@@ -56,13 +56,13 @@ On-disk files:
 | File | Content |
 |---|---|
 | `ig.yaml` | Config (below). Committed. |
-| `.ig/map.json` | The system map: boxes, arrows, marks. Committed; sorted so a diff shows real changes only. |
+| `ig/*.kdl` | The spec: the intended architecture (boxes, their `at` globs, arrows). Committed; written once by ig, then edited by people, never rewritten. |
 | `.ig/layers/*.json` | Marks written by other tools: `{layer, marks: [{target, state, badge?, value?, note?}]}`. |
 | `.ig/graph.json` | The last head graph. |
 | `.ig/cache/<sha>-<key>.json` | Cached graphs. `key` = the first 12 hex chars of a hash over toolVersion + `embedded`, `autoImports`, `ignore`, `tests`, `testCalls` and `patterns`. Written to a temp file, then renamed. |
 | `.ig/view.html` | The self-contained viewer page. |
 
-`.gitignore` gets `.ig/*` and `!.ig/map.json`.
+`.gitignore` gets `.ig/*`; `ig/` sits outside `.ig/` and is never ignored.
 
 ## `ig.yaml`
 
@@ -204,7 +204,7 @@ Pattern nodes use `ast-grep-core` and `ast-grep-language` (TypeScript, Tsx, Java
 
 ### Init
 
-`ig init [claude|codex|all]` never overwrites anything. It creates `ig.yaml`, the `explore` and `view` skills for the chosen agents (`/ig:explore`, `$ig-explore`; the texts are embedded from `crates/ig/assets/skills/`), an `AGENTS.md` snippet (appended once, guarded by the `<!-- ig:agents -->` marker) and the `.gitignore` entries (`.ig/*` and `!.ig/map.json`; an existing `.ig/` or `.ig` line is rewritten).
+`ig init [claude|codex|all]` never overwrites anything. It creates `ig.yaml`, the `explore` and `view` skills for the chosen agents (`/ig:explore`, `$ig-explore`; the texts are embedded from `crates/ig/assets/skills/`), an `AGENTS.md` snippet (appended once, guarded by the `<!-- ig:agents -->` marker) and the `.gitignore` entry (`.ig/*`; an existing `.ig/` or `.ig` line is rewritten).
 
 ### CLI
 
@@ -218,7 +218,7 @@ Exit codes: 0 ok, 2 usage or error (`ig: <message>` on stderr). Notices go to st
 
 ## System map
 
-`ig view` draws the graph as a walkable canvas: boxes (system, containers, components, then code) and arrows (imports and calls bundled), built in three stages (facts, an optional AI reading, layers), stored in the committed `.ig/map.json`. The spec is [docs/superpowers/specs/2026-10-27-ig-system-map-design.md](../superpowers/specs/2026-10-27-ig-system-map-design.md); the README describes the commands, the consent rule for the agent, the `.ig/layers/*.json` shape and the canvas controls. Checking changes (`check`, plans, apply, review, the Stop hook, GitLab notes, design boards, the live server) was removed in this iteration; git history has it.
+`ig view` draws the graph as a walkable canvas: boxes (system, containers, components, then code) and arrows (imports and calls bundled), built in three stages (facts, an optional AI reading, layers), compared with the committed spec in `ig/`. The spec is [docs/superpowers/specs/2026-10-27-ig-system-map-design.md](../superpowers/specs/2026-10-27-ig-system-map-design.md); the README describes the commands, the consent rule for the agent, the `.ig/layers/*.json` shape and the canvas controls. Checking changes (`check`, plans, apply, review, the Stop hook, GitLab notes, design boards, the live server) was removed in this iteration; git history has it.
 
 ## Speed design
 
