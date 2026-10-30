@@ -108,8 +108,10 @@ export interface IgApi {
   agent?: AgentApi;
   /** Opens an http(s) link in the system browser. */
   openUrl?(url: string): Promise<void>;
-  /** The map (`ig view`'s page only). */
+  /** The map (both hosts). */
   view?(): Promise<View>;
+  /** The project's files changed and the host rebuilt (desktop only): read `view` again. Returns the unsubscribe. */
+  onRebuild?(cb: () => void): () => void;
 }
 
 export function pickApi(): IgApi {
