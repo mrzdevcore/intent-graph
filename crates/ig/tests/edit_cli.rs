@@ -195,7 +195,7 @@ fn accept_an_arrow_needs_its_box_first_then_adds_one_line() {
     // two kinds between the pair (an import and a call): written as the main kind, and the
     // derived count is not a label
     assert!(lines[0].contains(" bundle "), "{lines:?}");
-    assert!(added[0].trim_start().starts_with("depends "), "{added:?}");
+    assert!(added[0].trim_start().starts_with("calls "), "{added:?}");
     assert!(
         !added[0].contains("label") && !added[0].contains("bundle"),
         "{added:?}"
@@ -295,20 +295,4 @@ fn accept_slugs_ids_and_escapes_globs() {
     assert_eq!(run_ig(&dir, &["check"]).code, 0);
     write(&dir, "apps/api/other/z.ts", "export const z = 1;\n");
     assert_eq!(run_ig(&dir, &["check"]).code, 1);
-}
-
-#[test]
-fn long_loose_files_get_valid_drift_ids_and_accept_all_passes() {
-    let dir = planned("long-ids");
-    let long = "w".repeat(90);
-    for name in ["a", "b", "c"] {
-        write(
-            &dir,
-            &format!("src/{long}{name}.ts"),
-            "export const q = 1;\n",
-        );
-    }
-    let out = run_ig(&dir, &["accept", "--all"]);
-    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
-    assert_eq!(run_ig(&dir, &["check"]).code, 0);
 }

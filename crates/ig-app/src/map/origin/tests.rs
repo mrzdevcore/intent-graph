@@ -247,6 +247,44 @@ fn files_left_in_a_partly_claimed_box_are_drift_by_their_folder() {
 }
 
 #[test]
+fn drift_ids_stay_valid_slugs_when_long_and_de_clashed() {
+    // two loose files whose slugs agree for 64 chars: both fit the limit, the second de-clashed
+    let mut s = spec();
+    for b in s.boxes.iter_mut() {
+        match b.id.as_str() {
+            "api" => b.made_of = vec![],
+            "api/infra-prisma" => b.made_of = vec!["apps/api/src/infra/prisma/client.ts".into()],
+            _ => {}
+        }
+    }
+    let long = "w".repeat(90);
+    let mut g = graph();
+    let base = (g.nodes.iter())
+        .find(|n| n.file == "apps/api/src/infra/prisma/order-repo.ts" && n.is_module())
+        .unwrap()
+        .clone();
+    for n in ["a", "b"] {
+        let file = format!("apps/api/src/infra/prisma/{long}{n}.ts");
+        g.nodes.push(ig_core::model::Node {
+            id: file.clone(),
+            file,
+            ..base.clone()
+        });
+    }
+    let m = compare(&s, &facts(), &g, None);
+    let ids: Vec<&str> = (m.boxes.iter())
+        .filter(|b| b.origin == Origin::Drift && b.nodes.iter().any(|n| n.contains(&long)))
+        .map(|b| b.id.as_str())
+        .collect();
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    assert!(
+        ids[0] != ids[1] && ids.iter().all(|i| i.len() <= 64),
+        "{ids:?}"
+    );
+    crate::map::file::validate(&m).unwrap();
+}
+
+#[test]
 fn a_box_with_no_files_and_only_unbuilt_children_is_to_build() {
     let mut w = spec_files();
     w.insert(
