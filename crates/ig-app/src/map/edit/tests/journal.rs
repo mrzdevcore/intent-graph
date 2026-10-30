@@ -118,3 +118,69 @@ fn dropping_an_undone_entry_leaves_the_spec_alone() {
     assert_eq!(ig(&f), before);
     assert!(entries(&f).0.is_empty());
 }
+
+#[test]
+fn drop_refuses_an_entry_a_later_person_edit_changed() {
+    // by a recorded person edit
+    let f = spec();
+    let a = record(&f, By::Claude, &set("db", "X")).unwrap();
+    record(&f, By::Person, &set("db", "Y")).unwrap();
+    let (files, list) = (ig(&f), entries(&f).0);
+    let e = drop(&f, a.n).unwrap_err();
+    assert_eq!(
+        e,
+        vec![format!("entry {} changed since; nothing done", a.n)]
+    );
+    assert_eq!((ig(&f), entries(&f).0), (files, list));
+    // by hand
+    let f = spec();
+    let a = record(&f, By::Claude, &set("db", "X")).unwrap();
+    let t = ig(&f)["ig/system.kdl"].replace(r#"title="X""#, r#"title="Y""#);
+    f.write_atomic("ig/system.kdl", t.as_bytes()).unwrap();
+    let (files, list) = (ig(&f), entries(&f).0);
+    assert!(drop(&f, a.n).is_err());
+    assert_eq!((ig(&f), entries(&f).0), (files, list));
+}
+
+#[test]
+fn drop_checks_each_kind_of_edit_still_holds() {
+    let mv = |p: &str| Edit::Move {
+        id: "api/orders".into(),
+        parent: p.into(),
+        before: None,
+    };
+    let arrow = Edit::Arrow {
+        from: "web".into(),
+        to: "db".into(),
+        kind: ArrowKind::Data,
+        label: None,
+    };
+    let unarrow = Edit::Unarrow {
+        from: "web".into(),
+        to: "db".into(),
+        kind: ArrowKind::Data,
+    };
+    let rename = |a: &str, b: &str| Edit::Rename {
+        id: a.into(),
+        to: b.into(),
+    };
+    for (claude, person) in [
+        (mv("web"), mv("api")),
+        (rename("db", "pg"), rename("pg", "db")),
+        (arrow, unarrow),
+        (add("cache"), Edit::Remove { id: "cache".into() }),
+    ] {
+        let f = spec();
+        let a = record(&f, By::Claude, &claude).unwrap();
+        record(&f, By::Person, &person).unwrap();
+        let files = ig(&f);
+        assert!(drop(&f, a.n).is_err(), "{claude:?}");
+        assert_eq!(ig(&f), files, "{claude:?}");
+    }
+    // removed, then written again by the person
+    let f = spec();
+    record(&f, By::Person, &add("cache")).unwrap();
+    let a = record(&f, By::Claude, &Edit::Remove { id: "cache".into() }).unwrap();
+    record(&f, By::Person, &add("cache")).unwrap();
+    assert!(drop(&f, a.n).is_err());
+}
