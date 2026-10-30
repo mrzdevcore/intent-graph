@@ -1,8 +1,9 @@
 <!-- The proposals bar (top centre) and its list: one row per edit Claude or the AI reading made that nobody
      kept. Hovering a row lights its boxes and arrows on the map. Without `edit` (ig view) it only shows. -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { EditApi } from "../../api";
-  import type { Proposal, View } from "../types";
+  import type { View } from "../types";
   import type { Trace } from "../search";
   import { tag } from "../looks";
   import { barText, lit } from "./proposals";
@@ -12,12 +13,13 @@
   } = $props();
   const list = $derived(view.proposals ?? []);
   let open = $state(false);
-  const light = (p: Proposal | null) => onlight(p ? lit(view, p.ids) : null);
+  // the row under the pointer or focus; it lights while the list is open and still holds it
+  let hover = $state<number | null>(null);
   $effect(() => {
-    if (!list.length && open) {
-      open = false;
-      onlight(null);
-    }
+    if (!list.length) open = false;
+    const p = open ? list.find((x) => x.n === hover) : undefined;
+    const t = p ? lit(view, p.ids) : null;
+    untrack(() => onlight(t));
   });
 </script>
 
@@ -34,8 +36,8 @@
     <section class="list" data-popover aria-label="Edits not kept yet">
       <b>Edits not kept yet</b>
       {#each list as p (p.n)}
-        <div class="item" role="group" aria-label={p.summary} onpointerenter={() => light(p)} onpointerleave={() => light(null)}
-          onfocusin={() => light(p)} onfocusout={() => light(null)}>
+        <div class="item" role="group" aria-label={p.summary} onpointerenter={() => (hover = p.n)} onpointerleave={() => (hover = null)}
+          onfocusin={() => (hover = p.n)} onfocusout={() => (hover = null)}>
           <span class="text"><span class="tag">{tag(p.by)}</span> {p.summary}</span>
           {#if edit}
             <button type="button" onclick={() => run(edit.drop(p.n))}>Drop</button>

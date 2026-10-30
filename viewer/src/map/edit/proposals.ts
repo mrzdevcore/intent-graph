@@ -18,7 +18,8 @@ export function barText(ps: Proposal[]): string {
   return [c && `Claude proposed ${c} ${c === 1 ? "edit" : "edits"}`, r && `AI reading ${r}`].filter(Boolean).join(" · ");
 }
 
-/** A proposal's ids that exist on the map, as the path search lights; null when none does. */
+/** A proposal's ids that exist on the map, as the path search lights; null when none does.
+ *  Only the first box's level lights (a trace has one parent). */
 export function lit(view: View, ids: string[]): Trace | null {
   const boxes = view.boxes.filter((b) => ids.includes(b.id));
   const arrows = view.arrows.filter((a) => ids.includes(a.id));

@@ -137,13 +137,13 @@
     }
   }
   // a hovered proposal lights through the same path; the search's own path comes back when it ends
-  let held: Trace | null | undefined;
+  let held: { t: Trace | null } | undefined;
   function glow(t: Trace | null) {
     if (t) {
-      held ??= traced;
+      held ??= { t: traced };
       traced = t;
-    } else if (held !== undefined) {
-      traced = held;
+    } else if (held) {
+      traced = held.t;
       held = undefined;
     }
   }
