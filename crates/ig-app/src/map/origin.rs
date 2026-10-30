@@ -248,11 +248,16 @@ fn name<T: Serialize>(v: &T) -> String {
 
 /// One line per box or arrow not built, sorted.
 pub fn plan(m: &MapFile) -> Plan {
+    plan_of(&m.boxes, &m.arrows)
+}
+
+/// `plan` over a view's boxes and arrows.
+pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow]) -> Plan {
     let mut p = Plan {
         build: vec![],
         drift: vec![],
     };
-    for b in &m.boxes {
+    for b in boxes {
         match b.origin {
             Origin::Built => {}
             Origin::Build if b.made_of.is_empty() => {
@@ -275,7 +280,7 @@ pub fn plan(m: &MapFile) -> Plan {
             }),
         }
     }
-    for a in &m.arrows {
+    for a in arrows {
         let (from, kind, to) = (&a.from, name::<ArrowKind>(&a.kind), &a.to);
         match a.origin {
             Origin::Built => {}

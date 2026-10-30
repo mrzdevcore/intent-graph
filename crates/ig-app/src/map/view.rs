@@ -28,6 +28,9 @@ pub struct View {
     /// The list each part box of a component holds, by box id.
     pub parts: BTreeMap<String, Vec<Part>>,
     pub notices: Vec<String>,
+    /// `ig/` could not be read: the view is of the code alone.
+    #[serde(skip)]
+    pub broken: bool,
 }
 
 /// A piece of a file: `text` from line `line` on, `cut` lines left out at its end.
@@ -136,6 +139,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         sources,
         parts,
         notices,
+        broken: false,
     }
 }
 
@@ -179,6 +183,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
         relift(&mut m, g, &findings);
         (m, reset)
     };
+    let mut broken = false;
     let read = match spec::read(env.files) {
         Ok(Some(s)) => {
             if ask.is_some_and(|a| a.all) {
@@ -187,6 +192,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
             Ok(s)
         }
         Err(e) => {
+            broken = true;
             notices.extend(e);
             notices.push(format!("{}/ left as is; fix it", spec::DIR));
             Err(today(None).0)
@@ -207,6 +213,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
                     Ok(Some(s)) => Ok(s),
                     Ok(None) => Err(m),
                     Err(e) => {
+                        broken = true;
                         notices.extend(e);
                         Err(m)
                     }
@@ -236,6 +243,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     let mut v = view(env.files, &m, g, &ui);
     notices.append(&mut v.notices);
     v.notices = notices;
+    v.broken = broken;
     Ok(v)
 }
 

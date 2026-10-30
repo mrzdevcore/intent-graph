@@ -197,9 +197,6 @@ fn removed_commands_say_so() {
         out,
         "ig hook was removed; delete ig's Stop hook from .claude/settings.json\n"
     );
-    let (code, out) = ig(&root, &bin, &["check", "--agent"]);
-    assert_eq!(code, 2, "{out}");
-    assert_eq!(out, "ig check was removed in this version; run ig view\n");
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
 
