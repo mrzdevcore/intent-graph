@@ -122,8 +122,13 @@ pub fn propose(
         n += 1;
     }
     if n > 0 {
+        let edits = if n == 1 {
+            "1 edit".into()
+        } else {
+            format!("{n} edits")
+        };
         notices.push(format!(
-            "the AI reading proposed {n} edits; keep or drop them in the app, or review with git \
+            "the AI reading proposed {edits}; keep or drop them in the app, or review with git \
              diff ig/"
         ));
     } else if notices.is_empty() {
@@ -234,6 +239,66 @@ mod tests {
         assert!(all.contains("What it does"), "{all}");
         // the drift is in the spec now
         assert!(v.boxes.iter().all(|b| b.origin != Origin::Drift));
+    }
+
+    #[test]
+    fn a_moved_component_keeps_its_id_and_is_still_read() {
+        // `api/orders` moved under `web`: its id stays, so it no longer starts with its container
+        let sys = r#"system "shop" title="Shop" {
+    at "**"
+    app "api" title="Api" {
+        at "apps/api/**"
+    }
+    app "web" title="Web" description="The shop's pages" {
+        at "apps/web/**"
+        usecase "api/orders" title="Orders" {
+            at "apps/web/orders/**"
+        }
+    }
+}
+"#;
+        let files = MemFiles::with(&[
+            ("ig/system.kdl", sys),
+            ("apps/api/a.ts", "export function f() {}\n"),
+            ("apps/web/orders/o.ts", "export function g() {}\n"),
+            ("lib/c.ts", "export const y = 2;\n"),
+        ]);
+        let v = read(&files, &describe);
+        let (es, _) = entries(&files);
+        assert!(
+            es.iter().any(|e| matches!(&e.edit,
+                Edit::Set { id, key, .. } if id == "api/orders" && key == "description")),
+            "{:?} {es:?}",
+            v.notices
+        );
+        assert!(
+            es.iter().any(|e| matches!(&e.edit, Edit::Add { .. })),
+            "{es:?}"
+        );
+    }
+
+    #[test]
+    fn one_edit_is_one_edit() {
+        let files = MemFiles::with(&[
+            (
+                "ig/system.kdl",
+                "system \"shop\" title=\"Shop\" {\n    at \"**\"\n    app \"api\" title=\"Api\" \
+                 {\n        at \"apps/api/**\"\n    }\n}\n",
+            ),
+            ("apps/api/a.ts", "export function f() {}\n"),
+        ]);
+        let v = read(&files, &|ids| {
+            let id = ids.iter().find(|i| *i == "api").unwrap();
+            Ok(format!(
+                "<ig-annotations>[{{\"id\": \"{id}\", \"description\": \"The API\"}}]</ig-annotations>"
+            ))
+        });
+        assert!(
+            v.notices.iter().any(|n| n
+                == "the AI reading proposed 1 edit; keep or drop them in the app, or review with git diff ig/"),
+            "{:?}",
+            v.notices
+        );
     }
 
     #[test]

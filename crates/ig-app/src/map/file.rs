@@ -216,6 +216,16 @@ fn sort_keys(v: &mut serde_json::Value) {
 /// each annotated box no longer needs reading. Returns the count of fields set, or every
 /// problem found (the map is then unchanged).
 pub fn annotate(map: &mut MapFile, json: &str) -> Result<usize, Vec<String>> {
+    annotate_with(map, json, true)
+}
+
+/// `annotate` for a map read from the spec: checked with `validate_spec`.
+pub fn annotate_spec(map: &mut MapFile, json: &str) -> Result<usize, Vec<String>> {
+    annotate_with(map, json, false)
+}
+
+/// `prefixed`: as `check`.
+fn annotate_with(map: &mut MapFile, json: &str, prefixed: bool) -> Result<usize, Vec<String>> {
     let notes: Vec<Annotation> =
         serde_json::from_str(json).map_err(|e| vec![format!("annotations: {e}")])?;
     let mut m = map.clone();
@@ -272,7 +282,7 @@ pub fn annotate(map: &mut MapFile, json: &str) -> Result<usize, Vec<String>> {
     // ig's own slots follow a pattern the agent changed; its own and pinned ones must fit
     let igs = |b: &MapBox| !b.pins("slot") && b.slot.as_ref().is_some_and(|s| is_ig(&s.source));
     refresh::fit_slots(&mut m.boxes, &[], &igs);
-    if let Err(e) = validate(&m) {
+    if let Err(e) = check(&m, prefixed) {
         errs.extend(e);
     }
     if !errs.is_empty() {

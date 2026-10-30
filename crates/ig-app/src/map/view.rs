@@ -186,7 +186,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
         Ok(Some(s)) => match ask.filter(|a| a.all) {
             // `--read`: the reading's edits are in ig/ now, so it is read again
             Some(a) => {
-                let ev = Evidence::new(&boxes, &built.extras.imports, &config);
+                let ev = Evidence::new(&boxes, &built.extras.imports, &config).for_spec();
                 let cm = compare(&s, &boxes, g);
                 notices.extend(propose::propose(
                     a,
