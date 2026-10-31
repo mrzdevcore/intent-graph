@@ -12,11 +12,12 @@ fn ig(f: &MemFiles) -> BTreeMap<String, String> {
 fn add(id: &str) -> Edit {
     Edit::Add {
         parent: "shop".into(),
-        kind: BoxKind::Store,
+        kind: "store".into(),
         id: id.into(),
         title: id.into(),
         at: vec![],
         before: None,
+        props: Default::default(),
     }
 }
 

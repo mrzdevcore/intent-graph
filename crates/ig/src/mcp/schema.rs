@@ -36,7 +36,8 @@ pub fn tools() -> Value {
             "id": s("lowercase slug, unique"),
             "title": s("shown name"),
             "at": {"type": "array", "items": {"type": "string"}, "description": "code globs the box owns; always give it for a new box"},
-            "before": s("sibling id to go before (default: last)")
+            "before": s("sibling id to go before (default: last)"),
+            "props": {"type": "object", "additionalProperties": {"type": "string"}, "description": "the kind's own properties, like provider, model and hosted (local|hosted) for a model, or prompt for an agent"}
         }), &["parent", "kind", "id", "title", "at"]),
         op("remove", json!({"id": s("box id")}), &["id"]),
         op("move", json!({

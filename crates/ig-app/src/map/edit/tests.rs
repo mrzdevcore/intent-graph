@@ -105,11 +105,12 @@ fn add_a_component_before_a_sibling() {
     let inv = check(
         Edit::Add {
             parent: "api".into(),
-            kind: BoxKind::Usecase,
+            kind: "usecase".into(),
             id: "api/refund".into(),
             title: "Refund".into(),
             at: vec!["apps/api/src/refund/**".into()],
             before: Some("api/orders".into()),
+            props: Default::default(),
         },
         &[(
             "ig/api.kdl",
@@ -147,11 +148,12 @@ fn add_a_container_goes_before_the_blocks_trailing_comment() {
     check(
         Edit::Add {
             parent: "shop".into(),
-            kind: BoxKind::Store,
+            kind: "store".into(),
             id: "cache".into(),
             title: "Cache".into(),
             at: vec![],
             before: None,
+            props: Default::default(),
         },
         &[(
             "ig/system.kdl",
@@ -198,11 +200,12 @@ fn a_first_child_moves_its_container_to_a_file_of_its_own() {
     check(
         Edit::Add {
             parent: "web".into(),
-            kind: BoxKind::Component,
+            kind: "component".into(),
             id: "web/cart".into(),
             title: "Cart".into(),
             at: vec![],
             before: None,
+            props: Default::default(),
         },
         &[
             ("ig/system.kdl", SYS_WITHOUT_WEB),
@@ -515,22 +518,24 @@ fn bad_edits_write_nothing() {
     fails(
         Edit::Add {
             parent: "shop".into(),
-            kind: BoxKind::Store,
+            kind: "store".into(),
             id: "db".into(),
             title: "Again".into(),
             at: vec![],
             before: None,
+            props: Default::default(),
         },
         "`db` is already used",
     );
     fails(
         Edit::Add {
             parent: "nope".into(),
-            kind: BoxKind::Store,
+            kind: "store".into(),
             id: "x".into(),
             title: "X".into(),
             at: vec![],
             before: None,
+            props: Default::default(),
         },
         "no box `nope`",
     );

@@ -6,6 +6,7 @@ use super::super::agent::{Agent, Ask, Evidence, NO_AGENT, read};
 use super::super::edit::Edit;
 use super::super::edit::journal::{By, record};
 use super::super::file::{Field, MapBox, MapFile, Source};
+use super::super::kinds::base_name;
 use super::super::origin::Origin;
 use ig_core::config::Config;
 use ig_core::ports::Files;
@@ -88,11 +89,12 @@ pub fn propose(
         if old.origin == Origin::Drift {
             edits.push(Edit::Add {
                 parent: root.id.clone(),
-                kind: new.kind.value,
+                kind: base_name(new.kind.value),
                 id: id.into(),
                 title: new.title.value.clone(),
                 at: old.made_of.clone(),
                 before: None,
+                props: Default::default(),
             });
             // its title is in the Add
             for (key, _, f) in fields.into_iter().skip(1) {

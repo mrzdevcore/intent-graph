@@ -1748,5 +1748,219 @@
     }
   },
   "parts": {},
-  "notices": []
+  "notices": [],
+  "warnings": [],
+  "kinds": [
+    {
+      "name": "system",
+      "base": "system",
+      "custom": false,
+      "title": "System",
+      "means": "The whole system this map draws",
+      "icon": "network",
+      "role": "root",
+      "props": []
+    },
+    {
+      "name": "person",
+      "base": "person",
+      "custom": false,
+      "title": "Person",
+      "means": "Someone who uses the system",
+      "icon": "user",
+      "role": "run",
+      "props": []
+    },
+    {
+      "name": "external",
+      "base": "external",
+      "custom": false,
+      "title": "External system",
+      "means": "A system outside this one, run by someone else",
+      "icon": "globe",
+      "role": "run",
+      "props": []
+    },
+    {
+      "name": "app",
+      "base": "app",
+      "custom": false,
+      "title": "App",
+      "means": "What people open: a web, mobile or desktop app",
+      "icon": "app-window",
+      "role": "run",
+      "props": []
+    },
+    {
+      "name": "service",
+      "base": "service",
+      "custom": false,
+      "title": "Service",
+      "means": "A process that runs and answers: an API, a server, a worker",
+      "icon": "server",
+      "role": "run",
+      "props": []
+    },
+    {
+      "name": "job",
+      "base": "job",
+      "custom": false,
+      "title": "Job",
+      "means": "Work that runs, then stops: a cron task, a batch, a migration",
+      "icon": "clock",
+      "role": "run",
+      "props": []
+    },
+    {
+      "name": "store",
+      "base": "store",
+      "custom": false,
+      "title": "Store",
+      "means": "Where data is kept: a database, a bucket, a cache",
+      "icon": "database",
+      "role": "run",
+      "props": []
+    },
+    {
+      "name": "queue",
+      "base": "queue",
+      "custom": false,
+      "title": "Queue",
+      "means": "Where messages wait: a queue, a topic, a stream",
+      "icon": "inbox",
+      "role": "run",
+      "props": []
+    },
+    {
+      "name": "model",
+      "base": "model",
+      "custom": false,
+      "title": "AI model",
+      "means": "An AI model the system calls, hosted or local",
+      "icon": "sparkles",
+      "role": "run",
+      "props": [
+        {
+          "name": "provider",
+          "means": "Who serves it: anthropic, openai, ollama…",
+          "required": false,
+          "oneOf": []
+        },
+        {
+          "name": "model",
+          "means": "Its name, like claude-opus-5-5 or llama3.2",
+          "required": false,
+          "oneOf": []
+        },
+        {
+          "name": "hosted",
+          "means": "Where it runs",
+          "required": false,
+          "oneOf": [
+            "local",
+            "hosted"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "module",
+      "base": "module",
+      "custom": false,
+      "title": "Module",
+      "means": "A part of a block's code with one purpose",
+      "icon": "package",
+      "role": "design",
+      "props": []
+    },
+    {
+      "name": "entry",
+      "base": "entry",
+      "custom": false,
+      "title": "Entry",
+      "means": "A way in: a route, a command, a schedule, a message handler",
+      "icon": "log-in",
+      "role": "design",
+      "props": [
+        {
+          "name": "kind",
+          "means": "How it is reached",
+          "required": false,
+          "oneOf": [
+            "route",
+            "command",
+            "schedule",
+            "message"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "usecase",
+      "base": "usecase",
+      "custom": false,
+      "title": "Use case",
+      "means": "One thing the block does for someone",
+      "icon": "list-checks",
+      "role": "design",
+      "props": []
+    },
+    {
+      "name": "port",
+      "base": "port",
+      "custom": false,
+      "title": "Port",
+      "means": "What the core needs from outside, as an interface",
+      "icon": "plug",
+      "role": "design",
+      "props": []
+    },
+    {
+      "name": "adapter",
+      "base": "adapter",
+      "custom": false,
+      "title": "Adapter",
+      "means": "What fills a port: the code that talks to the outside",
+      "icon": "cable",
+      "role": "design",
+      "props": []
+    },
+    {
+      "name": "agent",
+      "base": "agent",
+      "custom": false,
+      "title": "Agent",
+      "means": "An AI agent: a prompt, a model and the tools it may use",
+      "icon": "bot",
+      "role": "design",
+      "props": [
+        {
+          "name": "prompt",
+          "means": "Its instructions, or the file that holds them",
+          "required": false,
+          "oneOf": []
+        }
+      ]
+    },
+    {
+      "name": "domain",
+      "base": "domain",
+      "custom": false,
+      "title": "Domain",
+      "means": "The core: the rules and the words of the business",
+      "icon": "shapes",
+      "role": "design",
+      "props": []
+    },
+    {
+      "name": "group",
+      "base": "group",
+      "custom": false,
+      "title": "Group",
+      "means": "Boxes kept together, with nothing of its own",
+      "icon": "folder",
+      "role": "group",
+      "props": []
+    }
+  ]
 }

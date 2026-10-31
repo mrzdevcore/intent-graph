@@ -123,30 +123,26 @@ const adds = () => {
   return { ...f, got };
 };
 
-test("Box tool click in a container: container kinds, Code lives at prefilled from its glob", () => {
+const pick = (f: HTMLElement, kind: string) => { f.querySelector<HTMLButtonElement>(`button[data-kind="${kind}"]`)!.click(); flushSync(); };
+
+test("Box tool click in a container: its kinds, then Title focused and the code prefilled from its glob", async () => {
   const { target } = setup(adds().api);
   clickBox(target, "api");
   const f = form(target)!;
-  expect([...input(f, "Kind").querySelectorAll("option")].map((o) => o.value)).toEqual(["usecase", "domain", "port", "group", "module", "entry"]);
-  expect(document.activeElement).toBe(input(f, "Name"));
-  type(input(f, "Name"), "Billing");
-  expect(input(f, "Code lives at").value).toBe("apps/api/billing/**");
-});
-
-test("Box tool click on the ground: system kinds; external hides the code path", () => {
-  const { target } = setup(adds().api);
-  clickBox(target, null);
-  const f = form(target)!;
-  expect([...input(f, "Kind").querySelectorAll("option")].map((o) => o.value)).toEqual(["app", "service", "module", "job", "store", "queue", "external", "person"]);
-  ([...input(f, "Kind").querySelectorAll("option")].find((o) => o.value === "external") as HTMLOptionElement).selected = true; input(f, "Kind").dispatchEvent(new Event("change", { bubbles: true })); flushSync();
-  expect([...f.querySelectorAll("label")].some((l) => l.textContent!.startsWith("Code lives"))).toBe(false);
+  expect(document.activeElement).toBe(f.querySelector('button[data-kind="module"]'));
+  pick(f, "usecase");
+  await tick();
+  expect(document.activeElement).toBe(input(f, "Title"));
+  type(input(f, "Title"), "Billing");
+  expect(input(f, "Code").value).toBe("apps/api/billing/**");
 });
 
 test("Enter adds: apply gets the Add, the id de-clashed", async () => {
   const { api, got } = adds();
   const { target } = setup(api);
   clickBox(target, "api");
-  type(input(form(target)!, "Name"), "Api");
+  pick(form(target)!, "usecase");
+  type(input(form(target)!, "Title"), "Api");
   form(target)!.requestSubmit();
   await tick();
   expect(got).toEqual([{ op: "add", parent: "api", kind: "usecase", id: "api-2", title: "Api", at: ["apps/api/api/**"], before: null }]);
@@ -157,8 +153,9 @@ test("Esc closes the form and sends nothing", async () => {
   const { api, got } = adds();
   const { target } = setup(api);
   clickBox(target, "api");
-  type(input(form(target)!, "Name"), "Billing");
-  press("Escape", {}, input(form(target)!, "Name"));
+  pick(form(target)!, "usecase");
+  type(input(form(target)!, "Title"), "Billing");
+  press("Escape", {}, input(form(target)!, "Title"));
   await tick();
   expect(form(target)).toBeNull();
   expect(got).toEqual([]);
@@ -266,7 +263,7 @@ test("Move to… on a box nothing can hold says so; the picker filters and picks
 
 test("parentsFor: a container kind goes under apps and containers, not its parent, itself, its descendants or external", () => {
   const v = fresh();
-  const ids = (id: string) => parentsFor(v.boxes, id, "system").map((b) => b.id);
+  const ids = (id: string) => parentsFor(v.boxes, v.kinds, id, "system").map((b) => b.id);
   expect(ids("api/domain-order")).toEqual(expect.arrayContaining(["web", "api-client"]));
   expect(ids("api/domain-order")).not.toContain("api");
   expect(ids("api/domain-order")).not.toContain("stripe");

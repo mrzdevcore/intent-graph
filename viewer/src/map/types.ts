@@ -32,6 +32,21 @@ export type MapBox = {
   /** Against ig/: "build" is in the spec with no code yet, "drift" is code the spec does not describe, "moved" is in
    * the spec at a new place with its code still at the old; absent is built. */
   origin?: "build" | "drift" | "moved";
+  /** A team kind's name (`ig/kinds/<name>.kdl`); `kind` is then its base. */
+  custom?: string;
+  /** The kind's own properties (`provider`, `hosted`…) and `owner`. */
+  props?: Record<string, string>;
+};
+/** One of `View.kinds`: a kind a box in ig/ may be, from crates/ig-app/assets/kinds.kdl or ig/kinds/. */
+export type KindView = {
+  name: string;
+  base: BoxKind;
+  custom: boolean;
+  title: string;
+  means: string;
+  icon: string;
+  role: "root" | "run" | "design" | "group";
+  props: { name: string; means: string; required: boolean; oneOf: string[] }[];
 };
 export type ArrowKind = "calls" | "sends" | "reads" | "writes" | "uses" | "implements" | "triggers" | "bundle";
 export type MapArrow = {
@@ -72,6 +87,9 @@ export type View = {
   /** The list each part box of a component holds (inputs, state, uses, renders), by box id. */
   parts?: Record<string, Part[]>;
   notices: string[];
+  /** What reads but looks wrong in ig/ (crowded boxes, arrows the kinds do not expect…). */
+  warnings: string[];
+  kinds: KindView[];
   /** The journal's entries nobody kept yet. */
   proposals?: Proposal[];
 };
@@ -79,7 +97,7 @@ export type Proposal = { n: number; by: "claude" | "reading"; summary: string; i
 
 /** Mirrors `Edit` in crates/ig-app/src/map/edit.rs. */
 export type Edit =
-  | { op: "add"; parent: string; kind: BoxKind; id: string; title: string; at: string[]; before: string | null }
+  | { op: "add"; parent: string; kind: string; id: string; title: string; at: string[]; before: string | null; props?: Record<string, string> }
   | { op: "remove"; id: string }
   | { op: "move"; id: string; parent: string; before: string | null; slot?: string }
   | { op: "rename"; id: string; to: string }

@@ -5,6 +5,7 @@ use anyhow::{Result, bail};
 use ig_app::map::edit::journal::{By, record};
 use ig_app::map::edit::{self, Edit};
 use ig_app::map::file::MapBox;
+use ig_app::map::kinds::base_name;
 use ig_app::map::origin::Origin;
 use ig_app::map::{ArrowKind, Level, MapArrow, view};
 use ig_core::ports::Files;
@@ -45,11 +46,12 @@ pub fn run(files: &dyn Files, v: &view::View, all: bool, ids: &[String]) -> Resu
     for b in boxes.iter().filter(|b| want(&b.id)) {
         let edit = Edit::Add {
             parent: root.id.clone(),
-            kind: b.kind.value,
+            kind: base_name(b.kind.value),
             id: b.id.clone(),
             title: b.title.value.clone(),
             at: b.made_of.clone(),
             before: None,
+            props: Default::default(),
         };
         record(files, By::Person, &edit).map_err(|e| anyhow::anyhow!(e.join("\n")))?;
         println!("accepted {}", b.id);

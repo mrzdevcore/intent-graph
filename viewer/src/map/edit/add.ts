@@ -1,11 +1,40 @@
-// The add-box form's rules: kinds by depth, the id slug (mirrors `slug` in crates/ig-app/src/map/facts/slug.rs),
-// and the "code lives at" prefill.
-import type { BoxKind } from "../types";
+// The add-box form's rules: the kinds offered where the box goes (from `view.kinds`), their icons, the id slug
+// (mirrors `slug` in crates/ig-app/src/map/facts/slug.rs), and the "code" prefill.
+import {
+  AppWindow, Bot, Box, Cable, Clock, Database, Folder, Globe, Inbox, ListChecks, LogIn, Network, Package, Plug, Server, Shapes, Sparkles, User,
+} from "lucide-static";
+import type { BoxKind, KindView, MapBox } from "../types";
 
-export const SYSTEM_KINDS: BoxKind[] = ["app", "service", "module", "job", "store", "queue", "external", "person"];
-export const CONTAINER_KINDS: BoxKind[] = ["usecase", "domain", "port", "group", "module", "entry"];
-/** Kinds that are not code: no "code lives at". */
+/** Base kinds that are not code: no code field. */
 export const NO_CODE: BoxKind[] = ["external", "person"];
+
+// the `icon` names of crates/ig-app/assets/kinds.kdl; any other name (a team kind's) draws a box
+const ICONS: Record<string, string> = {
+  "app-window": AppWindow, bot: Bot, cable: Cable, clock: Clock, database: Database, folder: Folder, globe: Globe, inbox: Inbox,
+  "list-checks": ListChecks, "log-in": LogIn, network: Network, package: Package, plug: Plug, server: Server, shapes: Shapes, sparkles: Sparkles, user: User,
+};
+/** The kind's lucide icon as a CSS mask image (drawn in the text colour). */
+export const iconMask = (icon: string) => `url("data:image/svg+xml,${encodeURIComponent(ICONS[icon] ?? Box)}")`;
+
+/** Whether a box in `parent` sits inside a running block: at or below a run or design block (a module counts), not in the
+ *  system or a group outside them. Mirrors `run_above` in crates/ig-app/src/map/warn.rs. */
+export function inside(parent: string, boxes: Map<string, MapBox>, kinds: KindView[]): boolean {
+  for (let b = boxes.get(parent); b; b = b.parent && b.parent !== b.id ? boxes.get(b.parent) : undefined) {
+    const role = kinds.find((k) => k.name === (b!.custom ?? b!.kind.value))?.role;
+    if (role === "run" || role === "design" || b.kind.value === "module") return true;
+  }
+  return false;
+}
+
+/** The form's groups: outside a running block the run kinds, the team's and grouping; inside, the design kinds and group. */
+export function sections(kinds: KindView[], within: boolean): { label: string; kinds: KindView[] }[] {
+  const fits = (k: KindView) => (within ? k.role === "design" || k.role === "group" : k.role === "run");
+  const out = within
+    ? [{ label: "Inside", kinds: kinds.filter((k) => !k.custom && fits(k)) }, { label: "Your team's kinds", kinds: kinds.filter((k) => k.custom && fits(k)) }]
+    : [{ label: "Runs", kinds: kinds.filter((k) => !k.custom && fits(k)) }, { label: "Your team's kinds", kinds: kinds.filter((k) => k.custom && (fits(k) || k.role === "group")) },
+      { label: "Grouping", kinds: kinds.filter((k) => !k.custom && k.role === "group") }];
+  return out.filter((s) => s.kinds.length);
+}
 
 const MAX_ID = 64;
 
