@@ -45,6 +45,8 @@ export type KindView = {
   title: string;
   means: string;
   icon: string;
+  /** False for a kind that is not code (person, external): no `at`. */
+  code: boolean;
   role: "root" | "run" | "design" | "group";
   props: { name: string; means: string; required: boolean; oneOf: string[] }[];
 };

@@ -1,10 +1,10 @@
 // ig's building blocks: every kind a box in ig/ may be. Where a kind may sit follows its role
 // (crates/ig-app/src/map/facts.rs); every kind also takes the common properties (title,
-// description, tech, owner…). A team adds its own in ig/kinds/<name>.kdl, extending one of these.
+// description, tech, owner…). code=#false: the kind is not code (no `at`), and a team kind of it neither. A team adds its own in ig/kinds/<name>.kdl, extending one of these.
 
 kind "system" title="System" icon="network" means="The whole system this map draws"
-kind "person" title="Person" icon="user" means="Someone who uses the system"
-kind "external" title="External system" icon="globe" means="A system outside this one, run by someone else"
+kind "person" title="Person" icon="user" code=#false means="Someone who uses the system"
+kind "external" title="External system" icon="globe" code=#false means="A system outside this one, run by someone else"
 kind "app" title="App" icon="app-window" means="What people open: a web, mobile or desktop app"
 kind "service" title="Service" icon="server" means="A process that runs and answers: an API, a server, a worker"
 kind "job" title="Job" icon="clock" means="Work that runs, then stops: a cron task, a batch, a migration"

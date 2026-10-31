@@ -17,7 +17,7 @@
 <style>
   ul { position: absolute; z-index: 2; left: var(--space-4); bottom: var(--space-4); max-width: min(26rem, calc(100% - 2rem)); max-height: 30%; overflow: auto; margin: 0; padding: var(--space-1-5) var(--space-3);
     list-style: none; display: flex; flex-direction: column; gap: var(--space-1); background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-xl);
-    font-size: var(--text-sm); color: var(--map-fg-2); box-shadow: 0 6px 20px var(--map-shadow); }
+    font-size: var(--text-sm); color: var(--map-fg-2); box-shadow: 0 0.5rem 1.5rem var(--map-shadow); }
   .word { color: var(--map-warn); font-weight: 600; }
   code { background: var(--map-sunken); }
 </style>

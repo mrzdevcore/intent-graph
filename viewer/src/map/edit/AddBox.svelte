@@ -4,7 +4,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import type { KindView } from "../types";
-  import { NO_CODE, iconMask, prefill, sections } from "./add";
+  import { iconMask, prefill, sections } from "./add";
 
   let { parentTitle, within, kinds, globs, x, y, onadd, onclose }: {
     parentTitle: string; within: boolean; kinds: KindView[]; globs: string[]; x: number; y: number;
@@ -17,7 +17,7 @@
   let values = $state<Record<string, string>>({});
   let typed = $state<string | null>(null); // the code path once edited by hand
   const at = $derived(typed ?? prefill(globs, name));
-  const code = $derived(!!kind && !NO_CODE.includes(kind.base));
+  const code = $derived(!!kind?.code);
   let form: HTMLFormElement;
   let field = $state<HTMLInputElement>();
   onMount(() => form.querySelector<HTMLElement>("button[data-kind]")?.focus());
@@ -26,7 +26,8 @@
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   async function choose(k: KindView | null) {
     kind = k;
-    values = {};
+    // a required choice shows its first value: it is the value
+    values = Object.fromEntries((k?.props ?? []).filter((p) => p.required && p.oneOf.length).map((p) => [p.name, p.oneOf[0]]));
     await tick();
     if (k) field?.focus();
     else form.querySelector<HTMLElement>("button[data-kind]")?.focus();

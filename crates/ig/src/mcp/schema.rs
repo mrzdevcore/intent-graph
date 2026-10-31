@@ -4,11 +4,11 @@ use ig_app::map::arrows::TELLING;
 use ig_app::map::kinds::Kinds;
 use serde_json::{Value, json};
 
-/// The kinds a new box may be, from the table: `system` is left out (one root, already
-/// written); the code-level kinds are not in it.
-pub fn kinds() -> Vec<&'static str> {
-    let k = Kinds::builtin().names().into_iter();
-    k.filter(|k| *k != "system").collect()
+/// The kinds a new box may be, from the table (the team's in `ig/kinds/` among them): `system`
+/// is left out (one root, already written); the code-level kinds are not in it.
+pub fn kinds(k: &Kinds) -> Vec<String> {
+    let k = k.names().into_iter();
+    k.filter(|k| *k != "system").map(String::from).collect()
 }
 
 /// The arrow kinds written; `bundle` is derived, never written.
@@ -28,11 +28,12 @@ fn s(d: &str) -> Value {
     json!({"type": "string", "description": d})
 }
 
-pub fn tools() -> Value {
+/// The tools, with the kinds of the project's table.
+pub fn tools(k: &Kinds) -> Value {
     let one = json!({"oneOf": [
         op("add", json!({
             "parent": s("id of the box it goes in"),
-            "kind": {"type": "string", "enum": kinds()},
+            "kind": {"type": "string", "enum": kinds(k)},
             "id": s("lowercase slug, unique"),
             "title": s("shown name"),
             "at": {"type": "array", "items": {"type": "string"}, "description": "code globs the box owns; always give it for a new box"},

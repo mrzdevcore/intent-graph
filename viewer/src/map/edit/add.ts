@@ -3,10 +3,7 @@
 import {
   AppWindow, Bot, Box, Cable, Clock, Database, Folder, Globe, Inbox, ListChecks, LogIn, Network, Package, Plug, Server, Shapes, Sparkles, User,
 } from "lucide-static";
-import type { BoxKind, KindView, MapBox } from "../types";
-
-/** Base kinds that are not code: no code field. */
-export const NO_CODE: BoxKind[] = ["external", "person"];
+import type { KindView, MapBox } from "../types";
 
 // the `icon` names of crates/ig-app/assets/kinds.kdl; any other name (a team kind's) draws a box
 const ICONS: Record<string, string> = {
@@ -16,12 +13,14 @@ const ICONS: Record<string, string> = {
 /** The kind's lucide icon as a CSS mask image (drawn in the text colour). */
 export const iconMask = (icon: string) => `url("data:image/svg+xml,${encodeURIComponent(ICONS[icon] ?? Box)}")`;
 
-/** Whether a box in `parent` sits inside a running block: at or below a run or design block (a module counts), not in the
- *  system or a group outside them. Mirrors `run_above` in crates/ig-app/src/map/warn.rs. */
+/** The kind of box `b` in the table (a team kind by its own name). */
+export const kindOf = (b: MapBox, kinds: KindView[]) => kinds.find((k) => k.name === (b.custom ?? b.kind.value));
+
+/** Whether a box in `parent` sits inside a running block: a run block (or a module, which stands for one) at or above it.
+ *  Mirrors `run_above` in crates/ig-app/src/map/warn.rs. */
 export function inside(parent: string, boxes: Map<string, MapBox>, kinds: KindView[]): boolean {
   for (let b = boxes.get(parent); b; b = b.parent && b.parent !== b.id ? boxes.get(b.parent) : undefined) {
-    const role = kinds.find((k) => k.name === (b!.custom ?? b!.kind.value))?.role;
-    if (role === "run" || role === "design" || b.kind.value === "module") return true;
+    if (kindOf(b, kinds)?.role === "run" || b.kind.value === "module") return true;
   }
   return false;
 }

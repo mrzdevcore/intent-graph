@@ -109,3 +109,17 @@ fn where_a_block_may_sit() {
         assert!(may_sit(G, parent, outer), "{parent:?}");
     }
 }
+
+#[test]
+fn only_person_and_external_are_not_code_and_a_team_kind_takes_its_bases() {
+    let k = Kinds::builtin();
+    let not: Vec<&str> = (k.names().into_iter())
+        .filter(|n| !k.get(n).unwrap().code)
+        .collect();
+    assert_eq!(not, ["person", "external"]);
+    let files = mem(&[("ig/kinds/partner.kdl", "kind \"partner\" is=\"external\"")]);
+    let k = Kinds::load(&files).unwrap();
+    assert!(!k.get("partner").unwrap().code);
+    let bad = mem(&[("ig/kinds/p.kdl", "kind \"p\" is=\"service\" code=#false")]);
+    assert!(Kinds::load(&bad).is_err(), "a team kind takes its base's");
+}
