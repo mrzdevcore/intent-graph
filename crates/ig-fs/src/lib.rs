@@ -6,9 +6,7 @@ pub use discover::{BUILD_DIRS, discover};
 
 use ig_core::config::Config;
 use ig_core::ports::{Files, PortError};
-use ig_core::workspace::{WorkspaceInfo, globset, rel};
-use serde_json::Value;
-use std::io::Read;
+use ig_core::workspace::{Layout, NEVER_WALKED, WorkspaceInfo, globset, rel};
 use std::path::{Path, PathBuf};
 
 /// Files under `root`.
@@ -98,8 +96,15 @@ impl Files for FsFiles {
         if patterns.is_empty() {
             return Ok(out);
         }
-        let mut stack = vec![self.root.clone()];
-        while let Some(dir) = stack.pop() {
+        // no deeper than the deepest pattern reaches, unless one has `**`
+        let deep = patterns.iter().any(|p| p.contains("**"));
+        let depth = patterns
+            .iter()
+            .map(|p| p.split('/').count())
+            .max()
+            .unwrap_or(0);
+        let mut stack = vec![(self.root.clone(), 1)];
+        while let Some((dir, at)) = stack.pop() {
             let Ok(rd) = std::fs::read_dir(&dir) else {
                 continue;
             };
@@ -112,8 +117,9 @@ impl Files for FsFiles {
                 let Ok(ft) = e.file_type() else { continue };
                 if ft.is_dir() {
                     let name = e.file_name();
-                    if !matches!(name.to_str(), Some("node_modules" | ".git" | ".ig")) {
-                        stack.push(p);
+                    let walked = !NEVER_WALKED.contains(&name.to_str().unwrap_or(""));
+                    if walked && (deep || at < depth) {
+                        stack.push((p, at + 1));
                     }
                 } else if ft.is_file() && set.is_match(&r) {
                     out.push(r);
@@ -126,8 +132,8 @@ impl Files for FsFiles {
     fn at(&self, root: &Path) -> Box<dyn Files> {
         Box::new(FsFiles::new(self.root.join(root)))
     }
-    fn discover(&self, config: &Config) -> Result<WorkspaceInfo, PortError> {
-        discover(&self.root, config)
+    fn discover(&self, config: &Config, layout: &Layout) -> Result<WorkspaceInfo, PortError> {
+        discover(&self.root, config, layout)
     }
 }
 
@@ -136,16 +142,6 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
-}
-
-/// Parses JSON with comments and trailing commas.
-pub fn read_jsonc(path: &Path) -> Option<Value> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let mut stripped = String::new();
-    json_comments::StripComments::new(text.as_bytes())
-        .read_to_string(&mut stripped)
-        .ok()?;
-    serde_json::from_str(&ig_core::workspace::strip_trailing_commas(&stripped)).ok()
 }
 
 #[cfg(test)]

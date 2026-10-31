@@ -22,8 +22,6 @@ fn single(paths: &[String]) -> WorkspaceInfo {
         packages: vec![Package {
             name: "repo".into(),
             dir: ".".into(),
-            tsconfig: None,
-            source_entry: None,
         }],
         files: paths
             .iter()
@@ -117,8 +115,6 @@ fn repo(pkgs: &[(&str, &str, &[&str])]) -> (WorkspaceInfo, Graph) {
         .map(|(name, dir, _)| Package {
             name: name.to_string(),
             dir: dir.to_string(),
-            tsconfig: None,
-            source_entry: None,
         })
         .collect();
     let ws = WorkspaceInfo {

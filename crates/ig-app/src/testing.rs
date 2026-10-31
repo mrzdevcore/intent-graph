@@ -7,7 +7,7 @@ use crate::Env;
 use ig_core::config::Config;
 use ig_core::model::{Edge, Metrics, Node, Range, sha1_hex};
 use ig_core::ports::{FileFacts, Files, FrontendOutput, LanguageFrontend, PortError, Vcs};
-use ig_core::workspace::{SourceFile, WorkspaceInfo};
+use ig_core::workspace::{Package, SourceFile, WorkspaceInfo};
 use std::path::Path;
 
 #[derive(Default)]
@@ -49,9 +49,26 @@ fn edge(from: &str, kind: &str, to: &str, file: &str, line: u32) -> Edge {
     }
 }
 
+/// The root package a fake frontend declares: named by a root `package.json`, as TypeScript's.
+pub fn root_package(files: &dyn Files) -> Vec<Package> {
+    let pj = files
+        .read("package.json")
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+    let name = pj.and_then(|v| v["name"].as_str().map(String::from));
+    name.map(|name| Package {
+        name,
+        dir: ".".into(),
+    })
+    .into_iter()
+    .collect()
+}
+
 impl LanguageFrontend for Fake {
     fn handles(&self, path: &str, _: &Config) -> bool {
         path.ends_with(".ts")
+    }
+    fn packages(&self, files: &dyn Files) -> Vec<Package> {
+        root_package(files)
     }
     fn build(
         &self,

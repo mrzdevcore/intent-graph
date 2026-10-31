@@ -2,9 +2,9 @@
 
 # intent-graph (`ig`)
 
-**ig** (say *"eye-gee"*, short for *intent graph*) — code graph and change checker for TypeScript/JavaScript monorepos, written in Rust.
+**ig** (say *"eye-gee"*, short for *intent graph*) — code graph and change checker for TypeScript/JavaScript, Python and Rust repositories, written in Rust.
 
-`ig` parses the repo with oxc into a graph of modules, classes, functions, methods, tests and your own
+`ig` parses the repo (oxc for TypeScript/JavaScript, tree-sitter for Python and Rust) into a graph of modules, classes, functions, methods, tests and your own
 pattern nodes, and draws it as a **system map**: a canvas you walk, from the whole system down to the
 functions, with each box named and described by an AI agent you choose to run (or by ig's own guess).
 It is also an MCP server, so a coding agent can show its answers on the map.
@@ -192,7 +192,7 @@ ig view --json > viewer/dev-data.json && cd viewer && bun run dev   # the viewer
 ```
 
 Layout: a Cargo workspace in `crates/`. `ig-core` is pure domain plus the ports; `ig-app` holds the use cases;
-`ig-lang-ts`, `ig-fs` and `ig-git` are adapters; `ig` is the binary that wires them.
+`ig-lang-ts`, `ig-lang-py`, `ig-lang-rs`, `ig-fs` and `ig-git` are adapters; `ig` is the binary that wires them.
 The dependency rule (core and adapters depend only on `ig-core`) and a 600-line file limit are enforced by
-`crates/ig/tests/architecture.rs`. `LanguageFrontend` is the seam for new languages, but it is not drop-in yet: source-file detection (`ig_core::workspace::is_source_ext`) and package discovery (`ig-fs`: npm/pnpm workspaces, package.json, tsconfig) are still TS/npm-shaped, and `prepare_checkout`'s `link_auto_imports` flag and the node hash/intent helpers in `ig-lang-ts` must move first.
+`crates/ig/tests/architecture.rs`. A language is a `LanguageFrontend`: it says which files are its source, which packages the tree declares (npm/pnpm workspaces, `pyproject.toml`, Cargo workspaces) and which manifests fence a nested project off, then builds their nodes and edges; core and `ig-fs` know no language. A new one goes in `ig_wire::FRONTENDS`. Still TS-shaped: `prepare_checkout`'s `link_auto_imports` flag, and outside systems known by one list of npm, Python and Rust client library names.
 See [Architecture](docs/specs/design.md#architecture).

@@ -3,8 +3,11 @@
 
 use ig_app::Env;
 use ig_core::ports::{LanguageFrontend, Vcs};
+use ig_core::workspace::NEVER_WALKED;
 use ig_fs::FsFiles;
 use ig_git::GitVcs;
+use ig_lang_py::PyFrontend;
+use ig_lang_rs::RsFrontend;
 use ig_lang_ts::TsFrontend;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -13,7 +16,8 @@ use std::time::Duration;
 
 pub use notify::RecommendedWatcher;
 
-static FRONTENDS: &[&dyn LanguageFrontend] = &[&TsFrontend];
+/// Every language ig reads, in the order they claim a file.
+pub static FRONTENDS: &[&dyn LanguageFrontend] = &[&TsFrontend, &PyFrontend, &RsFrontend];
 
 /// A progress line on stderr, only when it is a terminal (hooks and JSON consumers stay clean).
 /// It clears the line first: `ig view --read`'s progress bar may be on it, and is redrawn below.
@@ -70,12 +74,7 @@ impl Wired {
 /// Paths a live view never rebuilds for: ig's own output, git internals, dependencies.
 pub fn ignored(root: &Path, p: &Path) -> bool {
     let rel = p.strip_prefix(root).unwrap_or(p);
-    rel.components().any(|c| {
-        matches!(
-            c.as_os_str().to_str(),
-            Some(".ig" | ".git" | "node_modules")
-        )
-    })
+    (rel.components()).any(|c| NEVER_WALKED.contains(&c.as_os_str().to_str().unwrap_or("")))
 }
 
 /// The `rel` paths git ignores, by .gitignore, .git/info/exclude and the global excludes, checked

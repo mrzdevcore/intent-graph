@@ -53,7 +53,10 @@ fn dependency_rule() {
             assert!(allowed.contains(d), "{name} must not depend on {d}");
         }
     }
-    assert_eq!(seen, 5, "ig-core, ig-app, ig-lang-ts, ig-fs, ig-git");
+    assert_eq!(
+        seen, 7,
+        "ig-core, ig-app, ig-lang-ts, ig-lang-py, ig-lang-rs, ig-fs, ig-git"
+    );
 }
 
 #[test]

@@ -2,7 +2,8 @@
 
 use crate::embedded::{self, MarkupRef};
 use globset::GlobSet;
-use ig_core::model::{Metrics, Node, Range, innermost_at, sha1_bytes, sha1_hex};
+use ig_core::model::{Metrics, Node, Range, innermost_at, sha1_bytes};
+pub use ig_core::model::{intents_in, normalized_hash};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::*;
 use oxc_ast_visit::{Visit, walk};
@@ -12,9 +13,7 @@ use oxc_syntax::module_record::{
     ExportExportName, ExportImportName, ExportLocalName, ImportImportName, ModuleRecord,
 };
 use oxc_syntax::scope::ScopeFlags;
-use regex::Regex;
 use std::collections::HashMap;
-use std::sync::LazyLock;
 
 mod callee;
 mod http;
@@ -23,8 +22,40 @@ mod visitor;
 
 use callee::export_tables;
 
-static INTENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"@intent\s+([A-Z]+-\d+(?:\s*,\s*[A-Z]+-\d+)*)").unwrap());
+/// Node's own modules: imported bare, but no package.
+const NODE_BUILTINS: &[&str] = &[
+    "assert",
+    "async_hooks",
+    "buffer",
+    "child_process",
+    "cluster",
+    "crypto",
+    "dns",
+    "events",
+    "fs",
+    "http",
+    "http2",
+    "https",
+    "module",
+    "net",
+    "os",
+    "path",
+    "perf_hooks",
+    "process",
+    "querystring",
+    "readline",
+    "stream",
+    "string_decoder",
+    "timers",
+    "tls",
+    "tty",
+    "url",
+    "util",
+    "v8",
+    "vm",
+    "worker_threads",
+    "zlib",
+];
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportName {
@@ -158,34 +189,6 @@ impl Lines {
 pub fn line_count(src: &str) -> u32 {
     let s = src.strip_suffix('\n').unwrap_or(src);
     (s.bytes().filter(|b| *b == b'\n').count() as u32 + 1).max(1)
-}
-
-pub fn normalized_hash(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut ws = false;
-    for c in text.trim().chars() {
-        if c.is_whitespace() {
-            ws = true;
-        } else {
-            if ws {
-                out.push(' ');
-                ws = false;
-            }
-            out.push(c);
-        }
-    }
-    sha1_hex(&out)
-}
-
-pub fn intents_in(text: &str, out: &mut Vec<String>) {
-    for c in INTENT.captures_iter(text) {
-        for tag in c[1].split(',') {
-            let tag = tag.trim().to_string();
-            if !out.contains(&tag) {
-                out.push(tag);
-            }
-        }
-    }
 }
 
 fn basename(p: &str) -> &str {
@@ -454,7 +457,9 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
             } else {
                 first.to_string()
             };
-            packages.push((name, i.line));
+            if !NODE_BUILTINS.contains(&name.as_str()) {
+                packages.push((name, i.line));
+            }
         }
     }
     FileFacts {

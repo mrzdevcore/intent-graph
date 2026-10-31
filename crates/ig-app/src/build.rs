@@ -6,7 +6,7 @@ use ig_core::config::Config;
 use ig_core::http;
 use ig_core::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
 use ig_core::ports::{FileFacts, Files, LanguageFrontend, PortError};
-use ig_core::workspace::{self, SourceFile, WorkspaceInfo};
+use ig_core::workspace::{self, Layout, Package, SourceFile, WorkspaceInfo};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub struct Built {
@@ -28,6 +28,25 @@ pub struct Extras {
     pub http_unmatched: Vec<(String, u32, String, String)>,
 }
 
+/// The tree's packages, as the frontends declare them (the first to declare a folder names it),
+/// and the files some frontend handles.
+pub fn discover(
+    frontends: &[&dyn LanguageFrontend],
+    files: &dyn Files,
+    config: &Config,
+) -> Result<WorkspaceInfo, PortError> {
+    let source = |p: &str| frontends.iter().any(|f| f.handles(p, config));
+    let mut packages: Vec<Package> = frontends.iter().flat_map(|f| f.packages(files)).collect();
+    packages.sort_by(|a, b| a.dir.cmp(&b.dir));
+    packages.dedup_by(|a, b| a.dir == b.dir);
+    let layout = Layout {
+        packages,
+        fences: frontends.iter().flat_map(|f| f.fences()).copied().collect(),
+        source: &source,
+    };
+    files.discover(config, &layout)
+}
+
 /// Builds the graph of the tree `files` is rooted at. Each source file goes to the first
 /// frontend that handles it. `graph.commit` is left for the caller.
 pub fn build_graph(
@@ -35,7 +54,7 @@ pub fn build_graph(
     files: &dyn Files,
     config: &Config,
 ) -> Result<Built, PortError> {
-    let ws = files.discover(config)?;
+    let ws = discover(frontends, files, config)?;
     let tests = workspace::globset(&config.tests).map_err(|e| PortError::Io(e.to_string()))?;
     let mut facts: Vec<FileFacts> = vec![];
     let mut edge_lists: Vec<Vec<Edge>> = vec![];
@@ -299,14 +318,14 @@ fn n_name_differs(facts: &[FileFacts], id: &str, m: &str, p: &str) -> bool {
 
 #[rustfmt::skip]
 const SYSTEM_CATEGORIES: &[(&str, &[&str])] = &[
-    ("database", &["postgres", "pg", "mysql", "mariadb", "mongo", "mongoose", "prisma", "typeorm", "knex", "sequelize", "sqlite", "redis", "ioredis", "dynamo", "firestore", "supabase", "cassandra"]),
+    ("database", &["postgres", "pg", "mysql", "mariadb", "mongo", "mongoose", "prisma", "typeorm", "knex", "sequelize", "sqlite", "redis", "ioredis", "dynamo", "firestore", "supabase", "cassandra", "sqlalchemy"]),
     // Never plain "elastic": "Elastic APM" is monitoring.
     ("search", &["elastic search", "elasticsearch", "@elastic/elasticsearch", "algolia", "meili", "typesense", "opensearch"]),
     ("monitoring", &["apm", "datadog", "sentry", "newrelic", "opentelemetry", "grafana", "prometheus", "logrocket"]),
     ("auth", &["auth0", "okta", "keycloak", "cognito", "clerk", "firebase-auth", "next-auth", "passport"]),
     ("cms", &["contentful", "strapi", "sanity", "prismic", "storyblok", "directus", "ghost"]),
     ("analytics", &["power bi", "powerbi", "segment", "mixpanel", "amplitude", "google-analytics", "gtag", "matomo", "posthog"]),
-    ("queue", &["kafka", "rabbit", "amqp", "sqs", "bull", "nats"]),
+    ("queue", &["kafka", "rabbit", "amqp", "sqs", "bull", "nats", "pika", "celery"]),
     ("storage", &["s3", "@aws-sdk/client-s3", "minio", "cloudinary", "blob"]),
     ("payment", &["stripe", "paypal", "adyen"]),
     ("email", &["sendgrid", "mailgun", "nodemailer", "postmark", "ses"]),

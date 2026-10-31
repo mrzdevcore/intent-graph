@@ -10,18 +10,29 @@ mod patterns;
 mod prepare;
 mod resolve;
 mod tsconfig;
+mod workspace;
 
 use ig_core::config::Config;
 use ig_core::model::Anatomy;
-use ig_core::ports::{FrontendOutput, LanguageFrontend, PortError};
-use ig_core::workspace::{SourceFile, WorkspaceInfo, is_source_ext};
+use ig_core::ports::{Files, FrontendOutput, LanguageFrontend, PortError};
+use ig_core::workspace::{Package, SourceFile, WorkspaceInfo};
 use std::path::Path;
+pub use workspace::is_source_ext;
 
 pub struct TsFrontend;
 
 impl LanguageFrontend for TsFrontend {
     fn handles(&self, path: &str, config: &Config) -> bool {
         is_source_ext(path, &config.embedded)
+    }
+
+    fn packages(&self, files: &dyn Files) -> Vec<Package> {
+        workspace::packages(files)
+    }
+
+    /// A folder with its own `package.json` that no workspace lists is another project.
+    fn fences(&self) -> &'static [&'static str] {
+        &["package.json"]
     }
 
     fn build(

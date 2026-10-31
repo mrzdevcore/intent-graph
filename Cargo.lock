@@ -2034,6 +2034,7 @@ name = "ig-core"
 version = "0.1.0"
 dependencies = [
  "globset",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -2066,9 +2067,6 @@ name = "ig-fs"
 version = "0.1.0"
 dependencies = [
  "ig-core",
- "json_comments",
- "serde_json",
- "serde_yaml_ng",
 ]
 
 [[package]]
@@ -2076,6 +2074,26 @@ name = "ig-git"
 version = "0.1.0"
 dependencies = [
  "ig-core",
+]
+
+[[package]]
+name = "ig-lang-py"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+ "regex",
+ "tree-sitter",
+ "tree-sitter-python",
+]
+
+[[package]]
+name = "ig-lang-rs"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+ "toml 1.1.8+spec-1.1.0",
+ "tree-sitter",
+ "tree-sitter-rust",
 ]
 
 [[package]]
@@ -2098,6 +2116,7 @@ dependencies = [
  "rayon",
  "regex",
  "serde_json",
+ "serde_yaml_ng",
 ]
 
 [[package]]
@@ -2108,6 +2127,8 @@ dependencies = [
  "ig-core",
  "ig-fs",
  "ig-git",
+ "ig-lang-py",
+ "ig-lang-rs",
  "ig-lang-ts",
  "notify",
 ]
@@ -2188,6 +2209,7 @@ dependencies = [
  "ig-app",
  "ig-core",
  "ig-fs",
+ "ig-lang-ts",
  "ig-wire",
  "lexopt",
  "regex",
@@ -5069,6 +5091,26 @@ name = "tree-sitter-language"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0af592be68c579aa78a16846bd19422978c3c52e438523d45ff5d1bff1f9d4a"
+
+[[package]]
+name = "tree-sitter-python"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bf85fd39652e740bf60f46f4cda9492c3a9ad75880575bf14960f775cb74a1c"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-rust"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "439e577dbe07423ec2582ac62c7531120dbfccfa6e5f92406f93dd271a120e45"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
 
 [[package]]
 name = "tree-sitter-typescript"

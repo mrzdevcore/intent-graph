@@ -46,8 +46,6 @@ pub(crate) mod shop {
         .map(|(name, dir)| Package {
             name: name.to_string(),
             dir: dir.to_string(),
-            tsconfig: None,
-            source_entry: None,
         })
         .collect();
         let files = g

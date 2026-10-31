@@ -13,6 +13,9 @@ impl LanguageFrontend for Imports {
     fn handles(&self, path: &str, _: &Config) -> bool {
         path.ends_with(".ts")
     }
+    fn packages(&self, files: &dyn ig_core::ports::Files) -> Vec<ig_core::workspace::Package> {
+        crate::testing::root_package(files)
+    }
     fn build(
         &self,
         files: &[(SourceFile, String)],

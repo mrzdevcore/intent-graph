@@ -1,8 +1,10 @@
 //! Graph and finding data model. JSON is camelCase; absent fields are omitted.
 
 use crate::config::Severity;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
+use std::sync::LazyLock;
 
 pub const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -223,6 +225,39 @@ impl Finding {
             .join("|"),
         );
         self
+    }
+}
+
+static INTENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"@intent\s+([A-Z]+-\d+(?:\s*,\s*[A-Z]+-\d+)*)").unwrap());
+
+/// A node's text hashed with its whitespace runs as one space: the same code, reformatted, hashes the same.
+pub fn normalized_hash(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut ws = false;
+    for c in text.trim().chars() {
+        if c.is_whitespace() {
+            ws = true;
+        } else {
+            if ws {
+                out.push(' ');
+                ws = false;
+            }
+            out.push(c);
+        }
+    }
+    sha1_hex(&out)
+}
+
+/// The `@intent ABC-1, ABC-2` tags in `text`, added to `out` once each.
+pub fn intents_in(text: &str, out: &mut Vec<String>) {
+    for c in INTENT.captures_iter(text) {
+        for tag in c[1].split(',') {
+            let tag = tag.trim().to_string();
+            if !out.contains(&tag) {
+                out.push(tag);
+            }
+        }
     }
 }
 

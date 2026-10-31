@@ -3,7 +3,7 @@
 use super::*;
 use ig_core::config::Config;
 use ig_core::ports::PortError;
-use ig_core::workspace::WorkspaceInfo;
+use ig_core::workspace::{Layout, WorkspaceInfo};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -34,8 +34,8 @@ impl Files for Logged {
     fn at(&self, root: &Path) -> Box<dyn Files> {
         self.files.at(root)
     }
-    fn discover(&self, config: &Config) -> Result<WorkspaceInfo, PortError> {
-        self.files.discover(config)
+    fn discover(&self, config: &Config, layout: &Layout) -> Result<WorkspaceInfo, PortError> {
+        self.files.discover(config, layout)
     }
 }
 
