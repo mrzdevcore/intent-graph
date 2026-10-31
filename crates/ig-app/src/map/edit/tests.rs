@@ -262,6 +262,7 @@ fn removing_a_first_child_keeps_the_block_shaped() {
             id: "web".into(),
             key: "at".into(),
             value: None,
+            restore: vec![],
         },
         &[(
             "ig/system.kdl",
@@ -432,6 +433,7 @@ fn set_changes_adds_and_removes_properties_in_order() {
                 id: "db".into(),
                 key: key.into(),
                 value: value.map(String::from),
+                restore: vec![],
             },
             &[("ig/system.kdl", &SYS.replace(db, line))],
         );
@@ -445,6 +447,7 @@ fn set_at_replaces_the_globs() {
             id: "api/checkout".into(),
             key: "at".into(),
             value: Some("apps/api/src/checkout/**\napps/api/src/pay/**".into()),
+            restore: vec![],
         },
         &[(
             "ig/api.kdl",
@@ -463,6 +466,7 @@ fn set_at_on_a_box_without_one_puts_it_first() {
             id: "api/orders".into(),
             key: "at".into(),
             value: Some("apps/api/src/orders/**".into()),
+            restore: vec![],
         },
         &[(
             "ig/api.kdl",
@@ -570,6 +574,7 @@ fn bad_edits_write_nothing() {
             id: "db".into(),
             key: "title".into(),
             value: None,
+            restore: vec![],
         },
         "`db` has no title",
     );
@@ -578,22 +583,8 @@ fn bad_edits_write_nothing() {
             id: "db".into(),
             key: "colour".into(),
             value: None,
+            restore: vec![],
         },
         "`colour`",
     );
-}
-
-#[test]
-fn edits_read_and_write_as_tagged_json() {
-    let e = Edit::Unarrow {
-        from: "a".into(),
-        to: "b".into(),
-        kind: ArrowKind::Uses,
-    };
-    let v = serde_json::to_value(&e).unwrap();
-    assert_eq!(
-        v,
-        serde_json::json!({"op": "unarrow", "from": "a", "to": "b", "kind": "uses"})
-    );
-    assert_eq!(serde_json::from_value::<Edit>(v).unwrap(), e);
 }

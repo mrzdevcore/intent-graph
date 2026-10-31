@@ -28,13 +28,13 @@ impl Spec {
         let mut cleared = None;
         match slot {
             Some(s) => {
-                self.set(id, "slot", Some(s))?;
+                self.set(id, "slot", Some(s), &[])?;
             }
             None => {
                 let n = self.node(&self.must(id)?);
                 let had = n.get("slot").and_then(|v| v.as_string()).map(String::from);
                 if let Some(s) = had.filter(|s| !self.offers(parent, s)) {
-                    self.set(id, "slot", None)?;
+                    self.set(id, "slot", None, &[])?;
                     cleared = Some(s);
                 }
             }

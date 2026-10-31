@@ -9,6 +9,7 @@ fn kind(id: &str, to: &str) -> Edit {
         id: id.into(),
         key: "kind".into(),
         value: Some(to.into()),
+        restore: vec![],
     }
 }
 
@@ -45,6 +46,7 @@ fn an_ig_with_a_team_kind_takes_edits_and_fmt() {
         id: "probe".into(),
         key: "title".into(),
         value: Some("Sensor".into()),
+        restore: vec![],
     };
     check_on(
         f(),
@@ -93,4 +95,88 @@ fn add_writes_a_team_kind_and_the_kinds_own_properties() {
         errs.iter().any(|e| e.contains("`hosted` is one of")),
         "{errs:?}"
     );
+}
+
+fn prop(id: &str, key: &str, v: Option<&str>) -> Edit {
+    Edit::Set {
+        id: id.into(),
+        key: key.into(),
+        value: v.map(String::from),
+        restore: vec![],
+    }
+}
+
+const LLM: &str = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n    model \"llm\" title=\"LLM\" provider=\"ollama\" tech=\"llama\"\n}\n";
+
+#[test]
+fn set_takes_owner_and_the_kinds_own_properties() {
+    let f = || MemFiles::with(&[("ig/system.kdl", LLM)]);
+    let sys = |a: &str, b: &str| LLM.replace(a, b);
+    check_on(
+        f(),
+        prop("llm", "provider", Some("anthropic")),
+        &[("ig/system.kdl", &sys("ollama", "anthropic"))],
+    );
+    check_on(
+        f(),
+        prop("llm", "provider", None),
+        &[("ig/system.kdl", &sys(" provider=\"ollama\"", ""))],
+    );
+    check_on(
+        f(),
+        prop("llm", "owner", Some("ai-team")),
+        &[(
+            "ig/system.kdl",
+            &sys("tech=\"llama\"", "tech=\"llama\" owner=\"ai-team\""),
+        )],
+    );
+    let errs = apply(&f(), &prop("llm", "prompt", Some("x"))).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`prompt` is not a property of a model")),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn set_kind_drops_the_properties_the_new_kind_does_not_take_and_undo_restores_them() {
+    let f = MemFiles::with(&[("ig/system.kdl", LLM)]);
+    let want = LLM.replace(
+        "model \"llm\" title=\"LLM\" provider=\"ollama\"",
+        "service \"llm\" title=\"LLM\"",
+    );
+    let inv = check_on(f, kind("llm", "service"), &[("ig/system.kdl", &want)]);
+    assert_eq!(
+        inv,
+        Edit::Set {
+            id: "llm".into(),
+            key: "kind".into(),
+            value: Some("model".into()),
+            restore: vec![(2, " provider=\"ollama\"".into())],
+        }
+    );
+    // through the journal too
+    let f = MemFiles::with(&[("ig/system.kdl", LLM)]);
+    crate::map::edit::journal::record(
+        &f,
+        crate::map::edit::journal::By::Person,
+        &kind("llm", "service"),
+    )
+    .unwrap();
+    crate::map::edit::journal::undo(&f).unwrap().unwrap();
+    assert_eq!(texts(&f)["ig/system.kdl"], LLM);
+}
+
+#[test]
+fn dropping_a_kind_change_puts_a_box_back_where_it_was_out_of_place() {
+    // from before groups: a usecase in a folder straight in the system
+    let sys = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n    folder \"f\" title=\"F\" {\n        usecase \"u\" title=\"U\"\n    }\n}\n";
+    use crate::map::edit::journal::{By, drop, record};
+    let f = MemFiles::with(&[("ig/system.kdl", sys)]);
+    let e = record(&f, By::Claude, &kind("u", "service")).unwrap();
+    drop(&f, e.n).unwrap();
+    assert_eq!(texts(&f)["ig/system.kdl"], sys);
+    // and a box out of place may stay so: never worse
+    let f = MemFiles::with(&[("ig/system.kdl", sys)]);
+    apply(&f, &kind("u", "domain")).unwrap();
 }

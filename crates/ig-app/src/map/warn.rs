@@ -2,7 +2,7 @@
 //! boxes in a place their role does not sit, boxes holding more than a map shows well.
 //! Warnings never change `ig check`'s exit code.
 
-use super::file::{MapBox, MapFile};
+use super::file::{MapBox, MapFile, is_unread};
 use super::kinds::{KindDef, Kinds, base_name, kind_may_sit};
 use super::{ArrowKind, BoxKind, facts::Role};
 use std::collections::HashMap;
@@ -96,9 +96,10 @@ pub fn warnings(m: &MapFile, kinds: &Kinds) -> Vec<String> {
         out.extend(misplaced(&by, b, b.kind.value, &name(b)));
     }
     let mut kids: HashMap<&str, usize> = HashMap::new();
-    m.boxes
-        .iter()
-        .filter_map(|b| b.parent.as_deref())
+    // as the reader once did: stale boxes and a refresh's unread box never count
+    (m.boxes.iter())
+        .filter(|b| !b.stale)
+        .filter_map(|b| b.parent.as_deref().filter(|p| !is_unread(b, p)))
         .for_each(|p| *kids.entry(p).or_default() += 1);
     for b in &m.boxes {
         let n = kids.get(b.id.as_str()).copied().unwrap_or(0);
@@ -136,13 +137,43 @@ mod tests {
         s += "  }\n}\n";
         let w = warnings(&read(&s), Kinds::builtin());
         assert!(
-            w.contains(&"`api` reads `gmail`: reads goes to a store".to_string()),
+            w.contains(&"`api` reads `gmail`: reads goes to a store or queue".to_string()),
             "{w:?}"
         );
         assert!(
             w.contains(&"`g` holds 13 boxes; more than 12 is hard to read".to_string()),
             "{w:?}"
         );
+    }
+
+    #[test]
+    fn ig_does_not_warn_on_what_it_draws_from_the_code() {
+        let (ws, g, cfg) = crate::map::shop::load();
+        let b = crate::map::facts(&ws, &g, &cfg);
+        let (mut m, _) = crate::map::file::refresh(None, &b, crate::map::arrows(&b, &g), &[]);
+        // the shop's infra fills its ports (`implements OrderRepo`, a type import here)
+        let fill = "api/infra-prisma->api/application-ports";
+        let a = m.arrows.iter_mut().find(|a| a.id == fill).unwrap();
+        a.kind = crate::map::arrows::edge_kind("implements", BoxKind::Port).unwrap();
+        assert_eq!(warnings(&m, Kinds::builtin()), Vec::<String>::new());
+        let k = Kinds::builtin();
+        let def = |n: &str| k.get(n).unwrap();
+        // code that uses a queue reads it
+        let reads = crate::map::arrows::edge_kind("uses", BoxKind::Queue).unwrap();
+        assert!(k.arrow_ok(reads, def("service"), def("queue")));
+    }
+
+    #[test]
+    fn stale_boxes_and_the_unread_box_are_not_counted() {
+        let mut s = String::from("system \"shop\" {\n  group \"g\" {\n    group \"g/unread\"\n");
+        for i in 0..13 {
+            s += &format!("    service \"s{i}\"\n");
+        }
+        s += "  }\n}\n";
+        let mut m = read(&s);
+        m.boxes.iter_mut().find(|b| b.id == "s0").unwrap().stale = true;
+        let w = warnings(&m, Kinds::builtin());
+        assert!(w.iter().all(|w| !w.contains("holds")), "{w:?}");
     }
 
     #[test]

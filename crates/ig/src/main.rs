@@ -89,7 +89,7 @@ fn real_main() -> Result<u8> {
                 eprintln!("ig: {n}");
             }
             for w in &v.warnings {
-                eprintln!("ig: warning: {w}");
+                eprintln!("warning: {w}");
             }
             if a.json {
                 println!("{}", serde_json::to_string_pretty(&v)?);

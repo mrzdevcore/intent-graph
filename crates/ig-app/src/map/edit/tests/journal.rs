@@ -26,6 +26,7 @@ fn set(id: &str, v: &str) -> Edit {
         id: id.into(),
         key: "title".into(),
         value: Some(v.into()),
+        restore: vec![],
     }
 }
 

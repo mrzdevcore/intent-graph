@@ -49,7 +49,7 @@ pub fn tools(k: &Kinds) -> Value {
         op("rename", json!({"id": s("box id"), "to": s("new lowercase slug")}), &["id", "to"]),
         op("set", json!({
             "id": s("box id"),
-            "key": {"type": "string", "enum": ["title", "tech", "description", "logo", "slot", "at", "kind"], "description": "at takes globs joined by newlines; kind renames the box's kind in place (refused where that kind may not sit)"},
+            "key": s("title, tech, description, logo, slot, owner, or a property of the box's kind (provider, model, hosted for a model; prompt for an agent; a team kind's own); at takes globs joined by newlines; kind renames the box's kind in place (refused where it would put the box out of place; drops the properties the new kind does not take)"),
             "value": {"type": ["string", "null"], "description": "null removes the key"}
         }), &["id", "key"]),
         op("arrow", json!({

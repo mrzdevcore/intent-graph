@@ -28,24 +28,17 @@
     neutral: "background:var(--map-sunken);color:var(--map-fg-2)", warn: "background:var(--map-warn-chip);color:var(--map-warn-text);font-weight:600",
     bad: "background:var(--map-bad-chip);color:var(--map-bad-text);font-weight:600", down: "background:var(--map-fg);color:var(--map-surface);font-weight:600",
   };
-  // Lucide-style 24x24 stroke paths, as in the mockup.
+  // Lucide-style 24x24 stroke paths, as in the mockup: the code-derived kinds the kinds table does not hold
   const ICON: Record<string, [string, string]> = {
-    system: ["M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z", "var(--map-fg-2)"],
-    app: ["M3 4h18v13H3zM8 21h8M12 17v4", "var(--map-fg-2)"], entry: ["M3 4h18v13H3zM8 21h8M12 17v4", "var(--map-blue)"],
-    service: ["M3 4h18v7H3zM3 13h18v7H3zM7 7.5h.01M7 16.5h.01", "var(--map-fg-2)"],
-    job: ["M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1", "var(--map-fg-2)"],
-    store: ["M4 5c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3", "var(--map-fg-2)"],
-    queue: ["M3 6h18M3 12h18M3 18h12", "var(--map-fg-2)"],
-    external: ["M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z", "var(--map-muted)"],
-    usecase: ["M5 12h14M13 6l6 6-6 6", "var(--map-green)"], port: ["M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4", "var(--map-green)"],
-    domain: ["M12 2l9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10", "var(--map-gold)"],
     folder: ["M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9L9.6 3.9A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z", "var(--map-muted)"],
     file: ["M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7zM14 2v4a2 2 0 0 0 2 2h4", "var(--map-muted)"],
     component: ["M3 5h18v14H3zM3 9h18M7 13h4M7 16h7", "var(--map-blue)"],
     parts: ["M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", "var(--map-muted)"],
   };
   const GLYPH: Record<string, string> = { class: "C", method: "m", group: "≡", task: "▸" };
-  const TINT: Record<string, string> = { entry: "var(--map-tint-blue)", usecase: "var(--map-tint-green)", port: "var(--map-tint-green)", domain: "var(--map-tint-gold)" };
+  // a design block's tile and icon: [tint, ink]
+  const TONE: Record<string, [string, string]> = { entry: ["var(--map-tint-blue)", "var(--map-blue)"], usecase: ["var(--map-tint-green)", "var(--map-green)"],
+    port: ["var(--map-tint-green)", "var(--map-green)"], domain: ["var(--map-tint-gold)", "var(--map-gold)"] };
 
   const kind = $derived(box.kind.value);
   const level = $derived(box.level);
@@ -67,8 +60,8 @@
   // ponytail: the label's width guessed from its length (0.6em a character, the hand font's average) and its
   // padding: measuring it needs layout, which tests lack
   const gap = $derived<[number, number, number]>([10 * m, (title.length * 0.6 + 1) * labelSize, labelSize * 1.5]);
-  // a run block's own icon from the kinds table (a team kind's own), when it has no logo
-  const kindIcon = $derived(drawn ? kindOf(box, kinds)?.icon ?? null : null);
+  // the kind's own icon from the kinds table (a team kind's own), when it has no logo; code has its glyph
+  const kindIcon = $derived(code ? null : kindOf(box, kinds)?.icon ?? null);
   // not code, not open: far, mid and near say more and more
   const face = $derived(!code && !opened);
   const status = $derived(look.chips.map((c) => ({ label: c.label, css: CHIP[c.tone] })));
@@ -131,11 +124,11 @@
     {#if !group}
     <span class="row" style:opacity={look.fade}>
       <span class="tile" style:width="{tile}px" style:height="{tile}px" style:border-radius={external ? "18px" : code ? "6px" : "8px"}
-        style:background={drawn ? "none" : level === "component" ? TINT[kind] ?? "var(--map-sunken)" : "var(--map-sunken)"}>
+        style:background={drawn ? "none" : level === "component" ? TONE[kind]?.[0] ?? "var(--map-sunken)" : "var(--map-sunken)"}>
         {#if brand}
           <svg class="logo" width={glyph} height={glyph} viewBox="0 0 24 24" aria-hidden="true" style:filter={look.fade < 1 && look.dashed ? "grayscale(1)" : "none"}><path d={brand.path} fill={brand.color} /></svg>
         {:else if kindIcon}
-          <i class="kind-icon" data-icon={kindIcon} aria-hidden="true" style:width="{glyph}px" style:height="{glyph}px" style:mask-image={iconMask(kindIcon)} style:background={drawn ? hue(drawn) : null}></i>
+          <i class="kind-icon" data-icon={kindIcon} aria-hidden="true" style:width="{glyph}px" style:height="{glyph}px" style:mask-image={iconMask(kindIcon)} style:background={drawn ? hue(drawn) : TONE[kind]?.[1] ?? "var(--map-fg-2)"}></i>
         {:else if icon}
           <svg width={code ? 16 : glyph} height={code ? 16 : glyph} viewBox="0 0 24 24" fill="none" style:stroke={icon[1]} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icon[0]} /></svg>
         {:else if code}

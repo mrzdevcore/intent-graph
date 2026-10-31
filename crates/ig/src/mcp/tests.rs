@@ -261,11 +261,10 @@ fn the_tool_schema_lists_the_kinds_of_the_table() {
         .iter()
         .find(|o| o["properties"]["op"]["const"] == "set")
         .unwrap();
+    let key = set["properties"]["key"]["description"].as_str().unwrap();
     assert!(
-        set["properties"]["key"]["enum"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("kind"))
+        key.contains("owner") && key.contains("kind renames"),
+        "{key}"
     );
 }
 

@@ -272,6 +272,19 @@ test("parentsFor: a container kind goes under apps and containers, not its paren
   expect(ids("web")).not.toContain("web/pages");
 });
 
+test("parentsFor: a run block goes into a top-level group, a group back to the root", () => {
+  const v = fresh();
+  const group = (id: string, parent: string) => ({ ...structuredClone(v.boxes.find((b) => b.id === "api/domain-order")!), id, parent,
+    kind: { value: "group" }, title: { value: id } }) as (typeof v.boxes)[number];
+  v.boxes.push(group("g", "system"), group("api/g", "api"));
+  const ids = (id: string) => parentsFor(v.boxes, v.kinds, id, "system").map((b) => b.id);
+  expect(ids("api")).toEqual(["g"]);
+  expect(ids("api/g")).toContain("system");
+  expect(ids("api/g")).toContain("g");
+  expect(ids("api/domain-order")).toContain("api/g");
+  expect(ids("api/domain-order")).not.toContain("g");
+});
+
 test("Delete sends Remove and shows the refusal", async () => {
   const got: any[] = [];
   const { api } = fake({ apply: async (e) => (got.push(e), Promise.reject(new Error("`api` still holds 9 boxes"))) });

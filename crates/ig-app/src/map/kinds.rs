@@ -229,6 +229,13 @@ impl Kinds {
             if named::<BoxKind>(&name).is_some() {
                 return Err(fail(format!("`{name}` is a built-in kind")));
             }
+            // the reader would take its boxes for arrows or for `at`, `badges`, `pattern`
+            if named::<ArrowKind>(&name).is_some() {
+                return Err(fail(format!("`{name}` is an arrow kind")));
+            }
+            if ["at", "badges", "pattern"].contains(&name.as_str()) {
+                return Err(fail(format!("`{name}` is a word of {DIR}/")));
+            }
             if self.get(&name).is_some() {
                 return Err(fail(format!("`{name}` is defined twice")));
             }
