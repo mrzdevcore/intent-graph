@@ -347,3 +347,31 @@ fn root_file_arrows_are_drawn() {
         .collect();
     assert_eq!(ids, ["mixed/root->mixed/x"]);
 }
+
+#[test]
+fn old_kind_and_arrow_names_read_as_the_new_ones() {
+    use crate::map::ArrowKind;
+    let k = |s: &str| serde_json::from_value::<BoxKind>(serde_json::json!(s)).unwrap();
+    assert_eq!(
+        (k("api"), k("worker"), k("library")),
+        (BoxKind::Service, BoxKind::Service, BoxKind::Module)
+    );
+    assert_eq!(serde_json::to_value(BoxKind::Service).unwrap(), "service");
+    let a = |s: &str| serde_json::from_value::<ArrowKind>(serde_json::json!(s)).unwrap();
+    assert_eq!(
+        [a("depends"), a("network"), a("event"), a("data")],
+        [
+            ArrowKind::Uses,
+            ArrowKind::Calls,
+            ArrowKind::Sends,
+            ArrowKind::Reads
+        ]
+    );
+}
+
+#[test]
+fn every_kind_has_a_role() {
+    assert_eq!(BoxKind::Model.role(), Role::Run);
+    assert_eq!(BoxKind::Agent.role(), Role::Design);
+    assert!(BoxKind::Folder.code_level() && BoxKind::Component.code_level());
+}

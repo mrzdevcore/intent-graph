@@ -164,8 +164,8 @@ fn schema(ids: &[String]) -> serde_json::Value {
             "required": ["id", "title", "kind", "description"],
             "properties": {
                 "id": {"enum": ids}, "title": text, "description": text, "tech": text,
-                "kind": {"enum": ["person", "system", "external", "app", "api", "worker", "store",
-                    "queue", "library", "entry", "usecase", "port", "domain", "group"]},
+                "kind": {"enum": ["person", "system", "external", "app", "service", "store", "queue",
+                    "module", "entry", "usecase", "port", "domain", "group"]},
                 "confidence": {"enum": ["extracted", "inferred", "ambiguous"]},
             },
         }}},

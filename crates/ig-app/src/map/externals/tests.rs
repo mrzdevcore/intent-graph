@@ -93,7 +93,7 @@ fn detects_postgres_from_pg() {
     let pg = b.iter().find(|b| b.id == "postgres").unwrap();
     assert_eq!(pg.guess.logo.as_deref(), Some("postgresql"));
     let arrow = a.iter().find(|a| a.to == "postgres").unwrap();
-    assert_eq!((arrow.from.as_str(), arrow.kind), ("app", ArrowKind::Data));
+    assert_eq!((arrow.from.as_str(), arrow.kind), ("app", ArrowKind::Reads));
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn declared_system_wins() {
 fn prefix_packages() {
     let (b, a) = map(&[PKG, ("src/a.ts", "@sentry/node")], "");
     assert_eq!(containers(&b), [("sentry", "Sentry", BoxKind::External)]);
-    assert_eq!(a[0].kind, ArrowKind::Network);
+    assert_eq!(a[0].kind, ArrowKind::Calls);
 }
 
 #[test]

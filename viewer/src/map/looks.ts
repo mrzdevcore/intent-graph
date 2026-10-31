@@ -72,13 +72,14 @@ export function insideCounts(view: View, marks: Mark[], on: Set<string>): Map<st
 }
 
 const ARROW: Record<string, { color: string; dash: string | null; head: "filled" | "open" | "hollow" }> = {
-  uses: { color: "var(--map-fg-2)", dash: null, head: "filled" },
+  // ponytail: names only, the old looks (uses as imports did); each kind's own look comes with Task 6
+  uses: { color: "var(--map-faint)", dash: null, head: "filled" },
   calls: { color: "var(--map-fg-2)", dash: null, head: "filled" },
-  depends: { color: "var(--map-faint)", dash: null, head: "filled" },
   bundle: { color: "var(--map-faint)", dash: null, head: "filled" },
-  network: { color: "var(--map-blue)", dash: "6 4", head: "filled" },
-  event: { color: "var(--map-purple)", dash: "2 5", head: "open" },
-  data: { color: "var(--map-teal)", dash: null, head: "filled" },
+  sends: { color: "var(--map-purple)", dash: "2 5", head: "open" },
+  triggers: { color: "var(--map-purple)", dash: "2 5", head: "open" },
+  reads: { color: "var(--map-teal)", dash: null, head: "filled" },
+  writes: { color: "var(--map-teal)", dash: null, head: "filled" },
   implements: { color: "var(--map-faint)", dash: "6 4", head: "hollow" },
 };
 

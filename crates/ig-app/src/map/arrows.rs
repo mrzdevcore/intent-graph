@@ -8,25 +8,29 @@ use std::collections::{BTreeMap, HashMap};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArrowKind {
-    Uses,
-    Depends,
+    #[serde(alias = "network")]
     Calls,
-    Network,
-    Event,
+    #[serde(alias = "event")]
+    Sends,
+    #[serde(alias = "data")]
+    Reads,
+    Writes,
+    #[serde(alias = "depends")]
+    Uses,
     Implements,
-    Data,
+    Triggers,
     Bundle,
 }
 
 /// What a bundle is written as in the spec: its most telling kind.
 const TELLING: [ArrowKind; 7] = [
     ArrowKind::Calls,
-    ArrowKind::Network,
-    ArrowKind::Event,
-    ArrowKind::Data,
+    ArrowKind::Sends,
+    ArrowKind::Reads,
+    ArrowKind::Writes,
+    ArrowKind::Triggers,
     ArrowKind::Implements,
     ArrowKind::Uses,
-    ArrowKind::Depends,
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,24 +72,24 @@ type Lifted<'g> = Vec<(&'g Edge, ArrowKind)>;
 /// Bundle label order and nouns.
 const NOUNS: &[(ArrowKind, &str)] = &[
     (ArrowKind::Calls, "call"),
-    (ArrowKind::Network, "request"),
-    (ArrowKind::Depends, "import"),
+    (ArrowKind::Sends, "message"),
+    (ArrowKind::Reads, "read"),
+    (ArrowKind::Writes, "write"),
+    (ArrowKind::Triggers, "trigger"),
     (ArrowKind::Implements, "implementation"),
-    (ArrowKind::Data, "query"),
-    (ArrowKind::Event, "event"),
     (ArrowKind::Uses, "use"),
 ];
 
 /// The arrow kind of a graph edge of kind `kind` into a box of kind `to`; none for edges not drawn.
 pub(super) fn edge_kind(kind: &str, to: BoxKind) -> Option<ArrowKind> {
     Some(match kind {
-        "imports" => ArrowKind::Depends,
+        "imports" => ArrowKind::Uses,
         "calls" | "renders" | "dispatch" => ArrowKind::Calls,
         "implements" | "extends" => ArrowKind::Implements,
-        "http" => ArrowKind::Network,
+        "http" => ArrowKind::Calls,
         "uses" => match to {
-            BoxKind::Store | BoxKind::Queue => ArrowKind::Data,
-            BoxKind::External => ArrowKind::Network,
+            BoxKind::Store | BoxKind::Queue => ArrowKind::Reads,
+            BoxKind::External => ArrowKind::Calls,
             _ => ArrowKind::Uses,
         },
         _ => return None,
@@ -193,7 +197,7 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
                         .collect::<Vec<_>>()
                         .join(" · "),
                 ),
-                ArrowKind::Network if edges.iter().all(|(e, _)| e.kind == "http") => {
+                ArrowKind::Calls if edges.iter().all(|(e, _)| e.kind == "http") => {
                     single(Some("http"))
                 }
                 ArrowKind::Calls => single(None),
@@ -304,14 +308,14 @@ mod tests {
         let net = find(&a, "web->api");
         assert_eq!(
             (net.kind, net.parent.as_str()),
-            (ArrowKind::Network, "system")
+            (ArrowKind::Calls, "system")
         );
         assert_eq!(net.label.as_deref(), Some("POST /checkout"));
         let dep = find(&a, "api/domain-order->api/infra-prisma");
-        assert_eq!((dep.kind, dep.parent.as_str()), (ArrowKind::Depends, "api"));
+        assert_eq!((dep.kind, dep.parent.as_str()), (ArrowKind::Uses, "api"));
         assert!(find(&a, "api/application-checkout->api/infra-prisma").in_loop);
-        assert_eq!(find(&a, "api->postgres").kind, ArrowKind::Data);
-        assert_eq!(find(&a, "api->stripe").kind, ArrowKind::Network);
+        assert_eq!(find(&a, "api->postgres").kind, ArrowKind::Reads);
+        assert_eq!(find(&a, "api->stripe").kind, ArrowKind::Calls);
     }
 
     fn bx(id: &str, parent: Option<&str>, level: Level, nodes: &[&str]) -> FactBox {
@@ -366,9 +370,9 @@ mod tests {
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].id, "c/a->c/b");
         assert_eq!(a[0].kind, ArrowKind::Bundle);
-        assert_eq!(a[0].label.as_deref(), Some("3 calls · 1 import"));
+        assert_eq!(a[0].label.as_deref(), Some("3 calls · 1 use"));
         assert_eq!(a[0].count, 4);
-        assert_eq!(a[0].kinds, [ArrowKind::Depends, ArrowKind::Calls]);
+        assert_eq!(a[0].kinds, [ArrowKind::Calls, ArrowKind::Uses]);
     }
 
     fn arrow(from: &str, to: &str, parent: &str, kind: ArrowKind) -> MapArrow {
@@ -402,11 +406,11 @@ mod tests {
         let a = lift(
             &parents,
             vec![
-                arrow("ad/gmail", "gmail", "system", ArrowKind::Network),
+                arrow("ad/gmail", "gmail", "system", ArrowKind::Calls),
                 arrow("ad/gmail", "agent/ports", "system", ArrowKind::Implements),
                 arrow("ad/sqlite", "agent/ports", "system", ArrowKind::Implements),
                 arrow("ad/sqlite", "agent/cli", "system", ArrowKind::Calls),
-                arrow("ad", "agent", "system", ArrowKind::Depends),
+                arrow("ad", "agent", "system", ArrowKind::Uses),
                 arrow("me", "agent/cli", "system", ArrowKind::Uses),
                 arrow("agent/cli", "agent/ports", "agent", ArrowKind::Uses),
             ],
@@ -425,7 +429,7 @@ mod tests {
             ]
         );
         // the direct `depends` stays as written; the three lifted ones merge into one bundle
-        assert_eq!(a[0].kind, ArrowKind::Depends);
+        assert_eq!(a[0].kind, ArrowKind::Uses);
         assert_eq!(a[1].kind, ArrowKind::Bundle);
         assert_eq!(a[1].label.as_deref(), Some("1 call · 2 implementations"));
         assert_eq!(a[1].count, 3);

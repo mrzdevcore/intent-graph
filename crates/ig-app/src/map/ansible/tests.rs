@@ -82,26 +82,26 @@ fn roles_are_services_grouped_by_where_they_deploy() {
             (
                 "helpers/helper-deploy-helm-chart",
                 Level::Component,
-                BoxKind::Library,
+                BoxKind::Module,
                 "helper_deploy_helm_chart"
             ),
             ("retail", Level::Container, BoxKind::Group, "Retail"),
             (
                 "retail/notification-api",
                 Level::Component,
-                BoxKind::Api,
+                BoxKind::Service,
                 "notification_api"
             ),
             (
                 "retail/payment-api",
                 Level::Component,
-                BoxKind::Api,
+                BoxKind::Service,
                 "payment_api"
             ),
             (
                 "retail/product-api",
                 Level::Component,
-                BoxKind::Api,
+                BoxKind::Service,
                 "product_api"
             ),
             ("system", Level::System, BoxKind::System, "ansible"),
@@ -119,22 +119,18 @@ fn tasks_templates_and_settings_draw_the_arrows() {
             .any(|x| x.from == from && x.to == to && x.kinds.contains(&k))
     };
     assert!(
-        has(
-            "retail/payment-api",
-            "retail/product-api",
-            ArrowKind::Network
-        ),
+        has("retail/payment-api", "retail/product-api", ArrowKind::Calls),
         "{lifted:#?}"
     );
     // NOTIFICATIONS_API_HOST names notification_api
     assert!(has(
         "retail/payment-api",
         "retail/notification-api",
-        ArrowKind::Network
+        ArrowKind::Calls
     ));
     assert!(has("retail", "helpers", ArrowKind::Calls));
-    assert!(has("retail", "auth0", ArrowKind::Network));
-    assert!(has("retail", "database", ArrowKind::Data));
+    assert!(has("retail", "auth0", ArrowKind::Calls));
+    assert!(has("retail", "database", ArrowKind::Reads));
     let task = (a.graph.nodes.iter())
         .find(|n| n.kind == "task" && n.file.contains("payment_api"))
         .unwrap();

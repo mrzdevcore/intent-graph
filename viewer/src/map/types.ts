@@ -4,9 +4,9 @@ export type Confidence = "extracted" | "inferred" | "ambiguous";
 export type Field<T> = { value: T; source: Source; confidence?: Confidence };
 export type Level = "system" | "container" | "component" | "code";
 export type BoxKind =
-  | "person" | "system" | "external" | "app" | "api" | "worker" | "store" | "queue"
-  | "library" | "entry" | "usecase" | "port" | "domain" | "folder" | "file" | "component" | "parts"
-  | "task" | "function" | "class" | "method" | "group";
+  | "person" | "system" | "external" | "app" | "service" | "job" | "store" | "queue" | "model"
+  | "module" | "entry" | "usecase" | "port" | "adapter" | "agent" | "domain" | "group"
+  | "folder" | "file" | "component" | "parts" | "task" | "function" | "class" | "method";
 export type Pattern =
   | { kind: "onion" } | { kind: "hexagonal" } | { kind: "none" } | { kind: "layered"; bands: string[] };
 export type MapBox = {
@@ -33,7 +33,7 @@ export type MapBox = {
    * the spec at a new place with its code still at the old; absent is built. */
   origin?: "build" | "drift" | "moved";
 };
-export type ArrowKind = "uses" | "depends" | "calls" | "network" | "event" | "implements" | "data" | "bundle";
+export type ArrowKind = "calls" | "sends" | "reads" | "writes" | "uses" | "implements" | "triggers" | "bundle";
 export type MapArrow = {
   id: string;
   parent: string;

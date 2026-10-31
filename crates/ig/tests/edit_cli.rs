@@ -341,7 +341,7 @@ fn accept_all_prints_each_item_and_skips_an_arrow_of_another_kind() {
     );
     assert!(
         out.stdout.contains(
-            "skipped web->api~drift: ig/ already has a `event` arrow `web->api`; change its kind first"
+            "skipped web->api~drift: ig/ already has a `sends` arrow `web->api`; change its kind first"
         ),
         "{}",
         out.stdout

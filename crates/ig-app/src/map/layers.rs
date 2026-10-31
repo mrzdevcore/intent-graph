@@ -1,8 +1,9 @@
 //! Layers: a word (a `Mark`) on a box or an arrow. ig computes two of them, `rules` and `risks`,
 //! and stores them in the map; others come from `.ig/layers/*.json` and are only shown.
 
+use super::facts::Role;
 use super::file::{MapBox, MapFile, slots};
-use super::{ArrowKind, BoxKind, Pattern, arrows};
+use super::{ArrowKind, BoxKind, MapArrow, Pattern, arrows};
 use ig_core::config::Severity;
 use ig_core::model::{Edge, Finding, Graph};
 use ig_core::ports::Files;
@@ -55,11 +56,11 @@ pub fn sort_marks(marks: &mut [Mark]) {
 pub fn rules(m: &MapFile, findings: &[Finding]) -> Vec<Mark> {
     let by_id: HashMap<&str, &MapBox> = m.boxes.iter().map(|b| (b.id.as_str(), b)).collect();
     let mut out = vec![];
-    // only imports break a pattern: a call through a port dispatches outward at run time
+    // only uses (imports) break a pattern: a call through a port dispatches outward at run time
     for a in m
         .arrows
         .iter()
-        .filter(|a| a.kinds.contains(&ArrowKind::Depends))
+        .filter(|a| a.kinds.contains(&ArrowKind::Uses))
     {
         let (Some(p), Some(f), Some(t)) = (
             by_id.get(a.parent.as_str()),
@@ -129,6 +130,11 @@ pub fn rules(m: &MapFile, findings: &[Finding]) -> Vec<Mark> {
 pub fn risks(m: &MapFile) -> Vec<Mark> {
     let by_id: HashMap<&str, &MapBox> = m.boxes.iter().map(|b| (b.id.as_str(), b)).collect();
     let mut out = vec![];
+    // a call into a block that runs on its own crosses the network
+    let network = |a: &MapArrow| {
+        a.kinds.contains(&ArrowKind::Calls)
+            && (by_id.get(a.to.as_str())).is_some_and(|t| t.kind.value.role() == Role::Run)
+    };
     for a in m.arrows.iter().filter(|a| a.in_loop) {
         let io = by_id.get(a.to.as_str()).is_some_and(|t| {
             matches!(
@@ -139,17 +145,13 @@ pub fn risks(m: &MapFile) -> Vec<Mark> {
                 .as_ref()
                 .is_some_and(|s| matches!(s.value.as_str(), "infrastructure" | "adapters"))
         });
-        if io || a.kinds.contains(&ArrowKind::Network) {
+        if io || network(a) {
             let badge = "risk: query in a loop".to_string();
             out.push(mark("risks", &a.id, MarkState::Warn, badge));
         }
     }
     let mut net: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for a in m
-        .arrows
-        .iter()
-        .filter(|a| a.kinds.contains(&ArrowKind::Network))
-    {
+    for a in m.arrows.iter().filter(|a| network(a)) {
         net.entry(&a.from).or_default().push(&a.to);
     }
     /// Arrows in the longest chain from `at` that visits no box twice.

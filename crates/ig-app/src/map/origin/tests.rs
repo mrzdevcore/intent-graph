@@ -109,11 +109,11 @@ fn a_planned_box_and_its_arrow_are_to_build() {
     let p = plan(&m);
     assert!(
         p.build
-            .contains(&"to build: api billing (billing/**)".into()),
+            .contains(&"to build: service billing (billing/**)".into()),
         "{p:?}"
     );
     assert!(
-        p.build.iter().any(|l| l.contains("billing network stripe")),
+        p.build.iter().any(|l| l.contains("billing calls stripe")),
         "{p:?}"
     );
     assert!(p.drift.is_empty(), "{p:?}");
@@ -137,7 +137,7 @@ fn code_in_no_box_and_unlisted_arrows_are_drift() {
     assert!(
         p.drift
             .iter()
-            .any(|l| l == "drift: web network api, not in ig/ (web->api)"),
+            .any(|l| l == "drift: web calls api, not in ig/ (web->api)"),
         "{p:?}"
     );
     let mut sorted = p.drift.clone();
@@ -178,8 +178,8 @@ fn an_unlisted_arrow_between_spec_boxes_is_drift_and_a_kind_mismatch_is_to_build
         .iter_mut()
         .find(|a| a.from == "api" && a.to == "postgres")
         .unwrap();
-    a.kind = ArrowKind::Event;
-    a.kinds = vec![ArrowKind::Event];
+    a.kind = ArrowKind::Sends;
+    a.kinds = vec![ArrowKind::Sends];
     let m = compare(&s, &facts(), &graph(), None);
     assert_eq!(arrow_origin(&m, "api", "stripe"), Origin::Drift);
     let both: Vec<_> = m
@@ -190,11 +190,11 @@ fn an_unlisted_arrow_between_spec_boxes_is_drift_and_a_kind_mismatch_is_to_build
     assert_eq!(both.len(), 2, "{both:#?}");
     assert!(
         both.iter()
-            .any(|a| a.kind == ArrowKind::Event && a.origin == Origin::Build)
+            .any(|a| a.kind == ArrowKind::Sends && a.origin == Origin::Build)
     );
     assert!(
         both.iter()
-            .any(|a| a.kind == ArrowKind::Data && a.origin == Origin::Drift)
+            .any(|a| a.kind == ArrowKind::Reads && a.origin == Origin::Drift)
     );
     let drift = both.iter().find(|a| a.origin == Origin::Drift).unwrap();
     assert_eq!(drift.id, "api->postgres~drift");
@@ -295,7 +295,7 @@ fn a_box_with_no_files_and_only_unbuilt_children_is_to_build() {
     assert_eq!(origin_of(&m, "ops"), Origin::Build);
     assert_eq!(origin_of(&m, "ops/jobs"), Origin::Build);
     assert!(
-        plan(&m).build.contains(&"to build: worker ops".into()),
+        plan(&m).build.contains(&"to build: service ops".into()),
         "{:?}",
         plan(&m)
     );
@@ -389,7 +389,7 @@ fn every_drift_fixture_is_a_valid_map() {
     no_pg.arrows.retain(|a| a.to != "postgres");
     let mut kinds = spec();
     for a in kinds.arrows.iter_mut().filter(|a| a.id == "api->postgres") {
-        a.kind = ArrowKind::Event;
+        a.kind = ArrowKind::Sends;
     }
     for (name, s) in [
         ("without web", without(spec(), "web")),
