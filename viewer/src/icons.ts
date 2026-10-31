@@ -8,7 +8,8 @@ import {
   siFirebase, siGhost, siGoogleanalytics, siGrafana, siKeycloak, siMailgun, siMariadb, siMatomo, siMeilisearch, siMinio,
   siMixpanel, siMongodb, siMysql, siNatsdotio, siNewrelic, siNextdotjs, siPrisma, siTrpc, siOkta, siOpensearch, siOpentelemetry, siPaypal, siPosthog,
   siPostgresql, siPrismic, siPrometheus, siRabbitmq, siRedis, siSanity, siSentry, siSqlite, siStoryblok, siStrapi, siStripe,
-  siSupabase, siVuedotjs, siReact, type SimpleIcon,
+  siSupabase, siVuedotjs, siReact, siKubernetes, siNuxt, siSvelte, siFastapi, siPython, siDocker, siOllama, siHuggingface,
+  siPytorch, siNodedotjs, siGo, siRust, siTauri, siNginx, siAnthropic, siClaude, siTerraform, siAnsible, type SimpleIcon,
 } from "simple-icons";
 
 /** Lower-cased system names, packages and package scopes → brand. */
@@ -33,8 +34,15 @@ const BRANDS: Record<string, SimpleIcon> = {
   nats: siNatsdotio, minio: siMinio, cloudinary: siCloudinary, stripe: siStripe, paypal: siPaypal,
   nextdotjs: siNextdotjs, next: siNextdotjs, "next.js": siNextdotjs, trpc: siTrpc, prisma: siPrisma,
   mailgun: siMailgun, "mailgun.js": siMailgun,
-  vue: siVuedotjs, vuedotjs: siVuedotjs, react: siReact,
+  vue: siVuedotjs, vuedotjs: siVuedotjs, "vue.js": siVuedotjs, react: siReact, nuxt: siNuxt, "nuxt.js": siNuxt, svelte: siSvelte, sveltekit: siSvelte,
+  kubernetes: siKubernetes, k8s: siKubernetes, fastapi: siFastapi, python: siPython, docker: siDocker, ollama: siOllama,
+  huggingface: siHuggingface, "hugging face": siHuggingface, pytorch: siPytorch, torch: siPytorch,
+  node: siNodedotjs, nodejs: siNodedotjs, "node.js": siNodedotjs, go: siGo, golang: siGo, rust: siRust, tauri: siTauri, nginx: siNginx,
+  anthropic: siAnthropic, claude: siClaude, terraform: siTerraform, ansible: siAnsible,
 };
+
+/** The brand of a lower-cased name, package or slug, if bundled. */
+export const brand = (key: string): SimpleIcon | undefined => BRANDS[key];
 
 const BY_CATEGORY: Record<string, string> = {
   database: Database, search: Search, monitoring: Activity, auth: KeyRound, cms: FileText, analytics: ChartBar,

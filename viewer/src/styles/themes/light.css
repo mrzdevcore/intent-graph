@@ -30,6 +30,15 @@
   --map-bar-out: #c98a0f; --map-bar-in: #5c4a2a;
   /* map: a path the search lit */
   --map-trace: #c98a0f;
+  /* map: each run block's hue: its outline, fill and band (a service's header, a store's lid…); a CLI's terminal stays dark */
+  --kind-service: #3b6fd8; --kind-service-fill: #eef3fd; --kind-service-band: #d5e2fa;
+  --kind-app: #1f8080; --kind-app-fill: #e8f5f4; --kind-app-band: #cce8e6;
+  --kind-cli-bg: #1d1f1f; --kind-cli-band: #2e3232; --kind-cli-prompt: #7fcf6b; --kind-cli-fg: #f2f1ec; --kind-cli-muted: #b4b5b9;
+  --kind-job: #9a6a10; --kind-job-fill: #fbf3e2; --kind-job-band: #f3e3bf;
+  --kind-store: #2f8f5b; --kind-store-fill: #e8f5ed; --kind-store-band: #cbe8d6;
+  --kind-queue: #b85a1a; --kind-queue-fill: #fcefe5; --kind-queue-band: #f6d9c3;
+  --kind-ai: #7b4fc9; --kind-ai-fill: #f1ebfb; --kind-ai-band: #ddd0f5;
+  --kind-external: #7d7a74; --kind-external-fill: #f4f2ee; --kind-external-band: #ebe8e2;
 
   /* code (highlight.ts: Shiki's css-variables theme) */
   --code-foreground: #23211e; --code-background: transparent;

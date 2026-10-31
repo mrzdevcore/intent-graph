@@ -33,7 +33,13 @@
   const top = $derived(Math.max(1, ...mine.map((a) => a.count)));
   const sum = (as: { count: number }[]) => as.reduce((n, a) => n + a.count, 0);
   const inside = $derived(view.boxes.filter((b) => b.parent === box.id).length);
-  const chips = $derived([box.kind.value, ...(box.tech?.value.split("·").map((t) => t.trim()).filter(Boolean) ?? [])]);
+  // its kind (a team kind by its own name), its tech, then every badge: the map's face shows at most two
+  const chips = $derived([box.custom ?? box.kind.value, ...(box.tech?.value.split("·").map((t) => t.trim()).filter(Boolean) ?? []),
+    ...(box.badges?.value ?? []).map((b) => b.replace(/^!/, ""))]);
+  // a component: what it takes, keeps, uses and renders (its part boxes), a line each
+  const VERB: Record<string, string> = { Inputs: "takes", State: "keeps", Uses: "uses", Template: "renders", Renders: "renders" };
+  const summary = $derived(view.boxes.filter((b) => b.parent === box.id && b.kind.value === "parts" && view.parts?.[b.id]?.length)
+    .map((b) => ({ verb: VERB[b.title.value] ?? b.title.value.toLowerCase(), names: [...new Set(view.parts![b.id].map((p) => p.name))].join(", ") })));
   const SHOWN = 5;
   let allPaths = $state(false);
   const paths = $derived(allPaths ? box.madeOf : box.madeOf.slice(0, SHOWN));
@@ -71,6 +77,10 @@
     {/each}
   {/if}
   {#if box.description}<p>{box.description.value}</p>{/if}
+  {#if summary.length}<ul class="summary">{#each summary as s}<li><span class="verb">{s.verb}</span> {s.names}</li>{/each}</ul>{/if}
+  {#if box.props && Object.keys(box.props).length}
+    <dl class="props">{#each Object.entries(box.props) as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}</dl>
+  {/if}
   {#if inside || mine.length}
     <dl class="stats">
       <div><dt>parts inside</dt><dd>{inside.toLocaleString("en")}</dd></div>
@@ -151,6 +161,11 @@
   code { background: var(--map-sunken); color: inherit; }
   .chips { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-1-5) 0; }
   .chips li { font-size: var(--text-xs); padding: var(--space-0-5) 0.4375rem; border-radius: var(--radius-pill); background: var(--map-sunken); color: var(--map-fg-2); }
+  .summary { font: var(--text-sm)/1.5 var(--font-mono); color: var(--map-muted); }
+  .verb { color: var(--map-blue); }
+  .props { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-0-5) var(--space-2); margin: var(--space-1-5) 0; font-size: var(--text-sm); }
+  .props dt { color: var(--map-muted); }
+  .props dd { margin: 0; }
   .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin: var(--space-2-5) 0 0; }
   .stats div { display: flex; flex-direction: column-reverse; background: var(--map-sunken); border-radius: var(--radius-lg); padding: var(--space-1-5) var(--space-2-5); }
   .stats dt { font-size: var(--text-xs); color: var(--map-muted); }

@@ -10,6 +10,7 @@
   import { Camera, wheelFactor } from "./glide";
   import { curves } from "./curves";
   import MapBox from "./MapBox.svelte";
+  import { shapeOf } from "./Shape.svelte";
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
   import DetailsCard from "./DetailsCard.svelte";
@@ -426,10 +427,12 @@
     <!-- a part box shows its list once it is near; code waits for more room -->
     {@const reads = !open && (!!source || !!list) && (showsInside(sw) || (!!list && detailFor(sw) === "near"))}
     {@const anatomy = anatomies.get(b.id)?.map((k) => ({ title: k.title.value, parts: view.parts?.[k.id] ?? [] }))}
-    <div class="slot" class:target={sess.aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path && !path.boxes.includes(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
+    {@const shape = shapeOf(b, kids.get(b.id))}
+    <div class="slot" data-shape={shape} class:target={sess.aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path && !path.boxes.includes(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
       <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
-        inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)} />
+        inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
+        kinds={view.kinds} w={f.w} h={f.h} {shape} />
       {#if edit && selected === b.id && !open}
         {#each ["l", "r", "t", "b"] as h (h)}<span class="handle {h}" data-handle aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
       {/if}

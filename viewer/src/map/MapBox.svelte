@@ -3,21 +3,25 @@
      into, a function or method with no inside shows its code, and a component's part box its
      list and code (detail "source"). Both keep a steady size on screen: `zoom` is screen pixels
      per unit.
+     A run block is drawn as its kind's shape (Shape.svelte). Far: the logo (or the kind's icon) and the title, big;
+     mid: + the tech and the status; near: + the description and the chips (status, then at most 2 badges).
      Sizes stay in px: they are the layout's units, scaled with the map. -->
 <script lang="ts">
   import type { Look, Tone } from "./looks";
-  import type { MapBox, Part, Snippet } from "./types";
-  import { logo } from "./logo";
+  import type { KindView, MapBox, Part, Snippet } from "./types";
+  import { boxLogo } from "./logo";
   import { steady } from "./camera";
+  import { iconMask, kindOf } from "./edit/add";
   import Code from "./Code.svelte";
+  import Shape, { PAD, hue, shapeOf, type ShapeName } from "./Shape.svelte";
 
   // more: how many boxes it holds
   // parts: a component's part box's list; anatomy: a component's part boxes (title, list), for
-  // its card's summary
-  let { box, look, detail, onopen, inside = 0, more = 0, zoom = 1, source, parts, anatomy }: {
+  // its chips; w, h: its frame; shape: what it is drawn as (Map knows its children, for a CLI)
+  let { box, look, detail, onopen, inside = 0, more = 0, zoom = 1, source, parts, anatomy, kinds = [], w = 264, h = 152, shape: drawnAs }: {
     box: MapBox; look: Look; detail: "far" | "mid" | "near" | "open" | "source"; onopen: () => void;
     inside?: number; more?: number; zoom?: number; source?: Snippet; parts?: Part[];
-    anatomy?: { title: string; parts: Part[] }[];
+    anatomy?: { title: string; parts: Part[] }[]; kinds?: KindView[]; w?: number; h?: number; shape?: ShapeName;
   } = $props();
 
   const CHIP: Record<Tone, string> = {
@@ -52,11 +56,22 @@
   const far = $derived(detail === "far" || opened);
   const external = $derived(kind === "external");
   const title = $derived(box.title.value);
-  const brand = $derived(box.logo ? logo(box.logo.value) : null);
+  const brand = $derived(boxLogo(box));
   const icon = $derived(ICON[kind] ?? null);
+  const shape = $derived(drawnAs ?? shapeOf(box));
+  // drawn as its shape (a group, a person and an open box keep their frame)
+  const drawn = $derived(!opened && !!shape && shape !== "group" && shape !== "person" ? shape : null);
+  const group = $derived(shape === "group");
+  // a run block's (or a group's) own icon from the kinds table (a team kind's own), when it has no logo
+  const kindIcon = $derived(drawn || group ? kindOf(box, kinds)?.icon ?? null : null);
+  // not code, not open: far, mid and near say more and more
+  const face = $derived(!code && !opened);
+  const status = $derived(look.chips.map((c) => ({ label: c.label, css: CHIP[c.tone] })));
+  const badges = $derived(box.badges?.value ?? []);
   const chips = $derived([
-    ...look.chips.map((c) => ({ label: c.label, css: CHIP[c.tone] })),
-    ...(box.badges?.value ?? []).map((b) => (b[0] === "!" ? { label: b.slice(1), css: CHIP.warn } : { label: b, css: CHIP.neutral })),
+    ...status,
+    ...badges.slice(0, 2).map((b) => (b[0] === "!" ? { label: b.slice(1), css: CHIP.warn } : { label: b, css: CHIP.neutral })),
+    ...(badges.length > 2 ? [{ label: `+${badges.length - 2}`, css: CHIP.neutral }] : []),
     ...count((anatomy ?? []).flatMap((a) => a.parts)).slice(0, 4).map((label) => ({ label, css: CHIP.neutral })),
     ...(inside > 0 && !external && !anatomy?.length ? [{ label: `${inside} inside ›`, css: CHIP.neutral }] : []),
   ]);
@@ -67,19 +82,21 @@
     return [...n].map(([k, c]) => `${c} ${k}${c > 1 && !/s$/.test(k) ? "s" : ""}`);
   }
   const tally = $derived(count(parts ?? []).join(" · "));
-  // a component's card: what it takes, keeps, uses and renders, a line each
-  const VERB: Record<string, string> = { Inputs: "takes", State: "keeps", Uses: "uses", Template: "renders", Renders: "renders" };
-  const summary = $derived((anatomy ?? []).filter((a) => a.parts.length)
-    .map((a) => ({ verb: VERB[a.title] ?? a.title.toLowerCase(), names: [...new Set(a.parts.map((p) => p.name))].join(", ") })));
-  const meta = $derived(parts ? tally || "none" : [kind, box.tech?.value, code && more ? `${more} inside` : null].filter(Boolean).join(" · "));
-  const glow = $derived(look.glow ? `0 0 0 5px color-mix(in srgb, ${look.glow} 25%, transparent)` : "none");
-  const border = $derived(`${(code ? 1 : look.width) * m}px ${look.dashed || external ? "dashed" : "solid"}`);
-  const edge = $derived(code && look.edge === "var(--map-edge)" ? "var(--map-line)" : look.edge);
+  const meta = $derived(parts ? tally || "none" : [box.tech?.value, code && more ? `${more} inside` : null].filter(Boolean).join(" · "));
+  const glow = $derived(look.glow && !drawn ? `0 0 0 5px color-mix(in srgb, ${look.glow} 25%, transparent)` : "none");
+  const border = $derived(drawn ? "0" : group ? `${look.width * m}px dotted` : `${(code ? 1 : look.width) * m}px ${look.dashed || external ? "dashed" : "solid"}`);
+  // a shape's outline is its kind's hue unless a status (health, build, drift…) says otherwise
+  const neutral = $derived(look.edge === "var(--map-edge)");
+  const edge = $derived(code && neutral ? "var(--map-line)" : group && neutral ? "var(--map-faint)" : look.edge);
+  const pad = $derived(drawn ? PAD[drawn]!.map((p) => `${p}px`).join(" ") : opened ? "0" : far ? "10px 12px" : "12px 14px");
+  const centred = $derived(face && detail === "far");
+  const shown = $derived(detail === "near" ? chips : face && detail === "mid" ? status : []);
   // open, its corners keep their size on screen
   const radius = $derived(external ? "34px" : opened ? `${14 * m}px` : code ? "8px" : "14px 12px 16px 12px");
-  const tile = $derived(opened ? 18 : code ? 26 : level === "container" || level === "system" ? 36 : 30);
+  const tile = $derived(centred ? 48 : opened ? 18 : code ? 26 : level === "container" || level === "system" ? 36 : 30);
+  const glyph = $derived(centred ? 36 : opened ? 14 : 20);
   const titleFont = $derived(code ? "var(--font-mono)" : "var(--font-hand)");
-  const titleSize = $derived(opened ? 14 : code ? 14 : level === "container" || level === "system" ? 20 : 19);
+  const titleSize = $derived(centred ? 24 : opened ? 14 : code ? 14 : level === "container" || level === "system" ? 20 : 19);
   const unread = $derived(kind === "group" && box.id.endsWith("/unread"));
 </script>
 
@@ -94,19 +111,23 @@
     {#if !far && meta}<span class="meta">{meta}</span>{/if}
   </button>
 {:else}
-  <button class="card" class:reading={box.needsReading} class:open={opened} type="button" aria-label="Open {title}"
-    style:background={look.bg} style:border style:border-color={edge} style:border-radius={radius} style:box-shadow={glow}
-    style:padding={opened ? "0" : far ? "10px 12px" : "12px 14px"} onclick={onopen}>
+  <button class="card" class:reading={box.needsReading} class:open={opened} class:centred class:cli={drawn === "cli"} type="button" aria-label="Open {title}"
+    data-shape={shape} data-logo={brand?.slug}
+    style:background={drawn || group ? "none" : look.bg} style:border style:border-color={edge} style:border-radius={radius} style:box-shadow={glow}
+    style:padding={pad} onclick={onopen}>
+    {#if drawn}<Shape shape={drawn} {w} {h} edge={neutral ? null : look.edge} dashed={look.dashed} width={look.width} glow={look.glow} />{/if}
     <!-- open, its header and code are drawn at screen size: laid out 1/m as large, scaled by m -->
     <span class="body" class:steady={opened} style:width={opened ? `${100 / m}%` : null} style:height={opened ? `${100 / m}%` : null}
       style:transform={opened ? `scale(${m})` : null}>
     <span class="row" style:opacity={look.fade}>
       <span class="tile" style:width="{tile}px" style:height="{tile}px" style:border-radius={external ? "18px" : code ? "6px" : "8px"}
-        style:background={level === "component" ? TINT[kind] ?? "var(--map-sunken)" : "var(--map-sunken)"}>
+        style:background={drawn || (group && kindIcon) ? "none" : level === "component" ? TINT[kind] ?? "var(--map-sunken)" : "var(--map-sunken)"}>
         {#if brand}
-          <svg width={opened ? 14 : 20} height={opened ? 14 : 20} viewBox="0 0 24 24" aria-hidden="true" style:filter={look.fade < 1 && look.dashed ? "grayscale(1)" : "none"}><path d={brand.path} fill={brand.color} /></svg>
+          <svg class="logo" width={glyph} height={glyph} viewBox="0 0 24 24" aria-hidden="true" style:filter={look.fade < 1 && look.dashed ? "grayscale(1)" : "none"}><path d={brand.path} fill={brand.color} /></svg>
+        {:else if kindIcon}
+          <i class="kind-icon" data-icon={kindIcon} aria-hidden="true" style:width="{glyph}px" style:height="{glyph}px" style:mask-image={iconMask(kindIcon)} style:background={drawn ? hue(drawn) : "var(--map-faint)"}></i>
         {:else if icon}
-          <svg width={opened ? 14 : code ? 16 : 20} height={opened ? 14 : code ? 16 : 20} viewBox="0 0 24 24" fill="none" style:stroke={icon[1]} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icon[0]} /></svg>
+          <svg width={code ? 16 : glyph} height={code ? 16 : glyph} viewBox="0 0 24 24" fill="none" style:stroke={icon[1]} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icon[0]} /></svg>
         {:else if code}
           <span class="glyph">{GLYPH[kind] ?? "ƒ"}</span>
         {/if}
@@ -126,14 +147,11 @@
       <pre class="code"><Code {source} /></pre>
     {/if}
     </span>
-    {#if !far && box.description}
+    {#if !far && box.description && (code || detail === "near")}
       <span class="desc" style:opacity={look.fade} style:-webkit-line-clamp={code ? 1 : 2}>{box.description.value}</span>
     {/if}
-    {#if detail === "near" && summary.length && !box.description}
-      <span class="summary" style:opacity={look.fade}>{#each summary as s}<span><span class="verb">{s.verb}</span> {s.names}</span>{/each}</span>
-    {/if}
-    {#if detail === "near" && chips.length}
-      <span class="chips">{#each chips as c}<span style={"padding:2px 8px;border-radius:999px;" + c.css}>{c.label}</span>{/each}</span>
+    {#if shown.length}
+      <span class="chips">{#each shown as c}<span style={"padding:2px 8px;border-radius:999px;" + c.css}>{c.label}</span>{/each}</span>
     {/if}
     </span>
   </button>
@@ -141,7 +159,7 @@
 
 <style>
   button { font: inherit; color: var(--map-fg); text-align: left; cursor: pointer; font-family: var(--font-sans); }
-  .card { position: relative; width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .card { position: relative; isolation: isolate; width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
   .card.reading { outline: 2px dotted var(--map-gold); outline-offset: 3px; }
   /* the focus ring must stay distinct from the needs-reading dots */
   .card:focus-visible, .card.reading:focus-visible, .figure:focus-visible, .chip-box:focus-visible { outline: 3px solid var(--map-blue); outline-offset: 3px; }
@@ -168,9 +186,13 @@
   .split.both { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr); gap: 16px; flex: 1; min-height: 0; }
   .split.both .parts { max-height: none; grid-template-columns: auto minmax(0, 1fr) auto; }
   .split.both .pd { display: none; }
-  .summary { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; font: 11.5px/16px var(--font-mono); color: var(--map-muted); }
-  .summary > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .verb { color: var(--map-blue); }
+  .centred { justify-content: center; }
+  .centred .row { flex-direction: column; gap: 6px; }
+  .centred .names { align-items: center; max-width: 100%; }
+  .centred .title { line-height: 28px; }
+  .kind-icon { display: block; mask-repeat: no-repeat; mask-position: center; mask-size: contain; }
+  .card.cli { color: var(--kind-cli-fg); }
+  .card.cli .meta, .card.cli .desc { color: var(--kind-cli-muted); }
   .pk { color: var(--map-blue); white-space: nowrap; }
   .pd, .pl { color: var(--map-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pl { text-align: right; }
