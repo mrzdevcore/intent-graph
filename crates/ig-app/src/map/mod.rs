@@ -9,6 +9,7 @@ pub mod edit;
 pub mod externals;
 pub mod facts;
 pub mod file;
+pub mod kinds;
 pub mod layers;
 pub mod layout;
 pub mod origin;
