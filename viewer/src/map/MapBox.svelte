@@ -13,7 +13,7 @@
   import { steady } from "./camera";
   import { iconMask, kindOf } from "./edit/add";
   import Code from "./Code.svelte";
-  import Shape, { PAD, hue, shapeOf, type ShapeName } from "./Shape.svelte";
+  import Shape, { padOf, hue, shapeOf, type ShapeName } from "./Shape.svelte";
 
   // more: how many boxes it holds
   // parts: a component's part box's list; anatomy: a component's part boxes (title, list), for
@@ -56,14 +56,19 @@
   const far = $derived(detail === "far" || opened);
   const external = $derived(kind === "external");
   const title = $derived(box.title.value);
-  const brand = $derived(boxLogo(box));
   const icon = $derived(ICON[kind] ?? null);
   const shape = $derived(drawnAs ?? shapeOf(box));
   // drawn as its shape (a group, a person and an open box keep their frame)
   const drawn = $derived(!opened && !!shape && shape !== "group" && shape !== "person" ? shape : null);
+  const brand = $derived(boxLogo(box, drawn ?? undefined));
   const group = $derived(shape === "group");
-  // a run block's (or a group's) own icon from the kinds table (a team kind's own), when it has no logo
-  const kindIcon = $derived(drawn || group ? kindOf(box, kinds)?.icon ?? null : null);
+  // a group's name sits on its dotted top edge, the edge broken under it; steady on screen when open
+  const labelSize = $derived(opened ? 12 * m : 16);
+  // ponytail: the label's width guessed from its length (0.6em a character, the hand font's average) and its
+  // padding: measuring it needs layout, which tests lack
+  const gap = $derived<[number, number, number]>([10 * m, (title.length * 0.6 + 1) * labelSize, labelSize * 1.5]);
+  // a run block's own icon from the kinds table (a team kind's own), when it has no logo
+  const kindIcon = $derived(drawn ? kindOf(box, kinds)?.icon ?? null : null);
   // not code, not open: far, mid and near say more and more
   const face = $derived(!code && !opened);
   const status = $derived(look.chips.map((c) => ({ label: c.label, css: CHIP[c.tone] })));
@@ -84,11 +89,11 @@
   const tally = $derived(count(parts ?? []).join(" · "));
   const meta = $derived(parts ? tally || "none" : [box.tech?.value, code && more ? `${more} inside` : null].filter(Boolean).join(" · "));
   const glow = $derived(look.glow && !drawn ? `0 0 0 5px color-mix(in srgb, ${look.glow} 25%, transparent)` : "none");
-  const border = $derived(drawn ? "0" : group ? `${look.width * m}px dotted` : `${(code ? 1 : look.width) * m}px ${look.dashed || external ? "dashed" : "solid"}`);
+  const border = $derived(drawn || group ? "0" : `${(code ? 1 : look.width) * m}px ${look.dashed || external ? "dashed" : "solid"}`);
   // a shape's outline is its kind's hue unless a status (health, build, drift…) says otherwise
   const neutral = $derived(look.edge === "var(--map-edge)");
   const edge = $derived(code && neutral ? "var(--map-line)" : group && neutral ? "var(--map-faint)" : look.edge);
-  const pad = $derived(drawn ? PAD[drawn]!.map((p) => `${p}px`).join(" ") : opened ? "0" : far ? "10px 12px" : "12px 14px");
+  const pad = $derived(drawn ? padOf(drawn, w, h).map((p) => `${p}px`).join(" ") : opened ? "0" : group ? `${gap[2] + 6}px 14px 12px` : far ? "10px 12px" : "12px 14px");
   const centred = $derived(face && detail === "far");
   const shown = $derived(detail === "near" ? chips : face && detail === "mid" ? status : []);
   // open, its corners keep their size on screen
@@ -116,16 +121,21 @@
     style:background={drawn || group ? "none" : look.bg} style:border style:border-color={edge} style:border-radius={radius} style:box-shadow={glow}
     style:padding={pad} onclick={onopen}>
     {#if drawn}<Shape shape={drawn} {w} {h} edge={neutral ? null : look.edge} dashed={look.dashed} width={look.width} glow={look.glow} />{/if}
+    {#if group}
+      <Shape shape="group" {w} {h} edge={neutral ? null : look.edge} dashed width={look.width * m} glow={null} {gap} />
+      <b class="edge-label" style:font-size="{labelSize}px" style:line-height="{gap[2]}px" style:padding="0 {labelSize * 0.5}px" style:left="{gap[0]}px">{title}</b>
+    {/if}
     <!-- open, its header and code are drawn at screen size: laid out 1/m as large, scaled by m -->
     <span class="body" class:steady={opened} style:width={opened ? `${100 / m}%` : null} style:height={opened ? `${100 / m}%` : null}
       style:transform={opened ? `scale(${m})` : null}>
+    {#if !group}
     <span class="row" style:opacity={look.fade}>
       <span class="tile" style:width="{tile}px" style:height="{tile}px" style:border-radius={external ? "18px" : code ? "6px" : "8px"}
-        style:background={drawn || (group && kindIcon) ? "none" : level === "component" ? TINT[kind] ?? "var(--map-sunken)" : "var(--map-sunken)"}>
+        style:background={drawn ? "none" : level === "component" ? TINT[kind] ?? "var(--map-sunken)" : "var(--map-sunken)"}>
         {#if brand}
           <svg class="logo" width={glyph} height={glyph} viewBox="0 0 24 24" aria-hidden="true" style:filter={look.fade < 1 && look.dashed ? "grayscale(1)" : "none"}><path d={brand.path} fill={brand.color} /></svg>
         {:else if kindIcon}
-          <i class="kind-icon" data-icon={kindIcon} aria-hidden="true" style:width="{glyph}px" style:height="{glyph}px" style:mask-image={iconMask(kindIcon)} style:background={drawn ? hue(drawn) : "var(--map-faint)"}></i>
+          <i class="kind-icon" data-icon={kindIcon} aria-hidden="true" style:width="{glyph}px" style:height="{glyph}px" style:mask-image={iconMask(kindIcon)} style:background={drawn ? hue(drawn) : null}></i>
         {:else if icon}
           <svg width={code ? 16 : glyph} height={code ? 16 : glyph} viewBox="0 0 24 24" fill="none" style:stroke={icon[1]} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icon[0]} /></svg>
         {:else if code}
@@ -138,6 +148,7 @@
       </span>
       {#if look.dot}<span class="ok" aria-hidden="true"></span>{/if}
     </span>
+    {/if}
     <!-- a list and its code (a template's tags): side by side -->
     <span class="split" class:both={detail === "source" && !!parts?.length && !!source}>
     {#if detail === "source" && parts?.length}
@@ -190,6 +201,7 @@
   .centred .row { flex-direction: column; gap: 6px; }
   .centred .names { align-items: center; max-width: 100%; }
   .centred .title { line-height: 28px; }
+  .edge-label { position: absolute; top: 0; font-family: var(--font-hand); color: var(--map-muted); white-space: nowrap; max-width: 80%; overflow: hidden; text-overflow: ellipsis; }
   .kind-icon { display: block; mask-repeat: no-repeat; mask-position: center; mask-size: contain; }
   .card.cli { color: var(--kind-cli-fg); }
   .card.cli .meta, .card.cli .desc { color: var(--kind-cli-muted); }

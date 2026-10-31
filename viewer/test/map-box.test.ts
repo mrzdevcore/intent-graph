@@ -172,3 +172,28 @@ test("near: status first, then at most 2 badges and +n; the kind word is not on 
   expect([...b.querySelectorAll(".chips > span")].map((c) => c.textContent)).toEqual(["to build", "REST", "gRPC", "+2"]);
   expect(shaped(box({ level: "container", kind: f("service"), tech: f("FastAPI") }), "mid").textContent).not.toContain("service");
 });
+
+test("a dark brand on a CLI's terminal draws in the terminal's foreground, not the map's", () => {
+  const b = shaped(box({ level: "container", kind: f("app"), tech: f("Rust CLI") }));
+  expect(b.dataset.logo).toBe("rust");
+  expect(b.querySelector("svg.logo path")!.getAttribute("fill")).toBe("var(--kind-cli-fg)");
+});
+
+test("an external is a dashed cloud; too small a frame makes it a dashed rounded box", () => {
+  expect(shaped(box({ level: "container", kind: f("external") })).querySelector('[data-outline="cloud"]')).not.toBeNull();
+  const t = document.createElement("div");
+  const b = box({ level: "container", kind: f("external") });
+  mount(MapBox, { target: t, props: { box: b, look: look(b.id, [], new Set(), b), detail: "near", onopen: () => {}, w: 160, h: 90 } });
+  flushSync();
+  expect(t.querySelector('[data-outline="cloud"]')).toBeNull();
+  expect(t.querySelector("button")!.dataset.shape).toBe("external");
+});
+
+test("a group's name sits on its dotted edge, which breaks under it", () => {
+  const b = shaped(box({ level: "container", kind: f("group"), title: f("Ops") }));
+  expect(b.querySelector(".edge-label")!.textContent).toBe("Ops");
+  const d = b.querySelector("svg.shape path")!.getAttribute("d")!;
+  // the frame's path starts after the label and ends before it: an open path, no Z
+  expect(d.endsWith("Z")).toBe(false);
+  expect(b.querySelector(".title")).toBeNull();
+});
