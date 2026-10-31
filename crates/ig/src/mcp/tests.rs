@@ -230,3 +230,41 @@ fn ig_edit_never_gives_a_box_the_whole_repo() {
         SPEC
     );
 }
+
+#[test]
+fn the_tool_schema_lists_the_kinds_of_the_table() {
+    let t = schema::tools();
+    let edit = t
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "ig_edit")
+        .unwrap();
+    let ops = edit["inputSchema"]["properties"]["edits"]["items"]["oneOf"]
+        .as_array()
+        .unwrap();
+    let kinds = ops[0]["properties"]["kind"]["enum"].as_array().unwrap();
+    assert!(
+        kinds.contains(&json!("model"))
+            && kinds.contains(&json!("agent"))
+            && !kinds.contains(&json!("api"))
+            && !kinds.contains(&json!("system")),
+        "{kinds:?}"
+    );
+    let arrows = ops
+        .iter()
+        .find(|o| o["properties"]["op"]["const"] == "arrow")
+        .unwrap();
+    let arrows = arrows["properties"]["kind"]["enum"].as_array().unwrap();
+    assert!(arrows.contains(&json!("writes")) && !arrows.contains(&json!("bundle")));
+    let set = ops
+        .iter()
+        .find(|o| o["properties"]["op"]["const"] == "set")
+        .unwrap();
+    assert!(
+        set["properties"]["key"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("kind"))
+    );
+}

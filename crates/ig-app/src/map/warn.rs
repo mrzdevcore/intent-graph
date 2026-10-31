@@ -29,6 +29,28 @@ fn run_above(by: &HashMap<&str, &MapBox>, b: &MapBox) -> bool {
     false
 }
 
+/// What is wrong when `b`, as a box of `kind` (named `n`), sits where it does; `None` when it
+/// may sit there. `set kind` refuses with it.
+pub(crate) fn misplaced(
+    by: &HashMap<&str, &MapBox>,
+    b: &MapBox,
+    kind: BoxKind,
+    n: &str,
+) -> Option<String> {
+    let p = b.parent.as_deref().and_then(|p| by.get(p))?;
+    if kind_may_sit(kind, p.kind.value.role(), !run_above(by, p)) {
+        return None;
+    }
+    match kind.role() {
+        Role::Run => Some(format!(
+            "`{}`: a {n} sits in the system or a group outside any running block",
+            b.id
+        )),
+        Role::Design => Some(format!("`{}`: a {n} sits inside a running block", b.id)),
+        _ => None,
+    }
+}
+
 pub fn warnings(m: &MapFile, kinds: &Kinds) -> Vec<String> {
     let by: HashMap<&str, &MapBox> = m.boxes.iter().map(|b| (b.id.as_str(), b)).collect();
     let mut out = vec![];
@@ -71,23 +93,7 @@ pub fn warnings(m: &MapFile, kinds: &Kinds) -> Vec<String> {
         out.push(format!("`{}` {k} `{}`: {ends}", a.from, a.to));
     }
     for b in &m.boxes {
-        let Some(p) = b.parent.as_deref().and_then(|p| by.get(p)) else {
-            continue;
-        };
-        let (kind, role) = (b.kind.value, b.kind.value.role());
-        let outer = !run_above(&by, p);
-        if kind_may_sit(kind, p.kind.value.role(), outer) {
-            continue;
-        }
-        let n = name(b);
-        match role {
-            Role::Run => out.push(format!(
-                "`{}`: a {n} sits in the system or a group outside any running block",
-                b.id
-            )),
-            Role::Design => out.push(format!("`{}`: a {n} sits inside a running block", b.id)),
-            _ => {}
-        }
+        out.extend(misplaced(&by, b, b.kind.value, &name(b)));
     }
     let mut kids: HashMap<&str, usize> = HashMap::new();
     m.boxes

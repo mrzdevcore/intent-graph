@@ -58,9 +58,27 @@ fn fmt_reindents_and_keeps_every_comment() {
 }
 
 #[test]
-fn fmt_leaves_the_fixture_as_it_is() {
+fn fmt_changes_only_the_old_names_in_the_fixture() {
     let f = spec();
-    assert!(fmt(&f, false).unwrap().is_empty());
+    assert_eq!(fmt(&f, true).unwrap(), vec!["ig/api.kdl".to_string()]);
+    let want = API
+        .replace("data \"db\"", "reads \"db\"")
+        .replace("network", "calls");
+    assert_eq!(texts(&f)["ig/api.kdl"], want);
+}
+
+#[test]
+fn fmt_writes_the_new_names_and_keeps_comments() {
+    let old = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n    api \"a\" title=\"A\" { // why\n        depends \"b\"\n    }\n    worker \"b\" title=\"B\"\n    folder \"f\" title=\"F\" {\n        library \"l\" title=\"L\"\n    }\n}\n";
+    let f = MemFiles::with(&[("ig/system.kdl", old)]);
+    fmt(&f, true).unwrap();
+    let want = old
+        .replace("api \"a\"", "service \"a\"")
+        .replace("depends", "uses")
+        .replace("worker", "service")
+        .replace("folder", "group")
+        .replace("library", "module");
+    assert_eq!(texts(&f)["ig/system.kdl"], want);
 }
 
 #[test]
