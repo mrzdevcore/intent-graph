@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 
 pub(crate) mod fmt;
 pub mod journal;
-mod kind;
 mod moves;
+mod set;
 pub(crate) mod tidy;
 pub use fmt::fmt;
 
@@ -49,12 +49,17 @@ pub enum Edit {
         id: String,
         to: String,
     },
-    /// `title`, `tech`, `description`, `logo`, `slot`, or `at` (globs joined by `\n`); `None`
-    /// removes it. `kind` renames the node in place, refused where the kind may not sit.
+    /// A property (`title`, `tech`, `description`, `logo`, `slot`, `owner`, or one of the box's
+    /// kind's own, as the read takes it), or `at` (globs joined by `\n`); `None` removes it.
+    /// `kind` renames the node in place, refused where it would put the box out of place, and
+    /// drops the properties the new kind does not take; `restore` (only in an inverse) puts
+    /// those back: each its index among the node's entries and its text.
     Set {
         id: String,
         key: String,
         value: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        restore: Vec<(usize, String)>,
     },
     Arrow {
         from: String,
@@ -79,7 +84,13 @@ pub enum Edit {
 /// Applies `e` to the spec in `files` and writes the files it changes (`ig/system.kdl` last);
 /// returns the edit that undoes it.
 pub fn apply(files: &dyn Files, e: &Edit) -> Result<Edit, Vec<String>> {
+    apply_as(files, e, false)
+}
+
+/// `apply`; `undoing` (an inverse, from the journal) may put a box back out of place.
+fn apply_as(files: &dyn Files, e: &Edit, undoing: bool) -> Result<Edit, Vec<String>> {
     let mut s = Spec::load(files)?;
+    s.undoing = undoing;
     let inverse = s.edit(e).map_err(|e| vec![e])?;
     s.save(files)?;
     Ok(inverse)
@@ -171,6 +182,8 @@ struct Spec {
     texts: BTreeMap<String, String>,
     /// The team kinds, `ig/kinds/*.kdl`, as read; never edited.
     kinds: Vec<(String, Option<String>)>,
+    /// Applying an inverse: `set kind` may restore a misplacement.
+    undoing: bool,
 }
 
 impl Spec {
@@ -198,6 +211,7 @@ impl Spec {
             docs,
             texts,
             kinds,
+            undoing: false,
         })
     }
 
@@ -351,7 +365,12 @@ impl Spec {
                     to: id.clone(),
                 })
             }
-            Edit::Set { id, key, value } => self.set(id, key, value.as_deref()),
+            Edit::Set {
+                id,
+                key,
+                value,
+                restore,
+            } => self.set(id, key, value.as_deref(), restore),
             Edit::Arrow {
                 from,
                 to,
@@ -394,76 +413,6 @@ impl Spec {
                 })
             }
         }
-    }
-
-    fn set(&mut self, id: &str, key: &str, value: Option<&str>) -> Result<Edit, String> {
-        let loc = self.must(id)?;
-        let inverse = |old: Option<String>| Edit::Set {
-            id: id.into(),
-            key: key.into(),
-            value: old,
-        };
-        if let Some(ord) = PROPS.iter().position(|k| *k == key) {
-            let n = self.node_mut(&loc);
-            let is_key = |e: &KdlEntry| e.name().is_some_and(|k| k.value() == key);
-            let at = n.entries().iter().position(is_key);
-            let old = at.and_then(|i| n.entries()[i].value().as_string().map(String::from));
-            match (value, at.map(|i| &mut n.entries_mut()[i])) {
-                (Some(v), Some(e)) => set_str(e, v),
-                (Some(v), None) => {
-                    // after the id and the properties written before this one
-                    let i = n.entries().iter().rposition(|e| {
-                        e.name()
-                            .is_none_or(|k| PROPS.iter().position(|p| *p == k.value()) < Some(ord))
-                    });
-                    let mut e = KdlEntry::new_prop(key, v);
-                    set_str(&mut e, v);
-                    n.entries_mut().insert(i.map_or(0, |i| i + 1), e);
-                }
-                (None, _) => n.entries_mut().retain(|e| !is_key(e)),
-            }
-            return Ok(inverse(old));
-        }
-        if key == "kind" {
-            return self.set_kind(id, value);
-        }
-        if key != "at" {
-            return Err(format!("`{key}` is not one of {PROPS:?}, `kind` or `at`"));
-        }
-        let globs: Vec<String> = (value.unwrap_or_default().split('\n'))
-            .filter(|g| !g.is_empty())
-            .map(String::from)
-            .collect();
-        if id != self.sys {
-            not_whole_repo(id, &globs)?;
-        }
-        let nodes = (self.node(&loc).children())
-            .map(|c| c.nodes())
-            .unwrap_or_default();
-        let i = nodes.iter().position(|n| n.name().value() == "at");
-        let old = i.map(|i| {
-            let e = nodes[i].entries().iter();
-            e.filter_map(|e| e.value().as_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-        });
-        let mut at = spec::strings("at", &globs);
-        spec::quote(std::slice::from_mut(&mut at));
-        match (i, globs.is_empty()) {
-            (Some(i), false) => {
-                let (p, mut path) = loc;
-                path.push(i);
-                *self.node_mut(&(p, path)).entries_mut() = at.entries().to_vec();
-            }
-            (Some(i), true) => {
-                let (p, mut path) = loc;
-                path.push(i);
-                self.take(&(p, path));
-            }
-            (None, false) => self.put(&loc, 0, at),
-            (None, true) => {}
-        }
-        Ok(inverse(old))
     }
 
     fn find(&self, id: &str) -> Option<Loc> {

@@ -300,12 +300,14 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     Ok(v)
 }
 
-/// The spec at HEAD: the `ig/*.kdl` committed there, read in one batch; None without a commit
-/// or when it does not read.
+/// The spec at HEAD: the `ig/*.kdl` and `ig/kinds/*.kdl` committed there, read in one batch;
+/// None without a commit or when it does not read.
 fn prior(env: &Env) -> Option<MapFile> {
     let vcs = env.vcs?;
     let head = vcs.head()?;
+    let kinds = vcs.show_dir(&head, &format!("{}/kinds", spec::DIR));
     let texts: Vec<(String, Option<String>)> = (vcs.show_dir(&head, spec::DIR).into_iter())
+        .chain(kinds)
         .filter(|(p, _)| p.ends_with(".kdl"))
         .map(|(p, t)| (p, Some(t)))
         .collect();

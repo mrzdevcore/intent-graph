@@ -1975,7 +1975,7 @@
       "title": "Group",
       "means": "Boxes kept together, with nothing of its own",
       "icon": "folder",
-      "code": true,
+      "code": false,
       "role": "group",
       "props": []
     }

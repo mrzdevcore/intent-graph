@@ -1,7 +1,7 @@
 //! The journal in `.ig/journal.json`: every spec edit with who made it, its inverse, whether the
 //! person kept it, and whether it is undone. Losing it loses undo, never the spec.
 
-use super::{Edit, PROPS, Spec, apply, arrow};
+use super::{Edit, Spec, apply, apply_as, arrow};
 use ig_core::ports::Files;
 use serde::{Deserialize, Serialize};
 
@@ -130,7 +130,7 @@ pub fn drop(files: &dyn Files, n: u64) -> Result<(), Vec<String>> {
         .ok_or_else(|| vec![format!("no journal entry {n}")])?;
     if !j.entries[i].undone {
         still(files, &j.entries[i], false)?;
-        apply(files, &j.entries[i].inverse)?;
+        apply_as(files, &j.entries[i].inverse, true)?;
     }
     j.entries.remove(i);
     save(files, &j)
@@ -143,7 +143,7 @@ pub fn undo(files: &dyn Files) -> Result<Option<Entry>, Vec<String>> {
         return Ok(None);
     };
     still(files, &j.entries[i], false)?;
-    apply(files, &j.entries[i].inverse)?;
+    apply_as(files, &j.entries[i].inverse, true)?;
     j.entries[i].undone = true;
     save(files, &j)?;
     Ok(Some(j.entries[i].clone()))
@@ -189,7 +189,7 @@ impl Spec {
                 self.find(id).and_then(|l| self.parent(&l)).as_ref() == Some(parent)
             }
             Edit::Rename { id, to } => has(to) && !has(id),
-            Edit::Set { id, key, value } => {
+            Edit::Set { id, key, value, .. } => {
                 // `at` as written: the globs that are not empty, none at all for no node
                 let want = match key.as_str() {
                     "at" => value.as_deref().map(|v| {
@@ -210,8 +210,10 @@ impl Spec {
     /// The value of `key` on box `id` as `Edit::Set` writes it; `None` when there is no box.
     fn get(&self, id: &str, key: &str) -> Option<Option<String>> {
         let n = self.node(&self.find(id)?);
-        if PROPS.contains(&key) {
-            return Some(n.get(key).and_then(|v| v.as_string()).map(String::from));
+        match key {
+            "kind" => return Some(Some(n.name().value().into())),
+            "at" => {}
+            _ => return Some(n.get(key).and_then(|v| v.as_string()).map(String::from)),
         }
         let kids = n.children().map(|c| c.nodes()).unwrap_or_default();
         let at = kids.iter().find(|n| n.name().value() == "at");

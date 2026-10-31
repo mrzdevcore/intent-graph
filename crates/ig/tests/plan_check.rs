@@ -95,6 +95,19 @@ fn check_warns_without_failing() {
         "{}",
         out.stderr
     );
+    // every command words a warning the same
+    for args in [
+        &["check"][..],
+        &["view", "--no-read", "--no-open", "--json"],
+    ] {
+        let out = run_ig(&dir, args);
+        assert!(
+            (out.stderr.lines())
+                .any(|l| l == "warning: `lonely`: a usecase sits inside a running block"),
+            "{args:?}: {}",
+            out.stderr
+        );
+    }
 }
 
 #[test]

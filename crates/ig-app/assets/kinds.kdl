@@ -26,10 +26,10 @@ kind "agent" title="Agent" icon="bot" means="An AI agent: a prompt, a model and 
     property "prompt" means="Its instructions, or the file that holds them"
 }
 kind "domain" title="Domain" icon="shapes" means="The core: the rules and the words of the business"
-kind "group" title="Group" icon="folder" means="Boxes kept together, with nothing of its own"
+kind "group" title="Group" icon="folder" code=#false means="Boxes kept together, with nothing of its own"
 
 // Which kinds an arrow joins (kind names; none = any). An arrow kind with no rule joins any two.
-arrow "reads" to="store"
+arrow "reads" to="store" "queue"
 arrow "writes" to="store"
 arrow "sends" to="queue"
 arrow "implements" from="adapter" to="port"

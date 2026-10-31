@@ -78,6 +78,7 @@ pub fn propose(
             id: id.into(),
             key: key.into(),
             value: Some(value.into()),
+            restore: vec![],
         };
         let titles = (Some(old.title.clone()), Some(new.title.clone()));
         let fields = [

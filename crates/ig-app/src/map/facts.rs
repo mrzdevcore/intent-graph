@@ -585,7 +585,7 @@ fn kind_of(folder: &str) -> BoxKind {
     } else if has(&["domain", "core"]) {
         BoxKind::Domain
     } else if has(INFRA) || has(&["adapters"]) {
-        BoxKind::Entry
+        BoxKind::Adapter
     } else {
         BoxKind::Usecase
     }

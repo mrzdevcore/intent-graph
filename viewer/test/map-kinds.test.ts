@@ -131,3 +131,13 @@ test("a required choice adds with its first value untouched; a team kind of exte
   flushSync();
   expect(field(form(t), "Code")).toBeUndefined();
 });
+
+test("a group owns no code: its add form has no Code field", async () => {
+  const t = setup(fresh());
+  clickBox(t, null);
+  row(form(t), "group").click();
+  flushSync();
+  await tick();
+  expect(field(form(t), "Title")).toBeDefined();
+  expect(field(form(t), "Code")).toBeUndefined();
+});

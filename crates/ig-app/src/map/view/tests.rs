@@ -230,3 +230,26 @@ fn the_view_carries_the_kinds_and_its_own_warnings() {
     );
     assert_eq!(json["warnings"][0], v.warnings[0]);
 }
+
+#[test]
+fn the_spec_at_head_reads_with_its_team_kinds() {
+    let files = MemFiles::with(&[]);
+    let show = |p: &str, t: &str| (("h".to_string(), p.to_string()), t.to_string());
+    let vcs = ig_core::testing::FakeVcs {
+        head: Some("h".into()),
+        shows: [
+            show(
+                "ig/system.kdl",
+                "system \"shop\" title=\"Shop\" {\n    at \"**\"\n    iot-device \"probe\" title=\"Probe\"\n}\n",
+            ),
+            show(
+                "ig/kinds/iot-device.kdl",
+                "kind \"iot-device\" is=\"service\" title=\"IoT device\" means=\"A device\"\n",
+            ),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let m = prior(&env(&files, Some(&vcs), &Fake)).expect("HEAD's spec reads");
+    assert!(m.boxes.iter().any(|b| b.id == "probe"));
+}

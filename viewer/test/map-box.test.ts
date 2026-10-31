@@ -167,6 +167,17 @@ test("a team kind with base service gets the service shape and its own icon", ()
   expect(b.querySelector(".kind-icon")!.getAttribute("data-icon")).toBe("cpu");
 });
 
+test("a module and an adapter show their kind's icon from the table", () => {
+  const icon = (b: Box, k: Partial<KindView>) => {
+    const t = document.createElement("div");
+    mount(MapBox, { target: t, props: { box: b, look: look(b.id, [], new Set(), b), detail: "near", onopen: () => {}, kinds: kinds([{ custom: false, role: "design", ...k }]) } });
+    flushSync();
+    return t.querySelector(".kind-icon")?.getAttribute("data-icon");
+  };
+  expect(icon(box({ level: "container", kind: f("module") }), { name: "module", base: "module", icon: "package" })).toBe("package");
+  expect(icon(box({ id: "a/b", parent: "a", kind: f("adapter") }), { name: "adapter", base: "adapter", icon: "cable" })).toBe("cable");
+});
+
 test("near: status first, then at most 2 badges and +n; the kind word is not on the face", () => {
   const b = shaped(box({ level: "container", kind: f("service"), origin: "build", badges: f(["REST", "gRPC", "GraphQL", "WS"]) }));
   expect([...b.querySelectorAll(".chips > span")].map((c) => c.textContent)).toEqual(["to build", "REST", "gRPC", "+2"]);

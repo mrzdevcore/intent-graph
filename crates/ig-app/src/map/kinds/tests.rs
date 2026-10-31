@@ -58,6 +58,15 @@ fn bad_team_kinds_name_their_file() {
             "kind \"x\" is=\"service\" { arrow \"pings\" }",
             "a kind cannot add arrows",
         ),
+        ("kind \"calls\" is=\"service\"", "`calls` is an arrow kind"),
+        (
+            "kind \"depends\" is=\"service\"",
+            "`depends` is an arrow kind",
+        ),
+        (
+            "kind \"badges\" is=\"service\"",
+            "`badges` is a word of ig/",
+        ),
     ] {
         let e = Kinds::load(&mem(&[("ig/kinds/x.kdl", text)]))
             .unwrap_err()
@@ -111,12 +120,12 @@ fn where_a_block_may_sit() {
 }
 
 #[test]
-fn only_person_and_external_are_not_code_and_a_team_kind_takes_its_bases() {
+fn only_person_external_and_group_are_not_code_and_a_team_kind_takes_its_bases() {
     let k = Kinds::builtin();
     let not: Vec<&str> = (k.names().into_iter())
         .filter(|n| !k.get(n).unwrap().code)
         .collect();
-    assert_eq!(not, ["person", "external"]);
+    assert_eq!(not, ["person", "external", "group"]);
     let files = mem(&[("ig/kinds/partner.kdl", "kind \"partner\" is=\"external\"")]);
     let k = Kinds::load(&files).unwrap();
     assert!(!k.get("partner").unwrap().code);
