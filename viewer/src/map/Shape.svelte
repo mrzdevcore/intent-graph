@@ -17,23 +17,32 @@
     return /\bcli\b/i.test(b.tech?.value ?? "") || (ways.includes("command") && !ways.includes("route")) ? "cli" : "app";
   }
 
+  /** An external is a cloud when its frame holds the cloud's text inset (about 13.75 x 7.5rem at the map's 16px
+   *  units), else a dashed rounded box. */
+  export const cloud = (w: number, h: number) => w >= 220 && h >= 120;
   /** Room the shape keeps clear of the text: top, right, bottom, left. */
-  export const PAD: Partial<Record<ShapeName, [number, number, number, number]>> = {
+  const PAD: Partial<Record<ShapeName, [number, number, number, number]>> = {
     service: [30, 14, 12, 14], app: [32, 14, 12, 14], cli: [30, 14, 26, 14], job: [12, 50, 24, 14],
-    store: [36, 18, 22, 18], queue: [14, 44, 14, 20], model: [20, 22, 20, 22], agent: [14, 44, 14, 26], external: [12, 16, 12, 16],
+    store: [36, 18, 22, 18], queue: [14, 44, 14, 64], model: [20, 22, 20, 22], agent: [14, 44, 14, 26], external: [12, 16, 12, 16],
   };
+  export const padOf = (s: ShapeName, w: number, h: number): [number, number, number, number] =>
+    s === "external" && cloud(w, h) ? [h * 0.3, w * 0.14, h * 0.06, w * 0.17] : PAD[s] ?? [12, 14, 12, 14];
+  // a cloud in a 100 x 60 box: a flat bottom, a small bump left and right, a big one on top
+  const CLOUD = "M18 59H82C96 59 100 43 90 35C92 17 70 7 58 15C50 1 26 3 24 21C8 21 1 34 5 46C7 55 12 59 18 59Z";
   // the family whose hue a shape wears (theme tokens --kind-<family>, -fill, -band)
   const FAMILY: Record<string, string> = { model: "ai", agent: "ai", cli: "app" };
   export const hue = (s: ShapeName) => `var(--kind-${FAMILY[s] ?? s})`;
 </script>
 
 <script lang="ts">
-  let { shape, w, h, edge, dashed, width, glow }: {
-    shape: ShapeName; w: number; h: number; edge: string | null; dashed: boolean; width: number; glow: string | null;
+  // gap: a group's label on its top edge: where it starts, its width (the edge breaks under it) and its height
+  let { shape, w, h, edge, dashed, width, glow, gap = [0, 0, 0] }: {
+    shape: ShapeName; w: number; h: number; edge: string | null; dashed: boolean; width: number; glow: string | null; gap?: [number, number, number];
   } = $props();
 
   const fam = $derived(FAMILY[shape] ?? shape);
-  const line = $derived(edge ?? `var(--kind-${fam})`);
+  const line = $derived(edge ?? (shape === "group" ? "var(--map-faint)" : `var(--kind-${fam})`));
+  const puffy = $derived(shape === "external" && cloud(w, h));
   const fill = $derived(shape === "cli" ? "var(--kind-cli-bg)" : `var(--kind-${fam}-fill)`);
   const band = $derived(shape === "cli" ? "var(--kind-cli-band)" : `var(--kind-${fam}-band)`);
   const dash = $derived(dashed || shape === "agent" || shape === "external" ? "7 4" : null);
@@ -56,7 +65,13 @@
         return `M${x0 + cut} ${y0}H${x1 - cut}L${x1} ${y0 + cut}V${y1 - cut}L${x1 - cut} ${y1}H${x0 + cut}L${x0} ${y1 - cut}V${y0 + cut}Z`;
       }
       case "agent": return rr(s, s, w - 2 * s, h - 2 * s, Math.min((h - 2 * s) / 2, 36));
-      case "external": return rr(s, s, w - 2 * s, h - 2 * s, 14);
+      case "external": return puffy ? CLOUD : rr(s, s, w - 2 * s, h - 2 * s, 14);
+      case "group": {
+        // from the label's right end round the frame back to its left end, the label's half above the edge
+        const y = gap[2] / 2, r = 12, x0 = s, x1 = w - s, y1 = h - s;
+        return `M${gap[0] + gap[1]} ${y}H${x1 - r}A${r} ${r} 0 0 1 ${x1} ${y + r}V${y1 - r}A${r} ${r} 0 0 1 ${x1 - r} ${y1}` +
+          `H${x0 + r}A${r} ${r} 0 0 1 ${x0} ${y1 - r}V${y + r}A${r} ${r} 0 0 1 ${x0 + r} ${y}H${gap[0]}`;
+      }
       default: return rr(s, s, card[0], card[1], shape === "app" || shape === "cli" ? 10 : 12);
     }
   });
@@ -64,6 +79,15 @@
 </script>
 
 <svg class="shape" width={w} height={h} viewBox="0 0 {w} {h}" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  {#if shape === "group"}
+    <path d={outline} stroke={line} stroke-width={width} stroke-dasharray="0.1 {width * 3}" />
+  {:else if puffy}
+    <!-- the cloud stretched to the frame; its line keeps its width -->
+    <g transform="translate({s} {s}) scale({(w - 2 * s) / 100} {(h - 2 * s) / 60})" data-outline="cloud">
+      {#if glow}<path d={CLOUD} stroke="color-mix(in srgb, {glow} 25%, transparent)" stroke-width={width + 10} vector-effect="non-scaling-stroke" />{/if}
+      <path d={CLOUD} {fill} stroke={line} stroke-width={width} stroke-dasharray={dash} vector-effect="non-scaling-stroke" />
+    </g>
+  {:else}
   {#if glow}<path d={outline} stroke="color-mix(in srgb, {glow} 25%, transparent)" stroke-width={width + 10} />{/if}
   {#if shape === "job"}
     {#each [12, 6] as o}<path d={rr(s + o, s + o, card[0], card[1], 12)} fill={band} stroke={line} stroke-width={width * 0.75} stroke-dasharray={dash} />{/each}
@@ -79,7 +103,7 @@
   {:else if shape === "store"}<ellipse cx={w / 2} cy={ry + s} rx={w / 2 - s} ry={ry} fill={band} stroke={line} stroke-width={width} />
   {:else if shape === "queue"}
     <ellipse cx={w - er - s} cy={h / 2} rx={er} ry={h / 2 - s} fill={band} stroke={line} stroke-width={width} />
-    <path d={[0, 1, 2].map((i) => `M${w - 2 * er - 48 + i * 12} ${h - 26}l6 7-6 7`).join("")} stroke={line} stroke-width={2} />
+    <path d={[0, 1, 2].map((i) => `M${er + 10 + i * 12} ${h / 2 - 8}l7 8-7 8`).join("")} stroke={line} stroke-width={2.2} />
   {:else if shape === "job"}
     <circle cx={card[0] - 18} cy={24} r={11} fill={band} stroke={line} stroke-width={2} />
     <path d="M{card[0] - 18} 18V24L{card[0] - 13} 27" stroke={line} stroke-width={2} />
@@ -87,6 +111,7 @@
     <path d="M{w - 22} {h / 2 - 2}a10 10 0 1 1-3-7M{w - 27} {h / 2 - 14}l3 5-6 1" stroke={line} stroke-width={2} />
   {/if}
   <path d={outline} stroke={line} stroke-width={width} stroke-dasharray={dash} />
+  {/if}
 </svg>
 
 <style>

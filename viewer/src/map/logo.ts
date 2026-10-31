@@ -17,10 +17,11 @@ const lum = (hex: string) => {
 };
 
 /** A box's logo: its `logo` field, else the first brand in its tech (the whole string, then each word); a brand too
- *  dark to see on a dark map (Next, Ollama, Kafka…) draws in the map's foreground. */
-export function boxLogo(b: MapBox): Logo | null {
+ *  dark to see on a dark map (Next, Ollama, Kafka…) draws in the map's foreground, on a CLI's terminal in the
+ *  terminal's (dark in both themes). */
+export function boxLogo(b: MapBox, shape?: string): Logo | null {
   const tech = b.tech?.value.toLowerCase() ?? "";
   const keys = b.logo ? [b.logo.value.toLowerCase(), b.logo.value.toLowerCase().split(" ")[0]] : [tech, ...tech.split(/[\s·,/+()]+/)];
   const si = keys.map((k) => brand(k)).find(Boolean);
-  return si ? { path: si.path, color: lum(si.hex) < 0.05 ? "var(--map-fg)" : "#" + si.hex, slug: si.slug } : null;
+  return si ? { path: si.path, color: lum(si.hex) < 0.05 ? (shape === "cli" ? "var(--kind-cli-fg)" : "var(--map-fg)") : "#" + si.hex, slug: si.slug } : null;
 }
