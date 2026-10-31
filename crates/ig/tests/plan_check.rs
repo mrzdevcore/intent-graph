@@ -79,6 +79,25 @@ fn check_passes_after_plan_writes_ig_then_fails_on_drift() {
 }
 
 #[test]
+fn check_warns_without_failing() {
+    let dir = repo("warn", &[("src/a.ts", "export function f() {}\n")]);
+    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    let f = dir.join("ig/system.kdl");
+    // a usecase straight in the system: reads, with a warning
+    let t = std::fs::read_to_string(&f).unwrap();
+    let t = t.replacen("{\n", "{\n  usecase \"lonely\" title=\"Lonely\"\n", 1);
+    std::fs::write(&f, t).unwrap();
+    let out = run_ig(&dir, &["check"]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
+    assert!(
+        out.stderr
+            .contains("warning: `lonely`: a usecase sits inside a running block"),
+        "{}",
+        out.stderr
+    );
+}
+
+#[test]
 fn check_and_plan_exit_2_on_a_broken_spec() {
     let dir = repo("broken", &[("src/a.ts", "export function f() {}\n")]);
     assert_eq!(run_ig(&dir, &["plan"]).code, 0);
