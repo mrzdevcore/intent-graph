@@ -72,7 +72,6 @@ export type Placed = {
   frames: Record<string, Frame>;
   inner: Record<string, [number, number]>;
   regions: Region[];
-  routes: Record<string, [number, number][]>;
 };
 /** One declared part of a UI component: `kind` says how (prop, emit, ref, computed, useState…). */
 export type Part = { name: string; kind: string; line: number; detail?: string };

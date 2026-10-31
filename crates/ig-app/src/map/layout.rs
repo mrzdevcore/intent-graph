@@ -1,9 +1,8 @@
 //! Where `ig view` draws each box: every box with children has its own inner space, its children
-//! placed in the shape of its pattern (onion rings, layered bands, a hexagonal core, else a grid),
-//! and each arrow routed through the gutters between its siblings.
+//! placed in the shape of its pattern (onion rings, layered bands, a hexagonal core, else a grid).
+//! The viewer wires the arrows, since a box moved by hand moves only there.
 
 use super::file::{MapBox, is_unread, slots};
-use super::route::{Grid, lanes, ports};
 use super::{BoxKind, Level, MapArrow, Pattern};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -66,7 +65,6 @@ pub struct Placed {
     pub frames: BTreeMap<String, Frame>,
     pub inner: BTreeMap<String, (f32, f32)>,
     pub regions: Vec<Region>,
-    pub routes: BTreeMap<String, Vec<(f32, f32)>>,
 }
 
 /// The least space between two boxes, and around the inside of a parent.
@@ -101,8 +99,8 @@ fn size(b: &MapBox) -> (f32, f32) {
     }
 }
 
-/// Every box with children laid out in its inner space and every arrow routed; the notices
-/// name the arrows drawn straight for want of a clear path.
+/// Every box with children laid out in its inner space; the notices name the arrows with an end
+/// that has no place.
 pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
     let by_id: BTreeMap<&str, &MapBox> = boxes.iter().map(|b| (b.id.as_str(), b)).collect();
     let mut kids: BTreeMap<&str, Vec<&MapBox>> = BTreeMap::new();
@@ -150,46 +148,11 @@ pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
                 frame,
             }));
     }
-    let mut notices = vec![];
-    let mut by_parent: BTreeMap<&str, Vec<&MapArrow>> = BTreeMap::new();
-    for a in sorted {
-        by_parent.entry(&a.parent).or_default().push(a);
-    }
-    for (parent, arrows) in by_parent {
-        let siblings: Vec<Frame> = kids
-            .get(parent)
-            .into_iter()
-            .flatten()
-            .map(|b| placed.frames[&b.id])
-            .collect();
-        let inner = placed.inner.get(parent).copied().unwrap_or_default();
-        let mut grid = Grid::new(&siblings, inner);
-        let mut routes = vec![];
-        let mut ends = vec![];
-        for a in arrows {
-            match (placed.frames.get(&a.from), placed.frames.get(&a.to)) {
-                (Some(from), Some(to)) => ends.push((a, *from, *to)),
-                _ => notices.push(format!(
-                    "map: arrow `{}` has an end with no place; not drawn",
-                    a.id
-                )),
-            }
-        }
-        let at = ports(&ends.iter().map(|e| (e.1, e.2)).collect::<Vec<_>>());
-        for ((a, from, to), (s, e)) in ends.into_iter().zip(at) {
-            let (from, to) = (&from, &to);
-            let r = grid.route(from, to, s, e).unwrap_or_else(|| {
-                notices.push(format!(
-                    "map: no clear path for arrow `{}`; drawn straight",
-                    a.id
-                ));
-                elbow(from, to)
-            });
-            routes.push((a.id.clone(), r));
-        }
-        lanes(&mut routes.iter_mut().map(|r| &mut r.1).collect::<Vec<_>>());
-        placed.routes.extend(routes);
-    }
+    let notices = arrows
+        .iter()
+        .filter(|a| !placed.frames.contains_key(&a.from) || !placed.frames.contains_key(&a.to))
+        .map(|a| format!("map: arrow `{}` has an end with no place; not drawn", a.id))
+        .collect();
     (placed, notices)
 }
 
@@ -220,13 +183,6 @@ fn cuts(p: (f32, f32), q: (f32, f32), f: &Frame) -> bool {
         }
     }
     t0 < t1
-}
-
-/// From the middle of `from`'s bottom to 1 short of `to`'s side, in two segments.
-fn elbow(from: &Frame, to: &Frame) -> Vec<(f32, f32)> {
-    let s = (from.x + from.w / 2.0, from.bottom());
-    let e = (to.x - 1.0, to.y + to.h / 2.0);
-    vec![s, (s.0, e.1), e]
 }
 
 /// One parent's layout, centered on x = 0 until `normalize`.

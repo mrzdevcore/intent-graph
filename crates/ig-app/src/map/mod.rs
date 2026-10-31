@@ -13,7 +13,6 @@ pub mod kinds;
 pub mod layers;
 pub mod layout;
 pub mod origin;
-pub mod route;
 pub mod spec;
 pub mod view;
 pub mod warn;

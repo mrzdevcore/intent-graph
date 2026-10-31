@@ -1,5 +1,5 @@
 <!-- The walkable map. One world <div> under the camera; each box whose screen width reaches
-     showsInside mounts its inside (children, regions, routes in its inner units), recursively.
+     showsInside mounts its inside (children, regions, wires in its inner units), recursively.
      Only mounted levels are in the DOM. Dragging a box moves it inside its parent (kept per map
      in localStorage); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
@@ -8,7 +8,7 @@
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, insideCounts, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
-  import { curves } from "./curves";
+  import { wires, type Mode } from "./wires";
   import MapBox from "./MapBox.svelte";
   import { shapeOf } from "./Shape.svelte";
   import MapArrow from "./MapArrow.svelte";
@@ -104,22 +104,27 @@
   const world = $derived(new Map(framed.map((b) => [b.id, place.frame(b.id)])));
   const area = (f: Frame) => f.w * f.h;
   const regions = $derived(group([...view.placed.regions].sort((a, b) => area(b.frame) - area(a.frame)), (r: R) => r.parent));
-  const paths = $derived(curves(view.arrows, shown.placed.frames));
-  const arrows = $derived(group(view.arrows.filter((a) => paths.has(a.id)), (a: Arrow) => a.parent));
+  /** Each parent's wires both ways, from its children's frames as drawn. */
+  const wired = (as: Arrow[], frames: Record<string, Frame>) => ({ routed: wires(as, frames, "routed"), ribbon: wires(as, frames, "ribbon") });
+  const siblings = (p: string) => Object.fromEntries((kids.get(p) ?? []).map((b) => [b.id, shown.placed.frames[b.id]]));
+  const wiring = $derived(new Map([...group(view.arrows, (a: Arrow) => a.parent)].map(([p, as]) => [p, wired(as, siblings(p))])));
+  const arrows = $derived(group(view.arrows.filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));
   // the box being dragged and its shift so far: only it and its parent's arrows follow the pointer
   let live = $state<{ id: string; x: number; y: number } | null>(null);
   const shifted = (id: string, d: { x: number; y: number }) => {
     const f = view.placed.frames[id];
     return { ...f, x: f.x + d.x, y: f.y + d.y };
   };
-  const livePaths = $derived.by(() => {
+  const liveWiring = $derived.by(() => {
     if (!live) return null;
-    const p = byId.get(live.id)?.parent ?? ROOT, frames: Record<string, Frame> = {};
-    for (const b of kids.get(p) ?? []) frames[b.id] = shown.placed.frames[b.id];
+    const p = byId.get(live.id)?.parent ?? ROOT, frames = siblings(p);
     frames[live.id] = shifted(live.id, live);
-    return curves(arrows.get(p) ?? [], frames);
+    return { p, ...wired(arrows.get(p) ?? [], frames) };
   });
-  const pathOf = (a: Arrow) => livePaths?.get(a.id) ?? paths.get(a.id)!;
+  const wiringOf = (p: string) => (liveWiring?.p === p ? liveWiring : wiring.get(p));
+  const pathOf = (a: Arrow, mode: Mode) => wiringOf(a.parent)![mode].wires.get(a.id)!;
+  // under this many screen pixels per unit, a level's wires gather into ribbons
+  const RIBBON = 0.5;
   // each parent's inner unit, in world units
   const unit = $derived(new Map([...kids.keys()].map((p) => [p, p === ROOT ? 1 : place.inside(p).s])));
   // past this many screen pixels per unit, a level is far behind the box you are in: its arrows
@@ -409,9 +414,15 @@
   {@const all = near ? arrows.get(pid) ?? [] : []}
   {@const path = traced?.parent === pid ? traced : null}
   {@const lit = path ? all.filter((a) => path.arrows.includes(a)) : all.filter(touches)}
+  {@const mode = zoom < RIBBON ? "ribbon" : "routed"}
   {#if near}{#each regions.get(pid) ?? [] as r, i (i)}<Region region={r} {zoom} />{/each}{/if}
+  {#if all.length && mode === "ribbon"}
+    <svg class="sleeves" width="1" height="1" aria-hidden="true">
+      {#each wiringOf(pid)?.ribbon.sleeves ?? [] as s, i (i)}<path d={s.d} stroke-width={s.w} />{/each}
+    </svg>
+  {/if}
   {#each all as a (a.id)}
-    {@const c = pathOf(a)}
+    {@const c = pathOf(a, mode)}
     <div class="arrow" data-arrow={a.id}>
       <MapArrow d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on, by.get(a.id))} {zoom}
         lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
@@ -445,7 +456,7 @@
   {/each}
   <!-- the focused arrows' labels, above the boxes -->
   {#each lit as a (a.id)}
-    {@const c = pathOf(a)}
+    {@const c = pathOf(a, mode)}
     <div class="arrow" data-label={a.id}>
       <MapArrow part="label" d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom} />
     </div>
@@ -498,6 +509,7 @@
   .handle.l { left: 0; top: 50%; } .handle.r { left: 100%; top: 50%; } .handle.t { left: 50%; top: 0; } .handle.b { left: 50%; top: 100%; }
   .slot.faded { opacity: 0.35; transition: opacity 150ms; }
   .arrow { display: contents; }
+  .sleeves { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; fill: none; stroke: var(--map-line-soft); stroke-linecap: round; }
   .inside { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
   .inside > .slot { pointer-events: auto; }
   /* app.css's global .row (list rows) must not restyle the boxes' title row */

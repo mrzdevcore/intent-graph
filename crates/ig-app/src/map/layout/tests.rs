@@ -142,13 +142,6 @@ fn inside(a: &Frame, b: &Frame) -> bool {
     a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h
 }
 
-/// The segment `p`–`q` (axis-aligned) passes through the open interior of `f`.
-fn crosses(p: (f32, f32), q: (f32, f32), f: &Frame) -> bool {
-    let (x0, x1) = (p.0.min(q.0), p.0.max(q.0));
-    let (y0, y1) = (p.1.min(q.1), p.1.max(q.1));
-    x0 < f.x + f.w && x1 > f.x && y0 < f.y + f.h && y1 > f.y
-}
-
 fn kids<'b>(boxes: &'b [MapBox], parent: &str) -> Vec<&'b MapBox> {
     boxes
         .iter()
@@ -182,45 +175,6 @@ fn check_no_overlap(boxes: &[MapBox], p: &Placed) {
             let g = &p.frames[&s.id];
             assert!(!overlap(f, g), "{} {f:?} overlaps {} {g:?}", b.id, s.id);
         }
-    }
-}
-
-fn check_routes(boxes: &[MapBox], arrows: &[MapArrow], p: &Placed) {
-    for a in arrows {
-        let r = p
-            .routes
-            .get(&a.id)
-            .unwrap_or_else(|| panic!("no route for {}", a.id));
-        assert!(r.len() >= 2, "{}: {r:?}", a.id);
-        for w in r.windows(2) {
-            assert!(
-                w[0].0 == w[1].0 || w[0].1 == w[1].1,
-                "{}: not Manhattan {r:?}",
-                a.id
-            );
-            for s in kids(boxes, &a.parent) {
-                if s.id != a.from && s.id != a.to {
-                    let f = &p.frames[&s.id];
-                    assert!(
-                        !crosses(w[0], w[1], f),
-                        "{} crosses {} {f:?}: {r:?}",
-                        a.id,
-                        s.id
-                    );
-                }
-            }
-        }
-        let (from, to) = (&p.frames[&a.from], &p.frames[&a.to]);
-        let (s, e) = (r[0], r[r.len() - 1]);
-        // within the middle part of an edge, where ports spread
-        let within =
-            |v: f32, lo: f32, len: f32| v >= lo + 0.2 * len - 0.01 && v <= lo + 0.8 * len + 0.01;
-        let on_edge = (s.0 == from.x || s.0 == from.x + from.w) && within(s.1, from.y, from.h)
-            || (s.1 == from.y || s.1 == from.y + from.h) && within(s.0, from.x, from.w);
-        assert!(on_edge, "{} leaves {s:?}, not on an edge of {from:?}", a.id);
-        let short = (e.0 == to.x - 1.0 || e.0 == to.x + to.w + 1.0) && within(e.1, to.y, to.h)
-            || (e.1 == to.y - 1.0 || e.1 == to.y + to.h + 1.0) && within(e.0, to.x, to.w);
-        assert!(short, "{} ends at {e:?}, not 1 short of {to:?}", a.id);
     }
 }
 
@@ -284,13 +238,6 @@ fn no_overlap() {
 }
 
 #[test]
-fn routes_avoid_boxes() {
-    for (b, a) in trees() {
-        check_routes(&b, &a, &layout(&b, &a).0);
-    }
-}
-
-#[test]
 fn onion_rings_nest() {
     let (b, a) = shop();
     let p = layout(&b, &a).0;
@@ -329,77 +276,6 @@ fn unread_is_a_chip() {
         }
     }
     assert!(seen > 0);
-}
-
-/// Pairs of interior segments (not a route's first or last) of two arrows that lie on one line
-/// and share a stretch of it.
-fn shared_lanes(p: &Placed, arrows: &[&MapArrow]) -> Vec<String> {
-    let inner = |a: &MapArrow| {
-        let r = &p.routes[&a.id];
-        let n = r.len().saturating_sub(1);
-        (1..n.saturating_sub(1))
-            .map(|k| (r[k], r[k + 1]))
-            .collect::<Vec<_>>()
-    };
-    let mut out = vec![];
-    for (i, a) in arrows.iter().enumerate() {
-        for b in &arrows[i + 1..] {
-            for (p0, p1) in inner(a) {
-                for (q0, q1) in inner(b) {
-                    let span = |x: f32, y: f32| (x.min(y), x.max(y));
-                    let shared = if p0.1 == p1.1 && q0.1 == q1.1 && p0.1 == q0.1 {
-                        Some((span(p0.0, p1.0), span(q0.0, q1.0)))
-                    } else if p0.0 == p1.0 && q0.0 == q1.0 && p0.0 == q0.0 {
-                        Some((span(p0.1, p1.1), span(q0.1, q1.1)))
-                    } else {
-                        None
-                    };
-                    if let Some((s, t)) = shared.filter(|(s, t)| s.0 < t.1 && t.0 < s.1) {
-                        out.push(format!("{} {s:?} / {} {t:?}", a.id, b.id));
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-#[test]
-fn parallel_arrows_get_lanes() {
-    let mut boxes = vec![mbox("c", "system", "container", "app", None, None, false)];
-    for k in 0..8 {
-        boxes.push(mbox(
-            &format!("c/k{k}"),
-            "c",
-            "component",
-            "entry",
-            None,
-            None,
-            false,
-        ));
-    }
-    // two rows of four: every arrow crosses the middle gutter
-    let arrows: Vec<MapArrow> = [(0, 7), (1, 6), (2, 5), (3, 4), (0, 6), (3, 5)]
-        .iter()
-        .map(|(a, b)| arrow("c", &format!("c/k{a}"), &format!("c/k{b}")))
-        .collect();
-    let (p, notices) = layout(&boxes, &arrows);
-    assert!(notices.is_empty(), "{notices:?}");
-    check_routes(&boxes, &arrows, &p);
-    let all: Vec<&MapArrow> = arrows.iter().collect();
-    let shared = shared_lanes(&p, &all);
-    assert!(shared.is_empty(), "{shared:#?}");
-    for (b, a) in trees() {
-        let p = layout(&b, &a).0;
-        let mut by_parent: BTreeMap<&str, Vec<&MapArrow>> = BTreeMap::new();
-        for x in &a {
-            by_parent.entry(&x.parent).or_default().push(x);
-        }
-        for arrows in by_parent.values() {
-            let shared = shared_lanes(&p, arrows);
-            assert!(shared.is_empty(), "{shared:#?}");
-        }
-    }
 }
 
 #[test]
@@ -443,30 +319,6 @@ fn root_keeps_its_groups() {
     );
     let (w, h) = p.inner["system"];
     assert!((1.2..=2.4).contains(&(w / h)), "{w}x{h}");
-}
-
-#[test]
-fn arrows_leave_a_box_apart_and_straight() {
-    for (b, a) in trees().into_iter().chain([shop()]) {
-        let p = layout(&b, &a).0;
-        let mut starts: BTreeMap<(&str, [u32; 2]), &str> = BTreeMap::new();
-        for x in &a {
-            let r = &p.routes[&x.id];
-            let f = &p.frames[&x.from];
-            // the first leg runs along the edge's normal
-            let (s, n) = (r[0], r[1]);
-            let normal = if s.0 == f.x || s.0 == f.x + f.w {
-                s.1 == n.1
-            } else {
-                s.0 == n.0
-            };
-            assert!(normal, "{} sets off along its box: {r:?}", x.id);
-            let key = (x.from.as_str(), [s.0.to_bits(), s.1.to_bits()]);
-            if let Some(other) = starts.insert(key, &x.id) {
-                panic!("{} and {other} leave from one point {s:?}", x.id);
-            }
-        }
-    }
 }
 
 #[test]
