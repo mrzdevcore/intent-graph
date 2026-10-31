@@ -144,21 +144,6 @@ impl Kinds {
             .collect()
     }
 
-    /// What every kind may take, besides its own properties.
-    pub fn common_props() -> &'static [&'static str] {
-        &[
-            "title",
-            "description",
-            "tech",
-            "at",
-            "owner",
-            "logo",
-            "slot",
-            "badges",
-            "pattern",
-        ]
-    }
-
     /// The rules for one arrow kind.
     pub fn rules(&self, kind: ArrowKind) -> impl Iterator<Item = &ArrowRule> {
         self.arrows.iter().filter(move |r| r.kind == kind)

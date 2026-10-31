@@ -10,7 +10,7 @@
   import { Camera, wheelFactor } from "./glide";
   import { wires, type Mode } from "./wires";
   import MapBox from "./MapBox.svelte";
-  import { shapeOf } from "./Shape.svelte";
+  import { shapeOf } from "./shapes";
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
   import DetailsCard from "./DetailsCard.svelte";

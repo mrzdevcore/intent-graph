@@ -1,29 +1,19 @@
 <!-- Agent text as markdown: sanitized HTML (model/markdown.ts); a link click opens the system
-     browser through `openUrl`, never the webview. Graph refs (`match`) become buttons that show the
-     node in the graph (`onnode`). -->
+     browser through `openUrl`, never the webview. -->
 <script lang="ts">
-  import { linkNodes, renderMarkdown } from "../../model/markdown";
+  import { renderMarkdown } from "../../model/markdown";
 
-  let { text, openUrl, match, onnode }: {
-    text: string;
-    openUrl?: (url: string) => void;
-    match?: (text: string, code?: boolean) => string | null;
-    onnode?: (id: string) => void;
-  } = $props();
+  let { text, openUrl }: { text: string; openUrl?: (url: string) => void } = $props();
 
   const html = $derived(renderMarkdown(text));
   let el: HTMLDivElement;
 
   $effect(() => {
     el.innerHTML = html; // sanitized by renderMarkdown
-    if (match && onnode) linkNodes(el, match);
   });
 
   function click(e: MouseEvent) {
-    const t = e.target as Element;
-    const node = t.closest?.("button[data-node]") as HTMLElement | null;
-    if (node) return onnode?.(node.dataset.node!);
-    const a = t.closest?.("a");
+    const a = (e.target as Element).closest?.("a");
     if (!a) return;
     e.preventDefault();
     const href = a.getAttribute("href") ?? "";
