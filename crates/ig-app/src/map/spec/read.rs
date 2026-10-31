@@ -34,18 +34,9 @@ pub fn parse(texts: Vec<(String, Option<String>)>) -> Result<MapFile, Vec<String
             r.errs.push(format!("{p}: cannot be read"));
             continue;
         };
-        match text.parse::<KdlDocument>() {
+        match doc(&p, &text) {
             Ok(doc) => docs.push((p, text, doc)),
-            Err(e) => {
-                for d in &e.diagnostics {
-                    // The span runs from the node's start to where parsing gave up.
-                    let msg = d.message.clone().unwrap_or_else(|| "syntax error".into());
-                    r.errs.push(format!(
-                        "{p}:{}: {msg}",
-                        line(&text, d.span.offset() + d.span.len())
-                    ));
-                }
-            }
+            Err(e) => r.errs.extend(e),
         }
     }
     // what follows a syntax error is noise
@@ -105,11 +96,25 @@ struct Reader {
     errs: Vec<String>,
 }
 
-fn line(text: &str, offset: usize) -> usize {
+/// `text` as KDL, or its syntax errors as "path:line: message".
+pub(crate) fn doc(p: &str, text: &str) -> Result<KdlDocument, Vec<String>> {
+    text.parse::<KdlDocument>().map_err(|e| {
+        e.diagnostics
+            .iter()
+            .map(|d| {
+                // The span runs from the node's start to where parsing gave up.
+                let msg = d.message.clone().unwrap_or_else(|| "syntax error".into());
+                format!("{p}:{}: {msg}", line(text, d.span.offset() + d.span.len()))
+            })
+            .collect()
+    })
+}
+
+pub(crate) fn line(text: &str, offset: usize) -> usize {
     text[..offset.min(text.len())].matches('\n').count() + 1
 }
 
-fn named<T: DeserializeOwned>(s: &str) -> Option<T> {
+pub(crate) fn named<T: DeserializeOwned>(s: &str) -> Option<T> {
     serde_json::from_value(serde_json::Value::String(s.into())).ok()
 }
 

@@ -1,0 +1,36 @@
+// ig's building blocks: every kind a box in ig/ may be. Where a kind may sit follows its role
+// (crates/ig-app/src/map/facts.rs); every kind also takes the common properties (title,
+// description, tech, owner…). A team adds its own in ig/kinds/<name>.kdl, extending one of these.
+
+kind "system" title="System" icon="network" means="The whole system this map draws"
+kind "person" title="Person" icon="user" means="Someone who uses the system"
+kind "external" title="External system" icon="globe" means="A system outside this one, run by someone else"
+kind "app" title="App" icon="app-window" means="What people open: a web, mobile or desktop app"
+kind "service" title="Service" icon="server" means="A process that runs and answers: an API, a server, a worker"
+kind "job" title="Job" icon="clock" means="Work that runs, then stops: a cron task, a batch, a migration"
+kind "store" title="Store" icon="database" means="Where data is kept: a database, a bucket, a cache"
+kind "queue" title="Queue" icon="inbox" means="Where messages wait: a queue, a topic, a stream"
+kind "model" title="AI model" icon="sparkles" means="An AI model the system calls, hosted or local" {
+    property "provider" means="Who serves it: anthropic, openai, ollama…"
+    property "model" means="Its name, like claude-opus-5-5 or llama3.2"
+    property "hosted" means="Where it runs" one-of="local" "hosted"
+}
+kind "module" title="Module" icon="package" means="A part of a block's code with one purpose"
+kind "entry" title="Entry" icon="log-in" means="A way in: a route, a command, a schedule, a message handler" {
+    property "kind" means="How it is reached" one-of="route" "command" "schedule" "message"
+}
+kind "usecase" title="Use case" icon="list-checks" means="One thing the block does for someone"
+kind "port" title="Port" icon="plug" means="What the core needs from outside, as an interface"
+kind "adapter" title="Adapter" icon="cable" means="What fills a port: the code that talks to the outside"
+kind "agent" title="Agent" icon="bot" means="An AI agent: a prompt, a model and the tools it may use" {
+    property "prompt" means="Its instructions, or the file that holds them"
+}
+kind "domain" title="Domain" icon="shapes" means="The core: the rules and the words of the business"
+kind "group" title="Group" icon="folder" means="Boxes kept together, with nothing of its own"
+
+// Which kinds an arrow joins (kind names; none = any). An arrow kind with no rule joins any two.
+arrow "reads" to="store"
+arrow "writes" to="store"
+arrow "sends" to="queue"
+arrow "implements" from="adapter" to="port"
+arrow "triggers" to="job" "entry"
