@@ -1,6 +1,6 @@
 <!-- The open popover of an EditSession: the arrow's rubber band and kind chips, the box menu, rename, move picker. -->
 <script lang="ts">
-  import type { MapBox } from "../types";
+  import type { KindView, MapBox } from "../types";
   import ArrowDraw from "./ArrowDraw.svelte";
   import BoxMenu from "./BoxMenu.svelte";
   import MovePicker from "./MovePicker.svelte";
@@ -8,7 +8,7 @@
   import { parentsFor } from "./menu";
   import type { EditSession } from "./session.svelte";
 
-  let { s, boxes, root }: { s: EditSession; boxes: MapBox[]; root: string } = $props();
+  let { s, boxes, kinds, root }: { s: EditSession; boxes: MapBox[]; kinds: KindView[]; root: string } = $props();
   const ui = $derived(s.ui);
 </script>
 
@@ -25,7 +25,7 @@
       onsubmit={(v) => s.settle((id) => v && v !== s.titleOf(id) ? { op: "set", id, key: "title", value: v } : null)} />
   {:else}
     <MovePicker title={s.titleOf(id)} x={ui.x} y={ui.y} onclose={() => s.shut()}
-      options={parentsFor(boxes, id, root).map((b) => ({ id: b.id, title: b.title.value, kind: b.kind.value }))}
+      options={parentsFor(boxes, kinds, id, root).map((b) => ({ id: b.id, title: b.title.value, kind: b.kind.value }))}
       onpick={(parent) => s.settle((id) => ({ op: "move", id, parent, before: null }))} />
   {/if}
 {/if}

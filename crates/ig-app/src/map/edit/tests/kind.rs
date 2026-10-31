@@ -55,3 +55,42 @@ fn an_ig_with_a_team_kind_takes_edits_and_fmt() {
     check_on(f(), kind("api", "iot-device"), &[("ig/system.kdl", &want)]);
     assert!(fmt(&f(), true).unwrap().is_empty());
 }
+
+#[test]
+fn add_writes_a_team_kind_and_the_kinds_own_properties() {
+    let f = MemFiles::with(&[("ig/system.kdl", SHOP), ("ig/kinds/iot-device.kdl", IOT)]);
+    let add = |kind: &str, id: &str, props: &[(&str, &str)]| Edit::Add {
+        parent: "shop".into(),
+        kind: kind.into(),
+        id: id.into(),
+        title: "T".into(),
+        at: vec![],
+        before: None,
+        props: props
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    };
+    apply(&f, &add("iot-device", "probe", &[])).unwrap();
+    apply(
+        &f,
+        &add(
+            "model",
+            "llm",
+            &[("provider", "ollama"), ("hosted", "local")],
+        ),
+    )
+    .unwrap();
+    let sys = &texts(&f)["ig/system.kdl"];
+    assert!(sys.contains("iot-device \"probe\" title=\"T\"\n"), "{sys}");
+    assert!(
+        sys.contains("model \"llm\" title=\"T\" hosted=\"local\" provider=\"ollama\"\n"),
+        "{sys}"
+    );
+    let bad = add("model", "x", &[("hosted", "cloud")]);
+    let errs = apply(&f, &bad).unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.contains("`hosted` is one of")),
+        "{errs:?}"
+    );
+}

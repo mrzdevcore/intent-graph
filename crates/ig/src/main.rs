@@ -88,6 +88,9 @@ fn real_main() -> Result<u8> {
             for n in &v.notices {
                 eprintln!("ig: {n}");
             }
+            for w in &v.warnings {
+                eprintln!("ig: warning: {w}");
+            }
             if a.json {
                 println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
@@ -110,10 +113,10 @@ fn real_main() -> Result<u8> {
             }
             let v = view::run(&env)?;
             for n in &v.notices {
-                match n.starts_with("warning: ") {
-                    true => eprintln!("{n}"),
-                    false => eprintln!("ig: {n}"),
-                }
+                eprintln!("ig: {n}");
+            }
+            for w in &v.warnings {
+                eprintln!("warning: {w}");
             }
             if v.broken {
                 return Ok(2);

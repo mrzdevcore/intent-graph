@@ -6,11 +6,12 @@ use super::*;
 fn no_edit_gives_a_box_the_whole_repo() {
     let add = Edit::Add {
         parent: "shop".into(),
-        kind: BoxKind::App,
+        kind: "app".into(),
         id: "all".into(),
         title: "All".into(),
         at: vec!["**".into()],
         before: None,
+        props: Default::default(),
     };
     fails(add, "claims `**`");
     let set = |id: &str| Edit::Set {

@@ -8,9 +8,11 @@ use crate::map::spec::read::{doc, line, named};
 use crate::map::{ArrowKind, BoxKind};
 use ig_core::ports::Files;
 use kdl::KdlNode;
+use serde::Serialize;
 use std::sync::OnceLock;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PropDef {
     pub name: String,
     pub means: String,
@@ -29,6 +31,21 @@ pub struct KindDef {
     pub means: String,
     pub icon: String,
     /// Its base's, then its own.
+    pub props: Vec<PropDef>,
+}
+
+/// A kind as the viewer takes it (`View.kinds`): its base by name, its role as where it sits.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KindView {
+    pub name: String,
+    pub base: String,
+    pub custom: bool,
+    pub title: String,
+    pub means: String,
+    pub icon: String,
+    /// `root`, `run`, `design` or `group`.
+    pub role: &'static str,
     pub props: Vec<PropDef>,
 }
 
@@ -97,6 +114,29 @@ impl Kinds {
 
     pub fn names(&self) -> Vec<&str> {
         self.kinds.iter().map(|k| k.name.as_str()).collect()
+    }
+
+    /// Every kind, built-in first, as the viewer takes them.
+    pub fn views(&self) -> Vec<KindView> {
+        let role = |b: BoxKind| match b.role() {
+            Role::Root => "root",
+            Role::Run => "run",
+            Role::Design => "design",
+            Role::Group => "group",
+            Role::Code => "code",
+        };
+        (self.kinds.iter().filter(|k| !k.base.code_level()))
+            .map(|k| KindView {
+                name: k.name.clone(),
+                base: base_name(k.base),
+                custom: k.custom,
+                title: k.title.clone(),
+                means: k.means.clone(),
+                icon: k.icon.clone(),
+                role: role(k.base),
+                props: k.props.clone(),
+            })
+            .collect()
     }
 
     /// What every kind may take, besides its own properties.
@@ -266,7 +306,7 @@ pub fn kind_may_sit(child: BoxKind, parent: Role, parent_outer: bool) -> bool {
         || (child == BoxKind::Module && may_sit(Role::Run, parent, parent_outer))
 }
 
-pub(crate) fn base_name(b: BoxKind) -> String {
+pub fn base_name(b: BoxKind) -> String {
     serde_json::to_value(b)
         .unwrap()
         .as_str()

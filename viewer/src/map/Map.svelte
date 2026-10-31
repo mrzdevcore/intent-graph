@@ -4,7 +4,7 @@
      in localStorage); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import type { BoxKind, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
+  import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, insideCounts, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
@@ -20,11 +20,12 @@
   import Toolbar from "./edit/Toolbar.svelte";
   import { ToolState, type Tool } from "./edit/tool.svelte";
   import AddBox from "./edit/AddBox.svelte";
-  import { freeId } from "./edit/add";
+  import { freeId, inside } from "./edit/add";
   import EditLayer from "./edit/EditLayer.svelte";
   import { EditSession } from "./edit/session.svelte";
   import type { Act } from "./edit/menu";
   import Proposals from "./edit/Proposals.svelte";
+  import Warnings from "./Warnings.svelte";
   import { proposed } from "./edit/proposals";
 
   let { view, camera = new Camera(), size, edit, onview }: {
@@ -328,11 +329,12 @@
     e.stopPropagation();
     e.preventDefault();
   }
-  function add(a: { kind: BoxKind; name: string; at: string[] }) {
+  function add(a: { kind: string; name: string; at: string[]; props: Record<string, string> }) {
     const parent = sess.adding!.parent;
     sess.adding = null;
     tool.current = "select";
-    run(() => edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null }));
+    const props = Object.keys(a.props).length ? { props: a.props } : {};
+    run(() => edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null, ...props }));
   }
 
   /** The deepest box holding the view's centre and filling >= 60% of the view's width or height. */
@@ -465,11 +467,12 @@
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
   {#if edit && sess.adding}
-    <AddBox parentTitle={addParent?.title.value ?? view.boxes.find((b) => b.id === ROOT)?.title.value ?? ROOT} system={sess.adding.parent === ROOT}
-      globs={addParent?.madeOf ?? []} x={sess.adding.x} y={sess.adding.y} onadd={add} onclose={() => sess.cancel()} />
+    <AddBox parentTitle={addParent?.title.value ?? view.boxes.find((b) => b.id === ROOT)?.title.value ?? ROOT} within={inside(sess.adding.parent, byId, view.kinds)}
+      kinds={view.kinds} globs={addParent?.madeOf ?? []} x={sess.adding.x} y={sess.adding.y} onadd={add} onclose={() => sess.cancel()} />
   {/if}
   <Proposals {view} {edit} {run} onlight={glow} />
-  {#if edit}<EditLayer s={sess} boxes={view.boxes} root={ROOT} />{/if}
+  <Warnings warnings={view.warnings} />
+  {#if edit}<EditLayer s={sess} boxes={view.boxes} kinds={view.kinds} root={ROOT} />{/if}
   {#if reading}
     <p class="reading" class:lifted={!!view.proposals?.length}>Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}

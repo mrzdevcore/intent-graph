@@ -2,8 +2,8 @@
 //! keeps its text. Nothing is written unless the whole edited spec reads back; each edit returns
 //! its inverse, which gives the files back byte for byte.
 
+use super::ArrowKind;
 use super::spec::{self, DIR};
-use super::{ArrowKind, BoxKind};
 use ig_core::ports::Files;
 use kdl::{KdlDocument, KdlEntry, KdlEntryFormat, KdlNode};
 use serde::de::DeserializeOwned;
@@ -20,13 +20,17 @@ pub use fmt::fmt;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
 pub enum Edit {
+    /// `kind` names a built-in kind or a team's (`ig/kinds/<name>.kdl`); `props` are the kind's
+    /// own properties (`provider`, `hosted`…), written after the title.
     Add {
         parent: String,
-        kind: BoxKind,
+        kind: String,
         id: String,
         title: String,
         at: Vec<String>,
         before: Option<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        props: BTreeMap<String, String>,
     },
     Remove {
         id: String,
@@ -251,12 +255,16 @@ impl Spec {
                 title,
                 at,
                 before,
+                props,
             } => {
                 self.unused(id)?;
                 not_whole_repo(id, at)?;
-                let mut n = KdlNode::new(name_of(kind));
+                let mut n = KdlNode::new(kind.as_str());
                 n.push(KdlEntry::new(id.as_str()));
                 n.push(KdlEntry::new_prop("title", title.as_str()));
+                for (k, v) in props {
+                    n.push(KdlEntry::new_prop(k.as_str(), v.as_str()));
+                }
                 if !at.is_empty() {
                     n.ensure_children()
                         .nodes_mut()
