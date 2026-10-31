@@ -20,6 +20,15 @@
   --map-group-bg: rgba(255, 255, 255, 0.03);
   --map-bar-out: #e8a317; --map-bar-in: #8f7d5c;
   --map-trace: #e8a317;
+  /* map: each run block's hue: its outline, fill and band (a service's header, a store's lid…) */
+  --kind-service: #6f8fd8; --kind-service-fill: #2f3440; --kind-service-band: #3d4f7a;
+  --kind-app: #5fb3b3; --kind-app-fill: #2e3a3b; --kind-app-band: #3a5556;
+  --kind-cli-bg: #141515; --kind-cli-band: #262a2a; --kind-cli-prompt: #98c379; --kind-cli-fg: #ecebe6; --kind-cli-muted: #a9aaaf;
+  --kind-job: #d9b36b; --kind-job-fill: #40382a; --kind-job-band: #3a3326;
+  --kind-store: #6cc08b; --kind-store-fill: #2c3a33; --kind-store-band: #365244;
+  --kind-queue: #e0915a; --kind-queue-fill: #3d3128; --kind-queue-band: #4d3b2d;
+  --kind-ai: #b48ef0; --kind-ai-fill: #352d47; --kind-ai-band: #4a3d66;
+  --kind-external: #9b9ba3; --kind-external-fill: #33343a; --kind-external-band: #3a3b41;
 
   --code-foreground: #e6e6e8; --code-background: transparent;
   --code-token-keyword: #d49bf0; --code-token-function: #8fb4ff; --code-token-parameter: #e0c89a;

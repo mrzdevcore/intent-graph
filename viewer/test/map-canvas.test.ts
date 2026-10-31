@@ -358,13 +358,29 @@ function withAnatomy() {
   return { view, target, id, go };
 }
 
-test("a component's card sums up what it keeps and renders", () => {
+test("a component's details card sums up what it keeps and renders; its face does not", () => {
   const { target, id, go } = withAnatomy();
   go("web/pages");
-  const card = box(target, id)!.textContent!;
+  const face = box(target, id)!.textContent!;
+  expect(face).not.toContain("keeps open");
+  expect(face).toContain("1 useState");
+  (box(target, id)!.querySelector("button") as HTMLButtonElement).click();
+  flushSync();
+  const card = target.querySelector(".details")!.textContent!;
   expect(card).toContain("keeps open");
   expect(card).toContain("renders CheckoutPage");
-  expect(card).toContain("1 useState");
+});
+
+test("a store is drawn as a cylinder and a group as a frame", () => {
+  const view = structuredClone(shop) as unknown as View;
+  view.boxes.find((b) => b.id === "api-client")!.kind.value = "group";
+  const target = document.createElement("div");
+  document.body.append(target);
+  mount(Map, { target, props: { view, camera: new Camera(), size } });
+  flushSync();
+  expect((box(target, "postgres") as HTMLElement).dataset.shape).toBe("store");
+  expect((box(target, "api-client") as HTMLElement).dataset.shape).toBe("group");
+  expect((box(target, "web") as HTMLElement).dataset.shape).toBe("app");
 });
 
 test("the card links a rendered tag to its component, and closes once you walk into another box", () => {

@@ -6,8 +6,9 @@ import MapArrow from "../src/map/MapArrow.svelte";
 import Region from "../src/map/Region.svelte";
 import { logoPath } from "../src/map/logo";
 import { look } from "../src/map/looks";
-import { siNextdotjs, siTrpc, siPrisma, siStripe } from "simple-icons";
-import type { MapBox as Box } from "../src/map/types";
+import { siMongodb, siNextdotjs, siTrpc, siPrisma, siStripe } from "simple-icons";
+import { shapeOf } from "../src/map/Shape.svelte";
+import type { KindView, MapBox as Box } from "../src/map/types";
 
 const f = <T,>(value: T) => ({ value, source: "ig" as const });
 const box = (o: Partial<Box> = {}): Box => ({
@@ -31,7 +32,7 @@ test("a box is a button that opens; needsReading is dotted, stale is chipped", (
 
 test("a container with logo stripe renders the simple-icons path", () => {
   const t = render(box({ level: "container", kind: f("external"), logo: f("stripe") }));
-  expect(t.querySelector("svg path")!.getAttribute("d")).toBe(logoPath("stripe"));
+  expect(t.querySelector("svg.logo path")!.getAttribute("d")).toBe(logoPath("stripe"));
 });
 
 test("far detail: no description, no chips", () => {
@@ -127,4 +128,47 @@ test("rings: domain gold, application green, else blue-grey", () => {
     return t.querySelector(".region")!.getAttribute("data-role");
   };
   expect([bg("Domain"), bg("Application"), bg("Infrastructure")]).toEqual(["domain", "application", "infra"]);
+});
+
+const kinds = (extra: Partial<KindView>[] = []): KindView[] => [
+  ...["service", "app", "store", "entry"].map((n) => ({ name: n, base: n as Box["kind"]["value"], custom: false, title: n, means: "", icon: "server", code: true, role: "run" as const, props: [] })),
+  ...extra.map((e) => ({ name: "x", base: "service" as const, custom: true, title: "", means: "", icon: "cpu", code: true, role: "run" as const, props: [], ...e })),
+];
+const shaped = (b: Box, detail: "far" | "mid" | "near" = "near") => {
+  const t = document.createElement("div");
+  mount(MapBox, { target: t, props: { box: b, look: look(b.id, [], new Set(), b), detail, onopen: () => {}, kinds: kinds([{ name: "iot-device" }]) } });
+  flushSync();
+  return t.querySelector("button")!;
+};
+
+test("an app whose tech names a CLI, or whose entries are commands with no route, is a terminal", () => {
+  expect(shaped(box({ level: "container", kind: f("app"), tech: f("Typer CLI") })).dataset.shape).toBe("cli");
+  expect(shaped(box({ level: "container", kind: f("app"), tech: f("Svelte") })).dataset.shape).toBe("app");
+  const app = box({ id: "a", level: "container", kind: f("app") });
+  const entry = (kind: string): Box => box({ id: `a/${kind}`, parent: "a", kind: f("entry"), props: { kind } });
+  expect(shapeOf(app, [entry("command")])).toBe("cli");
+  expect(shapeOf(app, [entry("command"), entry("route")])).toBe("app");
+});
+
+test("a box with tech MongoDB 7 wears the MongoDB logo; a dark brand draws in the map's foreground", () => {
+  const b = shaped(box({ level: "container", kind: f("store"), tech: f("MongoDB 7") }));
+  expect(b.dataset.logo).toBe("mongodb");
+  expect(b.querySelector("svg.logo path")!.getAttribute("d")).toBe(siMongodb.path);
+  const k = shaped(box({ level: "container", kind: f("queue"), tech: f("Apache Kafka") }));
+  expect(k.dataset.logo).toBe("apachekafka");
+  expect(k.querySelector("svg.logo path")!.getAttribute("fill")).toBe("var(--map-fg)");
+  // no logo: the kind's own icon, not an empty tile
+  expect(shaped(box({ level: "container", kind: f("store"), tech: f("Homegrown") })).querySelector(".kind-icon")).not.toBeNull();
+});
+
+test("a team kind with base service gets the service shape and its own icon", () => {
+  const b = shaped(box({ level: "container", kind: f("service"), custom: "iot-device" }));
+  expect(b.dataset.shape).toBe("service");
+  expect(b.querySelector(".kind-icon")!.getAttribute("data-icon")).toBe("cpu");
+});
+
+test("near: status first, then at most 2 badges and +n; the kind word is not on the face", () => {
+  const b = shaped(box({ level: "container", kind: f("service"), origin: "build", badges: f(["REST", "gRPC", "GraphQL", "WS"]) }));
+  expect([...b.querySelectorAll(".chips > span")].map((c) => c.textContent)).toEqual(["to build", "REST", "gRPC", "+2"]);
+  expect(shaped(box({ level: "container", kind: f("service"), tech: f("FastAPI") }), "mid").textContent).not.toContain("service");
 });
