@@ -3,6 +3,7 @@
 //! a file. Facts that are not intent (sources, pins, file counts, marks) are not written.
 
 use super::file::{MapBox, MapFile};
+use super::kinds::base_name;
 use super::{ArrowKind, Level, MapArrow, Pattern};
 use kdl::{KdlDocument, KdlEntry, KdlEntryFormat, KdlNode};
 use std::collections::BTreeMap;
@@ -133,8 +134,8 @@ fn node(
     b: &MapBox,
     split: &mut dyn FnMut(&MapBox, KdlNode) -> Option<KdlNode>,
 ) -> KdlNode {
-    let kind = serde_json::to_value(b.kind.value).ok();
-    let mut n = KdlNode::new(kind.as_ref().and_then(|k| k.as_str()).unwrap_or("box"));
+    let kind = b.custom.clone().unwrap_or_else(|| base_name(b.kind.value));
+    let mut n = KdlNode::new(kind);
     n.push(KdlEntry::new(b.id.as_str()));
     n.push(KdlEntry::new_prop("title", b.title.value.as_str()));
     let opt = [
@@ -147,6 +148,9 @@ fn node(
         if let Some(f) = f {
             n.push(KdlEntry::new_prop(key, f.value.as_str()));
         }
+    }
+    for (key, v) in &b.props {
+        n.push(KdlEntry::new_prop(key.as_str(), v.as_str()));
     }
     let body = n.ensure_children();
     if !b.made_of.is_empty() {

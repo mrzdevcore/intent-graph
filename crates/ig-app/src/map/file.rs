@@ -12,7 +12,6 @@ use std::collections::BTreeMap;
 /// The map file, relative to the ig root.
 pub const MAP: &str = ".ig/map.json";
 const MAX_BYTES: usize = 2 * 1024 * 1024;
-const MAX_CHILDREN: usize = 12;
 /// Field names a box may pin (as written in the JSON).
 pub(super) const PINNABLE: &[&str] = &[
     "kind",
@@ -102,6 +101,12 @@ pub struct MapBox {
     pub package: Option<String>,
     pub files: u32,
     pub kind: Field<BoxKind>,
+    /// A team kind's name (`ig/kinds/<name>.kdl`); `kind` is its base.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub custom: Option<String>,
+    /// The kind's own properties, and `owner`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub props: BTreeMap<String, String>,
     pub title: Field<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tech: Option<Field<String>>,
@@ -371,6 +376,8 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
                 nodes: vec![],
                 moved_from: vec![],
                 origin: Default::default(),
+                custom: None,
+                props: Default::default(),
             });
             if !b.pins("madeOf") {
                 b.made_of = a.made_of.clone().unwrap_or_default();
@@ -433,15 +440,15 @@ pub(crate) fn slots(p: Option<&Pattern>) -> Vec<&str> {
     }
 }
 
-/// Every problem with the map: version, ids, parents and levels, lengths, globs, slots,
-/// children counts, pins.
+/// Every problem with the map: version, ids, parents, lengths, globs, slots, pins. Where a kind
+/// sits is not one: the table (`kinds::may_sit`) gives warnings.
 pub fn validate(m: &MapFile) -> Result<(), Vec<String>> {
     check(m, true)
 }
 
-/// `validate` for a map read from the spec in `ig/`: a component's id is a slug path
-/// (`api/orders`) that need not start with its container's id, so that it stays the same
-/// when the component moves.
+/// `validate` for a map read from the spec in `ig/`: a box's id is a slug or a slug path
+/// (`api/orders`) that need not start with its parent's id, so that it stays the same when the
+/// box moves.
 pub fn validate_spec(m: &MapFile) -> Result<(), Vec<String>> {
     check(m, false)
 }
@@ -457,25 +464,23 @@ fn check(m: &MapFile, prefixed: bool) -> Result<(), Vec<String>> {
             errs.push(format!("id `{}` is used twice", w[0]));
         }
     }
-    let mut children: BTreeMap<&str, usize> = BTreeMap::new();
     for b in &m.boxes {
         let id = &b.id;
+        let path = |p: Option<&str>| {
+            id.split_once('/')
+                .is_some_and(|(c, s)| p.is_none_or(|p| c == p) && is_slug(c) && is_slug(s))
+        };
         let ok = match (b.level, b.parent.as_deref()) {
-            (Level::Component | Level::Code, Some(p)) => id
-                .split_once('/')
-                .is_some_and(|(c, s)| (c == p || !prefixed) && is_slug(c) && is_slug(s)),
+            (Level::System, _) | (_, None) => is_slug(id),
+            // the levels follow the kinds above a box, which may sit anywhere: an id of either form
+            _ if !prefixed => is_slug(id) || path(None),
+            (Level::Component | Level::Code, p) => path(p),
             _ => is_slug(id),
         };
         if !ok {
             errs.push(format!(
                 "id `{id}` is not a slug (a-z, 0-9, -; components container/slug)"
             ));
-        }
-        // refresh's leftovers box and stale boxes never count, so a refresh cannot make the
-        // map unloadable
-        let counts = |p: &str| !b.stale && !is_unread(b, p);
-        if let Some(p) = b.parent.as_deref().filter(|p| counts(p)) {
-            *children.entry(p).or_default() += 1;
         }
         let long = |what: &str, s: &str, max: usize, errs: &mut Vec<String>| {
             if s.chars().count() > max {
@@ -523,29 +528,19 @@ fn check(m: &MapFile, prefixed: bool) -> Result<(), Vec<String>> {
     }
     for b in &m.boxes {
         let id = &b.id;
-        let parent = b
-            .parent
-            .as_deref()
-            .map(|p| (p, by_id.get(p).map(|x| x.level)));
-        match (b.level, parent) {
+        match (
+            b.level,
+            b.parent.as_deref().map(|p| (p, by_id.contains_key(p))),
+        ) {
             (Level::System, None) => {}
             (Level::System, Some(_)) => errs.push(format!("`{id}`: the system has no parent")),
             (Level::Code, _) => errs.push(format!("`{id}`: code boxes are not stored")),
             (_, None) => errs.push(format!("`{id}`: no parent")),
-            (_, Some((p, None))) => errs.push(format!("`{id}`: parent `{p}` is not in the map")),
-            (Level::Container, Some((_, Some(Level::System))))
-            | (Level::Component, Some((_, Some(Level::Container)))) => {}
-            (l, Some((p, _))) => errs.push(format!(
-                "`{id}`: a {} must sit in the {}, not `{p}`",
-                format!("{l:?}").to_lowercase(),
-                if l == Level::Container {
-                    "system"
-                } else {
-                    "container"
-                }
-            )),
+            (_, Some((p, false))) => errs.push(format!("`{id}`: parent `{p}` is not in the map")),
+            // where a kind may sit (`kinds::may_sit`) is a warning, never a read error
+            (_, Some(_)) => {}
         }
-        // the levels already forbid a loop; this keeps a bad file from hanging a reader
+        // this keeps a bad file from hanging a reader
         let mut seen = std::collections::BTreeSet::from([id.as_str()]);
         let mut at = b.parent.as_deref();
         while let Some(p) = at {
@@ -557,11 +552,6 @@ fn check(m: &MapFile, prefixed: bool) -> Result<(), Vec<String>> {
                 break;
             }
             at = by_id.get(p).and_then(|x| x.parent.as_deref());
-        }
-    }
-    for (p, n) in children {
-        if n > MAX_CHILDREN {
-            errs.push(format!("`{p}` has {n} children (at most {MAX_CHILDREN})"));
         }
     }
     if errs.is_empty() { Ok(()) } else { Err(errs) }

@@ -2,7 +2,9 @@
 //! nothing partial is returned. Every field read is a person's and pinned.
 
 use super::DIR;
+use crate::map::facts::Role;
 use crate::map::file::{Field, MapBox, MapFile, PINNABLE, Source, validate_spec};
+use crate::map::kinds::{KindDef, Kinds, base_name};
 use crate::map::{ArrowKind, BoxKind, Level, MapArrow, Pattern};
 use globset::GlobBuilder;
 use ig_core::ports::Files;
@@ -13,9 +15,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The map written in `ig/`; `None` when it holds no `.kdl` file.
 pub fn read(files: &dyn Files) -> Result<Option<MapFile>, Vec<String>> {
     let paths = files
-        .glob(&[format!("{DIR}/*.kdl")])
+        .glob(&[format!("{DIR}/*.kdl"), format!("{DIR}/kinds/*.kdl")])
         .map_err(|e| vec![format!("{DIR}: {e}")])?;
-    if paths.is_empty() {
+    if !paths.iter().any(|p| !is_kind_file(p)) {
         return Ok(None);
     }
     let texts = paths.into_iter().map(|p| {
@@ -25,9 +27,19 @@ pub fn read(files: &dyn Files) -> Result<Option<MapFile>, Vec<String>> {
     parse(texts.collect()).map(Some)
 }
 
-/// The map in spec files given as (path, text; none when it cannot be read).
+fn is_kind_file(p: &str) -> bool {
+    p.starts_with(&format!("{DIR}/kinds/"))
+}
+
+/// The map in spec files given as (path, text; none when it cannot be read); the team kinds
+/// are the ones in `ig/kinds/` among them.
 pub fn parse(texts: Vec<(String, Option<String>)>) -> Result<MapFile, Vec<String>> {
-    let mut r = Reader::default();
+    let (kinds, texts): (Vec<_>, Vec<_>) = texts.into_iter().partition(|(p, _)| is_kind_file(p));
+    let (kinds, kind_errs) = Kinds::team(kinds);
+    let mut r = Reader {
+        kinds,
+        ..Default::default()
+    };
     let mut docs = vec![];
     for (p, text) in texts {
         let Some(text) = text else {
@@ -43,6 +55,8 @@ pub fn parse(texts: Vec<(String, Option<String>)>) -> Result<MapFile, Vec<String
     if !r.errs.is_empty() {
         return Err(r.errs);
     }
+    // a bad kind file is reported with the rest of ig/
+    r.errs.extend(kind_errs);
     let systems: Vec<(&str, usize, &str)> = docs
         .iter()
         .flat_map(|(p, t, d)| d.nodes().iter().map(move |n| (p, t, n)))
@@ -76,7 +90,7 @@ pub fn parse(texts: Vec<(String, Option<String>)>) -> Result<MapFile, Vec<String
         for n in top {
             // Outside system.kdl a top-level node sits directly under the system.
             let nested = n.name().value() != "system" && !p.ends_with("/system.kdl");
-            r.node(at, n, nested.then_some(sys.as_str()), &sys);
+            r.node(at, n, nested.then_some(sys.as_str()), false);
         }
     }
     r.finish()
@@ -94,6 +108,7 @@ struct Reader {
     /// An arrow and where it was written.
     arrows: Vec<(MapArrow, String)>,
     errs: Vec<String>,
+    kinds: Kinds,
 }
 
 /// `text` as KDL, or its syntax errors as "path:line: message".
@@ -135,16 +150,24 @@ impl Reader {
         ));
     }
 
-    fn node(&mut self, at: Src, n: &KdlNode, parent: Option<&str>, sys: &str) {
+    /// `run_above`: a run block (or a module standing for one) holds `parent`, or is it.
+    fn node(&mut self, at: Src, n: &KdlNode, parent: Option<&str>, run_above: bool) {
         let name = n.name().value();
         // a folder or component in ig/ is architecture: the old names of a group and a module
         let kind = match name {
-            "folder" => Some(BoxKind::Group),
-            "component" => Some(BoxKind::Module),
-            _ => named::<BoxKind>(name),
+            "folder" => Some((BoxKind::Group, None)),
+            "component" => Some((BoxKind::Module, None)),
+            _ => named::<BoxKind>(name).map(|k| (k, None)).or_else(|| {
+                let d = self.kinds.get(name).filter(|d| d.custom)?;
+                Some((d.base, Some(name.to_string())))
+            }),
         };
-        let Some(kind) = kind else {
-            return self.err(at, n, format!("`{name}` is not a box kind"));
+        let Some((kind, custom)) = kind else {
+            return self.err(
+                at,
+                n,
+                format!("`{name}` is not a kind (no {DIR}/kinds/{name}.kdl)"),
+            );
         };
         if kind.code_level() {
             return self.err(
@@ -161,9 +184,13 @@ impl Reader {
         };
         let level = match parent {
             None => Level::System,
-            Some(p) if p == sys => Level::Container,
-            Some(_) => Level::Component,
+            Some(_) if run_above => Level::Component,
+            Some(_) => Level::Container,
         };
+        let def = self
+            .kinds
+            .get(custom.as_deref().unwrap_or(&base_name(kind)))
+            .cloned();
         let mut b = MapBox {
             id: id.into(),
             parent: parent.map(String::from),
@@ -173,6 +200,8 @@ impl Reader {
             package: None,
             files: 0,
             kind: Field::person(kind),
+            custom,
+            props: Default::default(),
             title: Field::person(String::new()),
             tech: None,
             description: None,
@@ -188,7 +217,7 @@ impl Reader {
             moved_from: vec![],
             origin: Default::default(),
         };
-        self.props(at, n, &mut b);
+        self.props(at, n, &mut b, def.as_ref());
         if self.boxes.iter().any(|x| x.id == id) {
             self.err(at, n, format!("id `{id}` is used twice"));
         }
@@ -226,12 +255,15 @@ impl Reader {
             if let Some(kind) = named::<ArrowKind>(kn) {
                 self.arrow(at, k, &id, kind);
             } else if !["at", "badges", "pattern"].contains(&kn) {
-                self.node(at, k, Some(&id), sys);
+                // a module where run blocks sit stands for one (a library package)
+                let run = run_above || kind.role() == Role::Run || kind == BoxKind::Module;
+                self.node(at, k, Some(&id), run);
             }
         }
     }
 
-    fn props(&mut self, at: Src, n: &KdlNode, b: &mut MapBox) {
+    fn props(&mut self, at: Src, n: &KdlNode, b: &mut MapBox, def: Option<&KindDef>) {
+        let own = def.map(|d| d.props.as_slice()).unwrap_or_default();
         if n.entries().iter().filter(|e| e.name().is_none()).count() != 1 {
             self.err(at, n, "expected just the id before the properties".into());
         }
@@ -247,8 +279,22 @@ impl Reader {
                 "description" => b.description = Some(Field::person(v)),
                 "logo" => b.logo = Some(Field::person(v)),
                 "slot" => b.slot = Some(Field::person(v)),
-                _ => self.err(at, n, format!("unknown property `{key}`")),
+                "owner" => _ = b.props.insert(key.into(), v),
+                "runs" => self.err(at, n, "`runs` comes with live status; not yet".into()),
+                _ => match own.iter().find(|p| p.name == key) {
+                    Some(p) if !p.one_of.is_empty() && !p.one_of.contains(&v) => {
+                        self.err(at, n, format!("`{key}` is one of {}", p.one_of.join(", ")))
+                    }
+                    Some(_) => _ = b.props.insert(key.into(), v),
+                    None => self.err(at, n, format!("unknown property `{key}`")),
+                },
             }
+        }
+        for p in own
+            .iter()
+            .filter(|p| p.required && n.get(p.name.as_str()).is_none())
+        {
+            self.err(at, n, format!("`{}`: `{}` is required", b.id, p.name));
         }
         if n.get("title").is_none() {
             self.err(at, n, format!("`{}` has no title", b.id));

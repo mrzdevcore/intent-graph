@@ -94,3 +94,18 @@ fn a_team_kind_keeps_its_base_props_and_arrow_rules() {
     assert!(!k.arrow_ok(ArrowKind::Implements, svc, k.get("port").unwrap()));
     assert_eq!(k.names().last(), Some(&"llm"));
 }
+
+#[test]
+fn where_a_block_may_sit() {
+    use Role::{Design as D, Group as G, Root as R, Run as U};
+    assert!(may_sit(U, R, true));
+    assert!(may_sit(U, G, true));
+    assert!(!may_sit(U, G, false));
+    assert!(may_sit(D, U, false));
+    assert!(!may_sit(D, R, true));
+    assert!(kind_may_sit(Module, R, true) && kind_may_sit(Module, G, true));
+    assert!(!kind_may_sit(Usecase, R, true));
+    for (parent, outer) in [(R, true), (U, false), (D, false), (G, true), (G, false)] {
+        assert!(may_sit(G, parent, outer), "{parent:?}");
+    }
+}

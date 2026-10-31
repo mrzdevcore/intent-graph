@@ -2,6 +2,7 @@
 //! team's own kinds in `ig/kinds/*.kdl`, each extending a built-in one. Where a kind may sit is
 //! not written here: it follows its base's `role()`.
 
+use crate::map::facts::Role;
 use crate::map::spec::DIR;
 use crate::map::spec::read::{doc, line, named};
 use crate::map::{ArrowKind, BoxKind};
@@ -63,18 +64,31 @@ impl Kinds {
 
     /// The built-in kinds and the team's in `ig/kinds/*.kdl`; every error, with file and line.
     pub fn load(files: &dyn Files) -> Result<Kinds, Vec<String>> {
-        let mut k = Kinds::builtin().clone();
         let paths = files
             .glob(&[format!("{DIR}/kinds/*.kdl")])
             .map_err(|e| vec![format!("{DIR}/kinds: {e}")])?;
+        let texts = paths.into_iter().map(|p| {
+            let t = files.read(&p);
+            (p, t)
+        });
+        match Kinds::team(texts.collect()) {
+            (k, errs) if errs.is_empty() => Ok(k),
+            (_, errs) => Err(errs),
+        }
+    }
+
+    /// The built-in kinds and the team's in these (path, text; none when it cannot be read),
+    /// with every error: the kinds of the files that read are kept.
+    pub fn team(texts: Vec<(String, Option<String>)>) -> (Kinds, Vec<String>) {
+        let mut k = Kinds::builtin().clone();
         let mut errs = vec![];
-        for p in paths {
-            match files.read(&p) {
+        for (p, text) in texts {
+            match text {
                 Some(text) => errs.extend(k.add(&p, &text, true)),
                 None => errs.push(format!("{p}: cannot be read")),
             }
         }
-        if errs.is_empty() { Ok(k) } else { Err(errs) }
+        (k, errs)
     }
 
     pub fn get(&self, name: &str) -> Option<&KindDef> {
@@ -226,7 +240,28 @@ impl Kinds {
     }
 }
 
-fn base_name(b: BoxKind) -> String {
+/// A box of role `child` may sit in one of role `parent` (`parent_outer`: no run block at or
+/// above the parent). Run blocks sit in the system or an outer group; design blocks in a run
+/// block, a design block or an inner group; a group anywhere but code, holding what may sit
+/// where it sits. `kind_may_sit` adds the one kind with a place of its own.
+pub fn may_sit(child: Role, parent: Role, parent_outer: bool) -> bool {
+    match child {
+        Role::Run => parent == Role::Root || (parent == Role::Group && parent_outer),
+        Role::Design => {
+            matches!(parent, Role::Run | Role::Design) || (parent == Role::Group && !parent_outer)
+        }
+        Role::Group => parent != Role::Code,
+        Role::Root | Role::Code => false,
+    }
+}
+
+/// `may_sit` for a kind: a `module` also sits where run blocks sit (a library package is one).
+pub fn kind_may_sit(child: BoxKind, parent: Role, parent_outer: bool) -> bool {
+    may_sit(child.role(), parent, parent_outer)
+        || (child == BoxKind::Module && may_sit(Role::Run, parent, parent_outer))
+}
+
+pub(crate) fn base_name(b: BoxKind) -> String {
     serde_json::to_value(b)
         .unwrap()
         .as_str()

@@ -468,15 +468,11 @@ fn boxes(roles: &[Role], g: &Graph) -> Vec<FactBox> {
     // the outside systems in one box of their own when they would not fit beside the roles
     let apart = systems.len() > MAX / 3;
     // past `MAX`, the services apart from the stores and queues
-    let buckets: Vec<(&str, &str, BoxKind, Vec<&Node>)> = if !apart {
+    // a roll-up holds run blocks, so it is a group
+    let buckets: Vec<(&str, &str, Vec<&Node>)> = if !apart {
         vec![]
     } else if systems.len() <= MAX {
-        vec![(
-            "outside",
-            "Outside systems",
-            BoxKind::External,
-            systems.clone(),
-        )]
+        vec![("outside", "Outside systems", systems.clone())]
     } else {
         let data = |n: &&Node| {
             SYSTEMS
@@ -485,13 +481,13 @@ fn boxes(roles: &[Role], g: &Graph) -> Vec<FactBox> {
         };
         let (d, e): (Vec<&Node>, Vec<&Node>) = systems.iter().copied().partition(data);
         vec![
-            ("outside", "Outside services", BoxKind::External, e),
-            ("data", "Data stores", BoxKind::Store, d),
+            ("outside", "Outside services", e),
+            ("data", "Data stores", d),
         ]
     };
     // (id, title, kind, systems), by `MAX`
-    let mut outside: Vec<(String, String, BoxKind, Vec<&Node>)> = vec![];
-    for (key, title, kind, ns) in buckets {
+    let mut outside: Vec<(String, String, Vec<&Node>)> = vec![];
+    for (key, title, ns) in buckets {
         let n = ns.len().div_ceil(MAX);
         for (k, c) in ns.chunks(ns.len().div_ceil(n).max(1)).enumerate() {
             let (id, t) = if n > 1 {
@@ -499,7 +495,7 @@ fn boxes(roles: &[Role], g: &Graph) -> Vec<FactBox> {
             } else {
                 (key.to_string(), title.to_string())
             };
-            outside.push((id, format!("{t} ({})", c.len()), kind, c.to_vec()));
+            outside.push((id, format!("{t} ({})", c.len()), c.to_vec()));
         }
     }
     let room = MAX - if apart { outside.len() } else { systems.len() };
@@ -556,7 +552,7 @@ fn boxes(roles: &[Role], g: &Graph) -> Vec<FactBox> {
             guess: guess(s.2, n.name.clone(), s.3),
         }
     };
-    for ((_, title, kind, ns), id) in outside.iter().zip(rest) {
+    for ((_, title, ns), id) in outside.iter().zip(rest) {
         out.push(FactBox {
             id: id.clone(),
             parent: Some("system".into()),
@@ -565,7 +561,7 @@ fn boxes(roles: &[Role], g: &Graph) -> Vec<FactBox> {
             package: None,
             files: 0,
             nodes: ns.iter().map(|n| n.id.clone()).collect(),
-            guess: guess(*kind, title.clone(), None),
+            guess: guess(BoxKind::Group, title.clone(), None),
         });
         let kids = dedupe(ns.iter().map(|n| slug(&n.name, "system")).collect(), &[]);
         for (n, k) in ns.iter().zip(kids) {
