@@ -196,9 +196,6 @@ fn annotate_regroups_components() {
 #[test]
 fn rejects_hostile_annotations() {
     let long = "x".repeat(201);
-    let many: Vec<serde_json::Value> = (0..13)
-        .map(|i| serde_json::json!({"id": format!("api/g{i}"), "madeOf": [format!("apps/api/src/none{i}/**")]}))
-        .collect();
     let cases = [
         (
             r#"[{"id": "api/routers", "madeOf": ["../etc/**"]}]"#.to_string(),
@@ -217,7 +214,6 @@ fn rejects_hostile_annotations() {
             r#"[{"id": "api/routers", "color": "red"}]"#.to_string(),
             "color",
         ),
-        (serde_json::Value::from(many).to_string(), "13 children"),
     ];
     let mut m = shop();
     get_mut(&mut m, "api/application-refund").pinned.clear();
@@ -392,10 +388,10 @@ fn unread_never_breaks_validation() {
     let (back, notices) = load(&files);
     assert!(notices.is_empty(), "{notices:?}");
     assert_eq!(back.unwrap().boxes.len(), new.boxes.len());
-    // a 13th box of another kind is still refused
-    let mut bad = new.clone();
-    get_mut(&mut bad, "api/unread").kind = Field::ig(BoxKind::Usecase);
-    assert!(validate(&bad).unwrap_err()[0].contains("13 children"));
+    // a 13th box of another kind is not an error either: the limit is a warning
+    let mut more = new.clone();
+    get_mut(&mut more, "api/unread").kind = Field::ig(BoxKind::Usecase);
+    assert_eq!(validate(&more), Ok(()));
 }
 
 #[test]
@@ -555,8 +551,10 @@ fn validate_checks_parents_levels_cycles_and_version() {
     assert!(e.contains("`zzz`") && e.contains("reaches itself"), "{e}");
     let e = bad(&|m| get_mut(m, "api/routers").parent = Some("nope".into()));
     assert!(e.contains("parent `nope` is not in the map"), "{e}");
-    let e = bad(&|m| get_mut(m, "api").parent = Some("web".into()));
-    assert!(e.contains("`api`: a container"), "{e}");
+    // where a kind sits is a warning, not a validation error
+    let mut moved = ok.clone();
+    get_mut(&mut moved, "api").parent = Some("web".into());
+    assert_eq!(validate(&moved), Ok(()));
     let e = bad(&|m| get_mut(m, "api/routers").level = Level::Code);
     assert!(e.contains("code boxes are not stored"), "{e}");
     let e = bad(&|m| get_mut(m, "system").parent = Some("api".into()));

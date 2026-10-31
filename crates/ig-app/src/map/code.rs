@@ -33,6 +33,20 @@ pub(crate) fn as_fact(b: &MapBox) -> FactBox {
     }
 }
 
+/// The box opens onto its code: a component, or a box with nothing inside it in a group of the
+/// outer level (a service in a group, as it was a component of the group).
+fn opens(m: &MapFile, b: &MapBox) -> bool {
+    let in_group = (m.boxes.iter()).any(|p| {
+        Some(&p.id) == b.parent.as_ref()
+            && p.kind.value == BoxKind::Group
+            && p.level == Level::Container
+    });
+    b.level == Level::Component
+        || (b.level == Level::Container
+            && in_group
+            && !m.boxes.iter().any(|c| c.parent.as_ref() == Some(&b.id)))
+}
+
 /// The code boxes of every component, nested (see the module doc); a function, class or method
 /// box's id is its graph node id, a file's its module id. Arrows between them are lifted as in
 /// `arrows`, keeping those inside a component. `ui` are the components the code declares.
@@ -53,11 +67,7 @@ pub fn code_boxes(m: &MapFile, g: &Graph, ui: &[Anatomy]) -> Code {
         patterns: vec![],
         taken: m.boxes.iter().map(|b| b.id.clone()).collect(),
     };
-    for c in m
-        .boxes
-        .iter()
-        .filter(|b| b.level == Level::Component && !b.stale)
-    {
+    for c in m.boxes.iter().filter(|b| opens(m, b) && !b.stale) {
         let modules: HashSet<&str> = c.nodes.iter().map(String::as_str).collect();
         // a single-file component stands for its whole file
         let tops: Vec<&Node> = g
@@ -79,7 +89,7 @@ pub fn code_boxes(m: &MapFile, g: &Graph, ui: &[Anatomy]) -> Code {
     let inside: HashSet<&str> = m
         .boxes
         .iter()
-        .filter(|b| b.level == Level::Component)
+        .filter(|b| opens(m, b))
         .map(|b| b.id.as_str())
         .chain(code.iter().map(|f| f.id.as_str()))
         .collect();

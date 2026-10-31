@@ -157,6 +157,8 @@ pub(crate) fn fresh(f: &FactBox) -> MapBox {
         nodes: f.nodes.clone(),
         moved_from: vec![],
         origin: Default::default(),
+        custom: None,
+        props: Default::default(),
     }
 }
 
@@ -233,6 +235,8 @@ fn drawn_components(
             nodes: rest,
             moved_from: vec![],
             origin: Default::default(),
+            custom: None,
+            props: Default::default(),
         });
     }
     out

@@ -52,7 +52,7 @@ fn names(doc: &kdl::KdlDocument, out: &mut Vec<String>) {
     }
 }
 
-fn parse(t: &str) -> kdl::KdlDocument {
+fn kdl_doc(t: &str) -> kdl::KdlDocument {
     t.parse().unwrap()
 }
 
@@ -60,7 +60,7 @@ fn parse(t: &str) -> kdl::KdlDocument {
 fn no_code_level_kind_is_a_node_name() {
     let mut all = vec![];
     for t in write(&shop_map()).values() {
-        names(&parse(t), &mut all);
+        names(&kdl_doc(t), &mut all);
     }
     for k in ["function", "class", "method", "file", "parts", "task"] {
         assert!(!all.iter().any(|n| n == k), "{k} written");
@@ -112,7 +112,7 @@ fn fields_are_written_and_dropped_as_the_brief_says() {
     ] {
         assert!(!api.contains(dropped), "{dropped} written");
     }
-    let ids: Vec<_> = parse(api).nodes()[0]
+    let ids: Vec<_> = kdl_doc(api).nodes()[0]
         .children()
         .unwrap()
         .nodes()
@@ -139,7 +139,7 @@ fn arrows_are_sorted_and_a_nested_id_maps_to_a_stem() {
     m.boxes.push(k);
     let files = write(&m);
     assert!(files.contains_key("ig/api-inner.kdl"), "{:?}", files.keys());
-    let api = parse(&files["ig/api.kdl"]);
+    let api = kdl_doc(&files["ig/api.kdl"]);
     let arrows: Vec<_> = api.nodes()[0]
         .children()
         .unwrap()
@@ -171,7 +171,7 @@ fn awkward_strings_round_trip() {
         b.title.value = t.into();
         b.description = Some(crate::map::file::Field::ig(d.into()));
     }
-    let doc = parse(&write(&m)["ig/api.kdl"]);
+    let doc = kdl_doc(&write(&m)["ig/api.kdl"]);
     let n = &doc.nodes()[0];
     assert_eq!(n.get("title").unwrap().as_string(), Some(t));
     assert_eq!(n.get("description").unwrap().as_string(), Some(d));
@@ -447,3 +447,5 @@ fn a_folder_or_component_in_ig_reads_as_a_group_or_module() {
     use crate::map::facts::BoxKind;
     assert_eq!((kind("f"), kind("f/c")), (BoxKind::Group, BoxKind::Module));
 }
+
+mod blocks;
