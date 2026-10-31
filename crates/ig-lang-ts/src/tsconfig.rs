@@ -12,7 +12,11 @@ use std::path::{Path, PathBuf};
 
 /// Parses JSON with comments and trailing commas.
 pub fn read_jsonc(path: &Path) -> Option<Value> {
-    let text = std::fs::read_to_string(path).ok()?;
+    parse_jsonc(&std::fs::read_to_string(path).ok()?)
+}
+
+/// `text` as JSON with comments and trailing commas.
+pub fn parse_jsonc(text: &str) -> Option<Value> {
     let mut stripped = String::new();
     json_comments::StripComments::new(text.as_bytes())
         .read_to_string(&mut stripped)
@@ -274,8 +278,6 @@ mod tests {
         let package = |name: &str, dir: &str| ig_core::workspace::Package {
             name: name.into(),
             dir: dir.into(),
-            tsconfig: None,
-            source_entry: None,
         };
         let ws = WorkspaceInfo {
             root: dir.clone(),

@@ -3,15 +3,32 @@
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Package {
     pub name: String,
     /// Repo-relative posix dir ("." for the root).
     pub dir: String,
-    pub tsconfig: Option<PathBuf>,
-    /// Repo-relative source entry file.
-    pub source_entry: Option<String>,
 }
+
+/// What the language frontends tell discovery: the packages they declare (none: the root is one),
+/// the manifest files that keep an undeclared nested package out (`package.json`), and which
+/// files are source.
+pub struct Layout<'a> {
+    pub packages: Vec<Package>,
+    pub fences: Vec<&'static str>,
+    pub source: &'a (dyn Fn(&str) -> bool + Sync),
+}
+
+/// Folders never walked, in any language: installed dependencies and tool state.
+pub const NEVER_WALKED: [&str; 7] = [
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "site-packages",
+    ".git",
+    ".ig",
+];
 
 #[derive(Debug, Clone)]
 pub struct SourceFile {
@@ -26,19 +43,6 @@ pub struct WorkspaceInfo {
     pub root: PathBuf,
     pub packages: Vec<Package>,
     pub files: Vec<SourceFile>,
-}
-
-pub fn is_source_ext(name: &str, embedded: &[String]) -> bool {
-    let lower = name.to_ascii_lowercase();
-    if lower.ends_with(".d.ts") || lower.ends_with(".d.mts") || lower.ends_with(".d.cts") {
-        return false;
-    }
-    [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]
-        .iter()
-        .any(|e| lower.ends_with(e))
-        || embedded
-            .iter()
-            .any(|e| lower.ends_with(&e.to_ascii_lowercase()))
 }
 
 /// JSON with its trailing commas (`[1, 2,]`, `{"a": 1,}`) removed, outside strings.

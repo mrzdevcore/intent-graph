@@ -10,5 +10,7 @@ ig-app = { path = "../ig-app" }
 ig-core = { path = "../ig-core" }
 ig-fs = { path = "../ig-fs" }
 ig-git = { path = "../ig-git" }
+ig-lang-py = { path = "../ig-lang-py" }
+ig-lang-rs = { path = "../ig-lang-rs" }
 ig-lang-ts = { path = "../ig-lang-ts" }
 notify = "8.2.0"

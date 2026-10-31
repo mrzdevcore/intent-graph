@@ -1,4 +1,5 @@
-//! Outside systems known by the npm packages that talk to them.
+//! Outside systems known by the client libraries that talk to them: npm packages, Python's
+//! top-level modules and Rust crates alike (ponytail: one list for both; a name two ecosystems share means one system).
 
 use super::facts::BoxKind;
 
@@ -32,28 +33,28 @@ use BoxKind::{External, Queue, Store};
 
 #[rustfmt::skip]
 pub const KNOWN: &[Known] = &[
-    k("postgres", "PostgreSQL", Store, Some("postgresql"), &["pg", "postgres", "pg-promise", "@neondatabase/serverless", "@vercel/postgres"]),
-    k("mysql", "MySQL", Store, Some("mysql"), &["mysql", "mysql2"]),
-    k("mongodb", "MongoDB", Store, Some("mongodb"), &["mongodb", "mongoose"]),
-    k("redis", "Redis", Store, Some("redis"), &["redis", "ioredis", "@upstash/redis"]),
-    k("sqlite", "SQLite", Store, Some("sqlite"), &["better-sqlite3", "sqlite3"]),
-    k("elasticsearch", "Elasticsearch", Store, Some("elasticsearch"), &["@elastic/elasticsearch"]),
+    k("postgres", "PostgreSQL", Store, Some("postgresql"), &["pg", "postgres", "pg-promise", "@neondatabase/serverless", "@vercel/postgres", "psycopg2", "psycopg", "asyncpg", "tokio_postgres"]),
+    k("mysql", "MySQL", Store, Some("mysql"), &["mysql", "mysql2", "MySQLdb", "pymysql", "aiomysql", "mysql_async"]),
+    k("mongodb", "MongoDB", Store, Some("mongodb"), &["mongodb", "mongoose", "pymongo", "motor"]),
+    k("redis", "Redis", Store, Some("redis"), &["redis", "ioredis", "@upstash/redis", "aioredis"]),
+    k("sqlite", "SQLite", Store, Some("sqlite"), &["better-sqlite3", "sqlite3", "aiosqlite", "rusqlite"]),
+    k("elasticsearch", "Elasticsearch", Store, Some("elasticsearch"), &["@elastic/elasticsearch", "elasticsearch"]),
     k("prisma", "Database (Prisma)", Store, Some("prisma"), &["@prisma/client"]),
     k("drizzle", "Database (Drizzle)", Store, None, &["drizzle-orm"]),
     k("bull", "Bull queue (Redis)", Queue, Some("redis"), &["bullmq", "bull"]),
-    k("kafka", "Kafka", Queue, Some("apachekafka"), &["kafkajs"]),
-    k("rabbitmq", "RabbitMQ", Queue, Some("rabbitmq"), &["amqplib"]),
-    k("sqs", "AWS SQS", Queue, Some("amazonsqs"), &["@aws-sdk/client-sqs"]),
-    k("s3", "AWS S3", Store, Some("amazons3"), &["@aws-sdk/client-s3"]),
+    k("kafka", "Kafka", Queue, Some("apachekafka"), &["kafkajs", "kafka", "confluent_kafka", "aiokafka", "rdkafka"]),
+    k("rabbitmq", "RabbitMQ", Queue, Some("rabbitmq"), &["amqplib", "pika", "aio_pika", "lapin"]),
+    k("sqs", "AWS SQS", Queue, Some("amazonsqs"), &["@aws-sdk/client-sqs", "aws_sdk_sqs"]),
+    k("s3", "AWS S3", Store, Some("amazons3"), &["@aws-sdk/client-s3", "aws_sdk_s3"]),
     k("stripe", "Stripe", External, Some("stripe"), &["stripe", "@stripe/stripe-js"]),
     k("auth0", "Auth0", External, Some("auth0"), &["auth0", "@auth0/*"]),
-    k("sentry", "Sentry", External, Some("sentry"), &["@sentry/*"]),
-    k("elastic-apm", "Elastic APM", External, None, &["elastic-apm-node", "@elastic/apm-rum*"]),
-    k("firebase", "Firebase", External, Some("firebase"), &["firebase", "firebase-admin"]),
-    k("supabase", "Supabase", External, Some("supabase"), &["@supabase/*"]),
-    k("openai", "OpenAI", External, Some("openai"), &["openai"]),
-    k("anthropic", "Anthropic", External, Some("anthropic"), &["@anthropic-ai/sdk"]),
-    k("sendgrid", "SendGrid", External, None, &["@sendgrid/*"]),
+    k("sentry", "Sentry", External, Some("sentry"), &["@sentry/*", "sentry_sdk", "sentry"]),
+    k("elastic-apm", "Elastic APM", External, None, &["elastic-apm-node", "@elastic/apm-rum*", "elasticapm"]),
+    k("firebase", "Firebase", External, Some("firebase"), &["firebase", "firebase-admin", "firebase_admin"]),
+    k("supabase", "Supabase", External, Some("supabase"), &["@supabase/*", "supabase"]),
+    k("openai", "OpenAI", External, Some("openai"), &["openai", "async_openai"]),
+    k("anthropic", "Anthropic", External, Some("anthropic"), &["@anthropic-ai/sdk", "anthropic"]),
+    k("sendgrid", "SendGrid", External, None, &["@sendgrid/*", "sendgrid"]),
     k("twilio", "Twilio", External, Some("twilio"), &["twilio"]),
 ];
 

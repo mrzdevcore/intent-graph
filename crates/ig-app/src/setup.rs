@@ -8,40 +8,6 @@ use ig_core::workspace::globset;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-const NODE_BUILTINS: &[&str] = &[
-    "assert",
-    "async_hooks",
-    "buffer",
-    "child_process",
-    "cluster",
-    "crypto",
-    "dns",
-    "events",
-    "fs",
-    "http",
-    "http2",
-    "https",
-    "module",
-    "net",
-    "os",
-    "path",
-    "perf_hooks",
-    "process",
-    "querystring",
-    "readline",
-    "stream",
-    "string_decoder",
-    "timers",
-    "tls",
-    "tty",
-    "url",
-    "util",
-    "v8",
-    "vm",
-    "worker_threads",
-    "zlib",
-];
-
 const PAGE_DIRS: &[&str] = &["pages", "views", "routes", "screens"];
 
 fn top_dirs(files: impl Iterator<Item = String>, depth: usize) -> Vec<(String, usize)> {
@@ -82,7 +48,7 @@ pub fn facts(env: &Env) -> crate::Result<Value> {
         .enumerate()
         .map(|(i, p)| {
             let n = ws.files.iter().filter(|f| f.package == i).count();
-            json!({"name": p.name, "dir": p.dir, "files": n, "sourceEntry": p.source_entry, "tsconfig": p.tsconfig.is_some()})
+            json!({"name": p.name, "dir": p.dir, "files": n})
         })
         .collect();
 
@@ -114,7 +80,7 @@ pub fn facts(env: &Env) -> crate::Result<Value> {
     let mut external: Vec<(&String, &usize)> = extras
         .packages
         .iter()
-        .filter(|(p, _)| !ws_names.contains(p.as_str()) && !NODE_BUILTINS.contains(&p.as_str()))
+        .filter(|(p, _)| !ws_names.contains(p.as_str()))
         .collect();
     external.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
     let external: Vec<Value> = external
@@ -219,12 +185,7 @@ pub fn report(f: &Value) -> String {
     table(
         &mut s,
         f["packages"].as_array().unwrap(),
-        &[
-            ("name", "package"),
-            ("dir", "dir"),
-            ("files", "files"),
-            ("sourceEntry", "entry"),
-        ],
+        &[("name", "package"), ("dir", "dir"), ("files", "files")],
         80,
     );
     s.push_str("\n## Directories (modules, depth 3)\n\n");

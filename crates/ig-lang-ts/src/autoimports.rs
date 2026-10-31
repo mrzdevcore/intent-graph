@@ -201,8 +201,6 @@ pub fn workspace_of(dir: &Path) -> WorkspaceInfo {
     let package = ig_core::workspace::Package {
         name: ".".into(),
         dir: ".".into(),
-        tsconfig: None,
-        source_entry: None,
     };
     WorkspaceInfo {
         root: dir.to_path_buf(),
@@ -210,7 +208,7 @@ pub fn workspace_of(dir: &Path) -> WorkspaceInfo {
         files: files(dir, &["**/*".into()])
             .0
             .into_iter()
-            .filter(|p| workspace::is_source_ext(p, &embedded))
+            .filter(|p| crate::workspace::is_source_ext(p, &embedded))
             .map(|path| ig_core::workspace::SourceFile { path, package: 0 })
             .collect(),
     }

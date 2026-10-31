@@ -89,7 +89,9 @@ The repo is a Cargo workspace in a hexagonal layout: a pure core, use cases over
 |---|---|
 | `ig-core` | Pure domain: graph model, config, rules (arch, intents), cache keys, and the ports (`Files`, `Vcs`, `LanguageFrontend`). No I/O. |
 | `ig-app` | Use cases over the ports: the language-neutral graph build and the system map (facts, reading, layers, layout, view). No I/O. |
-| `ig-lang-ts` | `LanguageFrontend` for TypeScript/JavaScript: oxc extraction, resolution, tsconfig, embedded SFC scripts, ast-grep patterns, auto-imports. |
+| `ig-lang-ts` | `LanguageFrontend` for TypeScript/JavaScript: workspaces, oxc extraction, resolution, tsconfig, embedded SFC scripts, ast-grep patterns, auto-imports. |
+| `ig-lang-py` | `LanguageFrontend` for Python: `pyproject.toml`/`setup.py` packages, tree-sitter extraction, import and call resolution. |
+| `ig-lang-rs` | `LanguageFrontend` for Rust: Cargo workspace packages, tree-sitter extraction, module and path resolution. |
 | `ig-fs` | `Files` over `std::fs` (source discovery, `.ig/` files). |
 | `ig-git` | `Vcs` over the `git` binary. |
 | `ig-wire` | Wires the adapters into `ig-app`'s ports. |
@@ -98,7 +100,7 @@ The repo is a Cargo workspace in a hexagonal layout: a pure core, use cases over
 
 **Dependency rule:** `ig-core` depends on no `ig-*` crate; `ig-app` and every adapter depend only on `ig-core`; only the wiring and the binaries depend on everything. `crates/ig/tests/architecture.rs` enforces this with `cargo metadata`, greps `ig-core` and `ig-app` for I/O (`std::fs`, `std::process`, `std::net`, `Command::new`, `File::open`, `println!`, `eprintln!`) and fails on any `.rs` file over 600 lines.
 
-**Adding a language frontend:** the port (`LanguageFrontend`: `handles`, extraction, resolution, `prepare_checkout`, `cache_inputs`) is the seam, and a new `crates/ig-lang-<x>` crate depends only on `ig-core`. It is not yet drop-in: source-file detection (`ig_core::workspace::is_source_ext`) and package discovery (`ig-fs` discover: npm/pnpm workspaces, package.json, tsconfig) are still TS/npm-shaped, `prepare_checkout`'s `link_auto_imports` flag is TS-specific, and the node hash/intent helpers live in `ig-lang-ts`. Generalising those is the first step of a language project; only then does registering the frontend in `main` suffice.
+**Adding a language frontend:** a new `crates/ig-lang-<x>` crate depends only on `ig-core` and implements `LanguageFrontend` (`handles`, `packages`, `fences`, `build`, `prepare_checkout`, `cache_inputs`, `anatomy`); registering it in `ig_wire::FRONTENDS` is enough. Core and `ig-fs` know no language; the node hash and `@intent` helpers are in `ig_core::model`. Still TS-shaped: `prepare_checkout`'s `link_auto_imports` flag, and the outside-systems table is one list of npm, Python and Rust client library names.
 
 Data flow, in pipeline order (the stages now live in the crates above):
 
@@ -117,10 +119,15 @@ mcp, init   JSON-RPC over stdio, scaffolding (ig)
 
 ### Workspace and files
 
-- **Packages** come from `pnpm-workspace.yaml` `packages`, or from `package.json` `workspaces` (an array or `{packages}`). Negated globs (`!x`) are supported. The directory walk skips `node_modules` and dot dirs, and its depth is bounded by the deepest pattern unless a pattern contains `**`. A directory must contain `package.json` to count. If no workspace config exists, or nothing matches, the only package is `.`.
-- **Per package:** `name` (from package.json, otherwise the dir basename), `dir`, `tsconfig` (if present) and `sourceEntry`. `sourceEntry` is `exports["."]` (the first string found in nested conditions), else `exports` as a string, else `main`. That path is mapped from `outDir` back to `rootDir` as `.ts`/`.tsx` when the tsconfig sets both, falling back to `src/index.ts`. tsconfig is JSONC.
+- **Packages** are the ones the language frontends declare, the first to declare a folder naming it; none declared, the only package is `.`, named after its folder.
+  - *TypeScript:* `pnpm-workspace.yaml` `packages`, or `package.json` `workspaces` (an array or `{packages}`); negated globs (`!x`) are supported. A directory must contain `package.json` to count. No workspace config, or nothing matched: `.` when it has a `package.json`. A nested folder with its own `package.json` that no workspace lists is left out.
+  - *Rust:* the root `Cargo.toml`'s `[package]`, and its `[workspace]` `members` (globs) minus `exclude`, named by their `[package]` `name`. A nested folder with its own `Cargo.toml` that no workspace lists is left out.
+  - *Python:* every folder with a `pyproject.toml` or `setup.py`, at most two folders down, named by `[project]` or `[tool.poetry]` `name` (or `setup(name=…)`), else the folder.
+- **Per package (TypeScript, in `ig-lang-ts`):** its `tsconfig.json` (if present) and `sourceEntry`. `sourceEntry` is `exports["."]` (the first string found in nested conditions), else `exports` as a string, else `main`. That path is mapped from `outDir` back to `rootDir` as `.ts`/`.tsx` when the tsconfig sets both, falling back to `src/index.ts`. tsconfig is JSONC.
 - **Workspace imports:** `pkg` or `pkg/sub` → `src/<sub>.ts[x]` when it exists, else `sourceEntry`.
-- **Source files** per package: `.[jt]sx?` plus the `embedded` extensions. The walk skips `node_modules`, `dist`, dot dirs, nested package dirs and `ignore` globs. Files are sorted.
+- **Source files** per package: the files some frontend handles (`.[jt]sx?` plus the `embedded` extensions; `.py`). The walk never enters installed dependencies or tool state (`node_modules`, `.venv`, `venv`, `__pycache__`, `site-packages`, `.git`, `.ig`); outside git it also skips build output and dot dirs. It skips nested package dirs and `ignore` globs. Files are sorted.
+- **Python resolution (`ig-lang-py`):** modules are named from the tree's root, each package's folder and their `src/` (the deepest first); relative imports from the file's folder. `import a.b`, `from m import n` (a submodule or a name, followed through `__init__` re-exports), calls through them, `self.`/`cls.` methods (up the base classes) and base classes (`extends`) resolve; anything else is matched by a unique name (`guessed`). Imports outside the tree and Python's own modules are packages.
+- **Rust resolution (`ig-lang-rs`):** a crate's modules come from its files (`src/lib.rs` or `main.rs` the root, `a.rs` and `a/mod.rs` the module `a`; `tests/`, `examples/`, `benches/` are crates of their own). Structs, enums, unions and traits are `class` nodes; methods are `Type.method`, under the type when it is declared above in the same file; `#[test]` functions are tests. `mod x;`, `use` paths (`crate::`, `self::`, `super::`, other workspace crates by name with `-` as `_`, `pub use` re-exports, `use x::*`), calls through them, `Self::`/`self.` methods (then the traits the type implements) and `impl Trait for Type` (`implements`) resolve; anything else is a unique name among the crates the caller `use`s (`guessed`). Calls inside macro arguments are not read. Paths outside the workspace, other than `std`, `core`, `alloc`, `proc_macro` and `test`, are packages.
 
 ### Embedded files
 

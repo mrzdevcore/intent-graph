@@ -4,7 +4,7 @@
 use crate::config::Config;
 use crate::http::HttpCall;
 use crate::model::{Anatomy, Edge, Node, ParseError};
-use crate::workspace::{SourceFile, WorkspaceInfo};
+use crate::workspace::{Layout, Package, SourceFile, WorkspaceInfo};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -39,12 +39,12 @@ pub trait Files: Send + Sync {
     /// A regular file exists at `path` (not a directory).
     fn exists(&self, path: &str) -> bool;
     /// Regular files matching any pattern (`crate::workspace::glob` flavour), sorted. Never
-    /// descends into `node_modules`, `.git` or `.ig`, nor follows symlinks. Err on a bad pattern.
+    /// descends into `workspace::NEVER_WALKED`, nor follows symlinks. Err on a bad pattern.
     fn glob(&self, patterns: &[String]) -> Result<Vec<String>, PortError>;
     /// The same kind of `Files`, rooted at `root` (a checkout).
     fn at(&self, root: &Path) -> Box<dyn Files>;
-    /// Packages and source files of the tree.
-    fn discover(&self, config: &Config) -> Result<WorkspaceInfo, PortError>;
+    /// The tree's packages (`layout`'s, else the root) and their source files.
+    fn discover(&self, config: &Config, layout: &Layout) -> Result<WorkspaceInfo, PortError>;
 }
 
 /// A materialised revision, removed when dropped. It must outlive every `Files` or `Vcs` made
@@ -132,6 +132,15 @@ pub struct FrontendOutput {
 pub trait LanguageFrontend: Send + Sync {
     /// `config` is the one the tree is built with (`embedded` extensions, say).
     fn handles(&self, path: &str, config: &Config) -> bool;
+    /// The packages this language declares in the tree (a workspace's, a `pyproject.toml`'s).
+    fn packages(&self, _files: &dyn Files) -> Vec<Package> {
+        vec![]
+    }
+    /// Manifest files whose folder, when no frontend declares it, is another package's and
+    /// left out.
+    fn fences(&self) -> &'static [&'static str] {
+        &[]
+    }
     /// Extracts and resolves `files` (path and source) of `ws`, the ones this frontend handles.
     fn build(
         &self,

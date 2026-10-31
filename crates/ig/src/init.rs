@@ -48,7 +48,7 @@ fn detect_embedded(root: &Path, ws: &WorkspaceInfo) -> Vec<String> {
         let dir = f.path.rsplit_once('/').map(|(d, _)| d).unwrap_or(".");
         for c in re.captures_iter(&src) {
             let ext = c[2].to_ascii_lowercase();
-            if workspace::is_source_ext(&format!("x{ext}"), &[]) || out.contains(&ext) {
+            if ig_lang_ts::is_source_ext(&format!("x{ext}"), &[]) || out.contains(&ext) {
                 continue;
             }
             let target = root.join(workspace::normalize(&workspace::join(dir, &c[1])));
@@ -84,18 +84,17 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
     // ig.yaml
     let cfg_path = root.join("ig.yaml");
     if !cfg_path.exists() {
-        let first = ig_fs::discover(root, &Config::default())?;
+        let files = ig_fs::FsFiles::new(root);
+        let discover = |c: &Config| ig_app::build::discover(ig_wire::FRONTENDS, &files, c);
+        let first = discover(&Config::default())?;
         let embedded = detect_embedded(&first.root, &first);
         let ws = if embedded.is_empty() {
             first
         } else {
-            ig_fs::discover(
-                root,
-                &Config {
-                    embedded: embedded.clone(),
-                    ..Config::default()
-                },
-            )?
+            discover(&Config {
+                embedded: embedded.clone(),
+                ..Config::default()
+            })?
         };
         let mut layers = String::new();
         if ws.packages.len() > 1 || ws.packages[0].dir != "." {

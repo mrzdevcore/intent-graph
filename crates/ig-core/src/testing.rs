@@ -3,7 +3,7 @@
 
 use crate::config::Config;
 use crate::ports::*;
-use crate::workspace::{Package, SourceFile, WorkspaceInfo, globset, is_source_ext};
+use crate::workspace::{Layout, NEVER_WALKED, Package, SourceFile, WorkspaceInfo, globset};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -67,7 +67,7 @@ impl Files for MemFiles {
         Ok(self
             .paths()
             .into_iter()
-            .filter(|p| !dirs(p).any(|d| matches!(d, "node_modules" | ".git" | ".ig")))
+            .filter(|p| !dirs(p).any(|d| NEVER_WALKED.contains(&d)))
             .filter(|p| set.is_match(p))
             .collect())
     }
@@ -82,15 +82,12 @@ impl Files for MemFiles {
             prefix,
         })
     }
-    /// One root package (nested `package.json` dirs are not split out), and its source files
-    /// outside `node_modules`, `dist`, dot dirs and `config.ignore`.
-    fn discover(&self, config: &Config) -> Result<WorkspaceInfo, PortError> {
+    /// One root package (`layout`'s root package's name, else "."; nested packages are not split
+    /// out), and its source files outside `NEVER_WALKED`, `dist`, dot dirs and `config.ignore`.
+    fn discover(&self, config: &Config, layout: &Layout) -> Result<WorkspaceInfo, PortError> {
         let ignore = globset(&config.ignore).map_err(|e| PortError::Io(e.to_string()))?;
-        let name = self
-            .read("package.json")
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-            .and_then(|v| v["name"].as_str().map(String::from))
-            .unwrap_or_else(|| ".".into());
+        let name = (layout.packages.iter().find(|p| p.dir == "."))
+            .map_or_else(|| ".".into(), |p| p.name.clone());
         let files = self
             .paths()
             .into_iter()
@@ -98,16 +95,13 @@ impl Files for MemFiles {
                 let mut at = String::new();
                 !dirs(p).any(|d| {
                     at.push_str(d);
-                    let skip = d == "node_modules" || d == "dist" || d.starts_with('.');
+                    let skip = NEVER_WALKED.contains(&d) || d == "dist" || d.starts_with('.');
                     let skip = skip || ignore.is_match(&at);
                     at.push('/');
                     skip
                 })
             })
-            .filter(|p| {
-                let base = p.rsplit('/').next().unwrap_or(p);
-                is_source_ext(base, &config.embedded) && !ignore.is_match(p)
-            })
+            .filter(|p| (layout.source)(p) && !ignore.is_match(p))
             .map(|path| SourceFile { path, package: 0 })
             .collect();
         Ok(WorkspaceInfo {
@@ -118,8 +112,6 @@ impl Files for MemFiles {
             packages: vec![Package {
                 name,
                 dir: ".".into(),
-                tsconfig: None,
-                source_entry: None,
             }],
             files,
         })
@@ -257,7 +249,13 @@ pub fn files_contract(f: &dyn Files) {
     );
     assert!(glob(&["a{"]).is_err(), "bad pattern");
 
-    let ws = f.discover(&Config::default()).unwrap();
+    let source = |p: &str| p.ends_with(".ts") && !p.ends_with(".d.ts");
+    let layout = Layout {
+        packages: vec![],
+        fences: vec![],
+        source: &source,
+    };
+    let ws = f.discover(&Config::default(), &layout).unwrap();
     assert!(!ws.packages.is_empty());
     let found: Vec<&str> = ws.files.iter().map(|s| s.path.as_str()).collect();
     assert_eq!(
@@ -307,8 +305,6 @@ pub fn frontend_contract(fe: &dyn LanguageFrontend, path: &str, source: &str) {
         packages: vec![Package {
             name: "root".into(),
             dir: ".".into(),
-            tsconfig: None,
-            source_entry: None,
         }],
         files: vec![file.clone()],
     };
@@ -336,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn mem_files_discover_honours_ignore_and_embedded() {
+    fn mem_files_discover_honours_ignore_and_the_layout() {
         let f = MemFiles::with(&[
             ("package.json", r#"{"name": "app"}"#),
             ("src/a.ts", ""),
@@ -346,10 +342,18 @@ mod tests {
         ]);
         let config = Config {
             ignore: vec!["gen".into()],
-            embedded: vec![".vue".into()],
             ..Config::default()
         };
-        let ws = f.discover(&config).unwrap();
+        let source = |p: &str| p.ends_with(".ts") || p.ends_with(".vue");
+        let layout = Layout {
+            packages: vec![Package {
+                name: "app".into(),
+                dir: ".".into(),
+            }],
+            fences: vec![],
+            source: &source,
+        };
+        let ws = f.discover(&config, &layout).unwrap();
         assert_eq!(ws.packages[0].name, "app");
         let found: Vec<&str> = ws.files.iter().map(|s| s.path.as_str()).collect();
         assert_eq!(found, ["src/App.vue", "src/a.ts"]);

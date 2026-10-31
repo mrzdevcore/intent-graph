@@ -75,13 +75,15 @@ fn effective_tsconfig(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-/// `pkg` or `pkg/sub` → a repo-relative file.
-fn resolve_workspace_import(ws: &WorkspaceInfo, spec: &str) -> Option<String> {
-    let pkg = ws
-        .packages
-        .iter()
-        .filter(|p| spec == p.name || spec.starts_with(&format!("{}/", p.name)))
-        .max_by_key(|p| p.name.len())?;
+/// `pkg` or `pkg/sub` → a repo-relative file; `entries`: each package's source entry.
+fn resolve_workspace_import(
+    ws: &WorkspaceInfo,
+    entries: &[Option<String>],
+    spec: &str,
+) -> Option<String> {
+    let (i, pkg) = (ws.packages.iter().enumerate())
+        .filter(|(_, p)| spec == p.name || spec.starts_with(&format!("{}/", p.name)))
+        .max_by_key(|(_, p)| p.name.len())?;
     let sub = spec[pkg.name.len()..].trim_start_matches('/');
     if !sub.is_empty() {
         for ext in [".ts", ".tsx"] {
@@ -91,7 +93,7 @@ fn resolve_workspace_import(ws: &WorkspaceInfo, spec: &str) -> Option<String> {
             }
         }
     }
-    pkg.source_entry.clone()
+    entries[i].clone()
 }
 
 /// Extracts `files` (pass 1, in parallel) and resolves their edges against the global index
@@ -112,13 +114,18 @@ pub fn build(
         .map(|(i, p)| {
             // Separate resolvers, not `clone_with_options`: a manual tsconfig is cached in the
             // shared cache, so clones would all use whichever package's tsconfig loaded first.
-            let Some(ts) = p.tsconfig.as_deref().map(effective_tsconfig) else {
+            let ts = ws.root.join(&p.dir).join("tsconfig.json");
+            if !ts.is_file() {
                 return Resolver::new(resolver_options(None));
-            };
+            }
+            let ts = effective_tsconfig(&ts);
             let (flat, warnings) = flattened.flatten(i, &ts, ws);
             tsconfig_warnings.extend(warnings);
             Resolver::new(resolver_options(flat))
         })
+        .collect();
+    let entries: Vec<Option<String>> = (ws.packages.iter())
+        .map(|p| crate::workspace::source_entry(&ws.root, &p.dir))
         .collect();
     let file_set: HashSet<&str> = ws.files.iter().map(|f| f.path.as_str()).collect();
     let compiled = patterns::compile(&config.patterns);
@@ -148,7 +155,7 @@ pub fn build(
             let resolve = |spec: &str| -> Option<String> {
                 if !spec.starts_with('.')
                     && !spec.starts_with('/')
-                    && let Some(t) = resolve_workspace_import(ws, spec)
+                    && let Some(t) = resolve_workspace_import(ws, &entries, spec)
                 {
                     return file_set.contains(t.as_str()).then_some(t);
                 }
