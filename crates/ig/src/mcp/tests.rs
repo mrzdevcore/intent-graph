@@ -117,7 +117,7 @@ fn ig_state_is_the_last_show() {
 
 #[test]
 fn every_input_schema_is_a_plain_object() {
-    for t in schema::tools().as_array().unwrap() {
+    for t in schema::tools(Kinds::builtin()).as_array().unwrap() {
         let s = &t["inputSchema"];
         assert_eq!(s["type"], "object", "{}", t["name"]);
         for k in ["oneOf", "anyOf", "allOf"] {
@@ -128,7 +128,7 @@ fn every_input_schema_is_a_plain_object() {
 
 #[test]
 fn ig_show_offers_no_architecture_mode() {
-    let t = schema::tools();
+    let t = schema::tools(Kinds::builtin());
     let show = t
         .as_array()
         .unwrap()
@@ -233,7 +233,7 @@ fn ig_edit_never_gives_a_box_the_whole_repo() {
 
 #[test]
 fn the_tool_schema_lists_the_kinds_of_the_table() {
-    let t = schema::tools();
+    let t = schema::tools(Kinds::builtin());
     let edit = t
         .as_array()
         .unwrap()
@@ -267,4 +267,35 @@ fn the_tool_schema_lists_the_kinds_of_the_table() {
             .unwrap()
             .contains(&json!("kind"))
     );
+}
+
+#[test]
+fn tools_list_offers_the_teams_kinds_and_ig_edit_adds_one() {
+    let dir = crate::tests::tmp_with(&[
+        ("ig/system.kdl", SPEC),
+        (
+            "ig/kinds/iot-device.kdl",
+            "kind \"iot-device\" is=\"service\" title=\"IoT device\"\n",
+        ),
+        ("probe/a.txt", "x"),
+    ]);
+    let r = handle(
+        &dir,
+        &json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .unwrap();
+    let edit = (r["result"]["tools"].as_array().unwrap().iter())
+        .find(|t| t["name"] == "ig_edit")
+        .unwrap();
+    let kinds = &edit["inputSchema"]["properties"]["edits"]["items"]["oneOf"][0]["properties"]["kind"]
+        ["enum"];
+    assert!(
+        kinds.as_array().unwrap().contains(&json!("iot-device")),
+        "{kinds}"
+    );
+    let add = json!({"op": "add", "parent": "shop", "kind": "iot-device", "id": "probe", "title": "Probe", "at": ["probe/**"]});
+    let r = call_tool(&dir, "ig_edit", add);
+    assert!(r.get("isError").is_none(), "{r}");
+    let sys = std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap();
+    assert!(sys.contains("iot-device \"probe\""), "{sys}");
 }

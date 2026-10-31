@@ -30,6 +30,9 @@ pub struct KindDef {
     pub title: String,
     pub means: String,
     pub icon: String,
+    /// Whether a box of it is code (`code=#false`: a person, an external system); a team kind
+    /// takes its base's.
+    pub code: bool,
     /// Its base's, then its own.
     pub props: Vec<PropDef>,
 }
@@ -44,6 +47,7 @@ pub struct KindView {
     pub title: String,
     pub means: String,
     pub icon: String,
+    pub code: bool,
     /// `root`, `run`, `design` or `group`.
     pub role: &'static str,
     pub props: Vec<PropDef>,
@@ -133,6 +137,7 @@ impl Kinds {
                 title: k.title.clone(),
                 means: k.means.clone(),
                 icon: k.icon.clone(),
+                code: k.code,
                 role: role(k.base),
                 props: k.props.clone(),
             })
@@ -213,7 +218,11 @@ impl Kinds {
     /// A kind node, or its errors and the node each is on.
     fn kind<'a>(&self, n: &'a KdlNode, team: bool) -> Result<KindDef, Vec<(&'a KdlNode, String)>> {
         let fail = |e: String| vec![(n, e)];
-        keys(n, &["is", "title", "means", "icon"]).map_err(fail)?;
+        let allowed: &[&str] = match team {
+            true => &["is", "title", "means", "icon"],
+            false => &["title", "means", "icon", "code"],
+        };
+        keys(n, allowed).map_err(fail)?;
         let name = first(n).ok_or_else(|| fail("a kind needs its name".into()))?;
         let s = |k: &str| n.get(k).and_then(|v| v.as_string()).map(String::from);
         let (base, inherited) = if team {
@@ -277,6 +286,10 @@ impl Kinds {
             title: or("title", |d| &d.title),
             means: or("means", |d| &d.means),
             icon: or("icon", |d| &d.icon),
+            code: match &inherited {
+                Some(d) => d.code,
+                None => n.get("code").and_then(|v| v.as_bool()).unwrap_or(true),
+            },
             name,
             base,
             custom: team,

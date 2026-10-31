@@ -1758,6 +1758,7 @@
       "title": "System",
       "means": "The whole system this map draws",
       "icon": "network",
+      "code": true,
       "role": "root",
       "props": []
     },
@@ -1768,6 +1769,7 @@
       "title": "Person",
       "means": "Someone who uses the system",
       "icon": "user",
+      "code": false,
       "role": "run",
       "props": []
     },
@@ -1778,6 +1780,7 @@
       "title": "External system",
       "means": "A system outside this one, run by someone else",
       "icon": "globe",
+      "code": false,
       "role": "run",
       "props": []
     },
@@ -1788,6 +1791,7 @@
       "title": "App",
       "means": "What people open: a web, mobile or desktop app",
       "icon": "app-window",
+      "code": true,
       "role": "run",
       "props": []
     },
@@ -1798,6 +1802,7 @@
       "title": "Service",
       "means": "A process that runs and answers: an API, a server, a worker",
       "icon": "server",
+      "code": true,
       "role": "run",
       "props": []
     },
@@ -1808,6 +1813,7 @@
       "title": "Job",
       "means": "Work that runs, then stops: a cron task, a batch, a migration",
       "icon": "clock",
+      "code": true,
       "role": "run",
       "props": []
     },
@@ -1818,6 +1824,7 @@
       "title": "Store",
       "means": "Where data is kept: a database, a bucket, a cache",
       "icon": "database",
+      "code": true,
       "role": "run",
       "props": []
     },
@@ -1828,6 +1835,7 @@
       "title": "Queue",
       "means": "Where messages wait: a queue, a topic, a stream",
       "icon": "inbox",
+      "code": true,
       "role": "run",
       "props": []
     },
@@ -1838,6 +1846,7 @@
       "title": "AI model",
       "means": "An AI model the system calls, hosted or local",
       "icon": "sparkles",
+      "code": true,
       "role": "run",
       "props": [
         {
@@ -1870,6 +1879,7 @@
       "title": "Module",
       "means": "A part of a block's code with one purpose",
       "icon": "package",
+      "code": true,
       "role": "design",
       "props": []
     },
@@ -1880,6 +1890,7 @@
       "title": "Entry",
       "means": "A way in: a route, a command, a schedule, a message handler",
       "icon": "log-in",
+      "code": true,
       "role": "design",
       "props": [
         {
@@ -1902,6 +1913,7 @@
       "title": "Use case",
       "means": "One thing the block does for someone",
       "icon": "list-checks",
+      "code": true,
       "role": "design",
       "props": []
     },
@@ -1912,6 +1924,7 @@
       "title": "Port",
       "means": "What the core needs from outside, as an interface",
       "icon": "plug",
+      "code": true,
       "role": "design",
       "props": []
     },
@@ -1922,6 +1935,7 @@
       "title": "Adapter",
       "means": "What fills a port: the code that talks to the outside",
       "icon": "cable",
+      "code": true,
       "role": "design",
       "props": []
     },
@@ -1932,6 +1946,7 @@
       "title": "Agent",
       "means": "An AI agent: a prompt, a model and the tools it may use",
       "icon": "bot",
+      "code": true,
       "role": "design",
       "props": [
         {
@@ -1949,6 +1964,7 @@
       "title": "Domain",
       "means": "The core: the rules and the words of the business",
       "icon": "shapes",
+      "code": true,
       "role": "design",
       "props": []
     },
@@ -1959,6 +1975,7 @@
       "title": "Group",
       "means": "Boxes kept together, with nothing of its own",
       "icon": "folder",
+      "code": true,
       "role": "group",
       "props": []
     }

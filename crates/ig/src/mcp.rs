@@ -5,6 +5,7 @@ mod schema;
 use crate::model::{Graph, TOOL_VERSION};
 use ig_app::map::edit::Edit;
 use ig_app::map::edit::journal::{self, By};
+use ig_app::map::kinds::Kinds;
 use ig_app::map::{origin, spec, view};
 use ig_core::ports::Files;
 use ig_wire::Wired;
@@ -43,7 +44,12 @@ fn handle(root: &Path, msg: &Value) -> Option<Value> {
             "serverInfo": {"name": "ig", "version": TOOL_VERSION}
         })),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools": schema::tools()})),
+        "tools/list" => {
+            // a team kind file that does not read is reported by ig_plan
+            let w = Wired::new(root);
+            let k = Kinds::load(w.env().files).unwrap_or_else(|_| Kinds::builtin().clone());
+            Ok(json!({"tools": schema::tools(&k)}))
+        }
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));

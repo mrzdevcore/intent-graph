@@ -9,7 +9,7 @@ import shop from "./fixtures/shop-view.json";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const fresh = () => structuredClone(shop) as unknown as View;
-const IOT: KindView = { name: "iot-device", base: "service", custom: true, title: "IoT device", means: "A device in the field", icon: "cpu", role: "run",
+const IOT: KindView = { name: "iot-device", base: "service", custom: true, title: "IoT device", means: "A device in the field", icon: "cpu", code: true, role: "run",
   props: [{ name: "firmware", means: "Its firmware version", required: true, oneOf: [] }] };
 const withIot = () => { const v = fresh(); v.kinds = [...v.kinds, IOT]; return v; };
 
@@ -108,4 +108,26 @@ test("warnings render from view.warnings, without the warning: prefix", () => {
   expect(w.querySelector(".word")!.textContent).toBe("Crowded");
   expect(w.textContent).toContain("g holds 13 boxes; more than 12 is hard to read");
   expect(w.textContent).not.toContain("warning:");
+});
+
+test("a required choice adds with its first value untouched; a team kind of external has no code field", async () => {
+  const got: unknown[] = [];
+  const v = fresh();
+  v.kinds = [...v.kinds,
+    { ...IOT, name: "sensor", title: "Sensor", props: [{ name: "bus", means: "How it talks", required: true, oneOf: ["i2c", "spi"] }] },
+    { ...IOT, name: "partner", base: "external", title: "Partner", code: false, props: [] }];
+  const t = setup(v, got);
+  clickBox(t, null);
+  row(form(t), "sensor").click();
+  flushSync();
+  const bus = field(form(t), "Bus") as unknown as HTMLSelectElement;
+  expect([...bus.options].map((o) => o.value)).toEqual(["i2c", "spi"]);
+  type(field(form(t), "Title")!, "Probe");
+  form(t).requestSubmit();
+  await tick();
+  expect(got).toEqual([{ op: "add", parent: "system", kind: "sensor", id: "probe", title: "Probe", at: ["probe/**"], before: null, props: { bus: "i2c" } }]);
+  clickBox(t, null);
+  row(form(t), "partner").click();
+  flushSync();
+  expect(field(form(t), "Code")).toBeUndefined();
 });
