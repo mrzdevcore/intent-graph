@@ -1,5 +1,5 @@
-<!-- An arrow, in the parent's inner units: its curve and head (`part` "line"), or its label pill
-     cutting the curve halfway (`part` "label", drawn above the boxes). `zoom` is screen pixels per inner unit: lines, heads and pills keep a steady size on
+<!-- An arrow, in the parent's inner units: its wire and head (`part` "line"), or its label pill
+     cutting the wire halfway (`part` "label", drawn above the boxes). `zoom` is screen pixels per inner unit: lines, heads and pills keep a steady size on
      screen, so a parent's arrows never turn into bars once you are deep inside one of its boxes.
      At rest a plain arrow is faint; lit (its box or itself under the pointer, or selected) it is
      drawn in full, and dimmed further while another is lit. A rule's or risk's stays in full. -->

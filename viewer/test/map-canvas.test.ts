@@ -244,7 +244,7 @@ test("dragging a closed box moves it and its arrows, keeps it, and Reset layout 
 
 /** A system of one container, `groups` boxes in a grid inside it, each holding `each` code boxes. */
 function big(groups: number, each: number): View {
-  const view: View = { version: 1, boxes: [], arrows: [], marks: [], notices: [], warnings: [], kinds: [], placed: { frames: {}, inner: {}, regions: [], routes: {} } };
+  const view: View = { version: 1, boxes: [], arrows: [], marks: [], notices: [], warnings: [], kinds: [], placed: { frames: {}, inner: {}, regions: [] } };
   const f = (title: string) => ({ value: title, source: "ig" as const });
   const add = (id: string, parent: string | undefined, level: View["boxes"][0]["level"]) =>
     view.boxes.push({ id, parent, level, madeOf: [], files: 1, kind: f("folder") as never, title: f(id) });
