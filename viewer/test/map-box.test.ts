@@ -4,10 +4,10 @@ import { mount, flushSync } from "svelte";
 import MapBox from "../src/map/MapBox.svelte";
 import MapArrow from "../src/map/MapArrow.svelte";
 import Region from "../src/map/Region.svelte";
-import { logoPath } from "../src/map/logo";
+import { logo } from "../src/map/logo";
 import { look } from "../src/map/looks";
-import { siMongodb, siNextdotjs, siTrpc, siPrisma, siStripe } from "simple-icons";
-import { shapeOf } from "../src/map/Shape.svelte";
+import { siMongodb, siNextdotjs, siTrpc, siPrisma, siStripe, siVuedotjs } from "simple-icons";
+import { shapeOf } from "../src/map/shapes";
 import type { KindView, MapBox as Box } from "../src/map/types";
 
 const f = <T,>(value: T) => ({ value, source: "ig" as const });
@@ -32,7 +32,7 @@ test("a box is a button that opens; needsReading is dotted, stale is chipped", (
 
 test("a container with logo stripe renders the simple-icons path", () => {
   const t = render(box({ level: "container", kind: f("external"), logo: f("stripe") }));
-  expect(t.querySelector("svg.logo path")!.getAttribute("d")).toBe(logoPath("stripe"));
+  expect(t.querySelector("svg.logo path")!.getAttribute("d")).toBe(siStripe.path);
 });
 
 test("far detail: no description, no chips", () => {
@@ -48,7 +48,7 @@ test("a person is a figure without a box border", () => {
   expect(t.querySelector(".card")).toBeNull();
 });
 
-test("unknown logo slug is null", () => expect(logoPath("not-a-logo")).toBeNull());
+test("unknown logo slug is null", () => expect(logo("not-a-logo")).toBeNull());
 
 test("an arrow's line has a head; its label is a part of its own, steady on screen", () => {
   const al = { color: "#333", width: 1.5, dash: "6 4", head: "filled" as const, label: "pays", tone: "neutral" as const };
@@ -105,8 +105,8 @@ test("a component's part box tallies its parts; zoomed into, it lists them above
 
 test("a component box wears its framework's logo", () => {
   const t = render(box({ level: "code", kind: f("component"), title: f("OrderList"), logo: f("vue") }));
-  expect(t.querySelector("svg path")!.getAttribute("d")).toBe(logoPath("vue"));
-  expect(logoPath("react")).not.toBeNull();
+  expect(t.querySelector("svg path")!.getAttribute("d")).toBe(siVuedotjs.path);
+  expect(logo("react")).not.toBeNull();
 });
 
 test("a region shows its label", () => {
@@ -117,7 +117,7 @@ test("a region shows its label", () => {
 });
 
 test("bundled brands return the simple-icons path", () => {
-  for (const [slug, si] of Object.entries({ nextdotjs: siNextdotjs, trpc: siTrpc, prisma: siPrisma, stripe: siStripe })) expect(logoPath(slug)).toBe(si.path);
+  for (const [slug, si] of Object.entries({ nextdotjs: siNextdotjs, trpc: siTrpc, prisma: siPrisma, stripe: siStripe })) expect(logo(slug)?.path).toBe(si.path);
 });
 
 test("rings: domain gold, application green, else blue-grey", () => {

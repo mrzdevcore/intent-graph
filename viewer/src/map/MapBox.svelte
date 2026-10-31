@@ -13,7 +13,8 @@
   import { steady } from "./camera";
   import { iconMask, kindOf } from "./edit/add";
   import Code from "./Code.svelte";
-  import Shape, { padOf, hue, shapeOf, type ShapeName } from "./Shape.svelte";
+  import Shape from "./Shape.svelte";
+  import { padOf, hue, shapeOf, type ShapeName } from "./shapes";
 
   // more: how many boxes it holds
   // parts: a component's part box's list; anatomy: a component's part boxes (title, list), for

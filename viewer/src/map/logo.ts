@@ -8,7 +8,6 @@ export function logo(slug: string): { path: string; color: string } | null {
   const i = iconFor(slug, [], "");
   return i.brand ? { path: i.path, color: i.color } : null;
 }
-export const logoPath = (slug: string): string | null => logo(slug)?.path ?? null;
 
 // relative luminance of #rrggbb, 0 (black) to 1 (white)
 const lum = (hex: string) => {

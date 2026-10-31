@@ -27,20 +27,6 @@ pub struct Env<'a> {
     pub notice: &'a Progress,
 }
 
-/// `path`'s text; empty when it is missing or not UTF-8 (as `read_to_string().unwrap_or_default()`).
-pub fn read_text(files: &dyn Files, path: &str) -> String {
-    files
-        .read_bytes(path)
-        .and_then(|b| String::from_utf8(b).ok())
-        .unwrap_or_default()
-}
-
-/// `path` parsed as JSON; None when missing, not UTF-8 or not valid.
-pub fn read_json<T: serde::de::DeserializeOwned>(files: &dyn Files, path: &str) -> Option<T> {
-    let text = String::from_utf8(files.read_bytes(path)?).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
 /// The graph of the tree `files` is rooted at, with `commit` set.
 pub fn graph(
     env: &Env,
