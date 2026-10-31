@@ -1,24 +1,22 @@
 //! `ig fmt`: the spec files with every block indented four spaces a level, at most one blank
-//! line between nodes and none at the ends or after the header. Only the whitespace before a
-//! line and blank lines change: comments, order and the rest of every line stay.
+//! line between nodes and none at the ends or after the header, and the old names of kinds
+//! and arrows written as the new ones. Only those names, the whitespace before a line and blank
+//! lines change: comments, order and the rest of every line stay.
 
-use super::super::spec::{self, DIR, HEADER, OLD_HEADER};
+use super::super::spec::{self, DIR, HEADER, OLD_HEADER, read::new_name};
 use ig_core::ports::Files;
+use kdl::KdlDocument;
 
-/// Formats every `ig/*.kdl` and writes the ones that change (`write` false: writes nothing);
+/// Formats every `ig/*.kdl` (the team kinds in `ig/kinds/` are read, not formatted) and writes the ones that change (`write` false: writes nothing);
 /// returns their paths. A file that does not read, or a format that would change the map or a
 /// comment, is an error and nothing is written.
 pub fn fmt(files: &dyn Files, write: bool) -> Result<Vec<String>, Vec<String>> {
-    let paths = files
-        .glob(&[format!("{DIR}/*.kdl")])
-        .map_err(|e| vec![format!("{DIR}: {e}")])?;
-    let old: Vec<(String, Option<String>)> =
-        paths.iter().map(|p| (p.clone(), files.read(p))).collect();
-    let before = spec::parse(old.clone())?;
+    let (kinds, old) = spec::read::texts(files)?;
+    let before = spec::parse([old.clone(), kinds.clone()].concat())?;
     let mut new = vec![];
     for (p, t) in &old {
         let t = t.as_deref().unwrap_or_default();
-        let text = format(t);
+        let text = format(&renamed(t));
         if let Some(line) = changed_comment(t, &text) {
             return Err(vec![format!(
                 "fmt would change a comment at {p}:{line}; nothing written"
@@ -26,7 +24,7 @@ pub fn fmt(files: &dyn Files, write: bool) -> Result<Vec<String>, Vec<String>> {
         }
         new.push((p.clone(), Some(text)));
     }
-    if spec::parse(new.clone())? != before {
+    if spec::parse([new.clone(), kinds].concat())? != before {
         return Err(vec![format!(
             "{DIR}: formatting would change the spec; nothing written"
         )]);
@@ -48,6 +46,30 @@ pub fn fmt(files: &dyn Files, write: bool) -> Result<Vec<String>, Vec<String>> {
         }
     }
     Ok(changed.into_iter().map(|(p, _)| p.clone()).collect())
+}
+
+/// `t` with every old kind and arrow name written as the new one; as it is when it does not read.
+fn renamed(t: &str) -> String {
+    fn walk(d: &mut KdlDocument) -> bool {
+        let mut changed = false;
+        for n in d.nodes_mut() {
+            if let Some(new) = new_name(n.name().value()) {
+                n.set_name(new);
+                changed = true;
+            }
+            if let Some(c) = n.children_mut() {
+                changed |= walk(c);
+            }
+        }
+        changed
+    }
+    match t.parse::<KdlDocument>() {
+        Ok(mut d) => match walk(&mut d) {
+            true => d.to_string(),
+            false => t.into(),
+        },
+        Err(_) => t.into(),
+    }
 }
 
 /// `t` read for its layout: for each line, whether it starts in code (not inside a string or a

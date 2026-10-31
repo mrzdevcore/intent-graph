@@ -22,8 +22,9 @@ pub enum ArrowKind {
     Bundle,
 }
 
-/// What a bundle is written as in the spec: its most telling kind.
-const TELLING: [ArrowKind; 7] = [
+/// Every kind written (all but `bundle`), the most telling first: what a bundle is written as
+/// in the spec is its most telling kind.
+pub const TELLING: [ArrowKind; 7] = [
     ArrowKind::Calls,
     ArrowKind::Sends,
     ArrowKind::Reads,

@@ -66,6 +66,7 @@ fn real_main() -> Result<u8> {
                     })?),
                     None => None,
                 };
+                let template = agent::prompt();
                 let bar = agent::Bar::new();
                 let mut confirm = agent::confirm;
                 let mut run =
@@ -75,7 +76,7 @@ fn real_main() -> Result<u8> {
                     Some(&mut Ask {
                         all: a.read,
                         flag,
-                        template: agent::PROMPT,
+                        template: &template,
                         found: &agent::on_path,
                         confirm: agent::interactive()
                             .then_some(&mut confirm as &mut dyn FnMut(Agent) -> bool),

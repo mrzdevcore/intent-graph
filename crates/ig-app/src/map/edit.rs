@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 
 pub(crate) mod fmt;
 pub mod journal;
+mod kind;
 mod moves;
 pub(crate) mod tidy;
 pub use fmt::fmt;
@@ -45,7 +46,7 @@ pub enum Edit {
         to: String,
     },
     /// `title`, `tech`, `description`, `logo`, `slot`, or `at` (globs joined by `\n`); `None`
-    /// removes it.
+    /// removes it. `kind` renames the node in place, refused where the kind may not sit.
     Set {
         id: String,
         key: String,
@@ -113,8 +114,13 @@ fn first(n: &KdlNode) -> Option<&str> {
     n.entries().first()?.value().as_string()
 }
 
+/// As the reader takes them: every node not an arrow nor `at`, `badges` or `pattern` is a box
+/// (a team kind's among them).
 fn box_id(n: &KdlNode) -> Option<&str> {
-    named::<BoxKind>(n.name().value())?;
+    let k = n.name().value();
+    if named::<ArrowKind>(k).is_some() || ["at", "badges", "pattern"].contains(&k) {
+        return None;
+    }
     first(n)
 }
 
@@ -159,22 +165,20 @@ struct Spec {
     docs: BTreeMap<String, KdlDocument>,
     /// The files as read.
     texts: BTreeMap<String, String>,
+    /// The team kinds, `ig/kinds/*.kdl`, as read; never edited.
+    kinds: Vec<(String, Option<String>)>,
 }
 
 impl Spec {
     fn load(files: &dyn Files) -> Result<Spec, Vec<String>> {
-        let paths = files
-            .glob(&[format!("{DIR}/*.kdl")])
-            .map_err(|e| vec![format!("{DIR}: {e}")])?;
-        let read: Vec<(String, Option<String>)> = paths
-            .into_iter()
-            .map(|p| (p.clone(), files.read(&p)))
-            .collect();
+        let (kinds, read) = spec::read::texts(files)?;
         let mut docs = BTreeMap::new();
         let mut texts = BTreeMap::new();
         for (p, t) in &read {
             let Some(d) = t.as_ref().and_then(|t| t.parse::<KdlDocument>().ok()) else {
-                return Err(spec::parse(read).err().unwrap_or_default());
+                return Err(spec::parse([read, kinds].concat())
+                    .err()
+                    .unwrap_or_default());
             };
             docs.insert(p.clone(), d);
             texts.insert(p.clone(), t.clone().unwrap_or_default());
@@ -185,7 +189,12 @@ impl Spec {
             .and_then(first)
             .ok_or_else(|| vec![format!("{DIR}/system.kdl:1: no system node")])?
             .to_string();
-        Ok(Spec { sys, docs, texts })
+        Ok(Spec {
+            sys,
+            docs,
+            texts,
+            kinds,
+        })
     }
 
     /// Reads the edited spec back in memory, then changes the files so that a crash part way
@@ -196,11 +205,7 @@ impl Spec {
         let new: BTreeMap<String, String> = (self.docs.iter())
             .map(|(p, d)| (p.clone(), d.to_string()))
             .collect();
-        spec::parse(
-            new.iter()
-                .map(|(p, t)| (p.clone(), Some(t.clone())))
-                .collect(),
-        )?;
+        self.parsed(&new)?;
         let sys = system_path();
         let old_ids = |p: &str| {
             let d = self
@@ -411,8 +416,11 @@ impl Spec {
             }
             return Ok(inverse(old));
         }
+        if key == "kind" {
+            return self.set_kind(id, value);
+        }
         if key != "at" {
-            return Err(format!("`{key}` is not one of {PROPS:?} or `at`"));
+            return Err(format!("`{key}` is not one of {PROPS:?}, `kind` or `at`"));
         }
         let globs: Vec<String> = (value.unwrap_or_default().split('\n'))
             .filter(|g| !g.is_empty())

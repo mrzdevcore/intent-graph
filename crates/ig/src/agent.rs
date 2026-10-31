@@ -1,6 +1,7 @@
 //! Running an AI agent for `ig view` (the I/O side of `ig_app::map::agent`).
 
 use ig_app::map::agent::Agent;
+use ig_app::map::kinds::Kinds;
 use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -8,7 +9,18 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The template `ig_app::map::agent::read` fills.
-pub const PROMPT: &str = include_str!("../assets/prompts/read.md");
+const PROMPT: &str = include_str!("../assets/prompts/read.md");
+
+/// The template, its `{kinds}` filled from the kinds table: one line a kind.
+pub fn prompt() -> String {
+    let k = Kinds::builtin();
+    let lines: Vec<String> = (k.names().into_iter())
+        .filter_map(|n| k.get(n))
+        .map(|d| format!("- `{}`: {}", d.name, d.means))
+        .collect();
+    PROMPT.replace("{kinds}", &lines.join("\n"))
+}
+
 const TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// `name` is a file in a PATH directory.
@@ -164,8 +176,7 @@ fn schema(ids: &[String]) -> serde_json::Value {
             "required": ["id", "title", "kind", "description"],
             "properties": {
                 "id": {"enum": ids}, "title": text, "description": text, "tech": text,
-                "kind": {"enum": ["person", "system", "external", "app", "service", "store", "queue",
-                    "module", "entry", "usecase", "port", "domain", "group"]},
+                "kind": {"enum": Kinds::builtin().names()},
                 "confidence": {"enum": ["extracted", "inferred", "ambiguous"]},
             },
         }}},
@@ -293,6 +304,19 @@ fn kill_group(child: &mut std::process::Child) {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_prompt_lists_the_kinds_of_the_table() {
+        let p = prompt();
+        assert!(!p.contains("{kinds}"));
+        assert!(
+            p.contains("- `model`: An AI model") && !p.contains("`worker`"),
+            "{p}"
+        );
+        assert!(p.contains("{{boxes}}") && p.contains("set kind service"));
+        let k = &schema(&[])["properties"]["annotations"]["items"]["properties"]["kind"]["enum"];
+        assert!(k.as_array().unwrap().contains(&serde_json::json!("agent")));
+    }
 
     #[test]
     fn the_bar_fills_with_the_boxes_asked_about() {

@@ -14,17 +14,43 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The map written in `ig/`; `None` when it holds no `.kdl` file.
 pub fn read(files: &dyn Files) -> Result<Option<MapFile>, Vec<String>> {
+    let (kinds, spec) = texts(files)?;
+    if spec.is_empty() {
+        return Ok(None);
+    }
+    parse([spec, kinds].concat()).map(Some)
+}
+
+/// Files as (path, text; none when it cannot be read).
+pub(crate) type Texts = Vec<(String, Option<String>)>;
+
+/// The files of `ig/`: the team kinds (`ig/kinds/*.kdl`), then the spec (`ig/*.kdl`).
+pub(crate) fn texts(files: &dyn Files) -> Result<(Texts, Texts), Vec<String>> {
     let paths = files
         .glob(&[format!("{DIR}/*.kdl"), format!("{DIR}/kinds/*.kdl")])
         .map_err(|e| vec![format!("{DIR}: {e}")])?;
-    if !paths.iter().any(|p| !is_kind_file(p)) {
-        return Ok(None);
-    }
     let texts = paths.into_iter().map(|p| {
         let t = files.read(&p);
         (p, t)
     });
-    parse(texts.collect()).map(Some)
+    Ok(texts.partition(|(p, _)| is_kind_file(p)))
+}
+
+/// The name ig writes for `name` when it is an old name of a box or arrow kind; `ig fmt`
+/// writes it. A folder or component in ig/ is architecture: the old names of a group and a module.
+pub(crate) fn new_name(name: &str) -> Option<String> {
+    let new = match name {
+        "folder" => "group".into(),
+        "component" => "module".into(),
+        _ => match named::<BoxKind>(name) {
+            Some(k) => base_name(k),
+            None => serde_json::to_value(named::<ArrowKind>(name)?)
+                .ok()?
+                .as_str()?
+                .into(),
+        },
+    };
+    (new != name).then_some(new)
 }
 
 fn is_kind_file(p: &str) -> bool {
@@ -153,15 +179,13 @@ impl Reader {
     /// `run_above`: a run block (or a module standing for one) holds `parent`, or is it.
     fn node(&mut self, at: Src, n: &KdlNode, parent: Option<&str>, run_above: bool) {
         let name = n.name().value();
-        // a folder or component in ig/ is architecture: the old names of a group and a module
-        let kind = match name {
-            "folder" => Some((BoxKind::Group, None)),
-            "component" => Some((BoxKind::Module, None)),
-            _ => named::<BoxKind>(name).map(|k| (k, None)).or_else(|| {
+        let new = new_name(name);
+        let kind = named::<BoxKind>(new.as_deref().unwrap_or(name))
+            .map(|k| (k, None))
+            .or_else(|| {
                 let d = self.kinds.get(name).filter(|d| d.custom)?;
                 Some((d.base, Some(name.to_string())))
-            }),
-        };
+            });
         let Some((kind, custom)) = kind else {
             return self.err(
                 at,

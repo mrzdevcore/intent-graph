@@ -1,23 +1,20 @@
 //! Tool definitions for `ig_plan` and `ig_edit`; the `ig_edit` schema follows `Edit`'s serde shape.
 
+use ig_app::map::arrows::TELLING;
+use ig_app::map::kinds::Kinds;
 use serde_json::{Value, json};
 
-// `system` (one root, already written), `file`, `parts` and the code-level kinds are left out:
-// they never live in ig/ as a new box.
-const KINDS: [&str; 16] = [
-    "person", "external", "app", "service", "job", "store", "queue", "model", "module", "entry",
-    "usecase", "port", "adapter", "agent", "domain", "group",
-];
-// `bundle` is derived, never written
-const ARROWS: [&str; 7] = [
-    "calls",
-    "sends",
-    "reads",
-    "writes",
-    "uses",
-    "implements",
-    "triggers",
-];
+/// The kinds a new box may be, from the table: `system` is left out (one root, already
+/// written); the code-level kinds are not in it.
+pub fn kinds() -> Vec<&'static str> {
+    let k = Kinds::builtin().names().into_iter();
+    k.filter(|k| *k != "system").collect()
+}
+
+/// The arrow kinds written; `bundle` is derived, never written.
+fn arrows() -> Vec<Value> {
+    TELLING.iter().map(|k| json!(k)).collect()
+}
 
 fn op(name: &str, props: Value, required: &[&str]) -> Value {
     let mut p = props;
@@ -35,7 +32,7 @@ pub fn tools() -> Value {
     let one = json!({"oneOf": [
         op("add", json!({
             "parent": s("id of the box it goes in"),
-            "kind": {"type": "string", "enum": KINDS},
+            "kind": {"type": "string", "enum": kinds()},
             "id": s("lowercase slug, unique"),
             "title": s("shown name"),
             "at": {"type": "array", "items": {"type": "string"}, "description": "code globs the box owns; always give it for a new box"},
@@ -50,17 +47,17 @@ pub fn tools() -> Value {
         op("rename", json!({"id": s("box id"), "to": s("new lowercase slug")}), &["id", "to"]),
         op("set", json!({
             "id": s("box id"),
-            "key": {"type": "string", "enum": ["title", "tech", "description", "logo", "slot", "at"], "description": "at takes globs joined by newlines"},
+            "key": {"type": "string", "enum": ["title", "tech", "description", "logo", "slot", "at", "kind"], "description": "at takes globs joined by newlines; kind renames the box's kind in place (refused where that kind may not sit)"},
             "value": {"type": ["string", "null"], "description": "null removes the key"}
         }), &["id", "key"]),
         op("arrow", json!({
             "from": s("box id"), "to": s("box id"),
-            "kind": {"type": "string", "enum": ARROWS},
+            "kind": {"type": "string", "enum": arrows()},
             "label": {"type": ["string", "null"]}
         }), &["from", "to", "kind"]),
         op("unarrow", json!({
             "from": s("box id"), "to": s("box id"),
-            "kind": {"type": "string", "enum": ARROWS}
+            "kind": {"type": "string", "enum": arrows()}
         }), &["from", "to", "kind"]),
     ]});
     json!([
@@ -95,7 +92,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "ig_edit",
-            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow). Your edits are proposals the user reviews (`git diff ig/`). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
+            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow). Your edits are proposals the user reviews (`git diff ig/`). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. To change a box's kind use `set` with key `kind`: an `app` no person uses that serves routes is most likely a `service`; propose `set kind service` for it. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"edits": {"type": "array", "minItems": 1, "items": one}},

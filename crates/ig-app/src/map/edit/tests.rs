@@ -5,6 +5,7 @@ mod files;
 mod fmt;
 mod guard;
 mod journal;
+mod kind;
 mod slot;
 
 const H: &str = "// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).\n";

@@ -18,10 +18,12 @@ Levels (C4):
    The architecture pattern applies here, per container.
 4. **code**: classes and functions; ig draws them itself. Never annotate them.
 
-Kinds: `person`, `system`, `external` (an outside system), `app` (a UI), `api`, `worker`,
-`store` (a database or cache), `queue`, `library`, `entry` (routes, controllers, pages),
-`usecase`, `port` (an interface the core defines), `domain` (entities and rules), `function`,
-`class`, `group` (none of the above).
+Kinds:
+
+{kinds}
+
+An `app` is what people open. An `app` that no `person` uses and that serves routes is most
+likely a backend: propose `set kind service` for it, that is, annotate it with kind `service`.
 
 ## Patterns
 
