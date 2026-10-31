@@ -1,0 +1,158 @@
+//! What ig says about a spec that reads but looks wrong: arrows the kinds do not expect,
+//! boxes in a place their role does not sit, boxes holding more than a map shows well.
+//! Warnings never change `ig check`'s exit code.
+
+use super::file::{MapBox, MapFile};
+use super::kinds::{KindDef, Kinds, base_name, kind_may_sit};
+use super::{ArrowKind, BoxKind, facts::Role};
+use std::collections::HashMap;
+
+const CROWDED: usize = 12;
+
+fn name(b: &MapBox) -> String {
+    b.custom.clone().unwrap_or_else(|| base_name(b.kind.value))
+}
+
+fn def<'a>(kinds: &'a Kinds, b: &MapBox) -> Option<&'a KindDef> {
+    kinds.get(&name(b))
+}
+
+/// Whether a run block (or a module, which stands for one) is `b` or above it: the reader's test.
+fn run_above(by: &HashMap<&str, &MapBox>, b: &MapBox) -> bool {
+    let mut at = Some(b);
+    while let Some(x) = at {
+        if x.kind.value.role() == Role::Run || x.kind.value == BoxKind::Module {
+            return true;
+        }
+        at = x.parent.as_deref().and_then(|p| by.get(p).copied());
+    }
+    false
+}
+
+pub fn warnings(m: &MapFile, kinds: &Kinds) -> Vec<String> {
+    let by: HashMap<&str, &MapBox> = m.boxes.iter().map(|b| (b.id.as_str(), b)).collect();
+    let mut out = vec![];
+    for a in &m.arrows {
+        let (Some(f), Some(t)) = (by.get(a.from.as_str()), by.get(a.to.as_str())) else {
+            continue;
+        };
+        let (Some(fd), Some(td)) = (def(kinds, f), def(kinds, t)) else {
+            continue;
+        };
+        if a.kind == ArrowKind::Bundle || kinds.arrow_ok(a.kind, fd, td) {
+            continue;
+        }
+        let k = serde_json::to_value(a.kind).unwrap();
+        let k = k.as_str().unwrap_or_default();
+        let list = |side: fn(&super::kinds::ArrowRule) -> &Vec<String>| {
+            let mut v: Vec<&str> = vec![];
+            kinds.rules(a.kind).for_each(|r| {
+                side(r).iter().for_each(|n| {
+                    if !v.contains(&n.as_str()) {
+                        v.push(n)
+                    }
+                })
+            });
+            v.join(" or ")
+        };
+        let from = list(|r| &r.from);
+        let from_ok = from.is_empty()
+            || kinds.rules(a.kind).any(|r| {
+                r.from.is_empty()
+                    || r.from
+                        .iter()
+                        .any(|n| *n == fd.name || *n == base_name(fd.base))
+            });
+        let ends = if from_ok {
+            format!("{k} goes to a {}", list(|r| &r.to))
+        } else {
+            format!("{k} comes from a {from}")
+        };
+        out.push(format!("`{}` {k} `{}`: {ends}", a.from, a.to));
+    }
+    for b in &m.boxes {
+        let Some(p) = b.parent.as_deref().and_then(|p| by.get(p)) else {
+            continue;
+        };
+        let (kind, role) = (b.kind.value, b.kind.value.role());
+        let outer = !run_above(&by, p);
+        if kind_may_sit(kind, p.kind.value.role(), outer) {
+            continue;
+        }
+        let n = name(b);
+        match role {
+            Role::Run => out.push(format!(
+                "`{}`: a {n} sits in the system or a group outside any running block",
+                b.id
+            )),
+            Role::Design => out.push(format!("`{}`: a {n} sits inside a running block", b.id)),
+            _ => {}
+        }
+    }
+    let mut kids: HashMap<&str, usize> = HashMap::new();
+    m.boxes
+        .iter()
+        .filter_map(|b| b.parent.as_deref())
+        .for_each(|p| *kids.entry(p).or_default() += 1);
+    for b in &m.boxes {
+        let n = kids.get(b.id.as_str()).copied().unwrap_or(0);
+        if n > CROWDED {
+            out.push(format!(
+                "`{}` holds {n} boxes; more than {CROWDED} is hard to read",
+                b.id
+            ));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::map::spec;
+
+    /// Every node line gets a title, so the tests stay short.
+    fn read(kdl: &str) -> MapFile {
+        let kdl = kdl
+            .replace("\"\n", "\" title=\"T\"\n")
+            .replace("\" {\n", "\" title=\"T\" {\n");
+        spec::parse(vec![("ig/system.kdl".into(), Some(kdl))]).unwrap()
+    }
+
+    #[test]
+    fn mismatched_arrows_and_crowded_boxes_warn() {
+        let mut s = String::from(
+            "system \"shop\" {\n  service \"api\" {\n    reads \"gmail\"\n  }\n  external \"gmail\"\n  group \"g\" {\n",
+        );
+        for i in 0..13 {
+            s += &format!("    service \"s{i}\"\n");
+        }
+        s += "  }\n}\n";
+        let w = warnings(&read(&s), Kinds::builtin());
+        assert!(
+            w.contains(&"`api` reads `gmail`: reads goes to a store".to_string()),
+            "{w:?}"
+        );
+        assert!(
+            w.contains(&"`g` holds 13 boxes; more than 12 is hard to read".to_string()),
+            "{w:?}"
+        );
+    }
+
+    #[test]
+    fn a_box_in_the_wrong_place_warns() {
+        let s = "system \"shop\" {\n  usecase \"u\"\n  service \"a\" {\n    group \"g\" {\n      service \"b\"\n    }\n  }\n}\n";
+        let w = warnings(&read(s), Kinds::builtin());
+        assert!(
+            w.contains(&"`u`: a usecase sits inside a running block".to_string()),
+            "{w:?}"
+        );
+        assert!(
+            w.contains(
+                &"`b`: a service sits in the system or a group outside any running block"
+                    .to_string()
+            ),
+            "{w:?}"
+        );
+    }
+}

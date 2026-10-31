@@ -16,6 +16,7 @@ pub mod origin;
 pub mod route;
 pub mod spec;
 pub mod view;
+pub mod warn;
 
 pub use arrows::{ArrowKind, MapArrow, arrows};
 pub use facts::{BoxKind, FactBox, Guess, Level, Pattern, facts};

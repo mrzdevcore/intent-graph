@@ -114,6 +114,11 @@ impl Kinds {
         ]
     }
 
+    /// The rules for one arrow kind.
+    pub fn rules(&self, kind: ArrowKind) -> impl Iterator<Item = &ArrowRule> {
+        self.arrows.iter().filter(move |r| r.kind == kind)
+    }
+
     /// An arrow kind with no rule joins any two kinds; with rules, one of them must match.
     pub fn arrow_ok(&self, kind: ArrowKind, from: &KindDef, to: &KindDef) -> bool {
         let is = |names: &[String], d: &KindDef| {

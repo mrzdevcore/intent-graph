@@ -3,10 +3,12 @@
 use super::agent::{Ask, Evidence, offer};
 use super::code::{as_fact, code_boxes};
 use super::file::{self, Field, MapBox, MapFile, refresh};
+use super::kinds::Kinds;
 use super::layers::{Mark, file_layers, risks, rules, sort_marks};
 use super::layout::layout;
 pub use super::layout::{Frame, Placed, Region, RegionKind};
 use super::origin::{compare, not_read};
+use super::warn::warnings;
 use super::{MapArrow, Pattern, arrows, facts, spec};
 use crate::Env;
 use globset::GlobSet;
@@ -276,6 +278,15 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     let ui = components(env.files, g, env.frontends, &config);
     let mut v = view(env.files, &m, g, &ui);
     notices.append(&mut v.notices);
+    if !broken {
+        // a team kind file that does not read is already reported by the read
+        let kinds = Kinds::load(env.files).unwrap_or_else(|_| Kinds::builtin().clone());
+        notices.extend(
+            warnings(&m, &kinds)
+                .into_iter()
+                .map(|w| format!("warning: {w}")),
+        );
+    }
     v.notices = notices;
     v.broken = broken;
     let (entries, notice) = super::edit::journal::entries(env.files);

@@ -109,7 +109,10 @@ fn real_main() -> Result<u8> {
             }
             let v = view::run(&env)?;
             for n in &v.notices {
-                eprintln!("ig: {n}");
+                match n.starts_with("warning: ") {
+                    true => eprintln!("{n}"),
+                    false => eprintln!("ig: {n}"),
+                }
             }
             if v.broken {
                 return Ok(2);
