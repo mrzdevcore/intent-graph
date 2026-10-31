@@ -4,31 +4,19 @@ use serde_json::{Value, json};
 
 // `system` (one root, already written), `file`, `parts` and the code-level kinds are left out:
 // they never live in ig/ as a new box.
-const KINDS: [&str; 14] = [
-    "person",
-    "external",
-    "app",
-    "api",
-    "worker",
-    "store",
-    "queue",
-    "library",
-    "entry",
-    "usecase",
-    "port",
-    "domain",
-    "folder",
-    "component",
+const KINDS: [&str; 16] = [
+    "person", "external", "app", "service", "job", "store", "queue", "model", "module", "entry",
+    "usecase", "port", "adapter", "agent", "domain", "group",
 ];
 // `bundle` is derived, never written
 const ARROWS: [&str; 7] = [
-    "uses",
-    "depends",
     "calls",
-    "network",
-    "event",
+    "sends",
+    "reads",
+    "writes",
+    "uses",
     "implements",
-    "data",
+    "triggers",
 ];
 
 fn op(name: &str, props: Value, required: &[&str]) -> Value {

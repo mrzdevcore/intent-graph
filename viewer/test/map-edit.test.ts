@@ -127,7 +127,7 @@ test("Box tool click in a container: container kinds, Code lives at prefilled fr
   const { target } = setup(adds().api);
   clickBox(target, "api");
   const f = form(target)!;
-  expect([...input(f, "Kind").querySelectorAll("option")].map((o) => o.value)).toEqual(["usecase", "domain", "port", "folder", "component", "entry"]);
+  expect([...input(f, "Kind").querySelectorAll("option")].map((o) => o.value)).toEqual(["usecase", "domain", "port", "group", "module", "entry"]);
   expect(document.activeElement).toBe(input(f, "Name"));
   type(input(f, "Name"), "Billing");
   expect(input(f, "Code lives at").value).toBe("apps/api/billing/**");
@@ -137,7 +137,7 @@ test("Box tool click on the ground: system kinds; external hides the code path",
   const { target } = setup(adds().api);
   clickBox(target, null);
   const f = form(target)!;
-  expect([...input(f, "Kind").querySelectorAll("option")].map((o) => o.value)).toEqual(["app", "api", "library", "worker", "store", "queue", "external", "person"]);
+  expect([...input(f, "Kind").querySelectorAll("option")].map((o) => o.value)).toEqual(["app", "service", "module", "job", "store", "queue", "external", "person"]);
   ([...input(f, "Kind").querySelectorAll("option")].find((o) => o.value === "external") as HTMLOptionElement).selected = true; input(f, "Kind").dispatchEvent(new Event("change", { bubbles: true })); flushSync();
   expect([...f.querySelectorAll("label")].some((l) => l.textContent!.startsWith("Code lives"))).toBe(false);
 });
@@ -202,12 +202,12 @@ test("Arrow tool: drag A to B lights B, Enter draws; the last kind is preselecte
   flushSync();
   f.requestSubmit();
   await tick();
-  expect(got).toEqual([{ op: "arrow", from: "web", to: "api", kind: "data", label: null }]);
+  expect(got).toEqual([{ op: "arrow", from: "web", to: "api", kind: "reads", label: null }]);
   press("a");
   ptr(boxEl(target, "web"), "pointerdown");
   ptr(boxEl(target, "api"), "pointermove");
   ptr(boxEl(target, "api"), "pointerup");
-  expect(target.querySelector('form[aria-label^="Arrow"] [aria-checked="true"]')!.textContent).toBe("data");
+  expect(target.querySelector('form[aria-label^="Arrow"] [aria-checked="true"]')!.textContent).toBe("reads");
 });
 
 test("Arrow released on the same box or empty ground cancels", () => {

@@ -23,15 +23,21 @@ pub enum BoxKind {
     System,
     External,
     App,
-    Api,
-    Worker,
+    #[serde(alias = "api", alias = "worker")]
+    Service,
+    Job,
     Store,
     Queue,
-    Library,
+    Model,
+    #[serde(alias = "library")]
+    Module,
     Entry,
     Usecase,
     Port,
+    Adapter,
+    Agent,
     Domain,
+    Group,
     Folder,
     File,
     /// A UI component (Vue, React), opening onto its parts.
@@ -43,14 +49,33 @@ pub enum BoxKind {
     Function,
     Class,
     Method,
+}
+
+/// Where a kind sits: the system, a block that runs, a part of one's design, a plain group, or code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Root,
+    Run,
+    Design,
     Group,
+    Code,
 }
 
 impl BoxKind {
     /// Kinds that name code, not architecture: never written to (or read from) `ig/`.
     pub fn code_level(self) -> bool {
+        self.role() == Role::Code
+    }
+
+    pub fn role(self) -> Role {
         use BoxKind::*;
-        matches!(self, Function | Class | Method | File | Parts | Task)
+        match self {
+            System => Role::Root,
+            Group => Role::Group,
+            Service | Job | App | Store | Queue | Model | External | Person => Role::Run,
+            Entry | Usecase | Domain | Port | Adapter | Agent | Module => Role::Design,
+            Folder | File | Component | Parts | Task | Function | Class | Method => Role::Code,
+        }
     }
 }
 
@@ -330,7 +355,7 @@ fn container(
         files: files.len() as u32,
         nodes: pkg_nodes,
         guess: guess(
-            if app { BoxKind::App } else { BoxKind::Library },
+            if app { BoxKind::App } else { BoxKind::Module },
             title(&id),
             Some(pattern.clone()),
             None,

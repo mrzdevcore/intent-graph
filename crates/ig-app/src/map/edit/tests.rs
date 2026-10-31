@@ -476,14 +476,14 @@ fn arrow_goes_after_the_arrows_and_unarrow_restores_it() {
         Edit::Arrow {
             from: "api".into(),
             to: "web".into(),
-            kind: ArrowKind::Event,
+            kind: ArrowKind::Sends,
             label: Some("paid".into()),
         },
         &[(
             "ig/api.kdl",
             &API.replace(
                 "    network \"stripe\"\n",
-                "    network \"stripe\"\n    event \"web\" label=\"paid\"\n",
+                "    network \"stripe\"\n    sends \"web\" label=\"paid\"\n",
             ),
         )],
     );
@@ -491,7 +491,7 @@ fn arrow_goes_after_the_arrows_and_unarrow_restores_it() {
         Edit::Unarrow {
             from: "api".into(),
             to: "stripe".into(),
-            kind: ArrowKind::Network,
+            kind: ArrowKind::Calls,
         },
         &[("ig/api.kdl", &API.replace("    network \"stripe\"\n", ""))],
     );

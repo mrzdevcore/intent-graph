@@ -28,8 +28,8 @@ fn the_shop_is_written_one_file_per_container() {
     let api = &files["ig/api.kdl"];
     assert!(api.contains("app \"api\" title=\"Api\""));
     assert!(api.contains("at \"apps/api/**\""));
-    assert!(api.contains("data \"postgres\""));
-    assert!(api.contains("network \"stripe\""));
+    assert!(api.contains("reads \"postgres\""));
+    assert!(api.contains("calls \"stripe\""));
     assert!(api.contains("usecase \"api/application-checkout\""));
     assert!(!api.contains("function"), "code level never written");
 }
@@ -74,7 +74,7 @@ fn bundle_arrows_lose_their_derived_label() {
     let web = &files["ig/web.kdl"];
     assert!(web.contains("calls \"api-client\"\n"), "{web}");
     assert!(!web.contains("1 call"));
-    assert!(web.contains("network \"api\" label=\"POST /checkout\""));
+    assert!(web.contains("calls \"api\" label=\"POST /checkout\""));
 }
 
 #[test]
@@ -145,10 +145,10 @@ fn arrows_are_sorted_and_a_nested_id_maps_to_a_stem() {
         .unwrap()
         .nodes()
         .iter()
-        .filter(|n| ["data", "network"].contains(&n.name().value()))
+        .filter(|n| ["reads", "calls"].contains(&n.name().value()))
         .map(|n| n.name().value().to_string() + n.entries()[0].value().as_string().unwrap())
         .collect();
-    assert_eq!(arrows, ["datapostgres", "networkstripe"]);
+    assert_eq!(arrows, ["readspostgres", "callsstripe"]);
 }
 
 #[test]
@@ -376,10 +376,7 @@ fn a_bundle_is_written_as_its_most_telling_kind() {
         .iter_mut()
         .find(|a| a.id == "api->postgres")
         .unwrap();
-    (a.kind, a.kinds) = (
-        ArrowKind::Bundle,
-        vec![ArrowKind::Depends, ArrowKind::Calls],
-    );
+    (a.kind, a.kinds) = (ArrowKind::Bundle, vec![ArrowKind::Uses, ArrowKind::Calls]);
     assert_eq!(a.spec_kind(), ArrowKind::Calls);
     let api = &write(&m)["ig/api.kdl"];
     assert!(api.contains("calls \"postgres\""), "{api}");
@@ -438,4 +435,15 @@ fn a_box_a_reading_named_with_a_code_level_kind_is_left_out_with_its_arrows() {
     assert!(!files["ig/api.kdl"].contains(id), "{}", files["ig/api.kdl"]);
     let texts: Vec<_> = files.into_iter().map(|(p, t)| (p, Some(t))).collect();
     crate::map::spec::parse(texts).expect("read back");
+}
+
+#[test]
+fn a_folder_or_component_in_ig_reads_as_a_group_or_module() {
+    let kdl = "system \"s\" title=\"S\" {\n  folder \"f\" title=\"F\" {\n    component \"f/c\" title=\"C\"\n  }\n}\n";
+    let m = read(&ig_core::testing::MemFiles::with(&[("ig/system.kdl", kdl)]))
+        .unwrap()
+        .unwrap();
+    let kind = |id: &str| m.boxes.iter().find(|b| b.id == id).unwrap().kind.value;
+    use crate::map::facts::BoxKind;
+    assert_eq!((kind("f"), kind("f/c")), (BoxKind::Group, BoxKind::Module));
 }

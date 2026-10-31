@@ -132,7 +132,13 @@ impl Reader {
 
     fn node(&mut self, at: Src, n: &KdlNode, parent: Option<&str>, sys: &str) {
         let name = n.name().value();
-        let Some(kind) = named::<BoxKind>(name) else {
+        // a folder or component in ig/ is architecture: the old names of a group and a module
+        let kind = match name {
+            "folder" => Some(BoxKind::Group),
+            "component" => Some(BoxKind::Module),
+            _ => named::<BoxKind>(name),
+        };
+        let Some(kind) = kind else {
             return self.err(at, n, format!("`{name}` is not a box kind"));
         };
         if kind.code_level() {

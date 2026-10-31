@@ -163,13 +163,13 @@ fn drop_checks_each_kind_of_edit_still_holds() {
     let arrow = Edit::Arrow {
         from: "web".into(),
         to: "db".into(),
-        kind: ArrowKind::Data,
+        kind: ArrowKind::Reads,
         label: None,
     };
     let unarrow = Edit::Unarrow {
         from: "web".into(),
         to: "db".into(),
-        kind: ArrowKind::Data,
+        kind: ArrowKind::Reads,
     };
     let rename = |a: &str, b: &str| Edit::Rename {
         id: a.into(),

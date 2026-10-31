@@ -80,10 +80,10 @@ fn three_network_hops_is_risk() {
         parent: "system".into(),
         from: from.into(),
         to: to.into(),
-        kind: ArrowKind::Network,
+        kind: ArrowKind::Calls,
         label: None,
         count: 1,
-        kinds: vec![ArrowKind::Network],
+        kinds: vec![ArrowKind::Calls],
         in_loop: false,
         origin: Default::default(),
     };

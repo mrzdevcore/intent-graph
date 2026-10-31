@@ -345,7 +345,11 @@ impl<'a> Lay<'a> {
     fn system(&mut self, kids: &[&'a MapBox]) {
         let rank = |b: &MapBox| match b.kind.value {
             BoxKind::Person => 0,
-            BoxKind::External | BoxKind::Store | BoxKind::Queue | BoxKind::System => 2,
+            BoxKind::External
+            | BoxKind::Store
+            | BoxKind::Queue
+            | BoxKind::Model
+            | BoxKind::System => 2,
             _ => 1,
         };
         let row =

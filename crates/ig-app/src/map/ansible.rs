@@ -291,29 +291,31 @@ fn human(s: &str) -> String {
         .unwrap_or_default()
 }
 
-/// A role's kind by its name: fronts, jobs, helpers, else an API.
+/// A role's kind by its name: fronts, helpers, else a service.
 fn kind_of(r: &Role) -> BoxKind {
-    let n = r.name.as_str();
-    let has = |ws: &[&str]| ws.iter().any(|w| n.split('_').any(|t| t == *w));
-    if n.starts_with("helper_") || r.targets.is_empty() {
-        BoxKind::Library
-    } else if has(&[
-        "front",
-        "ui",
-        "backoffice",
-        "portal",
-        "documentation",
-        "status",
-        "board",
-    ]) {
+    if r.name.starts_with("helper_") || r.targets.is_empty() {
+        BoxKind::Module
+    } else if has(
+        r,
+        &[
+            "front",
+            "ui",
+            "backoffice",
+            "portal",
+            "documentation",
+            "status",
+            "board",
+        ],
+    ) {
         BoxKind::App
-    } else if has(&[
-        "job", "consumer", "importer", "indexing", "sitemap", "task", "cron",
-    ]) {
-        BoxKind::Worker
     } else {
-        BoxKind::Api
+        BoxKind::Service
     }
+}
+
+/// Whether a word of `r`'s name (split on `_`) is one of `ws`.
+fn has(r: &Role, ws: &[&str]) -> bool {
+    ws.iter().any(|w| r.name.split('_').any(|t| t == *w))
 }
 
 /// One component: a role, or the roles of one kind when a container has too many.
@@ -326,12 +328,15 @@ struct Part<'r> {
     roles: Vec<&'r Role>,
 }
 
-/// "APIs", "Fronts"… for the roles of a kind put together.
-fn plural(k: BoxKind) -> &'static str {
-    match k {
+/// "APIs", "Fronts"… for the roles of a kind put together: a service named for jobs is a job's.
+fn plural(r: &Role) -> &'static str {
+    let jobs = [
+        "job", "consumer", "importer", "indexing", "sitemap", "task", "cron",
+    ];
+    match kind_of(r) {
         BoxKind::App => "Fronts",
-        BoxKind::Worker => "Jobs",
-        BoxKind::Library => "Helpers",
+        BoxKind::Module => "Helpers",
+        _ if has(r, &jobs) => "Jobs",
         _ => "APIs",
     }
 }
@@ -341,7 +346,7 @@ fn plural(k: BoxKind) -> &'static str {
 fn containers(roles: &[Role], room: usize) -> Vec<(String, Vec<Part<'_>>)> {
     let mut by: BTreeMap<String, Vec<&Role>> = BTreeMap::new();
     for r in roles {
-        let key = if kind_of(r) == BoxKind::Library {
+        let key = if kind_of(r) == BoxKind::Module {
             "Helpers".to_string()
         } else {
             r.targets
@@ -398,7 +403,7 @@ fn containers(roles: &[Role], room: usize) -> Vec<(String, Vec<Part<'_>>)> {
                 let mut by_kind: BTreeMap<&str, (BoxKind, Vec<&Role>)> = BTreeMap::new();
                 for r in rs {
                     let k = kind_of(r);
-                    by_kind.entry(plural(k)).or_insert((k, vec![])).1.push(r);
+                    by_kind.entry(plural(r)).or_insert((k, vec![])).1.push(r);
                 }
                 // a kind's roles by `MAX`, each role then a folder in it
                 let mut out = vec![];

@@ -2,9 +2,8 @@
 // and the "code lives at" prefill.
 import type { BoxKind } from "../types";
 
-// ponytail: the brief's "service" is the Rust kind `api`
-export const SYSTEM_KINDS: BoxKind[] = ["app", "api", "library", "worker", "store", "queue", "external", "person"];
-export const CONTAINER_KINDS: BoxKind[] = ["usecase", "domain", "port", "folder", "component", "entry"];
+export const SYSTEM_KINDS: BoxKind[] = ["app", "service", "module", "job", "store", "queue", "external", "person"];
+export const CONTAINER_KINDS: BoxKind[] = ["usecase", "domain", "port", "group", "module", "entry"];
 /** Kinds that are not code: no "code lives at". */
 export const NO_CODE: BoxKind[] = ["external", "person"];
 

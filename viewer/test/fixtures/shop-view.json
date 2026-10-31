@@ -36,7 +36,7 @@
       "package": "@shop/api-client",
       "files": 1,
       "kind": {
-        "value": "library",
+        "value": "module",
         "source": "ig"
       },
       "title": {
@@ -669,10 +669,10 @@
       "parent": "system",
       "from": "api",
       "to": "postgres",
-      "kind": "data",
+      "kind": "reads",
       "count": 1,
       "kinds": [
-        "data"
+        "reads"
       ]
     },
     {
@@ -680,10 +680,10 @@
       "parent": "system",
       "from": "api",
       "to": "stripe",
-      "kind": "network",
+      "kind": "calls",
       "count": 1,
       "kinds": [
-        "network"
+        "calls"
       ]
     },
     {
@@ -691,10 +691,10 @@
       "parent": "api",
       "from": "api/application-checkout",
       "to": "api/application-ports",
-      "kind": "depends",
+      "kind": "uses",
       "count": 2,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -702,10 +702,10 @@
       "parent": "api",
       "from": "api/application-checkout",
       "to": "api/domain-order",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -717,7 +717,7 @@
       "label": "1 call · 1 import",
       "count": 2,
       "kinds": [
-        "depends",
+        "uses",
         "calls"
       ]
     },
@@ -751,10 +751,10 @@
       "parent": "api",
       "from": "api/application-ports",
       "to": "api/domain-order",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -762,10 +762,10 @@
       "parent": "api",
       "from": "api/application-refund",
       "to": "api/application-ports",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -785,10 +785,10 @@
       "parent": "api",
       "from": "api/domain-order",
       "to": "api/infra-prisma",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -796,10 +796,10 @@
       "parent": "api",
       "from": "api/domain-payment",
       "to": "api/domain-order",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -807,10 +807,10 @@
       "parent": "api",
       "from": "api/infra-prisma",
       "to": "api/application-ports",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -818,10 +818,10 @@
       "parent": "api",
       "from": "api/infra-prisma",
       "to": "api/domain-order",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -829,10 +829,10 @@
       "parent": "api",
       "from": "api/infra-stripe",
       "to": "api/application-ports",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -840,10 +840,10 @@
       "parent": "api",
       "from": "api/root",
       "to": "api/routers",
-      "kind": "depends",
+      "kind": "uses",
       "count": 1,
       "kinds": [
-        "depends"
+        "uses"
       ]
     },
     {
@@ -855,7 +855,7 @@
       "label": "1 call · 1 import",
       "count": 2,
       "kinds": [
-        "depends",
+        "uses",
         "calls"
       ]
     },
@@ -868,7 +868,7 @@
       "label": "1 call · 1 import",
       "count": 2,
       "kinds": [
-        "depends",
+        "uses",
         "calls"
       ]
     },
@@ -881,7 +881,7 @@
       "label": "1 call · 1 import",
       "count": 2,
       "kinds": [
-        "depends",
+        "uses",
         "calls"
       ]
     },
@@ -894,7 +894,7 @@
       "label": "2 calls · 1 import",
       "count": 3,
       "kinds": [
-        "depends",
+        "uses",
         "calls"
       ]
     },
@@ -903,11 +903,11 @@
       "parent": "system",
       "from": "web",
       "to": "api",
-      "kind": "network",
+      "kind": "calls",
       "label": "POST /checkout",
       "count": 1,
       "kinds": [
-        "network"
+        "calls"
       ]
     },
     {
@@ -919,7 +919,7 @@
       "label": "1 call · 1 import",
       "count": 2,
       "kinds": [
-        "depends",
+        "uses",
         "calls"
       ]
     }

@@ -28,10 +28,10 @@ test("insideCounts reaches every ancestor", () => {
 
 const arrow = (kind: MapArrow["kind"]): MapArrow => ({ id: "a->b", parent: "system", from: "a", to: "b", kind, count: 1, kinds: [kind] });
 
-test("arrowLook: event, and a risk keeps the dash", () => {
-  expect(arrowLook(arrow("event"), [], new Set())).toMatchObject({ color: "var(--map-purple)", dash: "2 5", head: "open" });
+test("arrowLook: sends, and a risk keeps the dash", () => {
+  expect(arrowLook(arrow("sends"), [], new Set())).toMatchObject({ color: "var(--map-purple)", dash: "2 5", head: "open" });
   const warn: Mark = { layer: "risks", target: "a->b", state: "warn", badge: "risk" };
-  expect(arrowLook(arrow("network"), [warn], new Set(["risks"]))).toMatchObject({ color: "var(--map-warn)", dash: "6 4" });
+  expect(arrowLook(arrow("sends"), [warn], new Set(["risks"]))).toMatchObject({ color: "var(--map-warn)", dash: "2 5" });
 });
 
 test("insideCounts stops at a parent loop", () => {

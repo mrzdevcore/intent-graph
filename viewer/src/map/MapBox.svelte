@@ -28,8 +28,8 @@
   const ICON: Record<string, [string, string]> = {
     system: ["M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z", "var(--map-fg-2)"],
     app: ["M3 4h18v13H3zM8 21h8M12 17v4", "var(--map-fg-2)"], entry: ["M3 4h18v13H3zM8 21h8M12 17v4", "var(--map-blue)"],
-    api: ["M3 4h18v7H3zM3 13h18v7H3zM7 7.5h.01M7 16.5h.01", "var(--map-fg-2)"],
-    worker: ["M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1", "var(--map-fg-2)"],
+    service: ["M3 4h18v7H3zM3 13h18v7H3zM7 7.5h.01M7 16.5h.01", "var(--map-fg-2)"],
+    job: ["M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1", "var(--map-fg-2)"],
     store: ["M4 5c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3", "var(--map-fg-2)"],
     queue: ["M3 6h18M3 12h18M3 18h12", "var(--map-fg-2)"],
     external: ["M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z", "var(--map-muted)"],
