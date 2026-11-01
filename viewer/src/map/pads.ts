@@ -1,4 +1,4 @@
-import { HEAD, OPEN, fitInner, fitTo, type Cam } from "./camera";
+import { HEAD, OPEN, fitInner, fitTo, showsInside, type Cam } from "./camera";
 import type { Frame, View } from "./types";
 
 /** A connection on an open box's edge. `other`: the box at its far end, outside this one. `child`:
@@ -30,6 +30,17 @@ export function fitBeside(f: Frame, view: { w: number; h: number }, pads: Pad[],
   const right = (card + GUTTER + (pads.some((p) => p.side === "out") ? LABEL : 0)) * rem;
   const k = Math.max(OPEN / f.w, Math.min((view.w - left - right) / f.w, (view.h * 0.8) / f.h));
   return { k, x: (view.w + left - right) / 2 - (f.x + f.w / 2) * k, y: view.h / 2 - (f.y + f.h / 2) * k };
+}
+
+/**
+ * Whether a box at `s` on screen, opened and with pads, is the one you are in: it holds the middle of
+ * the space left of the card (`card` rem) and fills 60% of it, less the room for labels on both sides.
+ * Whatever fitBeside gave passes this with or without the card still open, so closing it changes nothing.
+ */
+export function fillsBeside(s: Frame, view: { w: number; h: number }, card: number, rem: number) {
+  const x = (view.w - card * rem) / 2, y = view.h / 2;
+  const w = Math.max(view.w - (card + 2 * (LABEL + GUTTER)) * rem, OPEN);
+  return showsInside(s.w) && s.x <= x && x <= s.x + s.w && s.y <= y && y <= s.y + s.h && Math.max(s.w / w, s.h / view.h) >= 0.6;
 }
 
 /** Level with their children, top to bottom; evenly below the header when too close, or when a stub has no level. */
