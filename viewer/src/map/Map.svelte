@@ -13,6 +13,7 @@
   import { shapeOf } from "./shapes";
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
+  import Pads from "./Pads.svelte";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
   import Search from "./Search.svelte";
@@ -115,6 +116,7 @@
     const f = view.placed.frames[id];
     return { ...f, x: f.x + d.x, y: f.y + d.y };
   };
+  const drawn = (id: string) => (live?.id === id ? shifted(id, live) : shown.placed.frames[id]);
   const liveWiring = $derived.by(() => {
     if (!live) return null;
     const p = byId.get(live.id)?.parent ?? ROOT, frames = siblings(p);
@@ -430,7 +432,7 @@
     </div>
   {/each}
   {#each (kids.get(pid) ?? []).filter((b) => !vw || seen(b.id)) as b (b.id)}
-    {@const f = live?.id === b.id ? shifted(b.id, live) : shown.placed.frames[b.id]}
+    {@const f = drawn(b.id)}
     {@const sw = world.get(b.id)!.w * cam.k}
     {@const open = showsInside(sw) && kids.has(b.id) && !!view.placed.inner[b.id]}
     {@const source = view.sources?.[b.id]}
@@ -452,6 +454,7 @@
         <div class="inside" style:width="{t.iw}px" style:height="{t.ih}px"
           style:transform="translate({t.x}px, {t.y}px) scale({t.s})">{@render level(b.id)}</div>
       {/if}
+      {#if showsInside(sw)}<Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} />{/if}
     </div>
   {/each}
   <!-- the focused arrows' labels, above the boxes -->
