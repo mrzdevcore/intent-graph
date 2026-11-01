@@ -54,8 +54,8 @@ fn dependency_rule() {
         }
     }
     assert_eq!(
-        seen, 8,
-        "ig-core, ig-app, ig-lang-ts, ig-lang-py, ig-lang-rs, ig-fs, ig-git, ig-conn-incus"
+        seen, 9,
+        "ig-core, ig-app, ig-lang-ts, ig-lang-py, ig-lang-rs, ig-fs, ig-git, ig-conn-incus, ig-conn-traefik"
     );
 }
 

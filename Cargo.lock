@@ -2039,6 +2039,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-conn-traefik"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+ "serde",
+ "serde_yaml_ng",
+]
+
+[[package]]
 name = "ig-core"
 version = "0.1.0"
 dependencies = [

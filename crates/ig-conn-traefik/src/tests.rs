@@ -1,0 +1,89 @@
+use super::*;
+use ig_core::ports::{Resource, ResourceKind, Target};
+use ig_core::testing::MemFiles;
+
+const FILE: &str = r#"
+http:
+  middlewares:
+    auth: { basicAuth: { users: ["SECRET_CANARY"] } }
+  routers:
+    dash: { rule: "Host(`dash.example.test`)", service: api@internal }
+    app:  { rule: "Host(`app.example.test`)", service: app-svc }
+    wiki-router: { rule: "Host(`wiki.example.test`) && PathPrefix(`/x`)", service: wiki-svc }
+    multi: { rule: "Host(`m.example.test`)", service: multi-svc }
+  services:
+    app-svc:   { loadBalancer: { servers: [{ url: "http://10.0.0.2:80" }] } }
+    wiki-svc:  { loadBalancer: { servers: [{ url: "http://wiki:8080" }] } }
+    multi-svc: { loadBalancer: { servers: [{ url: "10.0.0.5:80" }, { url: "http://10.0.0.6:80" }] } }
+"#;
+
+fn read_at(file: &str, text: &str) -> Result<Snapshot, PortError> {
+    let settings = Settings::from([("file".to_string(), file.to_string())]);
+    TraefikConnector.read(&settings, &MemFiles::with(&[(file, text)]))
+}
+fn read_text(text: &str) -> Result<Snapshot, PortError> {
+    read_at("t.yml", text)
+}
+fn read(text: &str) -> Snapshot {
+    read_text(text).unwrap()
+}
+fn read_missing(file: &str) -> Result<Snapshot, PortError> {
+    let settings = Settings::from([("file".to_string(), file.to_string())]);
+    TraefikConnector.read(&settings, &MemFiles::default())
+}
+fn routes(s: &Snapshot) -> Vec<&Resource> {
+    s.resources
+        .iter()
+        .filter(|r| r.kind == ResourceKind::Route)
+        .collect()
+}
+fn target(s: &Snapshot, router: &str) -> Target {
+    let link = s.links.iter().find(|l| l.from.name == router).unwrap();
+    link.to.clone()
+}
+
+#[test]
+fn routers_become_routes_inside_one_service() {
+    let s = read(FILE);
+    let titles: Vec<_> = routes(&s).iter().map(|r| r.title.clone()).collect();
+    assert_eq!(
+        titles,
+        ["app.example.test", "m.example.test", "wiki.example.test"]
+    ); // no api@internal
+    assert!(!format!("{s:?}").contains("SECRET_CANARY"));
+}
+#[test]
+fn a_link_looks_up_an_ip_then_names() {
+    assert_eq!(
+        target(&read(FILE), "app"),
+        Target::Lookup {
+            address: Some("10.0.0.2".into()),
+            names: vec!["app".into()]
+        }
+    );
+    assert_eq!(
+        target(&read(FILE), "wiki-router"),
+        Target::Lookup {
+            address: None,
+            names: vec!["wiki".into(), "wiki-router".into()]
+        }
+    );
+}
+#[test]
+fn the_first_server_stands_for_a_service_and_a_missing_scheme_is_fine() {
+    assert_eq!(
+        target(&read(FILE), "multi"),
+        Target::Lookup {
+            address: Some("10.0.0.5".into()),
+            names: vec!["multi".into()]
+        }
+    );
+}
+#[test]
+fn a_bad_path_a_missing_file_and_broken_yaml_are_errors_not_panics() {
+    for bad in ["/etc/x", "../x", ""] {
+        assert!(read_at(bad, FILE).unwrap_err().to_string().contains("file"));
+    }
+    assert!(read_missing("t.yml").is_err());
+    assert!(read_text("{ not: [yaml").is_err());
+}
