@@ -52,10 +52,16 @@ fn host(rule: &str) -> Option<&str> {
     Some(&rest[..rest.find('`')?])
 }
 
-/// The host of a server url, scheme and port cut off.
+/// The host of a server url: scheme, userinfo, port, path, query and fragment cut off, an
+/// IPv6 host without its brackets.
 fn url_host(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
-    rest.split([':', '/']).next().unwrap_or("")
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    match host.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => host.split(':').next().unwrap_or(""),
+    }
 }
 
 fn relative(file: &str) -> bool {
@@ -121,7 +127,8 @@ impl Connector for TraefikConnector {
                 .find_map(|s| s.url.as_deref())
                 .map(url_host)
                 .filter(|h| !h.is_empty());
-            let is_ip = |h: &&str| h.chars().all(|c| c.is_ascii_digit() || c == '.');
+            let is_ip =
+                |h: &&str| h.contains(':') || h.chars().all(|c| c.is_ascii_digit() || c == '.');
             let address = server.filter(is_ip).map(String::from);
             let mut names: Vec<String> = server
                 .filter(|h| !is_ip(h))
