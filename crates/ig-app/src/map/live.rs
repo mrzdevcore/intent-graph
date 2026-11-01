@@ -36,33 +36,34 @@ pub struct Applied {
 }
 
 /// One read per `config.connectors` entry, said on `progress` as it starts: a server can take
-/// seconds. An unknown `kind` gives a notice naming the entry.
+/// seconds. An unknown `kind` is a failed read, so a notice, and it concludes nothing.
 pub fn read_all(
     config: &Config,
     connectors: &[&dyn Connector],
     files: &dyn Files,
     progress: &Progress,
-) -> (Vec<ConnectorRead>, Vec<String>) {
-    let (mut reads, mut notices) = (vec![], vec![]);
+) -> Vec<ConnectorRead> {
+    let mut reads = vec![];
     for e in &config.connectors {
         let words: Vec<&str> = std::iter::once(e.kind.as_str())
             .chain(e.settings.values().map(String::as_str))
             .collect();
         let label = words.join(" ");
-        match connectors.iter().find(|c| c.kind() == e.kind) {
+        let result = match connectors.iter().find(|c| c.kind() == e.kind) {
             Some(c) => {
                 progress(&format!("reading {label}…"));
-                reads.push(ConnectorRead {
-                    label,
-                    kind: e.kind.clone(),
-                    remote: (e.settings.get("remote").or_else(|| e.settings.get("file"))).cloned(),
-                    result: c.read(&e.settings, files).map_err(|e| e.to_string()),
-                })
+                c.read(&e.settings, files).map_err(|e| e.to_string())
             }
-            None => notices.push(format!("connectors: no connector for `{label}`; skipped")),
-        }
+            None => Err(format!("{label}: no connector of that kind; skipped")),
+        };
+        reads.push(ConnectorRead {
+            label,
+            kind: e.kind.clone(),
+            remote: (e.settings.get("remote").or_else(|| e.settings.get("file"))).cloned(),
+            result,
+        });
     }
-    (reads, notices)
+    reads
 }
 
 /// A `runs=` value: `<kind>:<remote>/<name>`, separated by spaces. A remote may be a path, so
@@ -388,14 +389,14 @@ fn resolve<'r>(
 }
 
 /// Each link an arrow to where it resolved, its parent the lowest common parent of its ends so
-/// that `arrows::lift` keeps it in `parts`; one that resolves nowhere a warn mark, unless a
-/// read failed, since the target may be on that one.
+/// that `arrows::lift` keeps it in `parts`; one that resolves nowhere a warn mark, unless `pause`,
+/// since the target may be where nothing looked.
 fn draw_links(
     m: &mut MapFile,
     live: &[&Snapshot],
     services: &[&Resource],
     found: &Found,
-    any_failed: bool,
+    pause: bool,
 ) {
     let parents: HashMap<&str, &str> = (m.boxes.iter())
         .filter_map(|b| Some((b.id.as_str(), b.parent.as_deref()?)))
@@ -435,7 +436,7 @@ fn draw_links(
                     parts: vec![],
                 });
             }
-            None if !any_failed => m.marks.push(word(
+            None if !pause => m.marks.push(word(
                 from,
                 MarkState::Warn,
                 "stale",
@@ -477,7 +478,11 @@ pub fn apply(m: &mut MapFile, reads: &[ConnectorRead]) -> Applied {
     m.marks
         .extend(found.on.iter().filter_map(|(id, rs)| state_mark(id, rs)));
     place_routes(m, &all, &services, holder, &mut found);
-    draw_links(m, &live, &services, &found, live.len() < reads.len());
+    // a read that failed or was skipped may hold the target, and so may a server nobody read
+    // ponytail: only Traefik reports no addresses; ask the connector when a second does not
+    let reports = |r: &ConnectorRead| r.result.is_ok() && r.kind != TRAEFIK;
+    let pause = live.len() < reads.len() || !reads.iter().any(reports);
+    draw_links(m, &live, &services, &found, pause);
     sort_marks(&mut m.marks);
     out
 }

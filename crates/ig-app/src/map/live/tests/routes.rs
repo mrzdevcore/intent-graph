@@ -61,6 +61,29 @@ fn a_route_resolving_to_nothing_warns() {
 }
 
 #[test]
+fn a_route_is_not_called_stale_when_an_entry_was_skipped() {
+    // a typo in `kind`: the instances are out there, on the entry nothing read
+    let up = Fake("incus", Ok(Snapshot::default()));
+    let mut reads = read(
+        "connectors:\n  - { kind: incus, remote: homelab }\n  - { kind: incuss, remote: lab2 }\n",
+        &up,
+    );
+    reads.push(traefik(&[("gone", Some("10.0.0.9"), &["gone"])]));
+    let mut m = map(GITLAB);
+    let out = apply(&mut m, &reads);
+    assert!(marks(&m, "traefik/route-gone").is_empty(), "{:?}", m.marks);
+    assert_eq!(out.notices.len(), 1, "{:?}", out.notices);
+}
+
+#[test]
+fn a_route_is_not_called_stale_when_nothing_reports_addresses() {
+    let mut m = map(GITLAB);
+    apply(&mut m, &[traefik(&[("gone", Some("10.0.0.9"), &["gone"])])]);
+    assert!(marks(&m, "traefik/route-gone").is_empty(), "{:?}", m.marks);
+    assert!(has(&m, "traefik/route-gone"));
+}
+
+#[test]
 fn a_route_never_picks_between_two_instances() {
     let mut m = map(GITLAB);
     apply(

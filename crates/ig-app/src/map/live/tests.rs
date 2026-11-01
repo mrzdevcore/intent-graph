@@ -409,7 +409,7 @@ fn read_all_reads_each_entry_and_names_what_it_skips() {
     let said = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
     let heard = said.clone();
     let progress = move |line: &str| heard.lock().unwrap().push(line.to_string());
-    let (reads, notices) = read_all(
+    let reads = read_all(
         &config,
         &[&incus, &traefik],
         &MemFiles::with(&[]),
@@ -419,15 +419,15 @@ fn read_all_reads_each_entry_and_names_what_it_skips() {
         *said.lock().unwrap(),
         ["reading incus homelab…", "reading traefik t.yml…"]
     );
-    assert_eq!(reads.len(), 2);
+    assert_eq!(reads.len(), 3);
     assert_eq!(reads[0].label, "incus homelab");
     assert_eq!(reads[0].kind, "incus");
     assert_eq!(reads[0].remote.as_deref(), Some("homelab"));
     assert_eq!(reads[0].result, Ok(Snapshot::default()));
-    assert_eq!(reads[1].label, "traefik t.yml");
-    assert_eq!(reads[1].result, Err("traefik t.yml: broken".to_string()));
-    assert_eq!(notices.len(), 1);
-    assert!(notices[0].contains("nope x"), "{notices:?}");
+    let skipped = "nope x: no connector of that kind; skipped".to_string();
+    assert_eq!(reads[1].result, Err(skipped));
+    assert_eq!(reads[2].label, "traefik t.yml");
+    assert_eq!(reads[2].result, Err("traefik t.yml: broken".to_string()));
 }
 
 #[test]
@@ -484,7 +484,7 @@ fn runs_works_on_a_box_of_any_kind() {
 }
 
 /// `ig.yaml`'s connectors read by `connector`.
-fn read(yaml: &str, connector: &Fake) -> (Vec<ConnectorRead>, Vec<String>) {
+fn read(yaml: &str, connector: &Fake) -> Vec<ConnectorRead> {
     let config = ig_core::config::Config::parse(yaml).unwrap();
     read_all(&config, &[connector], &MemFiles::with(&[]), &|_| {})
 }
@@ -496,14 +496,14 @@ fn an_extra_setting_does_not_change_what_a_read_covers() {
     let yaml = "connectors:\n  - { kind: incus, remote: homelab, note: lab }\n";
 
     let down = Fake("incus", Err(PortError::Io("no route to host".into())));
-    let (reads, _) = read(yaml, &down);
+    let reads = read(yaml, &down);
     let mut m = map(RUNS_GITLAB);
     let out = apply(&mut m, &reads);
     assert_eq!(out.notices.len(), 1);
     assert!(marks(&m, "web").is_empty(), "{:?}", m.marks);
 
     let up = Fake("incus", Ok(Snapshot::default()));
-    let (reads, _) = read(yaml, &up);
+    let reads = read(yaml, &up);
     let mut m = map(RUNS_GITLAB);
     apply(&mut m, &reads);
     assert_eq!(
@@ -515,13 +515,13 @@ fn an_extra_setting_does_not_change_what_a_read_covers() {
 #[test]
 fn a_skipped_kind_says_nothing() {
     let up = Fake("traefik", Ok(Snapshot::default()));
-    let (reads, notices) = read(
+    let reads = read(
         "connectors:\n  - { kind: incus, remote: homelab }\n  - { kind: traefik, file: t.yml }\n",
         &up,
     );
-    assert_eq!(notices.len(), 1, "{notices:?}");
     let mut m = map(RUNS_GITLAB);
-    apply(&mut m, &reads);
+    let out = apply(&mut m, &reads);
+    assert_eq!(out.notices.len(), 1, "{:?}", out.notices);
     assert!(marks(&m, "web").is_empty(), "{:?}", m.marks);
 }
 
@@ -534,7 +534,7 @@ fn only_a_read_of_that_kind_and_remote_can_say_not_found() {
 
     // a file is the remote of a connector that reads one
     let up = Fake("traefik", Ok(Snapshot::default()));
-    let (reads, _) = read("connectors:\n  - { kind: traefik, file: t.yml }\n", &up);
+    let reads = read("connectors:\n  - { kind: traefik, file: t.yml }\n", &up);
     let mut m = map("service \"web\" title=\"W\" runs=\"traefik:t.yml/gone\"");
     apply(&mut m, &reads);
     assert_eq!(

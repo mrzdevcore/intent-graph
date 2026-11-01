@@ -120,7 +120,7 @@ fn an_unknown_connector_kind_is_a_notice() {
     let (root, bin) = shop("unknown", "connectors:\n  - { kind: nope, remote: x }\n");
     let (code, out) = ig(&root, &bin, VIEW);
     assert_eq!(code, 0, "{out}");
-    assert!(out.contains("no connector for `nope x`"), "{out}");
+    assert!(out.contains("nope x: no connector of that kind"), "{out}");
 }
 
 #[test]
