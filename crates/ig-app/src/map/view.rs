@@ -310,8 +310,7 @@ pub fn run_live(
         let kinds = Kinds::load(env.files).unwrap_or_else(|_| Kinds::builtin().clone());
         warnings(&m, &kinds)
     });
-    let (reads, unknown) = read_all(&config, connectors, env.files, env.progress);
-    notices.extend(unknown);
+    let reads = read_all(&config, connectors, env.files, env.progress);
     let live = apply(&mut m, &reads);
     notices.extend(live.notices);
     // what is not read now is read only when ig/ is written: no "ig's guess" banner
