@@ -546,7 +546,12 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow], unread: &[String]) -> Plan
             }),
         }
     }
-    for a in arrows {
+    // each arrow as written: what ig/ says, not the boxes it is drawn between
+    let written = arrows.iter().flat_map(|a| match a.parts.is_empty() {
+        true => std::slice::from_ref(a),
+        false => &a.parts[..],
+    });
+    for a in written {
         let (from, kind, to) = (&a.from, name::<ArrowKind>(&a.kind), &a.to);
         match a.origin {
             Origin::Built | Origin::Moved => {}

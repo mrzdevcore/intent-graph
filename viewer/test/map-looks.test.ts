@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { arrowLook, insideCounts, look } from "../src/map/looks";
+import { arrowLook, insideCounts, linksOf, look } from "../src/map/looks";
 import type { MapArrow, MapBox, Mark, View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 
@@ -59,4 +59,15 @@ test("a box to move is dashed blue with a chip", () => {
 test("an arrow to build or in drift", () => {
   expect(arrowLook({ ...arrow("calls"), origin: "build" }, [], new Set())).toMatchObject({ color: "var(--map-trace)", dash: "6 4" });
   expect(arrowLook({ ...arrow("calls"), origin: "drift" }, [], new Set())).toMatchObject({ color: "var(--map-warn)", dash: "2 4", label: "not in ig/" });
+});
+
+test("linksOf: a box in a group gets its own arrows, its group the one drawn", () => {
+  const arrow = (from: string, to: string, parts?: MapArrow[]) =>
+    ({ id: `${from}->${to}`, parent: "system", from, to, kind: "calls", count: 1, kinds: ["calls"], parts }) as MapArrow;
+  const a = arrow("traefik", "a"), b = arrow("traefik", "b"), other = arrow("host", "other");
+  const drawn = { ...arrow("host", "public", [a, b]), id: "traefik->a" };
+  expect(linksOf([drawn, other], "traefik")).toEqual([a, b]);
+  expect(linksOf([drawn, other], "b")).toEqual([b]);
+  expect(linksOf([drawn, other], "host")).toEqual([drawn, other]);
+  expect(linksOf([drawn, other], "nobody")).toEqual([]);
 });

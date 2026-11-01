@@ -71,6 +71,12 @@ export function insideCounts(view: View, marks: Mark[], on: Set<string>): Map<st
   return out;
 }
 
+/** What links box `id`: arrows drawn at it, and for a box inside a group, its own arrows as written. */
+export function linksOf(arrows: MapArrow[], id: string): MapArrow[] {
+  const at = (a: MapArrow) => a.from === id || a.to === id;
+  return arrows.flatMap((a) => (at(a) ? [a] : (a.parts ?? []).filter(at)));
+}
+
 const ARROW: Record<string, { color: string; dash: string | null; head: "filled" | "open" | "hollow" }> = {
   // ponytail: names only, the old looks (uses as imports did); each kind's own look comes with Task 6
   uses: { color: "var(--map-faint)", dash: null, head: "filled" },

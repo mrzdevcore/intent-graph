@@ -2,7 +2,7 @@
      where each annotated field came from. All text, never HTML. -->
 <script lang="ts">
   import type { EditApi } from "../api";
-  import { tag } from "./looks";
+  import { linksOf, tag } from "./looks";
   import type { Field, MapBox, View } from "./types";
   import Code from "./Code.svelte";
 
@@ -16,8 +16,9 @@
   const titleOf = (id: string) => view.boxes.find((b) => b.id === id)?.title.value ?? id;
   // a part named like a component on the map (a tag it renders): a link to it
   const components = $derived(new Map(view.boxes.filter((b) => b.kind.value === "component").map((b) => [b.title.value, b.id])));
-  const mine = $derived(view.arrows.filter((a) => a.from === box.id || a.to === box.id));
-  const touched = $derived(new Set([box.id, ...mine.map((a) => a.id)]));
+  const mine = $derived(linksOf(view.arrows, box.id));
+  // a mark on an arrow in a group is on the one drawn for it
+  const touched = $derived(new Set([box.id, ...view.arrows.filter((a) => linksOf([a], box.id).length).map((a) => a.id)]));
   const health = $derived(view.marks.filter((m) => m.layer === "health" && m.target === box.id));
   const attention = $derived(view.marks.filter((m) => (m.layer === "rules" || m.layer === "risks") && m.state !== "ok" && touched.has(m.target)));
   const source = $derived(view.sources?.[box.id]);

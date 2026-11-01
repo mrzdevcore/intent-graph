@@ -142,13 +142,23 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         &parents,
         m.arrows.iter().cloned().chain(code.arrows).collect(),
     );
+    // an arrow as written → the arrow drawn for it
+    let drawn: HashMap<&str, &str> = (arrows.iter())
+        .flat_map(|a| a.parts.iter().map(|p| (p.id.as_str(), a.id.as_str())))
+        .collect();
     let known: HashSet<&str> = boxes
         .iter()
         .map(|b| b.id.as_str())
         .chain(arrows.iter().map(|a| a.id.as_str()))
+        .chain(drawn.keys().copied())
         .collect();
     let (extra, mut notices) = file_layers(files, &known);
     let mut marks: Vec<Mark> = m.marks.iter().cloned().chain(extra).collect();
+    for k in &mut marks {
+        if let Some(id) = drawn.get(k.target.as_str()) {
+            k.target = id.to_string();
+        }
+    }
     sort_marks(&mut marks);
     let (placed, mut unrouted) = layout(&boxes, &arrows);
     notices.append(&mut unrouted);

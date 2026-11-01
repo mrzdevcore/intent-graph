@@ -62,6 +62,8 @@ export type MapArrow = {
   kinds: ArrowKind[];
   inLoop?: boolean;
   origin?: "build" | "drift";
+  /** The arrows as written, when this one is drawn between boxes above their ends. */
+  parts?: MapArrow[];
 };
 export type MarkState = "ok" | "warn" | "bad" | "down";
 export type Mark = { layer: string; target: string; state: MarkState; badge?: string; value?: string; note?: string };

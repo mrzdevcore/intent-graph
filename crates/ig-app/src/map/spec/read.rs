@@ -357,6 +357,7 @@ impl Reader {
                 kinds: vec![kind],
                 in_loop: false,
                 origin: Default::default(),
+                parts: vec![],
             },
             place,
         ));
