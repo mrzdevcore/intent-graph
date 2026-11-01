@@ -58,7 +58,7 @@ fn real_main() -> Result<u8> {
     match a.cmd.as_str() {
         "view" => {
             let v = if a.no_read {
-                view::run(&env)?
+                view::run_live(&env, None, ig_wire::CONNECTORS)?
             } else {
                 let flag = match a.agent.as_deref() {
                     Some(n) => Some(Agent::parse(n).ok_or_else(|| {
@@ -71,7 +71,7 @@ fn real_main() -> Result<u8> {
                 let mut confirm = agent::confirm;
                 let mut run =
                     |ag: Agent, prompt: &str, ids: &[String]| agent::run(&root, ag, prompt, ids);
-                view::run_with(
+                view::run_live(
                     &env,
                     Some(&mut Ask {
                         all: a.read,
@@ -83,6 +83,7 @@ fn real_main() -> Result<u8> {
                         run: &mut run,
                         meter: &|done, total, status| bar.set(done, total, status),
                     }),
+                    ig_wire::CONNECTORS,
                 )?
             };
             for n in &v.notices {

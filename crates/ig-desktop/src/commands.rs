@@ -19,7 +19,11 @@ pub fn is_project(root: &Path) -> bool {
 /// The viewer's data for `root`, like `ig view --json`.
 pub fn view_data_for(root: &Path) -> Result<Value, String> {
     let w = Wired::new(root);
-    let v = view::run(&w.env()).map_err(|e| format!("{e:#}"))?;
+    let mut v = view::run(&w.env()).map_err(|e| format!("{e:#}"))?;
+    if ig_app::config::load(w.files()).is_ok_and(|c| !c.connectors.is_empty()) {
+        v.notices
+            .push("connectors run in `ig view` only for now".into());
+    }
     serde_json::to_value(v).map_err(|e| e.to_string())
 }
 
@@ -167,6 +171,20 @@ mod tests {
             .success();
         assert!(ok);
         dir.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn view_data_says_connectors_do_not_run_here() {
+        let dir = scratch("conn");
+        let note = |d: &Path| view_data_for(d).unwrap()["notices"].to_string();
+        assert!(!note(&dir).contains("connectors run"));
+        let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap_or_default();
+        std::fs::write(
+            dir.join("ig.yaml"),
+            cfg + "connectors:\n  - { kind: incus, remote: homelab }\n",
+        )
+        .unwrap();
+        assert!(note(&dir).contains("connectors run in `ig view` only for now"));
     }
 
     #[test]
