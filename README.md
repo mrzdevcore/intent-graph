@@ -141,6 +141,7 @@ connectors:
 - Traefik's routes sit inside its box, each wired to the box it reaches. A route that reaches
   nothing is warned: the file may be stale.
 - A server that cannot be reached is a notice; the rest of the map still draws.
+- `incus list` shows the remote's current project only, so instances in other projects are not drawn.
 
 Connectors only read. They run in `ig view`, not in the desktop app, and never in `ig plan`,
 `ig check`, `ig accept` or MCP. They never write to `ig/`. `ig.yaml` cannot name a program: `remote`
