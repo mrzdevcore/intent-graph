@@ -225,6 +225,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
                     &config,
                     env.files,
                     env.progress,
+                    env.vcs.is_some_and(|v| v.head().is_some()),
                 ));
                 Ok(spec::read(env.files).ok().flatten().unwrap_or(s))
             }

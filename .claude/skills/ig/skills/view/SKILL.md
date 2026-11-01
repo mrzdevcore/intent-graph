@@ -1,16 +1,12 @@
 ---
 name: view
-description: Open the ig viewer on the current work and say what it shows - the plan being designed, the build in progress, or the finished change. Use when asked to show, view or visualize the graph, the plan or the result.
+description: Open the ig system map and say what it shows. Use when asked to show, view or visualize the architecture, the map or the graph.
 ---
 
 # Show the ig viewer
 
-1. Run `ig view`; it writes `.ig/view.html` and opens it. The desktop app shows `ig_show` answers live.
-2. Say in one line which state it shows and what to look at (`ig view --json` has it as `state`):
-   - `planned`: dashed nodes are planned, and the Plan panel holds the volume.
-   - `applying`: solid nodes are built, dashed nodes are still missing.
-   - `done`: the code diffs and the brief.
-   - `plain`: the plain viewer, no plan.
-3. To open on specific nodes, call the `ig_show` tool with their ids first.
+1. Run `ig view --no-read` (you are the agent: never let it start another one); it writes `.ig/view.html` and opens it.
+2. Say in one line what to look at: `ig view --json --no-read` has the `boxes[]`, `arrows[]` and the layers'
+   `marks[]` (a `bad` or `warn` mark, with its `badge`, is worth naming), and `notices[]`.
 
-Never edit `ig.yaml`, `rules.md` or a plan from this skill.
+Never edit `ig.yaml` from this skill.

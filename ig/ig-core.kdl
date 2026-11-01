@@ -1,0 +1,13 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+module "ig-core" title="ig core" tech="Rust" description="The core shared by every crate: the architecture model, ports, config, workspace, cache and the architecture rules." {
+    at "crates/ig-core/**"
+    pattern "none"
+    usecase "ig-core/root" title="Model & ports" tech="Rust · serde_yaml_ng" description="The map's model and words, the ports the other crates fill, plus config, workspace and cache." {
+        at "crates/ig-core/src/*"
+        uses "ig-core/rules"
+    }
+    usecase "ig-core/rules" title="Architecture rules" tech="Rust · globset" description="Checks layer and architecture rules against the model." {
+        at "crates/ig-core/src/rules/**"
+        calls "ig-core/root"
+    }
+}

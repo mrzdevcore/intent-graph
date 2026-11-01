@@ -1,0 +1,11 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+app "ig-desktop" title="ig desktop" tech="Rust · Tauri" description="The desktop app that shows the map and runs an AI agent session to annotate it." logo="tauri" {
+    at "crates/ig-desktop/**"
+    pattern "none"
+    calls "ig-app"
+    calls "ig-core"
+    calls "ig-wire"
+    entry "ig-desktop/root" title="Tauri commands & agent session" tech="Rust · Tauri · tokio · ACP" description="Tauri commands, events and permissions, plus an Agent Client Protocol session that proposes edits to the map." logo="tauri" {
+        at "crates/ig-desktop/src/*"
+    }
+}
