@@ -120,7 +120,7 @@ as `parent`, an Ingress rule a `Route`, a Service's selector a `Link`.
 
 ### Incus connector (`ig-conn-incus`)
 
-Runs `incus list <remote>: --format json` with a 5 second deadline, without a shell. It parses into
+Runs `incus list <remote>: --format json` with a 30 second deadline, without a shell. It parses into
 a struct holding only `name`, `type`, `status` and `state.network.<iface>.addresses[].{address,
 scope}`. Everything else, `config`, `expanded_config`, `devices` and `expanded_devices` included, is
 never deserialized. A failed parse reports "could not read the instance list", never the output.

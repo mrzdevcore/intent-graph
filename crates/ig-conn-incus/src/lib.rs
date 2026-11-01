@@ -11,7 +11,8 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const DEADLINE: Duration = Duration::from_secs(5);
+// A real Incus server was seen taking 10s to list, so 5s could never read it.
+const DEADLINE: Duration = Duration::from_secs(30);
 /// Interfaces that hold a container runtime's own addresses, the same on every instance.
 const SKIPPED: [&str; 5] = ["docker", "br-", "cni", "flannel", "veth"];
 
