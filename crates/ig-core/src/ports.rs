@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::http::HttpCall;
 use crate::model::{Anatomy, Edge, Node, ParseError};
 use crate::workspace::{Layout, Package, SourceFile, WorkspaceInfo};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 /// A port failure. Messages are shown to the user as they are.
@@ -168,4 +168,69 @@ pub trait LanguageFrontend: Send + Sync {
     fn anatomy(&self, _path: &str, _source: &str, _config: &Config) -> Vec<Anatomy> {
         vec![]
     }
+}
+
+/// A connector's `ig.yaml` keys other than `kind`.
+pub type Settings = BTreeMap<String, String>;
+
+/// Where a resource lives: which connector, which remote, and its name there.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ResourceId {
+    pub connector: String,
+    pub remote: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResourceKind {
+    Service,
+    Route,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum State {
+    Running,
+    Stopped,
+    Unknown,
+}
+
+/// Something running that the map can draw.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resource {
+    pub id: ResourceId,
+    pub title: String,
+    pub kind: ResourceKind,
+    pub parent: Option<ResourceId>,
+    pub state: State,
+    pub addresses: Vec<String>,
+}
+
+/// What a link points at: a known resource, or an address or exact names to look up.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Target {
+    Resource(ResourceId),
+    Lookup {
+        address: Option<String>,
+        names: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Link {
+    pub from: ResourceId,
+    pub to: Target,
+    pub label: Option<String>,
+}
+
+/// Everything one connector read.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Snapshot {
+    pub resources: Vec<Resource>,
+    pub links: Vec<Link>,
+}
+
+/// Reads a running system. Read-only: it never writes to `ig/`.
+pub trait Connector: Send + Sync {
+    fn kind(&self) -> &'static str;
+    fn read(&self, settings: &Settings, files: &dyn Files) -> Result<Snapshot, PortError>;
 }

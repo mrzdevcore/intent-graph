@@ -73,6 +73,13 @@ impl Default for Blueprint {
     }
 }
 
+/// One `connectors:` entry: which connector, and its other keys as plain strings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorEntry {
+    pub kind: String,
+    pub settings: std::collections::BTreeMap<String, String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub layers: Vec<(String, Vec<String>)>,
@@ -87,6 +94,8 @@ pub struct Config {
     pub blueprint: Blueprint,
     /// The AI agent `ig view` asks to read the architecture: claude, gemini, codex or ollama.
     pub agent: Option<String>,
+    /// Running systems to read and draw on the map.
+    pub connectors: Vec<ConnectorEntry>,
     /// Removed keys found in the file; they are ignored.
     pub notices: Vec<String>,
 }
@@ -113,6 +122,7 @@ impl Default for Config {
             patterns: vec![],
             blueprint: Blueprint::default(),
             agent: None,
+            connectors: vec![],
             notices: vec![],
         }
     }
@@ -202,6 +212,21 @@ impl Config {
                     }
                     _ => bail!("ig.yaml: agent: expected claude, gemini, codex or ollama"),
                 },
+                "connectors" => {
+                    for (i, e) in list(v, "connectors")?.iter().enumerate() {
+                        let path = format!("connectors[{i}]");
+                        let mut settings = std::collections::BTreeMap::new();
+                        for (sk, sv) in mapping(e, &path)? {
+                            let sk = scalar(sk);
+                            settings
+                                .insert(sk.clone(), scalar_string(sv, &format!("{path}.{sk}"))?);
+                        }
+                        let Some(kind) = settings.remove("kind") else {
+                            bail!("ig.yaml: {path}.kind: expected a string")
+                        };
+                        c.connectors.push(ConnectorEntry { kind, settings });
+                    }
+                }
                 "complexity" | "complexityMax" | "checkers" | "severity" | "blockOn" | "editor"
                 | "hookMaxRounds" | "entryPoints" | "review" => c.notices.push(key.to_string()),
                 _ => bail!("ig.yaml: {}: unknown key", scalar(k)),
@@ -298,6 +323,13 @@ fn string(v: &Value, path: &str) -> Result<String> {
     }
 }
 
+fn scalar_string(v: &Value, path: &str) -> Result<String> {
+    match v {
+        Value::String(_) | Value::Number(_) | Value::Bool(_) => Ok(scalar(v)),
+        _ => bail!("ig.yaml: {path}: expected a string"),
+    }
+}
+
 fn strings(v: &Value, path: &str) -> Result<Vec<String>> {
     list(v, path)?
         .iter()
@@ -312,6 +344,27 @@ fn strings(v: &Value, path: &str) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connectors_are_read_as_a_list_of_kinds_and_settings() {
+        let c = Config::parse("connectors:\n  - { kind: incus, remote: homelab }\n  - { kind: traefik, file: t.yml }\n").unwrap();
+        assert_eq!(c.connectors[0].kind, "incus");
+        assert_eq!(c.connectors[0].settings["remote"], "homelab");
+        assert_eq!(c.connectors[1].settings["file"], "t.yml");
+        assert!(
+            Config::parse("connectors: nope\n")
+                .unwrap_err()
+                .0
+                .contains("connectors")
+        );
+        assert!(
+            Config::parse("connectors:\n  - { remote: homelab }\n")
+                .unwrap_err()
+                .0
+                .contains("kind")
+        );
+        assert!(Config::default().connectors.is_empty());
+    }
 
     #[test]
     fn old_keys_are_ignored_with_notice() {
