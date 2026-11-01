@@ -63,7 +63,11 @@ fn view_draws_the_server_and_no_secret_reaches_the_page() {
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("\"state\"") && out.contains("gitlab"), "{out}");
     assert!(!out.contains("SECRET_CANARY") && !out.contains("10.0.0.2"));
-    let page = std::fs::read_to_string(root.join(".ig/view.html")).unwrap_or_default();
+    // `--json` never writes the page: run again without it and read the real file.
+    let (code, out) = ig(&root, &bin, &["view", "--no-read", "--no-open"]);
+    assert_eq!(code, 0, "{out}");
+    let page = std::fs::read_to_string(root.join(".ig/view.html")).expect("view.html is written");
+    assert!(page.contains("gitlab"), "the page draws the instance");
     assert!(!page.contains("SECRET_CANARY") && !page.contains("10.0.0.2"));
     let spec: String = std::fs::read_dir(root.join("ig"))
         .unwrap()
