@@ -1,4 +1,4 @@
-import { HEAD, fitInner } from "./camera";
+import { HEAD, OPEN, fitInner, fitTo, type Cam } from "./camera";
 import type { Frame, View } from "./types";
 
 /** A connection on an open box's edge. `other`: the box at its far end, outside this one. `child`:
@@ -6,13 +6,30 @@ import type { Frame, View } from "./types";
 export type Pad = { side: "in" | "out"; other: string; title: string; child?: string; down: boolean; y: number };
 
 // a pad's height where it is smallest on screen, at the box width pads start at (showsInside)
-const ROOM = 24 / 560;
+const ROOM = 24 / OPEN;
+/** In rem: the widest pad label beside the edge (Pads.svelte: dot, name, chip), the details card and its
+ *  offset from the view's right (DetailsCard.svelte), that card when it shows code, and a gap all round. */
+export const LABEL = 12, CARD = 22.25, CARD_WIDE = 31, GUTTER = 1;
 
 /** Maps a child's frame (in the box's inner units) to the box's own units, as Map's `local` places it. */
 export function inBox(view: View, id: string, frame: { w: number; h: number }) {
   const [iw, ih] = view.placed.inner[id] ?? [0, 0];
   const t = iw && ih ? fitInner(frame, iw, ih) : { x: 0, y: 0, s: 1 };
   return (f: Frame): Frame => ({ x: t.x + f.x * t.s, y: t.y + f.y * t.s, w: f.w * t.s, h: f.h * t.s });
+}
+
+/**
+ * The camera for opening a box with pads: its whole frame `f` between the view's left and the details
+ * card (`card` rem, 0 with none), with room for the labels on the sides that have pads, and the same
+ * margin above and below as fitTo. Never so small the box closes, as its pads go with it: a window too
+ * narrow for that lets the frame run under the card instead.
+ */
+export function fitBeside(f: Frame, view: { w: number; h: number }, pads: Pad[], card: number, rem: number): Cam {
+  if (!(f.w > 0 && f.h > 0)) return fitTo(f, view);
+  const left = (GUTTER + (pads.some((p) => p.side === "in") ? LABEL : 0)) * rem;
+  const right = (card + GUTTER + (pads.some((p) => p.side === "out") ? LABEL : 0)) * rem;
+  const k = Math.max(OPEN / f.w, Math.min((view.w - left - right) / f.w, (view.h * 0.8) / f.h));
+  return { k, x: (view.w + left - right) / 2 - (f.x + f.w / 2) * k, y: view.h / 2 - (f.y + f.h / 2) * k };
 }
 
 /** Level with their children, top to bottom; evenly below the header when too close, or when a stub has no level. */

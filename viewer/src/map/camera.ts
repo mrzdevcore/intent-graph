@@ -91,4 +91,6 @@ export function placer(view: View) {
 export const steady = (zoom: number) => Math.min(1.6, Math.max(0.6, zoom)) / (zoom > 0 ? zoom : 1);
 
 export const detailFor = (w: number): "far" | "mid" | "near" => (w < 140 ? "far" : w < 220 ? "mid" : "near");
-export const showsInside = (w: number): boolean => w >= 560;
+/** The screen width from which a box shows its inside. */
+export const OPEN = 560;
+export const showsInside = (w: number): boolean => w >= OPEN;

@@ -10,8 +10,9 @@ import shop from "./fixtures/shop-view.json";
 const EVIL = "<img src=x onerror=alert(1)>";
 const size = { w: 1000, h: 800 };
 
-function setup() {
+function setup(change = (_: View) => {}) {
   const view = structuredClone(shop) as unknown as View;
+  change(view);
   view.boxes.find((b) => b.id === "stripe")!.title.value = EVIL;
   const camera = new Camera();
   const target = document.createElement("div");
@@ -90,8 +91,8 @@ test("a health layer turns api amber and its value shows in the card; the layer 
   expect(btn().style.borderColor).not.toBe("var(--map-warn)");
 });
 
-test("clicking a box with an inside frames the inside: it fills >= 80% of the view", () => {
-  const { view, camera, target, m } = setup();
+test("clicking a box with an inside and no pads frames the inside: it fills >= 80% of the view", () => {
+  const { view, camera, target, m } = setup((v) => { v.arrows = v.arrows.filter((a) => a.parent !== "system"); });
   (box(target, "api")!.querySelector("button") as HTMLButtonElement).click();
   m.tick(performance.now() + 1000);
   flushSync();
