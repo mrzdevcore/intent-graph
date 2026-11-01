@@ -216,8 +216,16 @@ fn traefik_box(
     boxes.into_iter().next()
 }
 
-/// A box nothing in `ig/` describes, with nothing for an agent to read.
-fn new_box(id: String, parent: &str, level: Level, kind: BoxKind, title: &str) -> MapBox {
+/// A box nothing in `ig/` describes, with nothing for an agent to read. `origin`: `Unmanaged` for
+/// what runs, `Built` for what ig draws around it, which nobody could add to `ig/`.
+fn new_box(
+    id: String,
+    parent: &str,
+    level: Level,
+    kind: BoxKind,
+    title: &str,
+    origin: Origin,
+) -> MapBox {
     let mut b = fresh(&FactBox {
         id,
         parent: Some(parent.into()),
@@ -234,7 +242,7 @@ fn new_box(id: String, parent: &str, level: Level, kind: BoxKind, title: &str) -
             logo: None,
         },
     });
-    b.origin = Origin::Unmanaged;
+    b.origin = origin;
     b.needs_reading = false;
     b
 }
@@ -261,7 +269,14 @@ fn unmanaged<'r>(m: &mut MapFile, services: &[&'r Resource], found: &mut Found<'
         let remote = r.id.remote.as_str();
         let group = groups.entry(remote).or_insert_with(|| {
             let id = unique(m, slug(remote, "remote"));
-            let b = new_box(id.clone(), &root, Level::Container, BoxKind::Group, remote);
+            let b = new_box(
+                id.clone(),
+                &root,
+                Level::Container,
+                BoxKind::Group,
+                remote,
+                Origin::Built,
+            );
             m.boxes.push(b);
             id
         });
@@ -272,6 +287,7 @@ fn unmanaged<'r>(m: &mut MapFile, services: &[&'r Resource], found: &mut Found<'
             Level::Container,
             BoxKind::Service,
             &r.title,
+            Origin::Unmanaged,
         );
         m.boxes.push(b);
         found.add(&id, r);
@@ -328,6 +344,7 @@ fn place_routes<'r>(
                 Level::Container,
                 BoxKind::Service,
                 TRAEFIK,
+                Origin::Unmanaged,
             );
             m.boxes.push(b);
             id
@@ -340,6 +357,7 @@ fn place_routes<'r>(
             Level::Component,
             BoxKind::Entry,
             &r.title,
+            Origin::Built,
         );
         b.props.insert("kind".into(), "route".into());
         m.boxes.push(b);

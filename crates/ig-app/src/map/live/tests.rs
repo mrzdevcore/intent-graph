@@ -146,7 +146,8 @@ fn an_instance_nothing_describes_is_unmanaged_in_a_group_named_for_its_remote() 
     assert_eq!(group.kind.value, BoxKind::Group);
     assert_eq!(group.parent.as_deref(), Some("sys"));
     assert_eq!(group.title.value, "homelab");
-    assert_eq!(group.origin, Origin::Unmanaged);
+    // only what runs is "not in ig/", not the group ig made to hold it
+    assert_eq!(group.origin, Origin::Built);
     let redis = find(&m, "homelab/redis");
     assert_eq!(redis.origin, Origin::Unmanaged);
     assert_eq!(redis.parent.as_deref(), Some("homelab"));
