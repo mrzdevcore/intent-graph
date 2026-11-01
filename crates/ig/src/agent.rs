@@ -148,12 +148,48 @@ impl Drop for Bar {
     }
 }
 
+/// A file that holds secrets by its name (`.example` ones hold none).
+fn is_secret(name: &str) -> bool {
+    let ends = [".tfstate", ".tfvars", ".tfvars.json", ".pem", ".key"];
+    (name == ".env" || name.starts_with(".env.") || name.contains(".tfstate."))
+        && !name.ends_with(".example")
+        || ends.iter().any(|e| name.ends_with(e))
+        || name.starts_with("id_rsa")
+        || name.starts_with("id_ed25519")
+}
+
+/// The files under `root` that hold secrets, sorted, whether git ignores them or not.
+fn secret_files(root: &Path) -> Vec<String> {
+    let (mut out, mut dirs) = (vec![], vec![root.to_path_buf()]);
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let (p, name) = (e.path(), e.file_name().to_string_lossy().into_owned());
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                if ![".git", "node_modules", "target"].contains(&name.as_str()) {
+                    dirs.push(p);
+                }
+            } else if is_secret(&name) {
+                let rel = p.strip_prefix(root).unwrap_or(&p);
+                out.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Runs `agent` in `root` with `prompt` on stdin and the user's environment; its stdout, or why
 /// it failed (it is killed after 10 minutes). Its stderr goes to ours. Ollama is asked over HTTP
 /// instead, its answer held to the boxes `ids`.
 pub fn run(root: &Path, agent: Agent, prompt: &str, ids: &[String]) -> Result<String, String> {
     match agent {
         Agent::Ollama => ollama(prompt, ids),
+        Agent::Codex | Agent::Gemini if !secret_files(root).is_empty() => Err(format!(
+            "{} can read every file here and ig cannot keep it from these: {}; \
+             use --agent claude, or move them out first",
+            agent.name(),
+            secret_files(root).join(", ")
+        )),
         _ => run_argv(root, agent.name(), agent.argv(), prompt, TIMEOUT),
     }
 }
@@ -316,6 +352,61 @@ mod tests {
         assert!(p.contains("{{boxes}}") && p.contains("set kind service"));
         let k = &schema(&[])["properties"]["annotations"]["items"]["properties"]["kind"]["enum"];
         assert!(k.as_array().unwrap().contains(&serde_json::json!("agent")));
+    }
+
+    /// A folder holding `files`, each empty.
+    fn tree(files: &[&str]) -> std::path::PathBuf {
+        let dir = crate::tests::tmp_with(&[]);
+        for f in files {
+            let p = dir.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn secret_files_are_found_at_any_depth() {
+        let dir = tree(&[
+            "tofu/terraform.tfstate",
+            "tofu/terraform.tfstate.backup",
+            "tofu/prod.tfvars",
+            "tofu/terraform.tfvars.example",
+            "tofu/main.tf",
+            "app/.env",
+            "app/.env.production",
+            "app/.env.example",
+            "certs/server.key",
+            "node_modules/x/.env",
+        ]);
+        assert_eq!(
+            secret_files(&dir),
+            [
+                "app/.env",
+                "app/.env.production",
+                "certs/server.key",
+                "tofu/prod.tfvars",
+                "tofu/terraform.tfstate",
+                "tofu/terraform.tfstate.backup",
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Codex and Gemini have no way to be kept from a file, so they are not started beside one;
+    /// Ollama sees only the prompt, and Claude is denied those files by its flags.
+    #[test]
+    fn an_agent_that_cannot_be_kept_from_secrets_is_not_started_beside_them() {
+        let dir = tree(&["tofu/terraform.tfstate"]);
+        for a in [Agent::Codex, Agent::Gemini] {
+            let e = run(&dir, a, "", &[]).unwrap_err();
+            assert!(e.contains("tofu/terraform.tfstate"), "{e}");
+        }
+        let denied = Agent::Claude.argv().join(" ");
+        for pattern in ["*.tfstate", "*.tfvars", ".env"] {
+            assert!(denied.contains(pattern), "{denied}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -53,7 +53,10 @@ impl Agent {
         match self {
             // checked against `claude --help`: --restricted drops the code-running tools and
             // ignores user/project/local settings (so the repo's hooks and allow rules);
-            // --safe-mode drops CLAUDE.md, skills, hooks and MCP servers; --tools is the whole set
+            // --safe-mode drops CLAUDE.md, skills, hooks and MCP servers; --tools is the whole set.
+            // --disallowed-tools keeps it from secrets (tried with fake ones: Read and Grep both
+            // come back without them); `ig::agent::is_secret` is the same list for the agents
+            // that have no such flag
             Agent::Claude => &[
                 "claude",
                 "-p",
@@ -62,6 +65,15 @@ impl Agent {
                 "--restricted",
                 "--safe-mode",
                 "--strict-mcp-config",
+                "--disallowed-tools",
+                "Read(**/*.tfstate*)",
+                "Read(**/*.tfvars)",
+                "Read(**/*.tfvars.json)",
+                "Read(**/.env*)",
+                "Read(**/*.pem)",
+                "Read(**/*.key)",
+                "Read(**/id_rsa*)",
+                "Read(**/id_ed25519*)",
                 "--tools",
                 "Read,Grep,Glob",
             ],
