@@ -101,16 +101,13 @@ impl Connector for TraefikConnector {
             addresses: vec![],
         });
         for (name, router) in &http.routers {
-            let Some(service) = router.service.as_deref() else {
-                continue;
-            };
-            let Some(svc) = http
-                .services
-                .get(service)
-                .filter(|_| !service.contains('@'))
+            // `@internal` is Traefik's own (dashboard, API), nothing anyone runs
+            let Some(service) = (router.service.as_deref()).filter(|s| !s.ends_with("@internal"))
             else {
                 continue;
             };
+            // another provider's has no servers here: its route is looked up by the router's name
+            let svc = (http.services.get(service)).filter(|_| !service.contains('@'));
             snap.resources.push(Resource {
                 id: id(name),
                 title: router.rule.as_deref().and_then(host).unwrap_or(name).into(),
@@ -121,8 +118,8 @@ impl Connector for TraefikConnector {
             });
             // ponytail: the first server stands for the service; balancing across the rest is not drawn.
             let server = svc
-                .load_balancer
                 .iter()
+                .flat_map(|s| &s.load_balancer)
                 .flat_map(|b| &b.servers)
                 .find_map(|s| s.url.as_deref())
                 .map(url_host)

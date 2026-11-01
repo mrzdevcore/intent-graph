@@ -43,6 +43,22 @@ fn target(s: &Snapshot, router: &str) -> Target {
 }
 
 #[test]
+fn a_router_on_another_provider_is_a_route_found_by_its_name() {
+    let s = read(
+        "http:\n  routers:\n    api: { rule: \"Host(`a.example.test`)\", service: svc@docker }\n    dash: { service: api@internal }\n",
+    );
+    let titles: Vec<_> = routes(&s).iter().map(|r| r.title.clone()).collect();
+    assert_eq!(titles, ["a.example.test"]);
+    assert_eq!(
+        target(&s, "api"),
+        Target::Lookup {
+            address: None,
+            names: vec!["api".into()]
+        }
+    );
+}
+
+#[test]
 fn routers_become_routes_inside_one_service() {
     let s = read(FILE);
     let titles: Vec<_> = routes(&s).iter().map(|r| r.title.clone()).collect();
