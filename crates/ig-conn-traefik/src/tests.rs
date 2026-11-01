@@ -87,3 +87,52 @@ fn a_bad_path_a_missing_file_and_broken_yaml_are_errors_not_panics() {
     assert!(read_missing("t.yml").is_err());
     assert!(read_text("{ not: [yaml").is_err());
 }
+
+fn one(url: &str) -> Snapshot {
+    read(&format!(
+        "http:\n  routers:\n    r: {{ rule: \"Host(`r.example.test`)\", service: s }}\n  services:\n    s: {{ loadBalancer: {{ servers: [{{ url: \"{url}\" }}] }} }}\n"
+    ))
+}
+
+#[test]
+fn userinfo_is_never_the_host_nor_kept() {
+    let s = one("http://bob:hunter2@10.0.0.2:80");
+    assert_eq!(
+        target(&s, "r"),
+        Target::Lookup {
+            address: Some("10.0.0.2".into()),
+            names: vec!["r".into()]
+        }
+    );
+    let s = one("http://bob@wiki:80/p?q=1#f");
+    assert_eq!(
+        target(&s, "r"),
+        Target::Lookup {
+            address: None,
+            names: vec!["wiki".into(), "r".into()]
+        }
+    );
+    for t in [
+        format!("{:?}", one("http://bob:hunter2@10.0.0.2:80")),
+        format!("{s:?}"),
+    ] {
+        assert!(!t.contains("bob") && !t.contains("hunter2"));
+    }
+}
+#[test]
+fn an_ipv6_host_is_an_address_and_a_query_is_cut() {
+    assert_eq!(
+        target(&one("http://[::1]:80"), "r"),
+        Target::Lookup {
+            address: Some("::1".into()),
+            names: vec!["r".into()]
+        }
+    );
+    assert_eq!(
+        target(&one("wiki?x=1"), "r"),
+        Target::Lookup {
+            address: None,
+            names: vec!["wiki".into(), "r".into()]
+        }
+    );
+}
