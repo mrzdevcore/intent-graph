@@ -226,3 +226,99 @@ fn a_large_tree_keeps_every_box_to_twelve() {
         .collect();
     assert_eq!(titles, ["APIs 1/2 (10)", "APIs 2/2 (10)"]);
 }
+
+/// A homelab's shape: roles nested in a folder, deployed by a playbook, settings as `KEY=value`.
+fn homelab() -> MemFiles {
+    let task = "- name: Deploy\n  debug: {}\n";
+    MemFiles::with(&[
+        (
+            "ansible/playbooks/site.yml",
+            "---\n- hosts: gitlab\n  become: true\n  roles:\n    - services/gitlab\n\n\
+             - hosts: postgresql\n  roles:\n    - role: services/postgresql\n      tags: db\n\n\
+             - hosts: firefly\n  roles:\n    - { role: services/firefly-iii }\n    - services/firefly-importer\n\n\
+             - hosts: all\n  roles:\n    - common\n",
+        ),
+        (
+            "ansible/inventory/hosts.yml",
+            "all:\n  hosts:\n    gitlab:\n",
+        ),
+        ("ansible/roles/common/tasks/main.yml", task),
+        ("ansible/roles/services/gitlab/tasks/main.yml", task),
+        (
+            "ansible/roles/services/gitlab/files/docker-compose.yml",
+            "services: {}\n",
+        ),
+        (
+            "ansible/roles/services/gitlab/templates/gitlab.env.j2",
+            "POSTGRES_HOST={{ a }}\nREDIS_HOST={{ b }}\n",
+        ),
+        ("ansible/roles/services/postgresql/tasks/main.yml", task),
+        ("ansible/roles/services/firefly-iii/tasks/main.yml", task),
+        (
+            "ansible/roles/services/firefly-importer/tasks/main.yml",
+            task,
+        ),
+        (
+            "ansible/roles/services/firefly-importer/templates/env.j2",
+            "FIREFLY_III_URL={{ c }}\n",
+        ),
+    ])
+}
+
+#[test]
+fn nested_roles_are_each_a_box_in_their_folder() {
+    let a = read(&homelab()).unwrap();
+    let under_services: Vec<(&str, BoxKind)> = (a.boxes.iter())
+        .filter(|b| b.parent.as_deref() == Some("services"))
+        .map(|b| (b.guess.title.as_str(), b.guess.kind))
+        .collect();
+    assert_eq!(
+        under_services,
+        [
+            ("firefly-iii", BoxKind::Service),
+            ("firefly-importer", BoxKind::Service),
+            ("gitlab", BoxKind::Service),
+            ("postgresql", BoxKind::Service),
+        ]
+    );
+    let services = a.boxes.iter().find(|b| b.id == "services").unwrap();
+    assert_eq!(services.guess.title, "Services");
+    assert!(!a.boxes.iter().any(|b| b.guess.title == "services"));
+}
+
+#[test]
+fn a_role_with_no_targets_file_deploys_where_its_playbook_says() {
+    let a = read(&homelab()).unwrap();
+    let common = a.boxes.iter().find(|b| b.guess.title == "common").unwrap();
+    assert_eq!(common.guess.kind, BoxKind::Service, "deployed by a play");
+    assert_eq!(common.parent.as_deref(), Some("all"));
+}
+
+#[test]
+fn key_equals_value_settings_draw_arrows_to_the_roles_they_name() {
+    let a = read(&homelab()).unwrap();
+    let got: Vec<String> = arrows(&a.boxes, &a.graph)
+        .iter()
+        .filter(|x| x.parent == "services")
+        .map(|x| x.id.clone())
+        .collect();
+    assert_eq!(
+        got,
+        [
+            "services/firefly-importer->services/firefly-iii",
+            "services/gitlab->services/postgresql",
+        ]
+    );
+    // a role's entry file says nothing about the link
+    let all = arrows(&a.boxes, &a.graph);
+    assert_eq!(
+        all.iter()
+            .find(|x| x.to == "services/postgresql")
+            .unwrap()
+            .label,
+        None
+    );
+    // no role runs it: an outside system, as before
+    assert!(a.boxes.iter().any(|b| b.guess.title == "Redis"));
+    assert!(!a.boxes.iter().any(|b| b.guess.title == "PostgreSQL"));
+}
