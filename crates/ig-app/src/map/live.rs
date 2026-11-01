@@ -11,7 +11,7 @@ use super::origin::Origin;
 use super::{ArrowKind, BoxKind, FactBox, Level, MapArrow};
 use ig_core::config::Config;
 use ig_core::ports::{
-    Connector, Files, Resource, ResourceId, ResourceKind, Snapshot, State, Target,
+    Connector, Files, Progress, Resource, ResourceId, ResourceKind, Snapshot, State, Target,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -35,11 +35,13 @@ pub struct Applied {
     pub warnings: Vec<String>,
 }
 
-/// One read per `config.connectors` entry; an unknown `kind` gives a notice naming the entry.
+/// One read per `config.connectors` entry, said on `progress` as it starts: a server can take
+/// seconds. An unknown `kind` gives a notice naming the entry.
 pub fn read_all(
     config: &Config,
     connectors: &[&dyn Connector],
     files: &dyn Files,
+    progress: &Progress,
 ) -> (Vec<ConnectorRead>, Vec<String>) {
     let (mut reads, mut notices) = (vec![], vec![]);
     for e in &config.connectors {
@@ -48,12 +50,15 @@ pub fn read_all(
             .collect();
         let label = words.join(" ");
         match connectors.iter().find(|c| c.kind() == e.kind) {
-            Some(c) => reads.push(ConnectorRead {
-                label,
-                kind: e.kind.clone(),
-                remote: (e.settings.get("remote").or_else(|| e.settings.get("file"))).cloned(),
-                result: c.read(&e.settings, files).map_err(|e| e.to_string()),
-            }),
+            Some(c) => {
+                progress(&format!("reading {label}…"));
+                reads.push(ConnectorRead {
+                    label,
+                    kind: e.kind.clone(),
+                    remote: (e.settings.get("remote").or_else(|| e.settings.get("file"))).cloned(),
+                    result: c.read(&e.settings, files).map_err(|e| e.to_string()),
+                })
+            }
             None => notices.push(format!("connectors: no connector for `{label}`; skipped")),
         }
     }
