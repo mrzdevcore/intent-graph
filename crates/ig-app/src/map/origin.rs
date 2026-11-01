@@ -19,6 +19,8 @@ pub enum Origin {
     Drift,
     /// In the spec at a new place (`at` changed since the last commit), its code still at the old.
     Moved,
+    /// Running, on a connector's word, with nothing in `ig/` describing it.
+    Unmanaged,
 }
 
 pub fn is_built(o: &Origin) -> bool {
@@ -193,9 +195,9 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph, prior: Option<&MapF
 }
 
 /// Each spec arrow is built when a graph edge of its kind (any kind for a `bundle`) runs from
-/// the code under its tail into the code under its head; an arrow touching a person is a
-/// declaration. Each code arrow (lifted over the boxes) that no spec arrow covers, from its
-/// ends or their ancestors, is drift.
+/// the code under its tail into the code under its head; an arrow touching a person or a box
+/// that `runs` is a declaration. Each code arrow (lifted over the boxes) that no spec arrow
+/// covers, from its ends or their ancestors, is drift.
 fn arrows_against(m: &mut MapFile, g: &Graph) {
     let boxes = &m.boxes;
     let index: HashMap<&str, usize> = (boxes.iter().enumerate())
@@ -246,10 +248,10 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
             }
         }
     }
-    let person = |id: &str| {
-        index
-            .get(id)
-            .is_some_and(|&i| boxes[i].kind.value == BoxKind::Person)
+    let declared = |id: &str| {
+        index.get(id).is_some_and(|&i| {
+            boxes[i].kind.value == BoxKind::Person || boxes[i].props.contains_key("runs")
+        })
     };
     let mut said: HashSet<(usize, usize, ArrowKind)> = HashSet::new();
     // the arrows of a moved box: its code, at the old place, is lifted over the new one
@@ -263,7 +265,7 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
                 moved.insert((f, t, a.kind));
             }
         }
-        if person(&a.from) || person(&a.to) {
+        if declared(&a.from) || declared(&a.to) {
             a.origin = Origin::Built;
             continue;
         }
@@ -519,7 +521,7 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow], unread: &[String]) -> Plan
     };
     for b in boxes {
         match b.origin {
-            Origin::Built => {}
+            Origin::Built | Origin::Unmanaged => {}
             Origin::Build if b.made_of.is_empty() => {
                 p.build
                     .push(format!("to build: {} {}", name(&b.kind.value), b.id))
@@ -554,7 +556,7 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow], unread: &[String]) -> Plan
     for a in written {
         let (from, kind, to) = (&a.from, name::<ArrowKind>(&a.kind), &a.to);
         match a.origin {
-            Origin::Built | Origin::Moved => {}
+            Origin::Built | Origin::Moved | Origin::Unmanaged => {}
             Origin::Build => p.build.push(format!("to build: {from} {kind} {to}")),
             Origin::Drift => p
                 .drift

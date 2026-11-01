@@ -304,7 +304,10 @@ impl Reader {
                 "logo" => b.logo = Some(Field::person(v)),
                 "slot" => b.slot = Some(Field::person(v)),
                 "owner" => _ = b.props.insert(key.into(), v),
-                "runs" => self.err(at, n, "`runs` comes with live status; not yet".into()),
+                "runs" => match crate::map::live::parse_runs(&v) {
+                    Ok(_) => _ = b.props.insert(key.into(), v),
+                    Err(e) => self.err(at, n, format!("`{}`: {e}", b.id)),
+                },
                 _ => match own.iter().find(|p| p.name == key) {
                     Some(p) if !p.one_of.is_empty() && !p.one_of.contains(&v) => {
                         self.err(at, n, format!("`{key}` is one of {}", p.one_of.join(", ")))
