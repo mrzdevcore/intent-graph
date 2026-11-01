@@ -31,7 +31,7 @@ export type MapBox = {
   stale?: boolean;
   /** Against ig/: "build" is in the spec with no code yet, "drift" is code the spec does not describe, "moved" is in
    * the spec at a new place with its code still at the old; absent is built. */
-  origin?: "build" | "drift" | "moved";
+  origin?: "build" | "drift" | "moved" | "unmanaged";
   /** A team kind's name (`ig/kinds/<name>.kdl`); `kind` is then its base. */
   custom?: string;
   /** The kind's own properties (`provider`, `hosted`…) and `owner`. */
@@ -61,7 +61,7 @@ export type MapArrow = {
   count: number;
   kinds: ArrowKind[];
   inLoop?: boolean;
-  origin?: "build" | "drift";
+  origin?: "build" | "drift" | "unmanaged";
   /** The arrows as written, when this one is drawn between boxes above their ends. */
   parts?: MapArrow[];
 };

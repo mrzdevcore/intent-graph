@@ -2,8 +2,8 @@
      where each annotated field came from. All text, never HTML. -->
 <script lang="ts">
   import type { EditApi } from "../api";
-  import { linksOf, tag } from "./looks";
-  import type { Field, MapBox, View } from "./types";
+  import { linkCount, linksOf, tag } from "./looks";
+  import type { Field, MapArrow, MapBox, View } from "./types";
   import Code from "./Code.svelte";
 
   let { view, box, onclose, onopen, onmenu, edit, run }: {
@@ -19,20 +19,20 @@
   const mine = $derived(linksOf(view.arrows, box.id));
   // a mark on an arrow in a group is on the one drawn for it
   const touched = $derived(new Set([box.id, ...view.arrows.filter((a) => linksOf([a], box.id).length).map((a) => a.id)]));
-  const health = $derived(view.marks.filter((m) => m.layer === "health" && m.target === box.id));
+  const health = $derived(view.marks.filter((m) => (m.layer === "health" || m.layer === "state") && m.target === box.id));
   const attention = $derived(view.marks.filter((m) => (m.layer === "rules" || m.layer === "risks") && m.state !== "ok" && touched.has(m.target)));
   const source = $derived(view.sources?.[box.id]);
   const parts = $derived(view.parts?.[box.id]);
   // an arrow from → to is from's own calls and imports: from uses to
-  const byCount = (a: { count: number }, b: { count: number }) => b.count - a.count;
+  const byCount = (a: MapArrow, b: MapArrow) => linkCount(b) - linkCount(a);
   const usedBy = $derived(mine.filter((a) => a.to === box.id).sort(byCount));
   const uses = $derived(mine.filter((a) => a.from === box.id).sort(byCount));
   const groups = $derived([
     { name: "Uses", list: uses, end: "to" as const },
     { name: "Used by", list: usedBy, end: "from" as const },
   ]);
-  const top = $derived(Math.max(1, ...mine.map((a) => a.count)));
-  const sum = (as: { count: number }[]) => as.reduce((n, a) => n + a.count, 0);
+  const top = $derived(Math.max(1, ...mine.map(linkCount)));
+  const sum = (as: MapArrow[]) => as.reduce((n, a) => n + linkCount(a), 0);
   const inside = $derived(view.boxes.filter((b) => b.parent === box.id).length);
   // its kind (a team kind by its own name), its tech, then every badge: the map's face shows at most two
   const chips = $derived([box.custom ?? box.kind.value, ...(box.tech?.value.split("·").map((t) => t.trim()).filter(Boolean) ?? []),
@@ -92,7 +92,7 @@
 
   {#if health.length}
     <h3>Health</h3>
-    <ul>{#each health as m}<li class={m.state}>{m.value ?? m.state}{m.note ? ` — ${m.note}` : ""}</li>{/each}</ul>
+    <ul>{#each health as m}<li class={m.state}>{m.layer === "state" ? (m.value ?? m.badge ?? m.state) : (m.value ?? m.state)}{m.note ? ` — ${m.note}` : ""}</li>{/each}</ul>
   {/if}
   {#if attention.length}
     <h3>Needs attention</h3>
@@ -104,8 +104,8 @@
       <ul class="links {end}">
         {#each list as a}
           <li><button type="button" onclick={() => onopen(a[end])}>
-            <span class="row"><span class="name">{titleOf(a[end])}</span><b>×{a.count.toLocaleString("en")}</b></span>
-            <span class="bar"><span style:width="{Math.max(2, (a.count / top) * 100)}%"></span></span>
+            <span class="row"><span class="name">{titleOf(a[end])}</span><b>×{linkCount(a).toLocaleString("en")}</b></span>
+            <span class="bar"><span style:width="{Math.max(2, (linkCount(a) / top) * 100)}%"></span></span>
             <span class="muted">{a.label ?? a.kind}</span>
           </button></li>
         {/each}

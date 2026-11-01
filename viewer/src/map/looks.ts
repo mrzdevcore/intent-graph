@@ -20,6 +20,7 @@ const ORIGIN: Record<NonNullable<MapBox["origin"]>, { edge: string; label: strin
   build: { edge: TRACE, label: "to build", tone: "neutral" },
   drift: { edge: WARN, label: "not in ig/", tone: "warn" },
   moved: { edge: "var(--map-blue)", label: "to move", tone: "neutral" },
+  unmanaged: { edge: WARN, label: "not in ig/", tone: "warn" },
 };
 /** The chip of a proposal: who made the edit. */
 export const tag = (by: Proposal["by"]) => (by === "claude" ? "Claude" : "reading");
@@ -104,3 +105,6 @@ export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>, by?: 
     tone: (s?.tone ?? "neutral") as Tone,
   };
 }
+
+/** How many links an arrow stands for: a declared one has count 0 and is one. */
+export const linkCount = (a: MapArrow) => Math.max(1, a.count);
