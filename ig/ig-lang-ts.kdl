@@ -1,0 +1,19 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+module "ig-lang-ts" title="TypeScript frontend" tech="Rust · oxc · ast-grep" description="Language frontend for TypeScript and JavaScript: resolves imports, reads tsconfig and workspaces, and spots frameworks." logo="typescript" {
+    at "crates/ig-lang-ts/**"
+    pattern "none"
+    calls "ig-core"
+    usecase "ig-lang-ts/anatomy" title="Framework anatomy" tech="Rust" description="Spots framework structure such as React components in TypeScript code." logo="react" {
+        at "crates/ig-lang-ts/src/anatomy/**"
+        calls "ig-lang-ts/root"
+    }
+    usecase "ig-lang-ts/extract" title="AST extraction" tech="Rust · oxc" description="Walks the oxc AST to pull out imports, callees and HTTP calls." {
+        at "crates/ig-lang-ts/src/extract/**"
+        calls "ig-lang-ts/root"
+    }
+    usecase "ig-lang-ts/root" title="Resolve & prepare" tech="Rust · oxc_resolver · ast-grep · rayon" description="Prepares the TypeScript workspace: tsconfig, module resolution, auto-imports, embedded scripts and patterns." {
+        at "crates/ig-lang-ts/src/*"
+        calls "ig-lang-ts/anatomy"
+        calls "ig-lang-ts/extract"
+    }
+}

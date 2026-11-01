@@ -1,0 +1,4 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+system "system" title="intent-graph" description="ig reads a repository's code and draws its architecture as a C4 map, from the terminal, a desktop app and AI agents." {
+    at "**"
+}

@@ -1,0 +1,15 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+module "ig-wire" title="Composition root" tech="Rust · notify" description="Plugs the real adapters (files, git, the TS, Python and Rust frontends) into ig-app's Env, and runs the debounced watcher for live rebuilds." {
+    at "crates/ig-wire/**"
+    pattern "none"
+    calls "ig-app"
+    uses "ig-core"
+    calls "ig-fs"
+    calls "ig-git"
+    uses "ig-lang-py"
+    uses "ig-lang-rs"
+    calls "ig-lang-ts"
+    usecase "ig-wire/root" title="Wiring and watcher" tech="Rust · notify" description="Builds the wired adapters for an ig root, lists the language frontends in claim order, and watches files to rebuild." {
+        at "crates/ig-wire/src/*"
+    }
+}

@@ -1,0 +1,14 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+module "ig-app" title="ig app" tech="Rust" description="The application layer: builds, edits and shows the map from the core model, shared by the CLI and the desktop app." {
+    at "crates/ig-app/**"
+    pattern "none"
+    calls "ig-core"
+    usecase "ig-app/map" title="Map" tech="Rust · KDL · serde" description="Builds and edits the map: boxes, arrows, code view, agent annotations and readers such as Ansible." {
+        at "crates/ig-app/src/map/**"
+        calls "ig-app/root"
+    }
+    usecase "ig-app/root" title="Build, setup & show" tech="Rust" description="The app's use cases: build the map, set up a repository, show it, and load its config." {
+        at "crates/ig-app/src/*"
+        calls "ig-app/map"
+    }
+}

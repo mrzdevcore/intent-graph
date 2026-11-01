@@ -11,7 +11,7 @@ The architecture changes only through `ig_edit` (proposals), below.
 
 Only when the user asks to change the architecture: `ig_plan` prints what is left to build or move
 and the drift; `ig_edit` edits `ig/` (`{"edits": [...]}`: add, remove, move, rename, set, arrow,
-unarrow). Your edits are proposals the user reviews (`git diff ig/`). Give `at` (code globs) for a
+unarrow). Your edits are proposals the user reviews under Proposals in the map (and with `git diff ig/` in a git repository). Give `at` (code globs) for a
 new box, and use `move` to put a box elsewhere: it keeps its id.
 
 1. Find candidate ids. Run `ig view --json --no-read` and search `boxes[]` (`id`, `title`, `level`, `madeOf`)

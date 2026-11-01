@@ -1,2 +1,22 @@
-# Fixtures are test inputs, not this repo's code.
-ignore: ["crates/ig/tests/fixtures/**", "crates/ig/assets/**"]
+# ig (intent-graph) config. See docs for every key.
+layers:
+  intent-graph: ["intent-graph"]
+  ig-app: ["ig-app"]
+  ig-core: ["ig-core"]
+  ig-desktop: ["ig-desktop"]
+  ig-fs: ["ig-fs"]
+  ig-git: ["ig-git"]
+  ig-lang-py: ["ig-lang-py"]
+  ig-lang-rs: ["ig-lang-rs"]
+  ig-lang-ts: ["ig-lang-ts"]
+  ig-wire: ["ig-wire"]
+# Forbidden layer dependencies, e.g.:
+#   - forbid: "core -> ui"
+rules: []
+embedded: []
+# ignore: ["**/generated/**"]
+# patterns:
+#   - kind: route
+#     match: "app.$METHOD($PATH, $$$)"
+#     where: { METHOD: [get, post, put, delete] }
+#     id: "{METHOD} {PATH}"

@@ -1,0 +1,9 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+module "ig-fs" title="ig fs" tech="Rust" description="Fills the core's filesystem port: finds the repository's files." {
+    at "crates/ig-fs/**"
+    pattern "none"
+    calls "ig-core"
+    usecase "ig-fs/root" title="File discovery" tech="Rust" description="Walks the repository and finds the files to read." {
+        at "crates/ig-fs/src/*"
+    }
+}

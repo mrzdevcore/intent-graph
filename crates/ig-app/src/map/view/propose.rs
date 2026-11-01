@@ -21,6 +21,7 @@ pub fn propose(
     cfg: &Config,
     files: &dyn Files,
     progress: &dyn Fn(&str),
+    git: bool,
 ) -> Vec<String> {
     let Some(root) = cm.boxes.iter().find(|b| b.level == Level::System) else {
         return vec![];
@@ -135,13 +136,20 @@ pub fn propose(
         } else {
             format!("{n} edits")
         };
-        notices.push(format!(
-            "the AI reading proposed {edits}; review with `git diff ig/`"
-        ));
+        notices.push(format!("the AI reading proposed {edits}; {}", review(git)));
     } else if notices.is_empty() {
         notices.push("the AI reading found nothing to propose".into());
     }
     notices
+}
+
+/// Where proposals are reviewed: the map's Proposals, and `git diff` when git can show it.
+fn review(git: bool) -> &'static str {
+    if git {
+        "review them under Proposals in the map, or with `git diff ig/`"
+    } else {
+        "review them under Proposals in the map"
+    }
 }
 
 fn find<'a>(m: &'a MapFile, id: &str) -> Option<&'a MapBox> {
@@ -162,6 +170,7 @@ fn value(f: &Option<Field<String>>) -> Option<&String> {
 #[cfg(test)]
 mod tests {
     use super::super::run_with;
+    use super::review;
     use crate::map::agent::{Agent, Ask};
     use crate::map::edit::Edit;
     use crate::map::edit::journal::{By, entries};
@@ -225,8 +234,9 @@ mod tests {
         assert!(!es.is_empty());
         assert!(es.iter().all(|e| e.by == By::Reading && !e.kept), "{es:?}");
         let want = format!(
-            "the AI reading proposed {} edits; review with `git diff ig/`",
-            es.len()
+            "the AI reading proposed {} edits; {}",
+            es.len(),
+            review(false)
         );
         assert!(v.notices.contains(&want), "{:?}", v.notices);
         // a spec box without description: a Set
@@ -303,7 +313,7 @@ mod tests {
         assert!(
             v.notices
                 .iter()
-                .any(|n| n == "the AI reading proposed 1 edit; review with `git diff ig/`"),
+                .any(|n| *n == format!("the AI reading proposed 1 edit; {}", review(false))),
             "{:?}",
             v.notices
         );
@@ -376,8 +386,8 @@ mod tests {
         assert!(skipped.contains("claims `**`"), "{skipped}");
         let n = es.len();
         let want = match n {
-            1 => "the AI reading proposed 1 edit; review with `git diff ig/`".to_string(),
-            n => format!("the AI reading proposed {n} edits; review with `git diff ig/`"),
+            1 => format!("the AI reading proposed 1 edit; {}", review(false)),
+            n => format!("the AI reading proposed {n} edits; {}", review(false)),
         };
         assert!(v.notices.contains(&want), "{:?}", v.notices);
     }

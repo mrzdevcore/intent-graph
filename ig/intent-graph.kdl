@@ -1,0 +1,24 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+app "intent-graph" title="ig CLI" tech="Rust · lexopt" description="The ig command: indexes a repository, renders the map, takes edits and serves the same tools to AI agents over MCP." {
+    at "crates/ig/**"
+    pattern "none"
+    calls "ig-app"
+    calls "ig-core"
+    calls "ig-fs"
+    calls "ig-lang-ts" label="is_source_ext"
+    calls "ig-wire"
+    usecase "intent-graph/mcp" title="MCP server" tech="Rust · serde_json" description="Serves ig's tools to AI agents over the Model Context Protocol, with their JSON schemas." {
+        at "crates/ig/src/mcp/**"
+        calls "intent-graph/root"
+        calls "intent-graph/tests"
+    }
+    entry "intent-graph/root" title="Src" {
+        at "crates/ig/src/*"
+        uses "intent-graph/mcp"
+        uses "intent-graph/tests"
+    }
+    usecase "intent-graph/tests" title="Test fixtures" tech="Rust" description="Shared setup and helpers for the CLI's graph and view tests." {
+        at "crates/ig/src/tests/**"
+        calls "intent-graph/root" label="write"
+    }
+}
