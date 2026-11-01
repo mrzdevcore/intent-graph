@@ -155,8 +155,9 @@ It also proves the port with a second implementation.
 
 New pure code in `crates/ig-app/src/map/live.rs`, run after `compare` and before `view`:
 
-1. **An explicit link wins.** A new common box property in `ig/*.kdl`, which may repeat when one box
-   is several instances: `runs="incus:homelab/gitlab"`. The spelling is `<kind>:<remote>/<name>`.
+1. **An explicit link wins.** A common box property in `ig/*.kdl` (the reader reserves `runs` already):
+   `runs="incus:homelab/gitlab"`, spelled `<kind>:<remote>/<name>`. When one box is several instances,
+   the value lists them separated by spaces.
 2. **Otherwise exact name:** a `Service` resource's name equals the last part of a box's id
    (`services/gitlab` matches `gitlab`). More than one candidate is no match, plus a warning naming
    them.
@@ -229,7 +230,7 @@ colours.
 ## Security
 
 - Remote and path come from `ig.yaml`, which a cloned repo controls. `remote` must match
-  `[A-Za-z0-9_-]+` and is passed as one argument, never through a shell. `ig.yaml` cannot name a
+  `[A-Za-z0-9][A-Za-z0-9_-]*` (so it can never read as a flag) and is passed as one argument, never through a shell. `ig.yaml` cannot name a
   program or a command.
 - `file` must be relative with no `..`, and is read through `Files`.
 - The desktop app runs no connectors, so its trust model is unchanged.
@@ -244,7 +245,7 @@ colours.
 - Parsing from fixture JSON that **includes** `config`, `expanded_config`, `devices` and a secret-looking
   value: assert the value appears nowhere in the `Snapshot`'s debug output or the final `view.html`.
 - The shared `172.17.0.1` case: a route does not match the instance it merely shares a Docker bridge with.
-- Each row of the matching table, the ambiguous name, `runs=` repeated, and worst-state on one box.
+- Each row of the matching table, the ambiguous name, `runs=` listing several, and worst-state on one box.
 - A route to a stopped instance (`network: null`) resolves by name and is not reported as stale.
 - `traefik` as a box, as an instance, and as neither.
 - One connector returning Err: a notice, the map draws, its own results absent, the other's kept, no
@@ -274,7 +275,7 @@ colours.
 7. A repo's `ig.yaml` can make the CLI list a configured remote without asking.
 8. A route falls back to an exact name, including its router's name, because a stopped instance has
    no address.
-9. `runs=` may repeat; a box shows its worst state. A role on several instances needs `runs=`.
+9. `runs=` may list several; a box shows its worst state. A role on several instances needs `runs=`.
 10. A connector's failure affects only its own results, and stale-route warnings pause meanwhile.
 11. An arrow touching a `runs=` box counts as built everywhere; matching by name does not do this.
 12. Traefik's routes go inside a `traefik` box, then a `traefik` instance, then a box of their own.
