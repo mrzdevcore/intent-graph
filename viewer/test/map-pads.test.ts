@@ -5,7 +5,7 @@ import Pads from "../src/map/Pads.svelte";
 import Map from "../src/map/Map.svelte";
 import { Camera } from "../src/map/glide";
 import { CARD, fillsBeside, fitBeside, inBox, padsOf, type Pad } from "../src/map/pads";
-import { fitInner, fitTo, showsInside, worldFrame } from "../src/map/camera";
+import { OPEN, fitInner, fitTo, showsInside, worldFrame } from "../src/map/camera";
 import type { Frame, MapArrow, MapBox, Mark, View } from "../src/map/types";
 
 const box = (id: string, parent?: string): MapBox => ({
@@ -85,13 +85,39 @@ test("pads too close for their height spread out, in the order of their children
   expect(pads[1].y - pads[0].y).toBeGreaterThan(20);
 });
 
-test("forty pads stay apart and inside the box", () => {
+test("crowded pads fold: at most 12 a side, each a pad's height from the next, inside the box", () => {
   const extra = Array.from({ length: 40 }, (_, i) => box(`t${i}`, "public"));
   const crowded = make(extra.map((b) => arrow("host", "public", [arrow("x", b.id)])), [], [...extra, box("x", "host")]);
-  const ys = padsOf(crowded, "x", { w: 100, h: 200 }, cf, on).map((p) => p.y);
-  expect(new Set(ys).size).toBe(40);
-  expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
-  expect(Math.max(...ys)).toBeLessThanOrEqual(200);
+  // tall, as drawn at 264 wide, and flat: what fits folds too
+  for (const frame of [{ w: 100, h: 200 }, { w: 264, h: 152 }, { w: 560, h: 120 }]) {
+    const pads = padsOf(crowded, "x", frame, cf, on), shown = pads.filter((p) => !p.more), fold = pads.filter((p) => p.more);
+    expect(fold.length).toBe(1);
+    expect(shown.length).toBeLessThanOrEqual(12);
+    expect(shown.length + fold[0].more!).toBe(40);
+    expect(fold[0].title).toBe(`+${fold[0].more} more`);
+    expect(pads.at(-1)).toBe(fold[0]);
+    const ys = pads.map((p) => p.y);
+    ys.slice(1).forEach((y, i) => expect(y - ys[i]).toBeGreaterThanOrEqual((frame.w * 24) / OPEN));
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(frame.h);
+  }
+  expect(padsOf(crowded, "x", { w: 100, h: 200 }, cf, on).filter((p) => !p.more).length).toBe(12);
+});
+
+test("each side folds on its own, and 12 fold nothing", () => {
+  const extra = Array.from({ length: 12 }, (_, i) => box(`t${i}`, "public"));
+  const v = make([
+    ...extra.map((b) => arrow("host", "public", [arrow("x", b.id)])),
+    ...extra.map((b) => arrow("public", "host", [arrow(b.id, "x")])),
+  ], [], [...extra, box("x", "host")]);
+  const pads = padsOf(v, "x", { w: 100, h: 200 }, cf, on);
+  expect(pads.length).toBe(24);
+  expect(pads.some((p) => p.more)).toBe(false);
+});
+
+test("two parts with the same side, far box and child are one pad", () => {
+  const v = make([arrow("host", "public", [arrow("traefik/r1", "a"), arrow("traefik/r2", "a")]), arrow("system", "public", [arrow("traefik/r1", "a")])]);
+  expect(padsOf(v, "traefik", F, cf, on).map((p) => [p.side, p.other, p.child])).toEqual([["out", "a", "traefik/r1"], ["out", "a", "traefik/r2"]]);
 });
 
 function drawn(n: number, onopen = (_: string) => {}) {
@@ -116,6 +142,23 @@ test("above 12 pads the labels stay and the chips go", () => {
   const t = drawn(13);
   expect(t.querySelectorAll(".chip").length).toBe(0);
   expect(t.querySelectorAll(".name").length).toBe(13);
+});
+
+test("the fold links to no box: a click selects this one, its card listing them all, and it has no wire", () => {
+  const onopen = vi.fn(), t = drawn(14, onopen);
+  expect(t.querySelectorAll("line").length).toBe(12);
+  const b = t.querySelector('[data-pad=""]') as HTMLButtonElement;
+  expect(b.textContent).toContain("+2 more");
+  expect(b.getAttribute("aria-label")).toBe("2 more connections, listed on this box's card");
+  b.click();
+  expect(onopen).toHaveBeenCalledWith("x");
+});
+
+test("at the width limit rounding never closes the box", () => {
+  // 275 * (560 / 275) is just under 560
+  expect(showsInside(275 * (OPEN / 275))).toBe(false);
+  const c = fitBeside({ x: 0, y: 0, w: 275, h: 150 }, { w: 400, h: 300 }, [pad("out"), pad("in")], CARD, 16);
+  expect(showsInside(275 * c.k)).toBe(true);
 });
 
 // a frame wider than its inside, as a group of one is; at 16px a rem: card 356, labels 192
