@@ -103,8 +103,8 @@ fn properties_follow_the_kind() {
             "unknown property `provider`",
         ),
         (
-            "service \"s\" title=\"S\" runs=\"compose:s\"",
-            "`runs` comes with live status; not yet",
+            "service \"s\" title=\"S\" runs=\"nonsense\"",
+            "`s`: `runs` is <kind>:<remote>/<name>",
         ),
     ] {
         assert!(
@@ -112,6 +112,17 @@ fn properties_follow_the_kind() {
             "{text}"
         );
     }
+}
+
+#[test]
+fn runs_is_written_back_as_it_was_read() {
+    let m = parse(&sys("service \"s\" title=\"S\" runs=\"incus:a/b\"")).unwrap();
+    let files = crate::map::spec::write(&m);
+    assert!(files["ig/system.kdl"].contains("runs=\"incus:a/b\""));
+    let texts = files.into_iter().map(|(p, t)| (p, Some(t))).collect();
+    let back = crate::map::spec::parse(texts).unwrap();
+    let s = back.boxes.iter().find(|b| b.id == "s").unwrap();
+    assert_eq!(s.props.get("runs").map(String::as_str), Some("incus:a/b"));
 }
 
 #[test]

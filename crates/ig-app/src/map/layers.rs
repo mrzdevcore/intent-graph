@@ -35,7 +35,7 @@ pub struct Mark {
     pub note: Option<String>,
 }
 
-fn mark(layer: &str, target: &str, state: MarkState, badge: String) -> Mark {
+pub(super) fn mark(layer: &str, target: &str, state: MarkState, badge: String) -> Mark {
     Mark {
         layer: layer.into(),
         target: target.into(),

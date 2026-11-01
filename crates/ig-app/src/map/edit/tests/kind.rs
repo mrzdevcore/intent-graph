@@ -130,6 +130,14 @@ fn set_takes_owner_and_the_kinds_own_properties() {
             &sys("tech=\"llama\"", "tech=\"llama\" owner=\"ai-team\""),
         )],
     );
+    check_on(
+        f(),
+        prop("llm", "runs", Some("incus:a/b")),
+        &[(
+            "ig/system.kdl",
+            &sys("tech=\"llama\"", "tech=\"llama\" runs=\"incus:a/b\""),
+        )],
+    );
     let errs = apply(&f(), &prop("llm", "prompt", Some("x"))).unwrap_err();
     assert!(
         errs.iter()
