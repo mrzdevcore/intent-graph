@@ -6,7 +6,7 @@
   import { onDestroy, untrack } from "svelte";
   import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
-  import { arrowLook, insideCounts, look } from "./looks";
+  import { arrowLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
   import { wires, type Mode } from "./wires";
   import MapBox from "./MapBox.svelte";
@@ -164,7 +164,7 @@
   // under the pointer: the deepest box, and an arrow
   let hot = $state<string | null>(null);
   let hotArrow = $state<string | null>(null);
-  const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && (a.from === id || a.to === id));
+  const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && linksOf([a], id).length > 0);
   function over(e: PointerEvent) {
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     hot = el?.dataset.box ?? null;

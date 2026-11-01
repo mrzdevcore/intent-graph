@@ -253,3 +253,53 @@ fn the_spec_at_head_reads_with_its_team_kinds() {
     let m = prior(&env(&files, Some(&vcs), &Fake)).expect("HEAD's spec reads");
     assert!(m.boxes.iter().any(|b| b.id == "probe"));
 }
+
+#[test]
+fn every_arrow_between_groups_is_kept_under_the_one_drawn() {
+    let spec = r#"system "system" title="Lab" {
+    at "**"
+    group "host" title="Host" {
+        service "traefik" title="Traefik" {
+            calls "a"
+            calls "b"
+            calls "c"
+        }
+    }
+    group "public" title="Public" {
+        service "a" title="A"
+        service "b" title="B"
+    }
+    group "other" title="Other" {
+        service "c" title="C"
+    }
+}
+"#;
+    let layer = r#"{"layer": "state", "marks": [{"target": "traefik->b", "state": "down"}]}"#;
+    let files = MemFiles::with(&[("ig/system.kdl", spec), (".ig/layers/state.json", layer)]);
+    let v = run(&env(&files, None, &Fake)).unwrap();
+    assert!(!v.broken, "{:?}", v.notices);
+    let drawn = (v.arrows.iter())
+        .find(|a| (a.from.as_str(), a.to.as_str()) == ("host", "public"))
+        .unwrap();
+    let parts: Vec<(&str, &str)> = (drawn.parts.iter())
+        .map(|p| (p.from.as_str(), p.to.as_str()))
+        .collect();
+    assert_eq!(parts, [("traefik", "a"), ("traefik", "b")]);
+    assert_eq!(drawn.label.as_deref(), Some("2 calls"));
+    // a layer's word on a route reaches the arrow that stands for it
+    let down: Vec<&str> = (v.marks.iter())
+        .filter(|k| k.layer == "state")
+        .map(|k| k.target.as_str())
+        .collect();
+    assert_eq!(down, [drawn.id.as_str()], "{:?}", v.notices);
+    // the plan says what ig/ says, not the groups the arrows are drawn between
+    let plan = super::super::origin::plan_of(&v.boxes, &v.arrows, &[]);
+    assert_eq!(
+        plan.build,
+        [
+            "to build: traefik calls a",
+            "to build: traefik calls b",
+            "to build: traefik calls c",
+        ]
+    );
+}
