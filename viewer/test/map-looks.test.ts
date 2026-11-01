@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { arrowLook, insideCounts, linksOf, look } from "../src/map/looks";
+import { arrowLook, insideCounts, linkCount, linksOf, look } from "../src/map/looks";
 import type { MapArrow, MapBox, Mark, View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 
@@ -70,4 +70,22 @@ test("linksOf: a box in a group gets its own arrows, its group the one drawn", (
   expect(linksOf([drawn, other], "b")).toEqual([b]);
   expect(linksOf([drawn, other], "host")).toEqual([drawn, other]);
   expect(linksOf([drawn, other], "nobody")).toEqual([]);
+});
+
+test("an unmanaged box is flagged, in the same family as drift", () => {
+  const l = look(box.id, [], new Set(), { ...box, origin: "unmanaged" });
+  expect(l.chips).toEqual([{ label: "not in ig/", tone: "warn" }]);
+  expect(l).toMatchObject({ edge: "var(--map-warn)", dashed: true });
+});
+
+test("a stopped box reads as down with the state layer on", () => {
+  const stopped: Mark = { layer: "state", target: box.id, state: "down", badge: "stopped" };
+  const l = look(box.id, [stopped], new Set(["state"]), box);
+  expect(l).toMatchObject({ edge: "var(--map-faint)", dashed: true, chips: [{ label: "stopped", tone: "down" }] });
+  expect(look(box.id, [stopped], new Set(), box).chips).toEqual([]);
+});
+
+test("a declared arrow counts as one link", () => {
+  expect(linkCount({ ...arrow("calls"), count: 0 })).toBe(1);
+  expect(linkCount({ ...arrow("calls"), count: 7 })).toBe(7);
 });
