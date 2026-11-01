@@ -82,7 +82,11 @@ fn a_remote_of_many_instances_is_no_crowding_to_fix() {
     let list: Vec<String> = (0..13)
         .map(|i| format!(r#"{{"name":"worker{i}","type":"container","status":"Running"}}"#))
         .collect();
-    fake_incus(&root, &bin, &format!("/bin/cat <<'EOF'\n[{}]\nEOF", list.join(",")));
+    fake_incus(
+        &root,
+        &bin,
+        &format!("/bin/cat <<'EOF'\n[{}]\nEOF", list.join(",")),
+    );
     let (code, out) = ig(&root, &bin, VIEW);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("worker12"), "{out}");

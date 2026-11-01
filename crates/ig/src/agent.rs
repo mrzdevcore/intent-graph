@@ -151,7 +151,14 @@ impl Drop for Bar {
 /// A file that holds secrets by its name (`.example` ones hold none). The same list as Claude's
 /// `--disallowed-tools` in `ig_app::map::agent`, whose globs also take in the `.example` ones.
 fn is_secret(name: &str) -> bool {
-    let ends = [".env", ".tfstate", ".tfvars", ".tfvars.json", ".pem", ".key"];
+    let ends = [
+        ".env",
+        ".tfstate",
+        ".tfvars",
+        ".tfvars.json",
+        ".pem",
+        ".key",
+    ];
     let starts = ["id_rsa", "id_ed25519", "id_ecdsa"];
     (name == ".envrc" || name.starts_with(".env.") || name.contains(".tfstate."))
         && !name.ends_with(".example")
