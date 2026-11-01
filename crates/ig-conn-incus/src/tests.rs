@@ -69,6 +69,20 @@ fn docker_bridge_addresses_are_left_out() {
 }
 
 #[test]
+fn null_where_a_list_or_state_would_be_is_nothing_there() {
+    let s = parse(
+        "homelab",
+        r#"[{"name":"a","type":"container","status":"Running","state":{"network":{"eth0":{"addresses":null}}}},
+            {"name":"b","type":"container","status":null,"state":null},
+            {"name":"c","type":"container","status":"Stopped","state":{"network":null}}]"#,
+    )
+    .unwrap();
+    assert_eq!(s.resources.len(), 3);
+    assert!(s.resources.iter().all(|r| r.addresses.is_empty()));
+    assert_eq!(s.resources[1].state, State::Unknown);
+}
+
+#[test]
 fn a_parse_failure_never_echoes_the_output() {
     let e = parse("homelab", "SECRET_CANARY not json")
         .unwrap_err()

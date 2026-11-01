@@ -32,8 +32,7 @@ struct InstState {
 
 #[derive(Deserialize)]
 struct Iface {
-    #[serde(default)]
-    addresses: Vec<Addr>,
+    addresses: Option<Vec<Addr>>,
 }
 
 #[derive(Deserialize)]
@@ -55,7 +54,7 @@ pub fn parse(remote: &str, json: &str) -> Result<Snapshot, PortError> {
                 .into_iter()
                 .flatten()
                 .filter(|(n, _)| n != "lo" && !SKIPPED.iter().any(|p| n.starts_with(p)))
-                .flat_map(|(_, f)| f.addresses)
+                .flat_map(|(_, f)| f.addresses.into_iter().flatten())
                 .filter(|a| a.scope == "global")
                 .map(|a| a.address)
                 .collect();
