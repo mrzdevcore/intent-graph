@@ -306,11 +306,18 @@ mod tests {
         });
         let w = Wired::new(&r);
         let list = entries(w.env().files).0;
-        assert_eq!(list.len(), 2);
+        let undone = list.iter().filter(|e| e.undone).count();
         let v = view_data_for(&r).unwrap();
-        let live = |id| has(&v, id).is_some();
-        // either order: one effect is left, the other undone, no entry lost
-        assert!(live("first") != live("second"));
-        assert_eq!(list.iter().filter(|e| e.undone).count(), 1);
+        let live = (has(&v, "first").is_some(), has(&v, "second").is_some());
+        // apply first: undo takes `second` back, both entries kept. Undo first: `first` is taken
+        // back, and recording `second` discards the undone entry, so `second` alone is left.
+        assert!(
+            matches!(
+                (list.len(), undone, live),
+                (2, 1, (true, false)) | (1, 0, (false, true))
+            ),
+            "{} entries, {undone} undone, live {live:?}",
+            list.len()
+        );
     }
 }
