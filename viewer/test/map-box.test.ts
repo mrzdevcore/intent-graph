@@ -2,13 +2,14 @@
 import { expect, test } from "vitest";
 import { mount, flushSync } from "svelte";
 import MapBox from "../src/map/MapBox.svelte";
+import DetailsCard from "../src/map/DetailsCard.svelte";
 import MapArrow from "../src/map/MapArrow.svelte";
 import Region from "../src/map/Region.svelte";
 import { logo } from "../src/map/logo";
 import { look } from "../src/map/looks";
 import { siMongodb, siNextdotjs, siTrpc, siPrisma, siStripe, siVuedotjs } from "simple-icons";
 import { shapeOf } from "../src/map/shapes";
-import type { KindView, MapBox as Box } from "../src/map/types";
+import type { KindView, MapBox as Box, View } from "../src/map/types";
 
 const f = <T,>(value: T) => ({ value, source: "ig" as const });
 const box = (o: Partial<Box> = {}): Box => ({
@@ -207,4 +208,17 @@ test("a group's name sits on its dotted edge, which breaks under it", () => {
   // the frame's path starts after the label and ends before it: an open path, no Z
   expect(d.endsWith("Z")).toBe(false);
   expect(b.querySelector(".title")).toBeNull();
+});
+
+const card = (b: Box) => {
+  const t = document.createElement("div");
+  const view = { version: 1, boxes: [b], arrows: [], marks: [], placed: { frames: {}, inner: {}, regions: [] }, notices: [], warnings: [], kinds: [] } as unknown as View;
+  mount(DetailsCard, { target: t, props: { view, box: b, onclose: () => {}, onopen: () => {} } });
+  flushSync();
+  return t.textContent ?? "";
+};
+
+test("the card says what to do with a box not in ig/, and nothing for a group that holds them", () => {
+  expect(card(box({ origin: "unmanaged" }))).toContain("Not in ig/: add a box named like it, or link one with runs=");
+  expect(card(box())).not.toContain("Not in ig/");
 });

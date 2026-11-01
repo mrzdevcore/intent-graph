@@ -69,7 +69,8 @@
   </div>
   <ul class="chips">{#each chips as c}<li>{c}</li>{/each}</ul>
   {#if box.origin === "build"}<p class="muted">To build: no code under <code>{box.madeOf[0] ?? box.id}</code> yet</p>
-  {:else if box.origin === "drift"}<p class="muted">Drift: this code is in no box of ig/</p>{/if}
+  {:else if box.origin === "drift"}<p class="muted">Drift: this code is in no box of ig/</p>
+  {:else if box.origin === "unmanaged"}<p class="muted">Not in ig/: add a box named like it, or link one with <code>runs=</code></p>{/if}
   {#if edit && run}
     {#each proposals as p (p.n)}
       <div class="prop"><span class="text"><span class="ptag">{tag(p.by)}</span> {p.summary}</span>
