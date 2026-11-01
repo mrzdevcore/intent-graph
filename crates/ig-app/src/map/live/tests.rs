@@ -405,7 +405,19 @@ fn read_all_reads_each_entry_and_names_what_it_skips() {
         "traefik",
         Err(PortError::Io("traefik t.yml: broken".into())),
     );
-    let (reads, notices) = read_all(&config, &[&incus, &traefik], &MemFiles::with(&[]));
+    let said = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+    let heard = said.clone();
+    let progress = move |line: &str| heard.lock().unwrap().push(line.to_string());
+    let (reads, notices) = read_all(
+        &config,
+        &[&incus, &traefik],
+        &MemFiles::with(&[]),
+        &progress,
+    );
+    assert_eq!(
+        *said.lock().unwrap(),
+        ["reading incus homelab…", "reading traefik t.yml…"]
+    );
     assert_eq!(reads.len(), 2);
     assert_eq!(reads[0].label, "incus homelab");
     assert_eq!(reads[0].kind, "incus");
@@ -473,7 +485,7 @@ fn runs_works_on_a_box_of_any_kind() {
 /// `ig.yaml`'s connectors read by `connector`.
 fn read(yaml: &str, connector: &Fake) -> (Vec<ConnectorRead>, Vec<String>) {
     let config = ig_core::config::Config::parse(yaml).unwrap();
-    read_all(&config, &[connector], &MemFiles::with(&[]))
+    read_all(&config, &[connector], &MemFiles::with(&[]), &|_| {})
 }
 
 const RUNS_GITLAB: &str = "service \"web\" title=\"W\" runs=\"incus:homelab/gitlab\"";

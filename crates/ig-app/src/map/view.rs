@@ -304,7 +304,7 @@ pub fn run_live(
         }
         Err(m) => m,
     };
-    let (reads, unknown) = read_all(&config, connectors, env.files);
+    let (reads, unknown) = read_all(&config, connectors, env.files, env.progress);
     notices.extend(unknown);
     let live = apply(&mut m, &reads);
     notices.extend(live.notices);
