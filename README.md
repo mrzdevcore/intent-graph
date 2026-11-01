@@ -123,6 +123,31 @@ Any tool can draw on the map by writing `.ig/layers/<name>.json`, at most 512 KB
 or `down`; `badge`, `value` and `note` are optional text. Unknown fields, unknown targets and broken
 files are dropped with a notice, never fatal. The layer appears in the **Layers** menu.
 
+### Connectors: what is running
+
+`connectors` in `ig.yaml` puts a live server on the map, next to the code and the Ansible:
+
+```yaml
+connectors:
+  - { kind: incus, remote: homelab }          # the instances of `incus list homelab:`
+  - { kind: traefik, file: traefik-dynamic.yml } # routes, from a file in the repo
+```
+
+- A service is one box: a role or box named like an instance (`services/gitlab` and `gitlab`) shows
+  the instance's state, running or stopped. Names are matched exactly, never loosely.
+- To link by hand, give the box `runs="incus:homelab/gitlab"` in `ig/*.kdl`; several instances are
+  separated by spaces. A `runs=` instance that is not found gets a warning.
+- An instance no box describes is drawn in a group named after its remote, marked "not in ig/".
+- Traefik's routes sit inside its box, each wired to the box it reaches. A route that reaches
+  nothing is warned: the file may be stale.
+- A server that cannot be reached is a notice; the rest of the map still draws.
+
+Connectors only read. They run in `ig view`, not in the desktop app, and never in `ig plan`,
+`ig check`, `ig accept` or MCP. They never write to `ig/`. `ig.yaml` cannot name a program: `remote`
+is a name of letters, digits, `_` and `-`, and `file` is a relative path with no `..`.
+ig reads only each instance's name, type, status and addresses. It never reads an instance's
+`config`, `devices`, environment variables or Docker env, and addresses stay out of the page.
+
 ### The canvas
 
 - **Wheel or trackpad pinch** zooms about the pointer; **drag** pans.
