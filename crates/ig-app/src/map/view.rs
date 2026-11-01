@@ -304,6 +304,12 @@ pub fn run_live(
         }
         Err(m) => m,
     };
+    // before `apply`: what a connector drew is nothing the person can edit
+    let judged = (!broken).then(|| {
+        // a team kind file that does not read is already reported by the read
+        let kinds = Kinds::load(env.files).unwrap_or_else(|_| Kinds::builtin().clone());
+        warnings(&m, &kinds)
+    });
     let (reads, unknown) = read_all(&config, connectors, env.files, env.progress);
     notices.extend(unknown);
     let live = apply(&mut m, &reads);
@@ -313,10 +319,8 @@ pub fn run_live(
     let ui = components(env.files, g, env.frontends, &config);
     let mut v = view(env.files, &m, g, &ui);
     notices.append(&mut v.notices);
-    if !broken {
-        // a team kind file that does not read is already reported by the read
-        let kinds = Kinds::load(env.files).unwrap_or_else(|_| Kinds::builtin().clone());
-        v.warnings = warnings(&m, &kinds);
+    if let Some(w) = judged {
+        v.warnings = w;
     }
     v.warnings.extend(live.warnings);
     v.notices = notices;
