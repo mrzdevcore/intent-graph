@@ -14,7 +14,7 @@
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
   import Pads from "./Pads.svelte";
-  import { CARD, CARD_WIDE, fitBeside, padsOf } from "./pads";
+  import { CARD, CARD_WIDE, fillsBeside, fitBeside, padsOf } from "./pads";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
   import Search from "./Search.svelte";
@@ -206,16 +206,15 @@
     }
   });
 
+  /** The card's room in rem, open or not: it moves below at the phone width. */
+  const cardRem = () => globalThis.matchMedia?.("(max-width: 47.5rem)").matches ? 0 : view.sources?.[selected ?? ""] ? CARD_WIDE : CARD;
+  const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   /** Where opening a box puts the camera. A box with pads: its whole frame, beside the details card
    *  (below it at the phone width, so across the full width) with room for the labels. Otherwise a
    *  box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
   function target(id: string): Cam {
     const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on);
-    if (pads.length) {
-      const beside = selected && !globalThis.matchMedia?.("(max-width: 47.5rem)").matches;
-      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-      return fitBeside(frameOf(id), to, pads, beside ? (view.sources?.[selected!] ? CARD_WIDE : CARD) : 0, rem);
-    }
+    if (pads.length) return fitBeside(frameOf(id), to, pads, selected ? cardRem() : 0, rem());
     const inner = view.placed.inner[id];
     if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
     const t = place.inside(id);
@@ -355,14 +354,18 @@
     run(() => edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null, ...props }));
   }
 
-  /** The deepest box holding the view's centre and filling >= 60% of the view's width or height. */
+  /** The deepest box holding the view's centre and filling >= 60% of the view's width or height;
+   *  a box with pads may do so in the space opening it fits it to, beside the card. */
   const trail = $derived.by(() => {
-    const out = [ROOT];
+    const out = [ROOT], card = cardRem(), r = rem();
+    // ponytail: padsOf walks every arrow, but only for the box or two a frame's test lets through; memo per view if a huge map shows it
+    const hasPads = (id: string) => padsOf(view, id, frameOf(id), () => undefined, on).length > 0;
     for (let p = ROOT; ; ) {
       if (out.indexOf(p) !== out.length - 1) return out.slice(0, -1); // a loop: stop before it
       const next = (kids.get(p) ?? []).find((b) => {
         const f = world.get(b.id)!, x = f.x * cam.k + cam.x, y = f.y * cam.k + cam.y, w = f.w * cam.k, h = f.h * cam.k;
-        return x <= vw / 2 && vw / 2 <= x + w && y <= vh / 2 && vh / 2 <= y + h && Math.max(w / vw, h / vh) >= 0.6;
+        return (x <= vw / 2 && vw / 2 <= x + w && y <= vh / 2 && vh / 2 <= y + h && Math.max(w / vw, h / vh) >= 0.6)
+          || (fillsBeside({ x, y, w, h }, { w: vw, h: vh }, card, r) && hasPads(b.id));
       });
       if (!next) return out;
       out.push((p = next.id));

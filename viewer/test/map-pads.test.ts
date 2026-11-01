@@ -4,7 +4,7 @@ import { flushSync, mount } from "svelte";
 import Pads from "../src/map/Pads.svelte";
 import Map from "../src/map/Map.svelte";
 import { Camera } from "../src/map/glide";
-import { CARD, fitBeside, inBox, padsOf, type Pad } from "../src/map/pads";
+import { CARD, fillsBeside, fitBeside, inBox, padsOf, type Pad } from "../src/map/pads";
 import { fitInner, fitTo, showsInside, worldFrame } from "../src/map/camera";
 import type { Frame, MapArrow, MapBox, Mark, View } from "../src/map/types";
 
@@ -153,6 +153,19 @@ test("a frame of no size gives a finite camera, as fitTo does", () => {
   for (const n of [c.k, c.x, c.y]) expect(Number.isFinite(n)).toBe(true);
 });
 
+test("a box fitted beside the card counts as filling it, one that is too small does not", () => {
+  // 1440x900, card 356: the middle of the space left of the card is x 542
+  expect(fillsBeside({ x: 16, y: 203, w: 860, h: 495 }, V, CARD, 16)).toBe(true);
+  // both labels and the wide card: the 560 floor still passes
+  expect(fillsBeside({ x: 200, y: 289, w: 560, h: 322 }, V, 31, 16)).toBe(true);
+  // too small to be open: under 560
+  expect(fillsBeside({ x: 300, y: 300, w: 500, h: 300 }, V, CARD, 16)).toBe(false);
+  // open but off to one side of x 542
+  expect(fillsBeside({ x: 600, y: 203, w: 800, h: 495 }, V, CARD, 16)).toBe(false);
+});
+
+const trailOf = (t: HTMLElement) => [...t.querySelectorAll(".crumbs button")].map((c) => c.textContent!.trim());
+
 function opened() {
   const v = make([arrow("host", "public", [arrow("traefik", "a")]), arrow("leaf", "public")], [], [box("alone", "system"), box("leaf", "system")]);
   v.placed.frames = {
@@ -171,7 +184,7 @@ function opened() {
     m.tick(performance.now() + 5000);
     flushSync();
   };
-  return { v, camera, target, slot, open };
+  return { v, camera, target, m, slot, open };
 }
 
 test("opening a box with pads frames the whole box beside the card", () => {
@@ -203,4 +216,39 @@ test("a press on a leaf box's pad that moves a little does not drag the box, and
   p.click();
   flushSync();
   expect(target.querySelector(".details")?.textContent).toContain("PUBLIC");
+});
+
+test("the breadcrumb names the box opened beside the card, though it fills under 60% of the view", () => {
+  const { v, camera, target, open } = opened();
+  open("host");
+  const s = onScreen(worldFrame("host", v), camera.cam);
+  // at 1440 wide: left 16, right 876, so 860 of 1440
+  expect([Math.round(s.l), Math.round(s.r)]).toEqual([16, 876]);
+  expect((s.r - s.l) / 1440).toBeLessThan(0.6);
+  expect(trailOf(target)).toEqual(["SYSTEM", "HOST"]);
+  open("traefik");
+  expect(trailOf(target)).toEqual(["SYSTEM", "HOST", "TRAEFIK"]);
+});
+
+test("closing the card leaves the breadcrumb as it was", () => {
+  const { target, open } = opened();
+  open("host");
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  flushSync();
+  expect(target.querySelector(".details")).toBeNull();
+  expect(trailOf(target)).toEqual(["SYSTEM", "HOST"]);
+});
+
+test("zooming by hand to a box with no pads keeps the 60% rule", () => {
+  const { v, camera, target, m } = opened();
+  // alone is 264 wide and sits where host would: 860 of 1440 on screen, holding the view's centre
+  const f = worldFrame("alone", v), at = (w: number) => {
+    const k = w / f.w;
+    camera.set({ k, x: 720 - (f.x + f.w / 2) * k, y: 450 - (f.y + f.h / 2) * k });
+    m.tick(performance.now());
+    flushSync();
+    return trailOf(target);
+  };
+  expect(at(860)).toEqual(["SYSTEM"]);
+  expect(at(865)).toEqual(["SYSTEM", "ALONE"]);
 });
