@@ -18,8 +18,9 @@ use std::collections::{BTreeMap, HashMap};
 const LAYER: &str = "state";
 const TRAEFIK: &str = "traefik";
 
-/// One `ig.yaml` entry's read. `label`, its kind then its settings' values, is what a notice
-/// names; `kind` and `remote` are where it looked (`remote`: its `remote` or `file` setting).
+/// One `ig.yaml` entry's read. `kind` and `remote` are where it looked (`remote`: its `remote` or
+/// `file` setting), and `label`, those two, is what a notice names: no other setting, which could
+/// be a secret, reaches one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectorRead {
     pub label: String,
@@ -45,10 +46,11 @@ pub fn read_all(
 ) -> Vec<ConnectorRead> {
     let mut reads = vec![];
     for e in &config.connectors {
-        let words: Vec<&str> = std::iter::once(e.kind.as_str())
-            .chain(e.settings.values().map(String::as_str))
-            .collect();
-        let label = words.join(" ");
+        let remote = (e.settings.get("remote").or_else(|| e.settings.get("file"))).cloned();
+        let label = match &remote {
+            Some(r) => format!("{} {r}", e.kind),
+            None => e.kind.clone(),
+        };
         let result = match connectors.iter().find(|c| c.kind() == e.kind) {
             Some(c) => {
                 progress(&format!("reading {label}…"));
@@ -59,7 +61,7 @@ pub fn read_all(
         reads.push(ConnectorRead {
             label,
             kind: e.kind.clone(),
-            remote: (e.settings.get("remote").or_else(|| e.settings.get("file"))).cloned(),
+            remote,
             result,
         });
     }

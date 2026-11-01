@@ -513,6 +513,18 @@ fn an_extra_setting_does_not_change_what_a_read_covers() {
 }
 
 #[test]
+fn a_setting_never_reaches_a_notice() {
+    let yaml = "connectors:\n  - { kind: incus, remote: homelab, token: SECRET_CANARY }\n  - { kind: nope, token: SECRET_CANARY, file: x.yml }\n";
+    let down = Fake("incus", Err(PortError::Io("no route to host".into())));
+    let reads = read(yaml, &down);
+    assert_eq!(reads[0].label, "incus homelab");
+    assert_eq!(reads[1].label, "nope x.yml");
+    let out = apply(&mut map(GITLAB), &reads);
+    assert_eq!(out.notices.len(), 2);
+    assert!(!format!("{:?}", out.notices).contains("SECRET_CANARY"));
+}
+
+#[test]
 fn a_skipped_kind_says_nothing() {
     let up = Fake("traefik", Ok(Snapshot::default()));
     let reads = read(
