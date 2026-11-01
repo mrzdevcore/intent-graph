@@ -19,10 +19,12 @@ const LAYER: &str = "state";
 const TRAEFIK: &str = "traefik";
 
 /// One `ig.yaml` entry's read. `label`, its kind then its settings' values, is what a notice
-/// names, and how a `runs=` value finds the read it depends on.
+/// names; `kind` and `remote` are where it looked (`remote`: its `remote` or `file` setting).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectorRead {
     pub label: String,
+    pub kind: String,
+    pub remote: Option<String>,
     pub result: Result<Snapshot, String>,
 }
 
@@ -48,6 +50,8 @@ pub fn read_all(
         match connectors.iter().find(|c| c.kind() == e.kind) {
             Some(c) => reads.push(ConnectorRead {
                 label,
+                kind: e.kind.clone(),
+                remote: (e.settings.get("remote").or_else(|| e.settings.get("file"))).cloned(),
                 result: c.read(&e.settings, files).map_err(|e| e.to_string()),
             }),
             None => notices.push(format!("connectors: no connector for `{label}`; skipped")),
@@ -100,10 +104,13 @@ fn is_own(r: &Resource) -> bool {
     r.id.connector == TRAEFIK && r.id.name == TRAEFIK
 }
 
-/// The boxes the name rule can match to `name`: not the system, not one that says what it runs.
+/// The boxes the name rule can match to `name`: the kinds that run, at any level, and not one
+/// that says what it runs.
 fn named(m: &MapFile, name: &str) -> Vec<String> {
+    use BoxKind::{App, Job, Queue, Service, Store};
     (m.boxes.iter())
-        .filter(|b| b.level != Level::System && !b.props.contains_key("runs"))
+        .filter(|b| matches!(b.kind.value, Service | App | Store | Queue | Job))
+        .filter(|b| !b.props.contains_key("runs"))
         .filter(|b| b.id.rsplit('/').next() == Some(name))
         .map(|b| b.id.clone())
         .collect()
@@ -115,13 +122,12 @@ fn word(target: &str, state: MarkState, badge: &str, value: Option<String>) -> M
     k
 }
 
-/// `runs=` first. What it names and no read has is a warn mark, unless the read it would come
-/// from failed: that says nothing about what runs there.
-// ponytail: a read is found by its exact label, `<kind> <remote>`; a connector with more settings needs more.
+/// `runs=` first. What it names and no read has is a warn mark, only when a read succeeded for
+/// that kind and remote: nothing else says what runs there.
 fn match_runs<'r>(
     m: &mut MapFile,
     services: &[&'r Resource],
-    failed: &[&str],
+    looked: &[(&str, &str)],
     found: &mut Found<'r>,
 ) {
     let runs: Vec<(String, Vec<ResourceId>)> = (m.boxes.iter())
@@ -131,7 +137,7 @@ fn match_runs<'r>(
         for w in wanted {
             if let Some(r) = services.iter().find(|r| r.id == *w) {
                 found.add(id, r);
-            } else if !failed.contains(&format!("{} {}", w.connector, w.remote).as_str()) {
+            } else if looked.contains(&(w.connector.as_str(), w.remote.as_str())) {
                 let value = format!("not found on {}", w.remote);
                 let k = word(id, MarkState::Warn, "not found", Some(value));
                 if !m.marks.contains(&k) {
@@ -424,33 +430,31 @@ pub fn apply(m: &mut MapFile, reads: &[ConnectorRead]) -> Applied {
     if reads.is_empty() {
         return out;
     }
-    let (mut live, mut failed): (Vec<&Snapshot>, Vec<&str>) = (vec![], vec![]);
+    let mut live: Vec<&Snapshot> = vec![];
     for r in reads {
         match &r.result {
             Ok(s) => live.push(s),
-            Err(e) if e.starts_with(&r.label) => {
-                failed.push(&r.label);
-                out.notices.push(e.clone());
-            }
-            Err(e) => {
-                failed.push(&r.label);
-                out.notices.push(format!("{}: {e}", r.label));
-            }
+            Err(e) if e.starts_with(&r.label) => out.notices.push(e.clone()),
+            Err(e) => out.notices.push(format!("{}: {e}", r.label)),
         }
     }
+    let looked: Vec<(&str, &str)> = (reads.iter())
+        .filter(|r| r.result.is_ok())
+        .filter_map(|r| Some((r.kind.as_str(), r.remote.as_deref()?)))
+        .collect();
     let all: Vec<&Resource> = live.iter().flat_map(|s| &s.resources).collect();
     let services: Vec<&Resource> = (all.iter().copied())
         .filter(|r| r.kind == ResourceKind::Service)
         .collect();
     let mut found = Found::default();
-    match_runs(m, &services, &failed, &mut found);
+    match_runs(m, &services, &looked, &mut found);
     match_names(m, &services, &mut found, &mut out.warnings);
     let holder = traefik_box(m, &services, &found, &mut out.warnings);
     unmanaged(m, &services, &mut found);
     m.marks
         .extend(found.on.iter().filter_map(|(id, rs)| state_mark(id, rs)));
     place_routes(m, &all, &services, holder, &mut found);
-    draw_links(m, &live, &services, &found, !failed.is_empty());
+    draw_links(m, &live, &services, &found, live.len() < reads.len());
     sort_marks(&mut m.marks);
     out
 }

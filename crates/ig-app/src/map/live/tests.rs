@@ -1,10 +1,10 @@
 use super::*;
-use crate::map::arrows::lift;
 use crate::map::origin::plan_of;
 use crate::map::spec;
 use ig_core::ports::{Link, PortError, Settings};
 use ig_core::testing::MemFiles;
-use std::collections::HashMap;
+
+mod routes;
 
 fn map(body: &str) -> MapFile {
     let text = format!("system \"sys\" title=\"Sys\" {{\n{body}\n}}\n");
@@ -37,6 +37,8 @@ fn instance(remote: &str, name: &str, state: State) -> Resource {
 fn incus(remote: &str, resources: Vec<Resource>) -> ConnectorRead {
     ConnectorRead {
         label: format!("incus {remote}"),
+        kind: "incus".into(),
+        remote: Some(remote.into()),
         result: Ok(Snapshot {
             resources,
             links: vec![],
@@ -50,8 +52,11 @@ fn lab(name: &str, state: State) -> ConnectorRead {
 }
 
 fn failed(label: &str) -> ConnectorRead {
+    let (kind, remote) = label.split_once(' ').unwrap();
     ConnectorRead {
         label: label.into(),
+        kind: kind.into(),
+        remote: Some(remote.into()),
         result: Err("no route to host".into()),
     }
 }
@@ -89,6 +94,8 @@ fn traefik(routes: &[(&str, Option<&str>, &[&str])]) -> ConnectorRead {
     }
     ConnectorRead {
         label: "traefik t.yml".into(),
+        kind: "traefik".into(),
+        remote: Some("t.yml".into()),
         result: Ok(s),
     }
 }
@@ -351,201 +358,14 @@ fn a_failed_connector_concludes_nothing() {
 fn a_notice_does_not_name_its_connector_twice() {
     let mut m = map(GITLAB);
     let read = ConnectorRead {
-        label: "incus homelab".into(),
         result: Err("incus homelab: could not read the instance list".into()),
+        ..failed("incus homelab")
     };
     let out = apply(&mut m, &[read]);
     assert_eq!(
         out.notices,
         ["incus homelab: could not read the instance list"]
     );
-}
-
-#[test]
-fn a_route_resolves_by_address_then_by_name() {
-    let mut m = map(GITLAB);
-    apply(
-        &mut m,
-        &[
-            incus(
-                "homelab",
-                vec![
-                    at("homelab", "gitlab", State::Running, &["10.0.0.5"]),
-                    // stopped: no addresses
-                    instance("homelab", "wiki", State::Stopped),
-                ],
-            ),
-            traefik(&[
-                // the address wins over a name that is also there
-                ("by-address", Some("10.0.0.5"), &["wiki"]),
-                ("by-host", None, &["wiki"]),
-                // a stale address falls back on the router's name, the route's own too
-                ("wiki", Some("10.0.0.99"), &["wiki"]),
-            ]),
-        ],
-    );
-    let a = arrow(&m, "traefik/route-by-address");
-    assert_eq!(a.to, "services/gitlab");
-    assert_eq!((a.kind, a.origin), (ArrowKind::Calls, Origin::Built));
-    assert_eq!(a.kinds, [ArrowKind::Calls]);
-    assert_eq!(a.parent, "sys");
-    assert_eq!(a.id, "traefik/route-by-address->services/gitlab");
-    assert_eq!(arrow(&m, "traefik/route-by-host").to, "homelab/wiki");
-    assert_eq!(arrow(&m, "traefik/route-wiki").to, "homelab/wiki");
-    let route = find(&m, "traefik/route-by-host");
-    assert_eq!(route.props.get("kind").map(String::as_str), Some("route"));
-    assert_eq!(route.title.value, "by-host.example.test");
-    assert!(marks(&m, "traefik/route-wiki").is_empty());
-    // addresses are for matching: they reach neither box, prop, mark nor arrow
-    assert!(!serde_json::to_string(&m).unwrap().contains("10.0.0."));
-}
-
-#[test]
-fn a_route_resolving_to_nothing_warns() {
-    let mut m = map(GITLAB);
-    apply(
-        &mut m,
-        &[
-            incus("homelab", vec![]),
-            traefik(&[("gone", Some("10.0.0.9"), &["gone"])]),
-        ],
-    );
-    assert_eq!(
-        only(&m, "traefik/route-gone"),
-        (MarkState::Warn, Some("no instance at this address".into()))
-    );
-    assert!(m.arrows.is_empty());
-}
-
-#[test]
-fn a_route_never_picks_between_two_instances() {
-    let mut m = map(GITLAB);
-    apply(
-        &mut m,
-        &[
-            incus(
-                "homelab",
-                vec![
-                    at("homelab", "a", State::Running, &["10.0.0.7"]),
-                    at("homelab", "b", State::Running, &["10.0.0.7"]),
-                ],
-            ),
-            incus("lab2", vec![instance("lab2", "c", State::Running)]),
-            incus("lab3", vec![instance("lab3", "c", State::Running)]),
-            traefik(&[("shared", Some("10.0.0.7"), &["c"])]),
-        ],
-    );
-    assert!(m.arrows.is_empty());
-    assert_eq!(only(&m, "traefik/route-shared").0, MarkState::Warn);
-}
-
-#[test]
-fn routes_sit_in_a_traefik_box_then_a_traefik_instance_then_their_own() {
-    let route = [("web", None, &["gitlab"][..])];
-    // a box of that name, the instance's state on it; the two `traefik` are no ambiguity
-    let mut m = map("group \"edge\" title=\"E\" {\n service \"edge/traefik\" title=\"T\"\n}");
-    let out = apply(&mut m, &[lab("traefik", State::Running), traefik(&route)]);
-    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
-    assert_eq!(
-        find(&m, "edge/traefik/route-web").parent.as_deref(),
-        Some("edge/traefik")
-    );
-    assert_eq!(only(&m, "edge/traefik").0, MarkState::Ok);
-    assert!(!has(&m, "homelab/traefik") && !has(&m, "traefik") && !has(&m, "t-yml"));
-
-    // a box saying it runs the instance
-    let mut m = map("service \"proxy\" title=\"P\" runs=\"incus:homelab/traefik\"");
-    apply(&mut m, &[lab("traefik", State::Stopped), traefik(&route)]);
-    assert!(has(&m, "proxy/route-web"));
-    assert_eq!(only(&m, "proxy").0, MarkState::Down);
-
-    // an instance of that name, whose state then applies
-    let mut m = map(GITLAB);
-    apply(&mut m, &[lab("traefik", State::Stopped), traefik(&route)]);
-    assert_eq!(
-        find(&m, "homelab/traefik/route-web").parent.as_deref(),
-        Some("homelab/traefik")
-    );
-    assert_eq!(only(&m, "homelab/traefik").0, MarkState::Down);
-
-    // neither: a box of its own at the top level, with no mark and no group named for the file
-    let mut m = map(GITLAB);
-    apply(&mut m, &[traefik(&route)]);
-    let own = find(&m, "traefik");
-    assert_eq!(own.parent.as_deref(), Some("sys"));
-    assert_eq!(own.origin, Origin::Unmanaged);
-    assert_eq!(
-        find(&m, "traefik/route-web").parent.as_deref(),
-        Some("traefik")
-    );
-    assert!(marks(&m, "traefik").is_empty());
-    assert!(!has(&m, "t-yml"));
-
-    // no routes, nothing to hold
-    let mut m = map(GITLAB);
-    apply(&mut m, &[traefik(&[])]);
-    assert!(!has(&m, "traefik"));
-}
-
-#[test]
-fn two_boxes_named_traefik_hold_no_routes_and_warn() {
-    let mut m = map(
-        "group \"a\" title=\"A\" {\n service \"a/traefik\" title=\"T\"\n}\ngroup \"b\" title=\"B\" {\n service \"b/traefik\" title=\"T\"\n}",
-    );
-    let out = apply(&mut m, &[traefik(&[("web", None, &["web"])])]);
-    assert_eq!(out.warnings.len(), 1, "{:?}", out.warnings);
-    assert!(out.warnings[0].contains("a/traefik") && out.warnings[0].contains("b/traefik"));
-    assert!(has(&m, "traefik/route-web"));
-}
-
-#[test]
-fn route_ends_are_kept_when_they_cross_groups() {
-    let mut m = map(
-        "group \"edge\" title=\"E\" {\n service \"edge/traefik\" title=\"T\"\n}\ngroup \"apps\" title=\"A\" {\n service \"apps/a\" title=\"A\"\n service \"apps/b\" title=\"B\"\n}",
-    );
-    apply(
-        &mut m,
-        &[
-            incus(
-                "homelab",
-                vec![
-                    instance("homelab", "a", State::Running),
-                    instance("homelab", "b", State::Running),
-                ],
-            ),
-            traefik(&[("r1", None, &["a"]), ("r2", None, &["b"])]),
-        ],
-    );
-    assert_eq!(arrow(&m, "edge/traefik/route-r1").parent, "sys");
-    let parents: HashMap<&str, &str> = (m.boxes.iter())
-        .filter_map(|b| Some((b.id.as_str(), b.parent.as_deref()?)))
-        .collect();
-    let drawn = lift(&parents, m.arrows.clone());
-    assert_eq!(drawn.len(), 1, "{drawn:#?}");
-    assert_eq!(
-        (drawn[0].from.as_str(), drawn[0].to.as_str()),
-        ("edge", "apps")
-    );
-    let parts: Vec<&str> = drawn[0].parts.iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(
-        parts,
-        [
-            "edge/traefik/route-r1->apps/a",
-            "edge/traefik/route-r2->apps/b"
-        ]
-    );
-}
-
-#[test]
-fn a_route_inside_a_group_gets_that_group_as_parent() {
-    let mut m = map(
-        "group \"apps\" title=\"A\" {\n service \"apps/traefik\" title=\"T\"\n service \"apps/a\" title=\"A\"\n}",
-    );
-    apply(
-        &mut m,
-        &[lab("a", State::Running), traefik(&[("r", None, &["a"])])],
-    );
-    assert_eq!(arrow(&m, "apps/traefik/route-r").parent, "apps");
 }
 
 #[test]
@@ -588,9 +408,124 @@ fn read_all_reads_each_entry_and_names_what_it_skips() {
     let (reads, notices) = read_all(&config, &[&incus, &traefik], &MemFiles::with(&[]));
     assert_eq!(reads.len(), 2);
     assert_eq!(reads[0].label, "incus homelab");
+    assert_eq!(reads[0].kind, "incus");
+    assert_eq!(reads[0].remote.as_deref(), Some("homelab"));
     assert_eq!(reads[0].result, Ok(Snapshot::default()));
     assert_eq!(reads[1].label, "traefik t.yml");
     assert_eq!(reads[1].result, Err("traefik t.yml: broken".to_string()));
     assert_eq!(notices.len(), 1);
     assert!(notices[0].contains("nope x"), "{notices:?}");
+}
+
+#[test]
+fn a_box_that_can_run_matches_by_name_at_any_level() {
+    for kind in ["service", "app", "store", "queue", "job"] {
+        let mut m = map(&format!("{kind} \"redis\" title=\"R\""));
+        apply(&mut m, &[lab("redis", State::Running)]);
+        assert_eq!(only(&m, "redis"), (MarkState::Ok, None), "{kind}");
+        assert!(!has(&m, "homelab/redis"), "{kind}");
+    }
+    let mut m = map("service \"a\" title=\"A\" {\n store \"a/redis\" title=\"R\"\n}");
+    apply(&mut m, &[lab("redis", State::Stopped)]);
+    assert_eq!(find(&m, "a/redis").level, Level::Component);
+    assert_eq!(only(&m, "a/redis"), (MarkState::Down, None));
+}
+
+#[test]
+fn a_box_that_is_no_server_neither_matches_nor_blocks_a_match() {
+    for kind in ["person", "external", "group"] {
+        let other = format!("{kind} \"redis\" title=\"R\"");
+        let mut m = map(&other);
+        let out = apply(&mut m, &[lab("redis", State::Running)]);
+        assert!(marks(&m, "redis").is_empty(), "{kind}");
+        assert!(out.warnings.is_empty(), "{kind}: {:?}", out.warnings);
+        assert_eq!(find(&m, "homelab/redis").origin, Origin::Unmanaged);
+
+        let mut m = map(&format!(
+            "{other}\ngroup \"services\" title=\"S\" {{\n service \"services/redis\" title=\"R\"\n}}"
+        ));
+        let out = apply(&mut m, &[lab("redis", State::Running)]);
+        assert_eq!(only(&m, "services/redis"), (MarkState::Ok, None), "{kind}");
+        assert!(marks(&m, "redis").is_empty(), "{kind}");
+        assert!(out.warnings.is_empty(), "{kind}: {:?}", out.warnings);
+        assert!(!has(&m, "homelab/redis"), "{kind}");
+    }
+}
+
+#[test]
+fn a_code_component_does_not_make_a_match_ambiguous() {
+    let mut m = map(
+        "service \"a\" title=\"A\" {\n module \"a/redis\" title=\"M\"\n}\nservice \"redis\" title=\"R\"",
+    );
+    let out = apply(&mut m, &[lab("redis", State::Running)]);
+    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    assert_eq!(only(&m, "redis"), (MarkState::Ok, None));
+    assert!(marks(&m, "a/redis").is_empty());
+}
+
+#[test]
+fn runs_works_on_a_box_of_any_kind() {
+    let mut m = map("person \"me\" title=\"M\" runs=\"incus:homelab/gitlab\"");
+    apply(&mut m, &[lab("gitlab", State::Running)]);
+    assert_eq!(only(&m, "me"), (MarkState::Ok, None));
+}
+
+/// `ig.yaml`'s connectors read by `connector`.
+fn read(yaml: &str, connector: &Fake) -> (Vec<ConnectorRead>, Vec<String>) {
+    let config = ig_core::config::Config::parse(yaml).unwrap();
+    read_all(&config, &[connector], &MemFiles::with(&[]))
+}
+
+const RUNS_GITLAB: &str = "service \"web\" title=\"W\" runs=\"incus:homelab/gitlab\"";
+
+#[test]
+fn an_extra_setting_does_not_change_what_a_read_covers() {
+    let yaml = "connectors:\n  - { kind: incus, remote: homelab, note: lab }\n";
+
+    let down = Fake("incus", Err(PortError::Io("no route to host".into())));
+    let (reads, _) = read(yaml, &down);
+    let mut m = map(RUNS_GITLAB);
+    let out = apply(&mut m, &reads);
+    assert_eq!(out.notices.len(), 1);
+    assert!(marks(&m, "web").is_empty(), "{:?}", m.marks);
+
+    let up = Fake("incus", Ok(Snapshot::default()));
+    let (reads, _) = read(yaml, &up);
+    let mut m = map(RUNS_GITLAB);
+    apply(&mut m, &reads);
+    assert_eq!(
+        only(&m, "web"),
+        (MarkState::Warn, Some("not found on homelab".into()))
+    );
+}
+
+#[test]
+fn a_skipped_kind_says_nothing() {
+    let up = Fake("traefik", Ok(Snapshot::default()));
+    let (reads, notices) = read(
+        "connectors:\n  - { kind: incus, remote: homelab }\n  - { kind: traefik, file: t.yml }\n",
+        &up,
+    );
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    let mut m = map(RUNS_GITLAB);
+    apply(&mut m, &reads);
+    assert!(marks(&m, "web").is_empty(), "{:?}", m.marks);
+}
+
+#[test]
+fn only_a_read_of_that_kind_and_remote_can_say_not_found() {
+    // another remote, and another kind on that remote: nothing looked there
+    let mut m = map("service \"web\" title=\"W\" runs=\"incus:homelab/x traefik:lab2/x\"");
+    apply(&mut m, &[incus("lab2", vec![])]);
+    assert!(marks(&m, "web").is_empty(), "{:?}", m.marks);
+
+    // a file is the remote of a connector that reads one
+    let up = Fake("traefik", Ok(Snapshot::default()));
+    let (reads, _) = read("connectors:\n  - { kind: traefik, file: t.yml }\n", &up);
+    let mut m = map("service \"web\" title=\"W\" runs=\"traefik:t.yml/gone\"");
+    apply(&mut m, &reads);
+    assert_eq!(
+        only(&m, "web"),
+        (MarkState::Warn, Some("not found on t.yml".into()))
+    );
 }
