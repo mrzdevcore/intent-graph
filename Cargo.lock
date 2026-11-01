@@ -2030,6 +2030,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-conn-incus"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ig-core"
 version = "0.1.0"
 dependencies = [
