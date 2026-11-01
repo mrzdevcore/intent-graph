@@ -77,6 +77,19 @@ fn view_draws_the_server_and_no_secret_reaches_the_page() {
 }
 
 #[test]
+fn a_remote_of_many_instances_is_no_crowding_to_fix() {
+    let (root, bin) = shop("crowded", INCUS);
+    let list: Vec<String> = (0..13)
+        .map(|i| format!(r#"{{"name":"worker{i}","type":"container","status":"Running"}}"#))
+        .collect();
+    fake_incus(&root, &bin, &format!("/bin/cat <<'EOF'\n[{}]\nEOF", list.join(",")));
+    let (code, out) = ig(&root, &bin, VIEW);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("worker12"), "{out}");
+    assert!(!out.contains("holds 13 boxes"), "{out}");
+}
+
+#[test]
 fn plan_and_check_never_call_a_connector() {
     let (root, bin) = shop("plan", INCUS);
     fake_incus(&root, &bin, &format!("/bin/cat <<'EOF'\n{INSTANCES}\nEOF"));
