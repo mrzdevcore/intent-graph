@@ -51,7 +51,7 @@ export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox, by
     bg: s?.bg ?? "var(--map-surface)",
     fade: s?.tone === "down" || (!s && !o && box.stale) ? 0.6 : !s && box.origin === "build" ? 0.85 : 1,
     chips,
-    dot: !!health && health.state === "ok" && !s,
+    dot: !s && mine.some((m) => m.state === "ok" && (m.layer === "health" || m.layer === "state")),
   };
 }
 

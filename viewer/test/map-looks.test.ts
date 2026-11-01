@@ -19,6 +19,12 @@ test("an Ok mark is a dot, no chips", () => {
   expect(l).toMatchObject({ dot: true, chips: [], edge: "var(--map-green)" });
 });
 
+test("a running instance's Ok mark is the same dot, gone with its layer", () => {
+  const running: Mark = { layer: "state", target: box.id, state: "ok", badge: "running" };
+  expect(look(box.id, [running], new Set(["state"]), box)).toMatchObject({ dot: true, chips: [] });
+  expect(look(box.id, [running], new Set(), box).dot).toBe(false);
+});
+
 test("insideCounts reaches every ancestor", () => {
   const code = view.boxes.find((b) => b.parent === box.id)!;
   const c = insideCounts(view, [{ layer: "health", target: code.id, state: "bad" }], new Set(["health"]));
