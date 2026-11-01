@@ -187,8 +187,12 @@ impl<'g> Nest<'g, '_> {
                     _ => BoxKind::Function,
                 };
                 let id = self.push(c, parent, (n.id.clone(), n.name.clone(), kind), &[], &[n]);
-                self.code
-                    .push((id.clone(), n.file.clone(), n.range, n.metrics.complexity));
+                // an Ansible role's text can hold secrets (env files, a task's `default('…')`):
+                // its boxes, never its text in the page
+                if !matches!(n.kind.as_str(), "document" | "task") {
+                    self.code
+                        .push((id.clone(), n.file.clone(), n.range, n.metrics.complexity));
+                }
                 let kids: Vec<&Node> = self
                     .members
                     .get(n.id.as_str())

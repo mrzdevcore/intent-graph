@@ -152,13 +152,10 @@ fn ig_view_draws_an_ansible_tree_down_to_its_tasks() {
         .find(|b| b.kind.value == BoxKind::Task && b.title.value == "Deploy payment API")
         .unwrap();
     assert_eq!(task.parent.as_deref(), Some("retail/payment-api"));
-    assert!(
-        v.sources[&task.id]
-            .text
-            .contains("helper_deploy_helm_chart")
-    );
     let tpl = "ansible/roles/payment_api/templates/values.yml.j2#file";
-    assert!(v.sources[tpl].text.contains("PRODUCT_API_HOST"));
+    // a role's text can hold secrets: its boxes, never its text in the page
+    assert!(v.boxes.iter().any(|b| b.id == tpl));
+    assert!(v.sources.is_empty(), "{:?}", v.sources.keys());
     assert!(
         v.notices.iter().all(|n| !n.contains("not written")),
         "{:?}",
