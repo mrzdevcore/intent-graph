@@ -1,6 +1,7 @@
 <!-- An open box's connections, in the box's own units: a pad on its edge per connection (right going
      out, left coming in) with the far box's title beside it, and a wire from the child holding its
-     end. `scale` keeps pads and text one size on screen. Titles are repo-derived: text only. -->
+     end. `scale` keeps pads and text one size on screen. Titles are repo-derived: text only. The fold of
+     what does not fit has no wire and opens this box, whose card lists every link. -->
 <script lang="ts">
   import type { Frame, View } from "./types";
   import { inBox, padsOf } from "./pads";
@@ -28,16 +29,19 @@
   <div class="pads">
     <svg width="1" height="1" aria-hidden="true">
       {#each pads as p, i (i)}
-        {@const s = start(p.side, p.child, p.y)}
-        <g class:down={p.down} stroke-width={1.5 * scale}>
-          <line x1={s.x} y1={s.y} x2={p.side === "out" ? frame.w : 0} y2={p.y} stroke-linecap="round" stroke-dasharray={p.down ? `0 ${4 * scale}` : undefined} />
-          {#if s.wired}<circle cx={s.x} cy={s.y} r={3 * scale} />{/if}
-        </g>
+        {#if !p.more}
+          {@const s = start(p.side, p.child, p.y)}
+          <g class:down={p.down} stroke-width={1.5 * scale}>
+            <line x1={s.x} y1={s.y} x2={p.side === "out" ? frame.w : 0} y2={p.y} stroke-linecap="round" stroke-dasharray={p.down ? `0 ${4 * scale}` : undefined} />
+            {#if s.wired}<circle cx={s.x} cy={s.y} r={3 * scale} />{/if}
+          </g>
+        {/if}
       {/each}
     </svg>
     {#each pads as p, i (i)}
-      <button class="pad {p.side}" class:down={p.down} type="button" data-pad={p.other} title={p.title}
-        aria-label="Open {p.title}{p.down ? ', stopped' : ''}" style:top="{p.y}px" style:scale={scale} onclick={() => onopen(p.other)}>
+      <button class="pad {p.side}" class:down={p.down} class:fold={p.more} type="button" data-pad={p.other} title={p.title}
+        aria-label={p.more ? `${p.more} more connections, listed on this box's card` : `Open ${p.title}${p.down ? ", stopped" : ""}`}
+        style:top="{p.y}px" style:scale={scale} onclick={() => onopen(p.more ? id : p.other)}>
         <span class="dot"></span>
         <span class="tag"><span class="name">{p.title}</span>{#if p.down && pads.length <= CHIPS}<span class="chip">stopped</span>{/if}</span>
       </button>
@@ -66,5 +70,6 @@
   .down .dot, .down .tag { border-color: var(--map-faint); }
   .down .dot { background: var(--map-down-bg); }
   .down .tag { border-style: dotted; color: var(--map-muted); }
+  .fold .tag { border-style: dashed; color: var(--map-muted); }
   .chip { padding: 0 var(--space-1); border-radius: var(--radius-pill); background: var(--map-down-bg); color: var(--map-fg-2); font-size: var(--text-2xs); }
 </style>
