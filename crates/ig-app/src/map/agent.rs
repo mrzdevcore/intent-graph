@@ -56,7 +56,7 @@ impl Agent {
             // --safe-mode drops CLAUDE.md, skills, hooks and MCP servers; --tools is the whole set.
             // --disallowed-tools keeps it from secrets (tried with fake ones: Read and Grep both
             // come back without them); `ig::agent::is_secret` is the same list for the agents
-            // that have no such flag
+            // that have no such flag, but for `.example` files, harmless to keep from Claude
             Agent::Claude => &[
                 "claude",
                 "-p",
@@ -70,10 +70,12 @@ impl Agent {
                 "Read(**/*.tfvars)",
                 "Read(**/*.tfvars.json)",
                 "Read(**/.env*)",
+                "Read(**/*.env)",
                 "Read(**/*.pem)",
                 "Read(**/*.key)",
                 "Read(**/id_rsa*)",
                 "Read(**/id_ed25519*)",
+                "Read(**/id_ecdsa*)",
                 "--tools",
                 "Read,Grep,Glob",
             ],

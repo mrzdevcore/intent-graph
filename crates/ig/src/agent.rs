@@ -148,14 +148,15 @@ impl Drop for Bar {
     }
 }
 
-/// A file that holds secrets by its name (`.example` ones hold none).
+/// A file that holds secrets by its name (`.example` ones hold none). The same list as Claude's
+/// `--disallowed-tools` in `ig_app::map::agent`, whose globs also take in the `.example` ones.
 fn is_secret(name: &str) -> bool {
-    let ends = [".tfstate", ".tfvars", ".tfvars.json", ".pem", ".key"];
-    (name == ".env" || name.starts_with(".env.") || name.contains(".tfstate."))
+    let ends = [".env", ".tfstate", ".tfvars", ".tfvars.json", ".pem", ".key"];
+    let starts = ["id_rsa", "id_ed25519", "id_ecdsa"];
+    (name == ".envrc" || name.starts_with(".env.") || name.contains(".tfstate."))
         && !name.ends_with(".example")
         || ends.iter().any(|e| name.ends_with(e))
-        || name.starts_with("id_rsa")
-        || name.starts_with("id_ed25519")
+        || starts.iter().any(|s| name.starts_with(s))
 }
 
 /// The files under `root` that hold secrets, sorted, whether git ignores them or not.
@@ -376,7 +377,12 @@ mod tests {
             "app/.env",
             "app/.env.production",
             "app/.env.example",
+            "app/.envrc",
+            "app/prod.env",
+            "app/prod.env.example",
             "certs/server.key",
+            "keys/id_ecdsa",
+            "keys/id_ecdsa.pub",
             "node_modules/x/.env",
         ]);
         assert_eq!(
@@ -384,7 +390,11 @@ mod tests {
             [
                 "app/.env",
                 "app/.env.production",
+                "app/.envrc",
+                "app/prod.env",
                 "certs/server.key",
+                "keys/id_ecdsa",
+                "keys/id_ecdsa.pub",
                 "tofu/prod.tfvars",
                 "tofu/terraform.tfstate",
                 "tofu/terraform.tfstate.backup",
@@ -403,7 +413,7 @@ mod tests {
             assert!(e.contains("tofu/terraform.tfstate"), "{e}");
         }
         let denied = Agent::Claude.argv().join(" ");
-        for pattern in ["*.tfstate", "*.tfvars", ".env"] {
+        for pattern in ["*.tfstate", "*.tfvars", ".env", "*.env)", "id_ecdsa"] {
             assert!(denied.contains(pattern), "{denied}");
         }
         let _ = std::fs::remove_dir_all(&dir);
