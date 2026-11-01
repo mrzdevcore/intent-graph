@@ -121,6 +121,9 @@ fn routes_sit_in_a_traefik_box_then_a_traefik_instance_then_their_own() {
         find(&m, "traefik/route-web").parent.as_deref(),
         Some("traefik")
     );
+    assert_eq!(find(&m, "traefik/route-web").origin, Origin::Built);
+    // not in ig/, and nothing to build
+    assert!(plan_of(&m.boxes, &m.arrows, &[]).is_empty());
     assert!(marks(&m, "traefik").is_empty());
     assert!(!has(&m, "t-yml"));
 
