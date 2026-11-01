@@ -6,6 +6,7 @@ use super::file::{self, Field, MapBox, MapFile, refresh};
 use super::kinds::{KindView, Kinds};
 use super::layers::{Mark, file_layers, risks, rules, sort_marks};
 use super::layout::layout;
+use super::live::{apply, read_all};
 pub use super::layout::{Frame, Placed, Region, RegionKind};
 use super::origin::{compare, not_read};
 use super::warn::warnings;
@@ -14,7 +15,7 @@ use crate::Env;
 use globset::GlobSet;
 use ig_core::config::Config;
 use ig_core::model::{Anatomy, Graph, Part, Range};
-use ig_core::ports::{Files, LanguageFrontend};
+use ig_core::ports::{Connector, Files, LanguageFrontend};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -194,6 +195,16 @@ pub fn run(env: &Env) -> crate::Result<View> {
 /// code, read by an AI agent when `ask` consents; after that `ig/` changes only by edits (with
 /// `--read`, the AI reading's proposals: `propose`), and `.ig/map.json` is never written. A broken `ig/` is left as is: the view is then of the code.
 pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
+    run_live(env, ask, &[])
+}
+
+/// `run_with`, then what `connectors` read from running systems is drawn on the map. That is
+/// only drawn: it never reaches `ig/`, `validate` or `propose`.
+pub fn run_live(
+    env: &Env,
+    ask: Option<&mut Ask>,
+    connectors: &[&dyn Connector],
+) -> crate::Result<View> {
     let config = crate::config::load(env.files)?;
     let built = crate::graph(env, env.files, &config, env.vcs.and_then(|v| v.head()))?;
     // no code ig reads: an Ansible tree's roles, when it has any
@@ -293,6 +304,10 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
         }
         Err(m) => m,
     };
+    let (reads, unknown) = read_all(&config, connectors, env.files);
+    notices.extend(unknown);
+    let live = apply(&mut m, &reads);
+    notices.extend(live.notices);
     // what is not read now is read only when ig/ is written: no "ig's guess" banner
     m.boxes.iter_mut().for_each(|b| b.needs_reading = false);
     let ui = components(env.files, g, env.frontends, &config);
@@ -303,6 +318,7 @@ pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
         let kinds = Kinds::load(env.files).unwrap_or_else(|_| Kinds::builtin().clone());
         v.warnings = warnings(&m, &kinds);
     }
+    v.warnings.extend(live.warnings);
     v.notices = notices;
     v.broken = broken;
     let (entries, notice) = super::edit::journal::entries(env.files);
