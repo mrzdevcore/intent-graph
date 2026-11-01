@@ -14,6 +14,7 @@
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
   import Pads from "./Pads.svelte";
+  import { CARD, CARD_WIDE, fitBeside, padsOf } from "./pads";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
   import Search from "./Search.svelte";
@@ -205,14 +206,22 @@
     }
   });
 
-  /** A box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
-  function target(id: string): Frame {
+  /** Where opening a box puts the camera. A box with pads: its whole frame, beside the details card
+   *  (below it at the phone width, so across the full width) with room for the labels. Otherwise a
+   *  box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
+  function target(id: string): Cam {
+    const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on);
+    if (pads.length) {
+      const beside = selected && !globalThis.matchMedia?.("(max-width: 47.5rem)").matches;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      return fitBeside(frameOf(id), to, pads, beside ? (view.sources?.[selected!] ? CARD_WIDE : CARD) : 0, rem);
+    }
     const inner = view.placed.inner[id];
-    if (!kids.has(id) || !inner) return frameOf(id);
+    if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
     const t = place.inside(id);
-    return { x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s };
+    return fitTo({ x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s }, to);
   }
-  const fly = (id: string) => glideTo(id === ROOT ? home() : fitTo(target(id), { w: vw, h: vh }));
+  const fly = (id: string) => glideTo(id === ROOT ? home() : target(id));
   function openBox(id: string) {
     selected = id;
     fly(id);
@@ -273,7 +282,8 @@
   let swallow = false;
   function down(e: PointerEvent) {
     swallow = false;
-    if (e.button !== 0) return;
+    // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
+    if (e.button !== 0 || (e.target as Element | null)?.closest?.("[data-pad]")) return;
     if (sess.startLink(e, tool.current === "arrow")) return;
     drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;

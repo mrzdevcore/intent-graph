@@ -2,8 +2,10 @@
 import { expect, test, vi } from "vitest";
 import { flushSync, mount } from "svelte";
 import Pads from "../src/map/Pads.svelte";
-import { inBox, padsOf } from "../src/map/pads";
-import { fitInner } from "../src/map/camera";
+import Map from "../src/map/Map.svelte";
+import { Camera } from "../src/map/glide";
+import { CARD, fitBeside, inBox, padsOf, type Pad } from "../src/map/pads";
+import { fitInner, fitTo, showsInside, worldFrame } from "../src/map/camera";
 import type { Frame, MapArrow, MapBox, Mark, View } from "../src/map/types";
 
 const box = (id: string, parent?: string): MapBox => ({
@@ -114,4 +116,91 @@ test("above 12 pads the labels stay and the chips go", () => {
   const t = drawn(13);
   expect(t.querySelectorAll(".chip").length).toBe(0);
   expect(t.querySelectorAll(".name").length).toBe(13);
+});
+
+// a frame wider than its inside, as a group of one is; at 16px a rem: card 356, labels 192
+const wide = { x: 100, y: 100, w: 264, h: 152 };
+const V = { w: 1440, h: 900 };
+const pad = (side: Pad["side"]): Pad => ({ side, other: "o", title: "O", down: false, y: 0 });
+const onScreen = (f: Frame, c: { k: number; x: number; y: number }) => ({ l: f.x * c.k + c.x, r: (f.x + f.w) * c.k + c.x, t: f.y * c.k + c.y, b: (f.y + f.h) * c.k + c.y });
+
+test("with a card at 1440x900 the frame and its labels stay left of the card, the rest on screen", () => {
+  const s = onScreen(wide, fitBeside(wide, V, [pad("out"), pad("in")], CARD, 16));
+  expect(s.r + 192).toBeLessThanOrEqual(1440 - 356);
+  expect(s.l - 192).toBeGreaterThanOrEqual(0);
+  expect(s.t).toBeGreaterThanOrEqual(0);
+  expect(s.b).toBeLessThanOrEqual(900);
+});
+
+test("room for labels is kept only on a side with pads", () => {
+  const s = onScreen(wide, fitBeside(wide, V, [pad("out")], CARD, 16));
+  expect(s.l).toBeCloseTo(16);
+  expect(s.r).toBeCloseTo(1440 - 356 - 16 - 192);
+});
+
+test("with no card the width is free, as at the phone width where the card moves below", () => {
+  const s = onScreen(wide, fitBeside(wide, V, [pad("out")], 0, 16));
+  expect(s.r).toBeCloseTo(1440 - 16 - 192);
+});
+
+test("a narrow window still opens the box, or its pads would not draw at all", () => {
+  const c = fitBeside(wide, { w: 1024, h: 768 }, [pad("out"), pad("in")], CARD, 16);
+  expect(showsInside(wide.w * c.k)).toBe(true);
+});
+
+test("a frame of no size gives a finite camera, as fitTo does", () => {
+  const c = fitBeside({ x: 0, y: 0, w: 0, h: 0 }, V, [pad("out")], CARD, 16);
+  for (const n of [c.k, c.x, c.y]) expect(Number.isFinite(n)).toBe(true);
+});
+
+function opened() {
+  const v = make([arrow("host", "public", [arrow("traefik", "a")]), arrow("leaf", "public")], [], [box("alone", "system"), box("leaf", "system")]);
+  v.placed.frames = {
+    host: { x: 0, y: 0, w: 264, h: 152 }, traefik: { x: 10, y: 10, w: 100, h: 60 }, public: { x: 400, y: 0, w: 264, h: 152 },
+    a: { x: 10, y: 10, w: 100, h: 60 }, b: { x: 130, y: 10, w: 100, h: 60 }, alone: { x: 0, y: 300, w: 264, h: 152 }, leaf: { x: 400, y: 300, w: 264, h: 152 },
+  };
+  v.placed.inner = { host: [120, 80], public: [240, 80], system: [700, 500] };
+  const camera = new Camera(), target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(Map, { target, props: { view: v, camera, size: V } });
+  flushSync();
+  const slot = (id: string) => target.querySelector(`[data-box="${id}"]`) as HTMLElement;
+  const open = (id: string) => {
+    (slot(id).querySelector("button") as HTMLButtonElement).click();
+    flushSync();
+    m.tick(performance.now() + 5000);
+    flushSync();
+  };
+  return { v, camera, target, slot, open };
+}
+
+test("opening a box with pads frames the whole box beside the card", () => {
+  const { v, camera, open } = opened();
+  open("host");
+  const s = onScreen(worldFrame("host", v), camera.cam);
+  expect(s.r + 192).toBeLessThanOrEqual(1440 - 356);
+  expect(s.t).toBeGreaterThanOrEqual(0);
+  expect(s.b).toBeLessThanOrEqual(900);
+});
+
+test("opening a box with no pads keeps today's fit", () => {
+  const { v, camera, open } = opened();
+  open("alone");
+  expect(camera.cam).toEqual(fitTo(worldFrame("alone", v), V));
+});
+
+test("a press on a leaf box's pad that moves a little does not drag the box, and still clicks", () => {
+  const { camera, target, slot, open } = opened();
+  open("leaf");
+  const left = slot("leaf").style.left, cam = camera.cam;
+  const p = target.querySelector('[data-pad="public"]') as HTMLButtonElement;
+  p.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 500, clientY: 400, bubbles: true }));
+  window.dispatchEvent(new PointerEvent("pointermove", { clientX: 520, clientY: 400 }));
+  window.dispatchEvent(new PointerEvent("pointerup", {}));
+  flushSync();
+  expect(slot("leaf").style.left).toBe(left);
+  expect(camera.cam).toEqual(cam);
+  p.click();
+  flushSync();
+  expect(target.querySelector(".details")?.textContent).toContain("PUBLIC");
 });
