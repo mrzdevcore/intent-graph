@@ -3,7 +3,7 @@
 use super::facts::{BoxKind, FactBox};
 use ig_core::model::{Edge, Graph};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -142,6 +142,9 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
         .iter()
         .map(|n| (n.id.as_str(), n.name.as_str()))
         .collect();
+    let modules: HashSet<&str> = (g.nodes.iter().filter(|n| n.is_module()))
+        .map(|n| n.id.as_str())
+        .collect();
     let mut pairs: BTreeMap<(&str, &str, &str), Lifted> = BTreeMap::new();
     for e in &g.edges {
         let (Some(a), Some(b)) = (box_of(&e.from), box_of(&e.to)) else {
@@ -188,7 +191,9 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
                     .collect();
                 t.sort();
                 t.dedup();
-                (t.len() == 1).then(|| t[0].to_string())
+                // a file's name says nothing about the link
+                let to_file = edges.iter().any(|(e, _)| modules.contains(e.to.as_str()));
+                (t.len() == 1 && !to_file).then(|| t[0].to_string())
             };
             let label = match kind {
                 ArrowKind::Bundle => Some(
