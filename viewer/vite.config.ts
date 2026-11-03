@@ -22,9 +22,9 @@ function inlineSafe(): Plugin {
   };
 }
 
-// `bun run build`: one self-contained offline page (`ig view`), all JS and CSS inlined, no
+// `pnpm run build`: one self-contained offline page (`ig view`), all JS and CSS inlined, no
 // chunks. The Rust side fills the /*IG_DATA*/ and /*IG_LIVE*/ markers in index.html.
-// `bun run build:app` (`--mode app`): the desktop app's dist-app/, multi-file.
+// `pnpm run build:app` (`--mode app`): the desktop app's dist-app/, multi-file.
 export default defineConfig(({ mode }) => {
   const app = mode === "app";
   return {
