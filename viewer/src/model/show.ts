@@ -36,5 +36,5 @@ export function parseShow(raw: unknown): Show | null {
     (s): s is { target: string; text: string } => !!s && isStr(s.target) && isStr(s.text));
   if (steps.length > MAX.steps || steps.some((s) => chars(s.text) > MAX.text)) return null;
   const mode = r.mode === "architecture" || r.mode === "chain" ? r.mode : "focus";
-  return { seq: 0, title: r.title, nodes: r.nodes, edges, steps: steps.map(({ target, text }) => ({ target, text })), mode };
+  return { seq: typeof r.seq === "number" ? r.seq : 0, title: r.title, nodes: r.nodes, edges, steps: steps.map(({ target, text }) => ({ target, text })), mode };
 }

@@ -93,3 +93,4 @@ a { color: var(--color-accent-text); }
 #ig-chat .complete li[aria-selected="true"] button { background: var(--color-code); }
 #ig-chat #ig-trust { overflow: auto; border-bottom: 1px solid var(--color-line); }
 .sr-only { position: absolute; width: 0.0625rem; height: 0.0625rem; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; user-select: none; -webkit-user-select: none; }
+#ig-chat .tool summary button { flex: none; font-size: var(--text-xs); padding: 0 var(--space-1-5); }

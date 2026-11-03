@@ -13,6 +13,7 @@ const CAP = 12;
 /** In rem: the widest pad label beside the edge (Pads.svelte: dot, name, chip), the details card and its
  *  offset from the view's right (DetailsCard.svelte), that card when it shows code, and a gap all round. */
 export const LABEL = 12, CARD = 22.25, CARD_WIDE = 31, GUTTER = 1;
+export const ANSWER_CARD = 20;
 
 /** Maps a child's frame (in the box's inner units) to the box's own units, as Map's `local` places it. */
 export function inBox(view: View, id: string, frame: { w: number; h: number }) {
@@ -27,9 +28,9 @@ export function inBox(view: View, id: string, frame: { w: number; h: number }) {
  * margin above and below as fitTo. Never so small the box closes, as its pads go with it: a window too
  * narrow for that lets the frame run under the card instead.
  */
-export function fitBeside(f: Frame, view: { w: number; h: number }, pads: Pad[], card: number, rem: number): Cam {
+export function fitBeside(f: Frame, view: { w: number; h: number }, pads: Pad[], card: number, rem: number, leftCard = 0): Cam {
   if (!(f.w > 0 && f.h > 0)) return fitTo(f, view);
-  const left = (GUTTER + (pads.some((p) => p.side === "in") ? LABEL : 0)) * rem;
+  const left = (leftCard + GUTTER + (pads.some((p) => p.side === "in") ? LABEL : 0)) * rem;
   const right = (card + GUTTER + (pads.some((p) => p.side === "out") ? LABEL : 0)) * rem;
   // the floor a hair above OPEN: w * (OPEN / w) can round just under it, and close the box
   const k = Math.max((OPEN + 1e-6) / f.w, Math.min((view.w - left - right) / f.w, (view.h * 0.8) / f.h));
