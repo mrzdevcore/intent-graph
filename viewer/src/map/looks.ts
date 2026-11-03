@@ -20,6 +20,7 @@ const ORIGIN: Record<NonNullable<MapBox["origin"]>, { edge: string; label: strin
   build: { edge: TRACE, label: "to build", tone: "neutral" },
   drift: { edge: WARN, label: "not in ig/", tone: "warn" },
   moved: { edge: "var(--map-blue)", label: "to move", tone: "neutral" },
+  unmanaged: { edge: WARN, label: "not in ig/", tone: "warn" },
 };
 /** The chip of a proposal: who made the edit. */
 export const tag = (by: Proposal["by"]) => (by === "claude" ? "Claude" : "reading");
@@ -50,7 +51,7 @@ export function look(id: string, marks: Mark[], on: Set<string>, box: MapBox, by
     bg: s?.bg ?? "var(--map-surface)",
     fade: s?.tone === "down" || (!s && !o && box.stale) ? 0.6 : !s && box.origin === "build" ? 0.85 : 1,
     chips,
-    dot: !!health && health.state === "ok" && !s,
+    dot: !s && mine.some((m) => m.state === "ok" && (m.layer === "health" || m.layer === "state")),
   };
 }
 
@@ -69,6 +70,12 @@ export function insideCounts(view: View, marks: Mark[], on: Set<string>): Map<st
     }
   }
   return out;
+}
+
+/** What links box `id`: arrows drawn at it, and for a box inside a group, its own arrows as written. */
+export function linksOf(arrows: MapArrow[], id: string): MapArrow[] {
+  const at = (a: MapArrow) => a.from === id || a.to === id;
+  return arrows.flatMap((a) => (at(a) ? [a] : (a.parts ?? []).filter(at)));
 }
 
 const ARROW: Record<string, { color: string; dash: string | null; head: "filled" | "open" | "hollow" }> = {
@@ -98,3 +105,6 @@ export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>, by?: 
     tone: (s?.tone ?? "neutral") as Tone,
   };
 }
+
+/** How many links an arrow stands for: a declared one has count 0 and is one. */
+export const linkCount = (a: MapArrow) => Math.max(1, a.count);

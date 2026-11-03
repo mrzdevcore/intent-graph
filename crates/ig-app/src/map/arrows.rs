@@ -3,7 +3,7 @@
 use super::facts::{BoxKind, FactBox};
 use ig_core::model::{Edge, Graph};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -54,6 +54,9 @@ pub struct MapArrow {
     /// Built, to build or drift: the spec against the code.
     #[serde(skip_serializing_if = "super::origin::is_built", default)]
     pub origin: super::origin::Origin,
+    /// The arrows as written, when this one is drawn between boxes above their ends.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub parts: Vec<MapArrow>,
 }
 
 impl MapArrow {
@@ -139,6 +142,9 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
         .iter()
         .map(|n| (n.id.as_str(), n.name.as_str()))
         .collect();
+    let modules: HashSet<&str> = (g.nodes.iter().filter(|n| n.is_module()))
+        .map(|n| n.id.as_str())
+        .collect();
     let mut pairs: BTreeMap<(&str, &str, &str), Lifted> = BTreeMap::new();
     for e in &g.edges {
         let (Some(a), Some(b)) = (box_of(&e.from), box_of(&e.to)) else {
@@ -185,7 +191,9 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
                     .collect();
                 t.sort();
                 t.dedup();
-                (t.len() == 1).then(|| t[0].to_string())
+                // a file's name says nothing about the link
+                let to_file = edges.iter().any(|(e, _)| modules.contains(e.to.as_str()));
+                (t.len() == 1 && !to_file).then(|| t[0].to_string())
             };
             let label = match kind {
                 ArrowKind::Bundle => Some(
@@ -215,6 +223,7 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
                 kinds,
                 in_loop: edges.iter().any(|(e, _)| e.in_loop),
                 origin: Default::default(),
+                parts: vec![],
             }
         })
         .collect();
@@ -225,8 +234,9 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
 /// `arrows` as drawn: each end lifted to the child of the arrow's parent that holds it, so an
 /// arrow between boxes at different depths (a spec's `integrations/gmail -> gmail`) starts and
 /// ends at boxes of the level it is drawn in. Lifted arrows of one origin that land on the same
-/// pair merge (a bundle when their kinds differ) under the first one's id; an arrow already
-/// between boxes of its level is left as it is.
+/// pair merge (a bundle when their kinds differ) under the first one's id, labelled by their
+/// count; each stays as written in `parts`. An arrow already between boxes of its level is left
+/// as it is.
 pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArrow> {
     let up = |id: &str, parent: &str| -> Option<String> {
         let mut id = id.to_string();
@@ -254,6 +264,7 @@ pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArro
                 to.clone(),
                 format!("{:?}", a.origin),
             );
+            a.parts = vec![a.clone()];
             (a.from, a.to) = (from, to);
             pairs.entry(key).or_default().push(a);
         }
@@ -266,24 +277,24 @@ pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArro
         kinds.sort();
         kinds.dedup();
         let bundle = kinds.len() > 1;
-        let label = bundle.then(|| {
-            (NOUNS.iter())
-                .filter_map(|(k, noun)| {
-                    let n = list.iter().filter(|a| a.kinds.contains(k)).count();
-                    (n > 0).then(|| format!("{n} {noun}{}", if n > 1 { "s" } else { "" }))
-                })
-                .collect::<Vec<_>>()
-                .join(" · ")
-        });
+        let label = (NOUNS.iter())
+            .filter_map(|(k, noun)| {
+                let n = list.iter().filter(|a| a.kinds.contains(k)).count();
+                (n > 0).then(|| format!("{n} {noun}{}", if n > 1 { "s" } else { "" }))
+            })
+            .collect::<Vec<_>>()
+            .join(" · ");
         let count = list.iter().map(|a| a.count.max(1)).sum();
         let in_loop = list.iter().any(|a| a.in_loop);
+        let parts = list.iter().flat_map(|a| a.parts.clone()).collect();
         let first = list.swap_remove(0);
         MapArrow {
             kind: if bundle { ArrowKind::Bundle } else { kinds[0] },
-            label: label.or(first.label.clone().filter(|_| list.is_empty())),
+            label: Some(label),
             count,
             kinds,
             in_loop,
+            parts,
             ..first
         }
     }));
@@ -388,6 +399,7 @@ mod tests {
             kinds: vec![kind],
             in_loop: false,
             origin: Default::default(),
+            parts: vec![],
         }
     }
 

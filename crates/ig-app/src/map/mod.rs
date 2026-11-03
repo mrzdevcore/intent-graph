@@ -12,6 +12,7 @@ pub mod file;
 pub mod kinds;
 pub mod layers;
 pub mod layout;
+pub mod live;
 pub mod origin;
 pub mod spec;
 pub mod view;

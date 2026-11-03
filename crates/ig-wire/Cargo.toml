@@ -7,6 +7,8 @@ edition.workspace = true
 # plugged into `ig_app::Env`, and the debounced file watcher.
 [dependencies]
 ig-app = { path = "../ig-app" }
+ig-conn-incus = { path = "../ig-conn-incus" }
+ig-conn-traefik = { path = "../ig-conn-traefik" }
 ig-core = { path = "../ig-core" }
 ig-fs = { path = "../ig-fs" }
 ig-git = { path = "../ig-git" }

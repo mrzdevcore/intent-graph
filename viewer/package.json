@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
   },
   "dependencies": {
+    "@shikijs/langs": "4.5.0",
     "@tauri-apps/api": "2.12.4",
     "dompurify": "3.4.16",
     "lucide-static": "1.61.0",

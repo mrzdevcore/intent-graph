@@ -21,9 +21,9 @@ make install   # builds the viewer page (viewer/dist/index.html), then `cargo in
 
 ## Build
 
-`make build` (needs bun and cargo): the viewer first (`viewer/`, TypeScript, Svelte and Vite,
+`make build` (needs pnpm, node and cargo): the viewer first (`viewer/`, TypeScript, Svelte and Vite,
 built into one offline HTML file), then `cargo build --release -p intent-graph`, which embeds it. `make test` builds the
-viewer, runs its tests, then `cargo test --workspace`. Without bun, outside make: `cd viewer && npm install && npm run build`.
+viewer, runs its tests, then `cargo test --workspace`. Dependency build scripts stay off; the supply-chain settings are in `viewer/pnpm-workspace.yaml`.
 Without a built viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
 
 Desktop app: see [Desktop app (local build)](#desktop-app-local-build). The workspace includes it, so
@@ -41,7 +41,7 @@ make app-dev   # run it in development
 
 The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in development) and puts it first on the agent's `PATH`, so the plugin's skills and `ig mcp` match the app even when it is opened from Finder.
 
-- **Needs:** Rust, bun, node and npm (for the Claude adapter), and the Claude CLI logged in (run `claude`, then `/login`). The app never sees your credentials.
+- **Needs:** Rust, pnpm, node and npm (for the Claude adapter), and the Claude CLI logged in (run `claude`, then `/login`). The app never sees your credentials.
 - **Adapter:** on the first chat, if it is missing, the app offers to install `@agentclientprotocol/claude-agent-acp@0.95.0` into its own data dir (never global).
 - **Trust screen:** before any Claude session the app lists what will run: hooks from `.claude/settings*.json`, permission settings (including bypass modes), `AGENTS.md`/`CLAUDE.md`/`CLAUDE.local.md`, MCP servers from `.mcp.json`, the ig plugin, and the project's skills, commands and agents (with any tools they pre-approve or hooks they run). Every file under `.claude/` is hashed (files over 1 MB by size only). You decide, and confirm natively. It asks again when any of them changes.
 - **Plugin:** the app always uses its own ig plugin (re-exported on each run into its data dir). Run `ig init` after upgrading ig to refresh a project's copy for terminal use.
@@ -123,6 +123,32 @@ Any tool can draw on the map by writing `.ig/layers/<name>.json`, at most 512 KB
 or `down`; `badge`, `value` and `note` are optional text. Unknown fields, unknown targets and broken
 files are dropped with a notice, never fatal. The layer appears in the **Layers** menu.
 
+### Connectors: what is running
+
+`connectors` in `ig.yaml` puts a live server on the map, next to the code and the Ansible:
+
+```yaml
+connectors:
+  - { kind: incus, remote: homelab }          # the instances of `incus list homelab:`
+  - { kind: traefik, file: traefik-dynamic.yml } # routes, from a file in the repo
+```
+
+- A service is one box: a role or box named like an instance (`services/gitlab` and `gitlab`) shows
+  the instance's state, running or stopped. Names are matched exactly, never loosely.
+- To link by hand, give the box `runs="incus:homelab/gitlab"` in `ig/*.kdl`; several instances are
+  separated by spaces. A `runs=` instance that is not found gets a warning.
+- An instance no box describes is drawn in a group named after its remote, marked "not in ig/".
+- Traefik's routes sit inside its box, each wired to the box it reaches. A route that reaches
+  nothing is warned: the file may be stale.
+- A server that cannot be reached is a notice; the rest of the map still draws.
+- `incus list` shows the remote's current project only, so instances in other projects are not drawn.
+
+Connectors only read. They run in `ig view`, not in the desktop app, and never in `ig plan`,
+`ig check`, `ig accept` or MCP. They never write to `ig/`. `ig.yaml` cannot name a program: `remote`
+is a name of letters, digits, `_` and `-`, and `file` is a relative path with no `..`.
+ig reads only each instance's name, type, status and addresses. It never reads an instance's
+`config`, `devices`, environment variables or Docker env, and addresses stay out of the page.
+
 ### The canvas
 
 - **Wheel or trackpad pinch** zooms about the pointer; **drag** pans.
@@ -187,8 +213,8 @@ checker (`complexity`, `checkers`, `severity`, `blockOn`, `editor`, `hookMaxRoun
 ```sh
 cargo test --workspace             # unit tests plus golden fixture tests
 UPDATE_GOLDEN=1 cargo test         # rewrite crates/ig/tests/golden/ after an intended change
-cd viewer && bun run test          # viewer model tests (Vitest); bun run typecheck for tsc
-ig view --json > viewer/dev-data.json && cd viewer && bun run dev   # the viewer live in Vite
+cd viewer && pnpm run test         # viewer model tests (Vitest); pnpm run typecheck for tsc
+ig view --json > viewer/dev-data.json && cd viewer && pnpm run dev   # the viewer live in Vite
 ```
 
 Layout: a Cargo workspace in `crates/`. `ig-core` is pure domain plus the ports; `ig-app` holds the use cases;

@@ -9,6 +9,8 @@ module "ig-wire" title="Composition root" tech="Rust · notify" description="Plu
     uses "ig-lang-py"
     uses "ig-lang-rs"
     calls "ig-lang-ts"
+    uses "ig-conn-incus"
+    uses "ig-conn-traefik"
     usecase "ig-wire/root" title="Wiring and watcher" tech="Rust · notify" description="Builds the wired adapters for an ig root, lists the language frontends in claim order, and watches files to rebuild." {
         at "crates/ig-wire/src/*"
     }

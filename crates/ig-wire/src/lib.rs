@@ -2,7 +2,9 @@
 //! plugged into `ig_app::Env`, and the debounced watcher behind live rebuilds.
 
 use ig_app::Env;
-use ig_core::ports::{LanguageFrontend, Vcs};
+use ig_conn_incus::IncusConnector;
+use ig_conn_traefik::TraefikConnector;
+use ig_core::ports::{Connector, LanguageFrontend, Vcs};
 use ig_core::workspace::NEVER_WALKED;
 use ig_fs::FsFiles;
 use ig_git::GitVcs;
@@ -18,6 +20,9 @@ pub use notify::RecommendedWatcher;
 
 /// Every language ig reads, in the order they claim a file.
 pub static FRONTENDS: &[&dyn LanguageFrontend] = &[&TsFrontend, &PyFrontend, &RsFrontend];
+
+/// Every connector `ig view` can read from; nothing else calls one.
+pub static CONNECTORS: &[&dyn Connector] = &[&IncusConnector, &TraefikConnector];
 
 /// A progress line on stderr, only when it is a terminal (hooks and JSON consumers stay clean).
 /// It clears the line first: `ig view --read`'s progress bar may be on it, and is redrawn below.

@@ -1,0 +1,12 @@
+[package]
+name = "ig-conn-traefik"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ig-core = { path = "../ig-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_yaml_ng = "0.10.0"
+
+[dev-dependencies]
+ig-core = { path = "../ig-core", features = ["testing"] }

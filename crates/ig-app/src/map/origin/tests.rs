@@ -8,6 +8,21 @@ use std::collections::BTreeMap;
 
 mod moves;
 
+#[test]
+fn an_arrow_touching_a_box_that_runs_is_a_declaration() {
+    let compared = |runs: &str| {
+        let text = format!(
+            "system \"s\" title=\"S\" {{\n service \"a\" title=\"A\"{runs} {{\n calls \"b\"\n }}\n service \"b\" title=\"B\"\n}}\n"
+        );
+        let m = crate::map::spec::parse(vec![("ig/system.kdl".into(), Some(text))]).unwrap();
+        compare(&m, &[], &Graph::empty(), None)
+    };
+    let m = compared(" runs=\"incus:h/a\"");
+    assert_eq!(m.arrows[0].origin, Origin::Built);
+    assert!(plan(&m).is_empty());
+    assert_eq!(compared("").arrows[0].origin, Origin::Build);
+}
+
 fn graph() -> Graph {
     crate::map::shop::load().1
 }
@@ -419,6 +434,7 @@ fn spec_arrow(from: &str, kind: ArrowKind, to: &str) -> MapArrow {
         kinds: vec![kind],
         in_loop: false,
         origin: Origin::Built,
+        parts: vec![],
     }
 }
 
