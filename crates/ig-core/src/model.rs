@@ -287,11 +287,12 @@ pub fn innermost_at(nodes: &[Node], line: u32) -> &str {
 /// Up to 5 ids close to `id`: those containing it (shortest first), then near misses by edit
 /// distance.
 pub fn suggest(g: &Graph, id: &str) -> Vec<String> {
+    suggest_among(g.nodes.iter().map(|n| n.id.as_str()), id)
+}
+
+pub fn suggest_among<'a>(ids: impl Iterator<Item = &'a str>, id: &str) -> Vec<String> {
     let max = (id.chars().count() / 4).max(2);
-    let mut sugg: Vec<(bool, usize, &str)> = g
-        .nodes
-        .iter()
-        .map(|n| n.id.as_str())
+    let mut sugg: Vec<(bool, usize, &str)> = ids
         .map(|n| (!n.contains(id), edit_distance(id, n), n))
         .filter(|(far, d, _)| !*far || *d <= max)
         .collect();

@@ -120,10 +120,17 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
                 .and_then(|t| serde_json::from_str::<Value>(&t).ok())
                 .and_then(|v| v["seq"].as_u64())
                 .unwrap_or(0);
-            let show = ig_app::show::validate(&head_graph(root)?, args, seq + 1)?;
+            let w = Wired::new(root);
+            let map = if has_spec(&w)? {
+                Some(view::run(&w.env())?)
+            } else {
+                None
+            };
+            let targets = ig_app::show::Targets::new(&head_graph(root)?, map.as_ref());
+            let show = ig_app::show::validate(&targets, args, seq + 1)?;
             std::fs::create_dir_all(root.join(".ig"))?;
             ig_fs::write_atomic(&path, ig_app::show::canonical(&show).as_bytes())?;
-            let text = if std::env::var("IG_APP").as_deref() == Ok("1") {
+            let text = if std::env::var(ig_app::show::IN_APP).as_deref() == Ok("1") {
                 "shown in app"
             } else {
                 "no viewer is open; answer with a diagram too"
