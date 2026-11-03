@@ -70,7 +70,7 @@ pub fn tools(k: &Kinds) -> Value {
         },
         {
             "name": "ig_show",
-            "description": "Record an answer for the ig viewer: the nodes and edges of a path or subgraph, highlighted, with ordered steps. Every id is checked against the graph. Writes only .ig/show.json; the system map does not draw it yet (shown in a later version).",
+            "description": "Draw an answer on the ig map: its boxes and arrows lit, the rest faded, with ordered steps the user walks. Use it whenever the user asks to show something, how something works or where it is used. Ids: boxes[].id and arrows[].from/to of `ig view --json --no-read`, or code graph node ids; every id is checked. Writes only .ig/show.json.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

@@ -135,7 +135,6 @@ checkers are gone. Old setups keep working:
 
 ## Next
 
-- Ask Claude and see the answer drawn on the map.
 - Live production health via OpenTelemetry.
 - The map in the desktop app.
 - More languages.
