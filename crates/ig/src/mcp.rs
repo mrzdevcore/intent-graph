@@ -121,12 +121,17 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
                 .and_then(|v| v["seq"].as_u64())
                 .unwrap_or(0);
             let w = Wired::new(root);
-            let map = if has_spec(&w)? {
-                Some(view::run(&w.env())?)
-            } else {
-                None
+            let targets = match ig_wire::landscape(root) {
+                Some(v) => ig_app::show::Targets::new(&Graph::empty(), Some(&v)),
+                None => {
+                    let map = if has_spec(&w)? {
+                        Some(view::run(&w.env())?)
+                    } else {
+                        None
+                    };
+                    ig_app::show::Targets::new(&head_graph(root)?, map.as_ref())
+                }
             };
-            let targets = ig_app::show::Targets::new(&head_graph(root)?, map.as_ref());
             let show = ig_app::show::validate(&targets, args, seq + 1)?;
             std::fs::create_dir_all(root.join(".ig"))?;
             ig_fs::write_atomic(&path, ig_app::show::canonical(&show).as_bytes())?;

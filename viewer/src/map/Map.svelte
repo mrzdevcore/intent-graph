@@ -32,6 +32,7 @@
   import type { Act } from "./edit/menu";
   import Proposals from "./edit/Proposals.svelte";
   import Warnings from "./Warnings.svelte";
+  import Folders from "./Folders.svelte";
   import { proposed } from "./edit/proposals";
 
   let { view, camera = new Camera(), size, edit, onview, show }: {
@@ -582,8 +583,11 @@
     </div>
   {/if}
   {#if edit}<EditLayer s={sess} boxes={view.boxes} kinds={view.kinds} root={ROOT} />{/if}
+  {#if view.landscape}
+    <Folders landscape={view.landscape} />
+  {/if}
   {#if reading}
-    <p class="reading" class:lifted={!!view.proposals?.length}>Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
+    <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
     <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} {edit} {run} />

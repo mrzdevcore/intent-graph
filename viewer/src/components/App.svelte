@@ -65,7 +65,7 @@
 </header>
 <main>
   <div id="map">
-    {#if view}<Map {view} {edit} {onview} {show} />{:else if loadError}<p class="map-error">Could not read the map: {loadError}</p>{/if}
+    {#if view}<Map {view} edit={view.landscape ? undefined : edit} {onview} {show} />{:else if loadError}<p class="map-error">Could not read the map: {loadError}</p>{/if}
   </div>
   {#if chatApi}
     <aside id="chat" hidden={!chatOpen}>
