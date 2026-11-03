@@ -1,7 +1,7 @@
 //! The map of an Ansible tree, for a repository ig reads no code in. Each role is a component:
-//! a service when it has `meta/targets.yml` (the inventory groups it is deployed to), else a
-//! helper. Roles sit in containers by where they are deployed (their targets), a large one split
-//! by name. A role's tasks and files are its code level. Arrows: a task including a role or
+//! a service when it has `meta/targets.yml` or a playbook deploys it (the inventory groups it is
+//! deployed to), else a helper. Roles sit in the folder that holds them under `roles/`, or else in
+//! containers by where they are deployed (their targets), a large one split by name. A role's tasks and files are its code level. Arrows: a task including a role or
 //! rendering a template, a template's settings naming another service (`PRODUCT_API_HOST`), and
 //! the outside systems its settings name (`AUTH0_…`, `ELASTIC_APM_…`, `DATABASE_…`).
 
@@ -66,43 +66,43 @@ struct Role {
     dir: String,
     files: Vec<String>,
     targets: Vec<String>,
+    /// The folder holding it under `roles/`: `roles/services/gitlab` is in `services`.
+    folder: Option<String>,
 }
 
 /// The map of the roles under `files`, None when there are none.
 pub fn read(files: &dyn Files) -> Option<Ansible> {
     let all = files.glob(&["**/roles/*/**".into()]).ok()?;
-    let mut by_dir: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let dirs = read::role_dirs(&all);
+    let mut by_dir: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for f in all {
-        let Some(i) = f
-            .find("roles/")
-            .filter(|&i| i == 0 || f[..i].ends_with('/'))
-        else {
-            continue;
+        let inside = |d: &&String| {
+            f.strip_prefix(d.as_str())
+                .is_some_and(|r| r.starts_with('/'))
         };
-        let rest = &f[i + 6..];
-        let Some((name, _)) = rest.split_once('/') else {
-            continue;
-        };
-        by_dir
-            .entry(format!("{}roles/{name}", &f[..i]))
-            .or_default()
-            .push(f);
+        if let Some(d) = dirs.iter().filter(inside).max_by_key(|d| d.len()) {
+            by_dir.entry(d).or_default().push(f);
+        }
     }
+    let plays = read::playbooks(files);
     let roles: Vec<Role> = by_dir
         .into_iter()
-        .filter(|(_, fs)| {
-            fs.iter()
-                .any(|f| f.contains("/tasks/") || f.contains("/meta/"))
-        })
-        .map(|(dir, fs)| Role {
-            name: dir.rsplit('/').next().unwrap_or_default().to_string(),
-            targets: (fs.iter())
+        .map(|(dir, fs)| {
+            let rel = read::under_roles(dir).unwrap_or(dir);
+            let (folder, name) = rel
+                .rsplit_once('/')
+                .map_or((None, rel), |(f, n)| (Some(f), n));
+            let written = (fs.iter())
                 .find(|f| f.ends_with("/meta/targets.yml") || f.ends_with("/meta/targets.yaml"))
                 .and_then(|f| files.read(f))
-                .map(|t| read::list(&t))
-                .unwrap_or_default(),
-            dir,
-            files: fs,
+                .map(|t| read::list(&t));
+            Role {
+                name: name.to_string(),
+                targets: written.unwrap_or_else(|| read::deployed_to(&plays, rel)),
+                folder: folder.map(|f| f.rsplit('/').next().unwrap_or(f).to_string()),
+                dir: dir.to_string(),
+                files: fs,
+            }
         })
         .collect();
     if roles.is_empty() {
@@ -188,7 +188,7 @@ fn role_named<'r>(roles: &'r [Role], base: &str, me: &str) -> Option<&'r Role> {
     ];
     names
         .iter()
-        .find_map(|n| roles.iter().find(|r| r.name == *n && r.name != me))
+        .find_map(|n| (roles.iter()).find(|r| r.name.replace('-', "_") == *n && r.name != me))
 }
 
 /// Every role file a module, its tasks (and handlers) and other files nodes in it, and the
@@ -256,10 +256,16 @@ fn graph(files: &dyn Files, roles: &[Role]) -> Graph {
                     }
                 }
                 for (key, line) in read::settings(&text) {
-                    if let Some(s) = system_of(&key) {
-                        systems.insert(s.1);
-                        g.edges
-                            .push(edge(&id, &format!("system:{}", s.1), "uses", f, line));
+                    let Some(s) = system_of(&key) else { continue };
+                    // a role that runs it is no outside system
+                    match role_named(roles, &s.1.to_ascii_lowercase(), "") {
+                        Some(to) if to.name == r.name => {}
+                        Some(to) => g.edges.push(edge(&id, &entry(to), "http", f, line)),
+                        None => {
+                            systems.insert(s.1);
+                            let to = format!("system:{}", s.1);
+                            g.edges.push(edge(&id, &to, "uses", f, line));
+                        }
                     }
                 }
             }
@@ -343,10 +349,16 @@ fn plural(r: &Role) -> &'static str {
 
 /// The containers, at most `room`: roles by where they are deployed (their targets), the
 /// smallest put together past `room`. Each holds its roles, or past `MAX` its roles by kind.
+fn foldered(rs: &[&Role]) -> bool {
+    rs.iter().all(|r| r.folder.is_some())
+}
+
 fn containers(roles: &[Role], room: usize) -> Vec<(String, Vec<Part<'_>>)> {
     let mut by: BTreeMap<String, Vec<&Role>> = BTreeMap::new();
     for r in roles {
-        let key = if kind_of(r) == BoxKind::Module {
+        let key = if let Some(folder) = &r.folder {
+            human(folder)
+        } else if kind_of(r) == BoxKind::Module {
             "Helpers".to_string()
         } else {
             r.targets
@@ -366,7 +378,7 @@ fn containers(roles: &[Role], room: usize) -> Vec<(String, Vec<Part<'_>>)> {
     // targets of a few roles each, then the smallest, join the others
     let few: Vec<usize> = small(&groups)
         .into_iter()
-        .filter(|&i| groups[i].1.len() < FEW)
+        .filter(|&i| groups[i].1.len() < FEW && !foldered(&groups[i].1))
         .collect();
     let mut merge: BTreeSet<usize> = if few.len() > 1 {
         few.into_iter().collect()
@@ -390,7 +402,8 @@ fn containers(roles: &[Role], room: usize) -> Vec<(String, Vec<Part<'_>>)> {
     groups
         .into_iter()
         .map(|(title, rs)| {
-            let parts = if rs.len() <= MAX {
+            // roles someone foldered stay a box each: a connector finds a service by its box
+            let parts = if rs.len() <= MAX || foldered(&rs) {
                 rs.into_iter()
                     .map(|r| Part {
                         key: r.name.clone(),

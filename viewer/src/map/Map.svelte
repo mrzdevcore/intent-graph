@@ -6,13 +6,15 @@
   import { onDestroy, untrack } from "svelte";
   import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
-  import { arrowLook, insideCounts, look } from "./looks";
+  import { arrowLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
   import { wires, type Mode } from "./wires";
   import MapBox from "./MapBox.svelte";
   import { shapeOf } from "./shapes";
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
+  import Pads from "./Pads.svelte";
+  import { CARD, CARD_WIDE, fillsBeside, fitBeside, padsOf } from "./pads";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
   import Search from "./Search.svelte";
@@ -115,6 +117,7 @@
     const f = view.placed.frames[id];
     return { ...f, x: f.x + d.x, y: f.y + d.y };
   };
+  const drawn = (id: string) => (live?.id === id ? shifted(id, live) : shown.placed.frames[id]);
   const liveWiring = $derived.by(() => {
     if (!live) return null;
     const p = byId.get(live.id)?.parent ?? ROOT, frames = siblings(p);
@@ -164,7 +167,7 @@
   // under the pointer: the deepest box, and an arrow
   let hot = $state<string | null>(null);
   let hotArrow = $state<string | null>(null);
-  const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && (a.from === id || a.to === id));
+  const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && linksOf([a], id).length > 0);
   function over(e: PointerEvent) {
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     hot = el?.dataset.box ?? null;
@@ -203,14 +206,21 @@
     }
   });
 
-  /** A box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
-  function target(id: string): Frame {
+  /** The card's room in rem, open or not: it moves below at the phone width. */
+  const cardRem = () => globalThis.matchMedia?.("(max-width: 47.5rem)").matches ? 0 : view.sources?.[selected ?? ""] ? CARD_WIDE : CARD;
+  const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  /** Where opening a box puts the camera. A box with pads: its whole frame, beside the details card
+   *  (below it at the phone width, so across the full width) with room for the labels. Otherwise a
+   *  box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
+  function target(id: string): Cam {
+    const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on);
+    if (pads.length) return fitBeside(frameOf(id), to, pads, selected ? cardRem() : 0, rem());
     const inner = view.placed.inner[id];
-    if (!kids.has(id) || !inner) return frameOf(id);
+    if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
     const t = place.inside(id);
-    return { x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s };
+    return fitTo({ x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s }, to);
   }
-  const fly = (id: string) => glideTo(id === ROOT ? home() : fitTo(target(id), { w: vw, h: vh }));
+  const fly = (id: string) => glideTo(id === ROOT ? home() : target(id));
   function openBox(id: string) {
     selected = id;
     fly(id);
@@ -271,7 +281,8 @@
   let swallow = false;
   function down(e: PointerEvent) {
     swallow = false;
-    if (e.button !== 0) return;
+    // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
+    if (e.button !== 0 || (e.target as Element | null)?.closest?.("[data-pad]")) return;
     if (sess.startLink(e, tool.current === "arrow")) return;
     drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
@@ -343,14 +354,18 @@
     run(() => edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null, ...props }));
   }
 
-  /** The deepest box holding the view's centre and filling >= 60% of the view's width or height. */
+  /** The deepest box holding the view's centre and filling >= 60% of the view's width or height;
+   *  a box with pads may do so in the space opening it fits it to, beside the card. */
   const trail = $derived.by(() => {
-    const out = [ROOT];
+    const out = [ROOT], card = cardRem(), r = rem();
+    // ponytail: padsOf walks every arrow, but only for the box or two a frame's test lets through; memo per view if a huge map shows it
+    const hasPads = (id: string) => padsOf(view, id, frameOf(id), () => undefined, on).length > 0;
     for (let p = ROOT; ; ) {
       if (out.indexOf(p) !== out.length - 1) return out.slice(0, -1); // a loop: stop before it
       const next = (kids.get(p) ?? []).find((b) => {
         const f = world.get(b.id)!, x = f.x * cam.k + cam.x, y = f.y * cam.k + cam.y, w = f.w * cam.k, h = f.h * cam.k;
-        return x <= vw / 2 && vw / 2 <= x + w && y <= vh / 2 && vh / 2 <= y + h && Math.max(w / vw, h / vh) >= 0.6;
+        return (x <= vw / 2 && vw / 2 <= x + w && y <= vh / 2 && vh / 2 <= y + h && Math.max(w / vw, h / vh) >= 0.6)
+          || (fillsBeside({ x, y, w, h }, { w: vw, h: vh }, card, r) && hasPads(b.id));
       });
       if (!next) return out;
       out.push((p = next.id));
@@ -430,7 +445,7 @@
     </div>
   {/each}
   {#each (kids.get(pid) ?? []).filter((b) => !vw || seen(b.id)) as b (b.id)}
-    {@const f = live?.id === b.id ? shifted(b.id, live) : shown.placed.frames[b.id]}
+    {@const f = drawn(b.id)}
     {@const sw = world.get(b.id)!.w * cam.k}
     {@const open = showsInside(sw) && kids.has(b.id) && !!view.placed.inner[b.id]}
     {@const source = view.sources?.[b.id]}
@@ -452,6 +467,7 @@
         <div class="inside" style:width="{t.iw}px" style:height="{t.ih}px"
           style:transform="translate({t.x}px, {t.y}px) scale({t.s})">{@render level(b.id)}</div>
       {/if}
+      {#if showsInside(sw)}<Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} />{/if}
     </div>
   {/each}
   <!-- the focused arrows' labels, above the boxes -->

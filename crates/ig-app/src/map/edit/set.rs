@@ -11,7 +11,7 @@ use kdl::KdlEntry;
 use std::collections::{BTreeMap, HashMap};
 
 /// What every kind takes besides `PROPS`.
-const COMMON: [&str; 1] = ["owner"];
+const COMMON: [&str; 2] = ["owner", "runs"];
 
 impl Spec {
     /// `new` (path → text) read back with the team kinds.

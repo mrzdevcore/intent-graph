@@ -2,6 +2,8 @@
 layers:
   intent-graph: ["intent-graph"]
   ig-app: ["ig-app"]
+  ig-conn-incus: ["ig-conn-incus"]
+  ig-conn-traefik: ["ig-conn-traefik"]
   ig-core: ["ig-core"]
   ig-desktop: ["ig-desktop"]
   ig-fs: ["ig-fs"]

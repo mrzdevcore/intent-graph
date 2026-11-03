@@ -2,7 +2,7 @@
 
 # The viewer first (viewer/dist/index.html), then the binary that embeds it.
 viewer:
-	cd viewer && bun install --frozen-lockfile && bun run build
+	cd viewer && pnpm install --frozen-lockfile --ignore-scripts && pnpm run build
 
 build: viewer
 	cargo build --release -p intent-graph
@@ -11,12 +11,12 @@ install: viewer
 	cargo install --path crates/ig --locked
 
 test: viewer
-	cd viewer && bun run test
+	cd viewer && pnpm run test
 	cargo test --workspace
 
 # The app's frontend: viewer/dist-app/, multi-file.
 viewer-app:
-	cd viewer && bun install --frozen-lockfile && bun run build:app
+	cd viewer && pnpm install --frozen-lockfile --ignore-scripts && pnpm run build:app
 
 # The desktop app (crates/ig-desktop), with the Tauri CLI from the viewer's devDependencies.
 # The CLI checks frontendDist (crates/ig-desktop/dist) before cargo's build.rs fills it from viewer/dist-app.

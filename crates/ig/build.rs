@@ -1,6 +1,6 @@
 //! Embeds the viewer: `viewer/dist/index.html` (built by `make viewer`) becomes `OUT_DIR/view.html`.
 //! Without it, a placeholder page that shows the data as JSON takes its place, so Rust-only work
-//! still builds without bun or node.
+//! still builds without pnpm or node.
 
 use std::path::Path;
 

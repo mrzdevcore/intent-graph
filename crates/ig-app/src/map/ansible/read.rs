@@ -1,7 +1,9 @@
 //! Reading an Ansible tree as text: Jinja makes much of it invalid YAML, so tasks are the
 //! top-level list items of a tasks file, and a template's links are its settings' names.
 
+use ig_core::ports::Files;
 use regex::Regex;
+use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 static NAME: LazyLock<Regex> =
@@ -21,7 +23,7 @@ static FILE: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 static SETTING: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^\s*([A-Z][A-Z0-9_]*)\s*:").unwrap());
+    LazyLock::new(|| Regex::new(r"(?m)^\s*([A-Z][A-Z0-9_]*)\s*[:=]").unwrap());
 static VAR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\{\{\s*([a-z][a-z0-9_]*?)_(?:url|host|endpoint|uri)\s*\}\}").unwrap()
 });
@@ -98,6 +100,110 @@ pub fn list(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// What follows `roles/` in a path, when a folder of that name is in it.
+pub fn under_roles(path: &str) -> Option<&str> {
+    let i = path
+        .find("roles/")
+        .filter(|&i| i == 0 || path[..i].ends_with('/'))?;
+    Some(&path[i + 6..])
+}
+
+/// A role's standard folders; the first in a path under `roles/` ends the role's own.
+const STANDARD: &[&str] = &[
+    "tasks",
+    "meta",
+    "handlers",
+    "templates",
+    "files",
+    "defaults",
+    "vars",
+    "library",
+];
+
+/// The folder of each role among `files`: what holds a `tasks/` or `meta/` file, at any depth
+/// under `roles/` (`roles/services/gitlab`).
+pub fn role_dirs(files: &[String]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for f in files {
+        let Some(rest) = under_roles(f) else { continue };
+        let parts: Vec<&str> = rest.split('/').collect();
+        let last = parts.len().saturating_sub(1);
+        let Some(i) = (1..last).find(|&i| STANDARD.contains(&parts[i])) else {
+            continue;
+        };
+        if matches!(parts[i], "tasks" | "meta") {
+            let cut = f.len() - rest.len() + parts[..i].join("/").len();
+            out.insert(f[..cut].to_string());
+        }
+    }
+    out
+}
+
+/// The plays of a playbook: each top-level item with `hosts:`, and the roles it applies as
+/// written (`services/gitlab`). Any other file has none.
+pub fn plays(text: &str) -> Vec<(String, Vec<String>)> {
+    static HOSTS: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"^(?:- +| +)hosts\s*:\s*["']?([^"'\s#]+)"#).unwrap());
+    static ITEM: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"^-\s+(?:\{\s*)?(?:role\s*:\s*)?["']?([\w./\-]+)"#).unwrap());
+    let mut out: Vec<(String, Vec<String>)> = vec![];
+    // the indent of the `roles:` being read, and whether the play has `hosts:` yet
+    let (mut list, mut hosts, mut roles) = (None, None, vec![]);
+    let mut flush = |hosts: &mut Option<String>, roles: &mut Vec<String>| {
+        if let Some(h) = hosts.take() {
+            out.push((h, std::mem::take(roles)));
+        }
+        roles.clear();
+    };
+    for l in text.lines() {
+        if l.starts_with("- ") {
+            flush(&mut hosts, &mut roles);
+            list = None;
+        }
+        let body = l.trim_start();
+        let indent = l.len() - body.len();
+        if let Some(c) = HOSTS.captures(l) {
+            hosts = Some(c[1].to_string());
+        }
+        match list {
+            Some(at) if !body.is_empty() && indent <= at && !body.starts_with('-') => list = None,
+            Some(at) if indent >= at => {
+                let c = ITEM.captures(body);
+                roles.extend(c.map(|c| c[1].to_string()));
+            }
+            _ => {}
+        }
+        if list.is_none() && body.trim_start_matches("- ").trim_end() == "roles:" {
+            list = Some(if l.starts_with("- ") { 2 } else { indent });
+        }
+    }
+    flush(&mut hosts, &mut roles);
+    out
+}
+
+/// The plays of every playbook among `files`, outside `roles/`.
+pub fn playbooks(files: &dyn Files) -> Vec<(String, Vec<String>)> {
+    let all = files
+        .glob(&["**/*.yml".into(), "**/*.yaml".into()])
+        .unwrap_or_default();
+    (all.iter().filter(|f| under_roles(f).is_none()))
+        .filter_map(|f| files.read(f))
+        .flat_map(|t| plays(&t))
+        .collect()
+}
+
+/// The hosts of the plays that apply the role at `rel` (`services/gitlab`, or by its name alone).
+pub fn deployed_to(plays: &[(String, Vec<String>)], rel: &str) -> Vec<String> {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    let mut out: Vec<String> = (plays.iter())
+        .filter(|(_, roles)| roles.iter().any(|r| r == rel || r == name))
+        .map(|(h, _)| h.clone())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// A front end's public prefixes, left off a setting's name.
 const PUBLIC: &[&str] = &[
     "NUXT_PUBLIC_",
@@ -156,6 +262,34 @@ pub fn services(text: &str) -> Vec<(String, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plays_read_every_way_of_naming_a_role() {
+        let text = "---\n- name: Web\n  hosts: web\n  vars:\n    - not_a_role\n  roles:\n    - a\n    - role: services/b\n      tags: x\n    - { role: c, tags: y }\n  tasks:\n    - debug: {}\n\n- hosts: \"db\"\n  roles:\n  - d\n- import_playbook: other.yml\n";
+        let want = [("web", vec!["a", "services/b", "c"]), ("db", vec!["d"])].map(|(h, r)| {
+            (
+                h.to_string(),
+                r.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            )
+        });
+        assert_eq!(plays(text), want);
+    }
+
+    #[test]
+    fn a_role_folder_ends_at_its_first_standard_folder() {
+        let files: Vec<String> = [
+            "roles/a/tasks/main.yml",
+            "x/roles/group/b/meta/main.yml",
+            "x/roles/group/README.md",
+            "roles/c/files/tasks/not-a-role.yml",
+            "roles/d/tasks",
+            "myroles/e/tasks/main.yml",
+        ]
+        .map(String::from)
+        .to_vec();
+        let dirs: Vec<String> = role_dirs(&files).into_iter().collect();
+        assert_eq!(dirs, ["roles/a", "x/roles/group/b"]);
+    }
 
     const TASKS: &str = "---
 - name: Deploy payment API frontoffice

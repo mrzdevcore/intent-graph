@@ -1,0 +1,13 @@
+# Supply-chain settings for the viewer's dependencies.
+# A version must be a week old before pnpm will resolve it (minutes).
+minimumReleaseAge: 10080
+# Refuse a release whose publishing trust dropped from earlier ones.
+trustPolicy: no-downgrade
+# Transitive dependencies come from the registry, never git or a tarball URL.
+blockExoticSubdeps: true
+# Fail on any dependency build script nobody has decided about.
+strictDepBuilds: true
+# None run. esbuild ships its binary as a platform package, fsevents prebuilt.
+allowBuilds:
+  esbuild: false
+  fsevents: false
