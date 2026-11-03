@@ -2,6 +2,7 @@
 // and the desktop app (Tauri): the trust gate, the agent and links.
 
 import type { Edit, View } from "../map/types";
+import type { Show } from "../model/show";
 import { embedded } from "./embedded";
 import { tauri } from "./tauri";
 
@@ -124,6 +125,8 @@ export interface IgApi {
   view?(): Promise<View>;
   /** The project's files changed and the host rebuilt (desktop only): read `view` again. Returns the unsubscribe. */
   onRebuild?(cb: () => void): () => void;
+  onShow?(cb: (s: Show) => void): () => void;
+  shown?(): Show | null;
 }
 
 export function pickApi(): IgApi {

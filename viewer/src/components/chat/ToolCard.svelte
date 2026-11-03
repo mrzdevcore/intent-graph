@@ -3,8 +3,11 @@
 <script lang="ts">
   import type { ToolCallInfo } from "../../api";
   import { shortCommand } from "../../model/chat";
+  import { showFromTool, type Show } from "../../model/show";
 
-  let { call, root }: { call: ToolCallInfo; root: string } = $props();
+  let { call, root, onshow }: { call: ToolCallInfo; root: string; onshow?: (s: Show) => void } = $props();
+  const show = $derived(showFromTool(call));
+  const count = $derived(show ? show.steps.length || show.nodes.length : 0);
 
   type Diff = { type: "diff"; path: string; oldText?: string | null; newText: string };
   type Text = { type: "content"; content: { type: string; text?: string } };
@@ -17,8 +20,17 @@
 
 <details class="card tool">
   <summary>
-    <span class="ttitle" title={call.title}>{call.title ? shortCommand(call.title, root) : (call.kind ?? "Tool")}</span>
-    <span class="chip {status}">{status.replace("_", " ")}</span>
+    {#if show}
+      <span class="ttitle" title={show.title}>{show.title}</span>
+      {#if status === "failed"}<span class="chip failed">refused</span>
+      {:else if status === "completed"}
+        <span class="chip completed">{count} {count === 1 ? "step" : "steps"}</span>
+        {#if onshow}<button type="button" onclick={(e) => { e.preventDefault(); onshow(show); }}>Show again</button>{/if}
+      {:else}<span class="chip {status}">drawing</span>{/if}
+    {:else}
+      <span class="ttitle" title={call.title}>{call.title ? shortCommand(call.title, root) : (call.kind ?? "Tool")}</span>
+      <span class="chip {status}">{status.replace("_", " ")}</span>
+    {/if}
     {#if loc}<span class="loc">{rel(loc.path)}{loc.line ? ":" + loc.line : ""}</span>{/if}
   </summary>
   {#each content as c}
