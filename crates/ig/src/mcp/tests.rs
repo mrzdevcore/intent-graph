@@ -148,6 +148,31 @@ fn text(r: &Value) -> String {
 }
 
 #[test]
+fn show_takes_the_map_s_box_ids_and_arrows_where_no_code_is_parsed() {
+    let spec = "system \"infra\" title=\"Infra\" {\n    group \"common\" title=\"Common\" {\n        service \"graphify\" title=\"Graphify\" {\n            at \"roles/graphify/**\"\n            writes \"neo4j\"\n        }\n        store \"neo4j\" title=\"Neo4j\" {\n            at \"roles/neo4j/**\"\n        }\n    }\n}\n";
+    let dir = crate::tests::tmp_with(&[
+        ("ig/system.kdl", spec),
+        ("roles/graphify/tasks/main.yml", "- name: x\n"),
+        ("roles/neo4j/tasks/main.yml", "- name: y\n"),
+    ]);
+    let r = call_tool(
+        &dir,
+        "ig_show",
+        json!({"title": "Who writes Neo4j", "nodes": ["graphify", "neo4j"], "edges": [["graphify", "neo4j"]],
+            "steps": [{"target": "graphify|neo4j", "text": "writes the graph"}]}),
+    );
+    assert!(r.get("isError").is_none(), "{r}");
+    let r = call_tool(&dir, "ig_show", json!({"title": "t", "nodes": ["grafify"]}));
+    assert!(text(&r).contains("did you mean graphify"), "{r}");
+    let r = call_tool(
+        &dir,
+        "ig_show",
+        json!({"title": "t", "nodes": ["neo4j"], "edges": [["neo4j", "graphify"]]}),
+    );
+    assert_eq!(r["isError"], true, "{r}");
+}
+
+#[test]
 fn plan_without_spec_writes_nothing() {
     let dir = crate::tests::tmp_with(&[("a.txt", "x")]);
     let r = call_tool(&dir, "ig_plan", json!({}));
