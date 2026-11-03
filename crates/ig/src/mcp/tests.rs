@@ -138,7 +138,7 @@ fn ig_show_offers_no_architecture_mode() {
     let modes = &show["inputSchema"]["properties"]["mode"]["enum"];
     assert_eq!(modes, &json!(["focus", "chain"]));
     let d = show["description"].as_str().unwrap();
-    assert!(d.contains("shown in a later version"), "{d}");
+    assert!(d.contains("Draw an answer on the ig map"), "{d}");
 }
 
 const SPEC: &str = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n}\n";
