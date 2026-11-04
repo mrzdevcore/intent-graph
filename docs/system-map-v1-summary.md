@@ -138,4 +138,3 @@ checkers are gone. Old setups keep working:
 - Live production health via OpenTelemetry.
 - The map in the desktop app.
 - More languages.
-- A landscape view for a folder of several projects.

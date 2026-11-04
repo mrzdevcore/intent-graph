@@ -248,7 +248,8 @@ pub fn mentions(root: &Path, projects: &[String]) -> Vec<Mention> {
             }
             let text = String::from_utf8_lossy(&bytes);
             for (i, to) in projects.iter().enumerate() {
-                if to != from && names(&text, to) {
+                // `infrastructure` in a file is a word, not a link to the folder of that name
+                if to != from && !GROUND.contains(&to.as_str()) && names(&text, to) {
                     found[i].insert(
                         p.strip_prefix(&base)
                             .unwrap_or(p)
@@ -382,9 +383,19 @@ mod tests {
                 ("api/README.md", "not the web-app"),
                 ("api/fly.toml", "app = 'db-${env}'"),
                 ("db/README.md", "x"),
+                ("infrastructure/README.md", "x"),
+                ("db/notes.md", "our infrastructure"),
             ],
         );
-        let m = mentions(&d, &["api".into(), "db".into(), "web".into()]);
+        let m = mentions(
+            &d,
+            &[
+                "api".into(),
+                "db".into(),
+                "infrastructure".into(),
+                "web".into(),
+            ],
+        );
         assert_eq!(
             m,
             [

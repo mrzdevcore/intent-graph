@@ -19,6 +19,10 @@ make install   # builds the viewer page (viewer/dist/index.html), then `cargo in
 
 `ig` needs `git` on `PATH` and nothing else. The AI reading needs one of the `claude`, `gemini` or `codex` CLIs, only when you ask for it.
 
+## A folder of projects
+
+`ig .` or `ig view` on a folder that holds several projects, and is not a project itself, draws them on one map: a box per project with its own map inside, what runs the others on a band below, and dashed links where a project's files name another. A project need not be a git repo: a manifest or Terraform files are enough. Worktrees, archives, downloaded releases and folders without source are left out; the Folders panel says why. Secrets are never opened (`.env*`, `*.tfstate*`, `*.tfvars`, keys). Nothing is written until you run `ig view --read`, which reads each project without a map and writes its `ig/`.
+
 ## Build
 
 `make build` (needs pnpm, node and cargo): the viewer first (`viewer/`, TypeScript, Svelte and Vite,
