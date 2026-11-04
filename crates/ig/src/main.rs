@@ -224,7 +224,15 @@ fn real_main() -> Result<u8> {
                 None | Some("all") => skills::AGENTS.iter().collect(),
                 Some(name) => vec![skills::agent(name)?],
             };
+            let folder = ig_wire::is_landscape(&root);
             init::run(&root, &agents)?;
+            if folder {
+                let n = ig_fs::folders::scan(&root).projects.len();
+                println!(
+                    "A folder of {n} projects: each keeps its own ig/. `ig view --read` reads those without one."
+                );
+                return Ok(0);
+            }
             // ig/ starts as ig's map of the code: an empty repo gets an empty system
             if env
                 .files

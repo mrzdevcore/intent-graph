@@ -133,3 +133,21 @@ fn an_answer_in_a_folder_names_boxes_by_their_place_in_it() {
     assert!(last["result"].get("isError").is_none(), "{last}");
     assert!(d.join(".ig/show.json").is_file());
 }
+
+#[test]
+fn init_in_a_folder_of_projects_leaves_it_a_folder_of_projects() {
+    let d = folder("init");
+    let out = Command::new(env!("CARGO_BIN_EXE_ig"))
+        .args(["init", "--root"])
+        .arg(&d)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!d.join("ig").exists(), "wrote a map of the whole folder");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("folder of 3 projects"));
+    assert!(view(&d).get("landscape").is_some());
+}
