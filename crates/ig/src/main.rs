@@ -39,6 +39,35 @@ fn removed() -> Option<u8> {
     }
 }
 
+/// `ig view --read` on a project of a folder of projects: the first map of `dir`, by the agent.
+fn read_project(dir: &Path, a: &cli::Args) -> Result<()> {
+    eprintln!("ig: reading {}", dir.display());
+    let w = Wired::new(dir);
+    let flag = match a.agent.as_deref() {
+        Some(n) => Some(Agent::parse(n).ok_or_else(|| {
+            anyhow::anyhow!("--agent {n}: expected claude, gemini, codex or ollama")
+        })?),
+        None => None,
+    };
+    let template = agent::prompt();
+    let bar = agent::Bar::new();
+    let mut confirm = agent::confirm;
+    let mut run = |ag: Agent, prompt: &str, ids: &[String]| agent::run(dir, ag, prompt, ids);
+    view::run_with(
+        &w.env(),
+        Some(&mut Ask {
+            all: true,
+            flag,
+            template: &template,
+            found: &agent::on_path,
+            confirm: agent::interactive().then_some(&mut confirm as &mut dyn FnMut(Agent) -> bool),
+            run: &mut run,
+            meter: &|done, total, status| bar.set(done, total, status),
+        }),
+    )?;
+    Ok(())
+}
+
 fn real_main() -> Result<u8> {
     if let Some(code) = removed() {
         return Ok(code);
@@ -57,7 +86,15 @@ fn real_main() -> Result<u8> {
     let env = w.env();
     match a.cmd.as_str() {
         "view" => {
-            let v = if a.no_read {
+            let folder = ig_wire::is_landscape(&root);
+            if folder && a.read {
+                for dir in ig_wire::unread_projects(&root) {
+                    read_project(&dir, &a)?;
+                }
+            }
+            let v = if folder {
+                ig_wire::landscape(&root).expect("just checked")
+            } else if a.no_read {
                 view::run_live(&env, None, ig_wire::CONNECTORS)?
             } else {
                 let flag = match a.agent.as_deref() {
@@ -187,7 +224,15 @@ fn real_main() -> Result<u8> {
                 None | Some("all") => skills::AGENTS.iter().collect(),
                 Some(name) => vec![skills::agent(name)?],
             };
+            let folder = ig_wire::is_landscape(&root);
             init::run(&root, &agents)?;
+            if folder {
+                let n = ig_fs::folders::scan(&root).projects.len();
+                println!(
+                    "A folder of {n} projects: each keeps its own ig/. `ig view --read` reads those without one."
+                );
+                return Ok(0);
+            }
             // ig/ starts as ig's map of the code: an empty repo gets an empty system
             if env
                 .files

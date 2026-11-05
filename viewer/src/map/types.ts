@@ -95,7 +95,10 @@ export type View = {
   kinds: KindView[];
   /** The journal's entries nobody kept yet. */
   proposals?: Proposal[];
+  landscape?: Landscape;
 };
+export type Skipped = { dir: string; why: string };
+export type Landscape = { projects: Skipped[]; unsure: Skipped[]; leftOut: Skipped[]; links: { from: string; to: string; files: string[] }[] };
 export type Proposal = { n: number; by: "claude" | "reading"; summary: string; ids: string[]; marks: string[] };
 
 /** Mirrors `Edit` in crates/ig-app/src/map/edit.rs. */

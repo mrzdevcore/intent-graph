@@ -1,13 +1,17 @@
 //! `ig_show`: an answer shown in the graph. The agent names nodes, edges and ordered steps; every
 //! id is checked against the graph before the viewer is told.
 
+use crate::map::view::View;
 use anyhow::{Result, anyhow, bail};
-use ig_core::model::{Graph, suggest};
+use ig_core::model::{Graph, suggest_among};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::{BTreeSet, HashSet};
 
 /// Where the show is written, for the viewers to pick up.
 pub const SHOW: &str = ".ig/show.json";
+// not IG_APP: that one names the app binary for `ig app`
+pub const IN_APP: &str = "IG_IN_APP";
 
 const MAX_NODES: usize = 60;
 const MAX_STEPS: usize = 40;
@@ -70,29 +74,60 @@ struct Input {
     mode: ShowMode,
 }
 
-fn known(g: &Graph, id: &str) -> Result<()> {
+/// What a show may name: the code graph's nodes and edges, and the map's boxes and arrows.
+pub struct Targets {
+    ids: BTreeSet<String>,
+    edges: HashSet<(String, String)>,
+}
+
+impl Targets {
+    pub fn new(g: &Graph, map: Option<&View>) -> Self {
+        let mut ids: BTreeSet<String> = g.nodes.iter().map(|n| n.id.clone()).collect();
+        let mut edges: HashSet<(String, String)> = g
+            .edges
+            .iter()
+            .map(|e| (e.from.clone(), e.to.clone()))
+            .collect();
+        if let Some(v) = map {
+            ids.extend(v.boxes.iter().map(|b| b.id.clone()));
+            for a in v
+                .arrows
+                .iter()
+                .flat_map(|a| std::iter::once(a).chain(&a.parts))
+            {
+                edges.insert((a.from.clone(), a.to.clone()));
+            }
+        }
+        Targets { ids, edges }
+    }
+}
+
+fn known(g: &Targets, id: &str) -> Result<()> {
     short("an id", id, MAX_ID)?;
-    if g.nodes.iter().any(|n| n.id == id) {
+    if g.ids.contains(id) {
         return Ok(());
     }
-    let s: Vec<String> = suggest(g, id).into_iter().take(3).collect();
+    let s: Vec<String> = suggest_among(g.ids.iter().map(String::as_str), id)
+        .into_iter()
+        .take(3)
+        .collect();
     if s.is_empty() {
         bail!("unknown id {id}");
     }
     bail!("unknown id {id}; did you mean {}?", s.join(", "))
 }
 
-fn edge(g: &Graph, from: &str, to: &str) -> Result<(String, String)> {
+fn edge(g: &Targets, from: &str, to: &str) -> Result<(String, String)> {
     known(g, from)?;
     known(g, to)?;
-    if !g.edges.iter().any(|e| e.from == from && e.to == to) {
+    if !g.edges.contains(&(from.to_string(), to.to_string())) {
         bail!("no edge {from} -> {to} in the graph");
     }
     Ok((from.to_string(), to.to_string()))
 }
 
 /// The show for `input`, numbered `seq`, once every id and edge is in `g`.
-pub fn validate(g: &Graph, input: &Value, seq: u64) -> Result<Show> {
+pub fn validate(g: &Targets, input: &Value, seq: u64) -> Result<Show> {
     let i: Input = serde_json::from_value(input.clone())
         .map_err(|e| anyhow!("expected {{title, nodes, edges?, steps?, mode?}}: {e}"))?;
     if i.nodes.is_empty() {
@@ -171,7 +206,12 @@ mod tests {
 
     #[test]
     fn unknown_id_errors_with_suggestions() {
-        let e = validate(&g(), &json!({"title": "t", "nodes": ["src/a.ts#fo"]}), 1).unwrap_err();
+        let e = validate(
+            &Targets::new(&g(), None),
+            &json!({"title": "t", "nodes": ["src/a.ts#fo"]}),
+            1,
+        )
+        .unwrap_err();
         assert!(
             e.to_string()
                 .contains("unknown id src/a.ts#fo; did you mean src/a.ts#foo"),
@@ -182,7 +222,7 @@ mod tests {
     #[test]
     fn edge_pairs_and_keys_are_accepted_and_must_exist() {
         let s = validate(
-            &g(),
+            &Targets::new(&g(), None),
             &json!({"title": "t", "nodes": ["a"], "edges": [["a", "b"], "a|calls|b"], "steps": [{"target": "a|b", "text": "x"}]}),
             1,
         )
@@ -190,7 +230,7 @@ mod tests {
         let ab = ("a".to_string(), "b".to_string());
         assert_eq!(s.edges, vec![ab.clone(), ab]);
         let e = validate(
-            &g(),
+            &Targets::new(&g(), None),
             &json!({"title": "t", "nodes": ["a"], "edges": [["b", "a"]]}),
             1,
         );
@@ -199,25 +239,50 @@ mod tests {
 
     #[test]
     fn limits_and_empty_nodes_are_refused() {
-        assert!(validate(&g(), &json!({"title": "t", "nodes": []}), 1).is_err());
+        assert!(
+            validate(
+                &Targets::new(&g(), None),
+                &json!({"title": "t", "nodes": []}),
+                1
+            )
+            .is_err()
+        );
         let many: Vec<&str> = vec!["a"; 61];
-        assert!(validate(&g(), &json!({"title": "t", "nodes": many}), 1).is_err());
+        assert!(
+            validate(
+                &Targets::new(&g(), None),
+                &json!({"title": "t", "nodes": many}),
+                1
+            )
+            .is_err()
+        );
         let steps: Vec<Value> = (0..41)
             .map(|_| json!({"target": "a", "text": "x"}))
             .collect();
         let e = validate(
-            &g(),
+            &Targets::new(&g(), None),
             &json!({"title": "t", "nodes": ["a"], "steps": steps}),
             1,
         );
         assert!(e.unwrap_err().to_string().contains("at most 40"));
         let ok: Vec<&str> = vec!["a"; 60];
-        assert!(validate(&g(), &json!({"title": "t", "nodes": ok}), 1).is_ok());
+        assert!(
+            validate(
+                &Targets::new(&g(), None),
+                &json!({"title": "t", "nodes": ok}),
+                1
+            )
+            .is_ok()
+        );
     }
 
     #[test]
     fn long_title_step_text_and_ids_are_refused() {
-        let t = |v: Value| validate(&g(), &v, 1).unwrap_err().to_string();
+        let t = |v: Value| {
+            validate(&Targets::new(&g(), None), &v, 1)
+                .unwrap_err()
+                .to_string()
+        };
         let long = |n: usize| "x".repeat(n);
         assert!(
             t(json!({"title": long(201), "nodes": ["a"]}))
@@ -230,13 +295,13 @@ mod tests {
                 .contains("an id is 513 characters: at most 512")
         );
         let ok = json!({"title": long(200), "nodes": ["a"], "steps": [{"target": "a", "text": long(500)}]});
-        assert!(validate(&g(), &ok, 1).is_ok());
+        assert!(validate(&Targets::new(&g(), None), &ok, 1).is_ok());
     }
 
     #[test]
     fn valid_show_round_trips() {
         let s = validate(
-            &g(),
+            &Targets::new(&g(), None),
             &json!({"title": "How a calls b", "nodes": ["a", "b"], "edges": ["a|calls|b"], "mode": "chain",
                 "steps": [{"target": "a", "text": "a starts"}, {"target": "a|b", "text": "a calls b"}]}),
             7,

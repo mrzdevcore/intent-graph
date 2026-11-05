@@ -12,11 +12,13 @@
   import QuestionCard from "./QuestionCard.svelte";
   import ToolCard from "./ToolCard.svelte";
   import type { ChatSession } from "./session.svelte";
+  import type { Show } from "../../model/show";
 
-  let { chat: c, openUrl, root }: {
+  let { chat: c, openUrl, root, onshow }: {
     chat: ChatSession;
     openUrl?: (url: string) => void;
     root: string;
+    onshow?: (s: Show) => void;
   } = $props();
 
   const s = $derived(c.s);
@@ -98,7 +100,7 @@
       {#if item.kind === "group"}
         <details class="card tool group">
           <summary><span class="ttitle">{item.label}</span><span class="chip {item.status}">{item.status.replace("_", " ")}</span></summary>
-          {#each item.calls as call (call.toolCallId)}<ToolCard {call} {root} />{/each}
+          {#each item.calls as call (call.toolCallId)}<ToolCard {call} {root} {onshow} />{/each}
         </details>
       {:else if item.kind === "text"}
         <div class="msg {item.role}">
@@ -106,7 +108,7 @@
           {:else}<Markdown text={item.text} {openUrl} />{/if}
         </div>
       {:else if item.kind === "tool"}
-        <ToolCard call={item.call} {root} />
+        <ToolCard call={item.call} {root} {onshow} />
       {:else if item.kind === "permission"}
         <PermissionCard toolCall={item.toolCall} options={item.options} answered={item.answered} onanswer={(o) => c.answer(item.requestId, o)} />
       {:else if item.kind === "question"}

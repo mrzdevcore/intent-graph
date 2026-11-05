@@ -19,6 +19,10 @@ make install   # builds the viewer page (viewer/dist/index.html), then `cargo in
 
 `ig` needs `git` on `PATH` and nothing else. The AI reading needs one of the `claude`, `gemini` or `codex` CLIs, only when you ask for it.
 
+## A folder of projects
+
+`ig .` or `ig view` on a folder that holds several projects, and is not a project itself, draws them on one map: a box per project with its own map inside, what runs the others on a band below, and dashed links where a project's files name another. A project need not be a git repo: a manifest or Terraform files are enough. Worktrees, archives, downloaded releases and folders without source are left out; the Folders panel says why. Secrets are never opened (`.env*`, `*.tfstate*`, `*.tfvars`, keys). Nothing is written until you run `ig view --read`, which reads each project without a map and writes its `ig/`.
+
 ## Build
 
 `make build` (needs pnpm, node and cargo): the viewer first (`viewer/`, TypeScript, Svelte and Vite,
@@ -44,6 +48,7 @@ The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in developmen
 - **Needs:** Rust, pnpm, node and npm (for the Claude adapter), and the Claude CLI logged in (run `claude`, then `/login`). The app never sees your credentials.
 - **Adapter:** on the first chat, if it is missing, the app offers to install `@agentclientprotocol/claude-agent-acp@0.95.0` into its own data dir (never global).
 - **Trust screen:** before any Claude session the app lists what will run: hooks from `.claude/settings*.json`, permission settings (including bypass modes), `AGENTS.md`/`CLAUDE.md`/`CLAUDE.local.md`, MCP servers from `.mcp.json`, the ig plugin, and the project's skills, commands and agents (with any tools they pre-approve or hooks they run). Every file under `.claude/` is hashed (files over 1 MB by size only). You decide, and confirm natively. It asks again when any of them changes.
+- **Answers on the map:** when the agent calls `ig_show`, the map flies to the boxes and arrows in its answer, lights them with step numbers and fades the rest; a card lists the steps (←, → to walk, Esc to clear). If you are editing, the answer waits for you. `ig view` opens on an answer less than an hour old.
 - **Plugin:** the app always uses its own ig plugin (re-exported on each run into its data dir). Run `ig init` after upgrading ig to refresh a project's copy for terminal use.
 - **Settings:** sessions load the project and local settings plus the ig plugin only. Your own skills and user settings do not load.
 - **Chat:** streaming replies, tool cards, diffs, permission and question cards, mode and model selectors (switching to a bypass mode asks to confirm) and `/` commands.
@@ -170,7 +175,7 @@ ig reads only each instance's name, type, status and addresses. It never reads a
 | `ig check` | The plan, read-only: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. |
 | `ig fmt [--check]` | Re-indents `ig/*.kdl` (four spaces a level, at most one blank line between nodes); comments and order stay. `--check` writes nothing and exits 1 when a file would change. |
 | `ig accept [--all \| <id>...]` | Takes drift into `ig/`: each box or arrow id from `ig plan` (quote arrow ids: `ig accept 'web->api'`), written one by one. |
-| `ig mcp` | MCP server on stdio: `ig_state` and `ig_show` (a coding agent shows an answer, a path or subgraph with steps, in the viewer), `ig_plan` (the plan) and `ig_edit` (Claude edits `ig/`: add, remove, move, rename, set, arrow, unarrow; its edits are proposals you review with `git diff ig/`). |
+| `ig mcp` | MCP server on stdio: `ig_state` and `ig_show` (a coding agent draws an answer on the map: boxes, arrows and steps; ids are box ids from `ig view --json` or code graph ids), `ig_plan` (the plan) and `ig_edit` (Claude edits `ig/`: add, remove, move, rename, set, arrow, unarrow; its edits are proposals you review with `git diff ig/`). |
 | `ig plugin export <dir>` | Writes the current Claude plugin (skills, `.mcp.json`) into `<dir>`, overwriting. The desktop app uses this for its own copy. |
 | `ig --version` | Prints the version. |
 

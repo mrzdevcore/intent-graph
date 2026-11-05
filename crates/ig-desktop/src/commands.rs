@@ -11,13 +11,18 @@ use std::sync::Mutex;
 #[derive(Default)]
 pub struct Project(pub Mutex<Option<(PathBuf, ig_wire::RecommendedWatcher)>>);
 
-/// A project is a git repository or a directory with an `ig.yaml`.
+/// A project is a git repository, a directory with an `ig.yaml`, or a folder of projects.
 pub fn is_project(root: &Path) -> bool {
-    root.join("ig.yaml").is_file() || Wired::new(root).vcs().is_some()
+    root.join("ig.yaml").is_file()
+        || Wired::new(root).vcs().is_some()
+        || ig_wire::is_landscape(root)
 }
 
 /// The viewer's data for `root`, like `ig view --json`.
 pub fn view_data_for(root: &Path) -> Result<Value, String> {
+    if let Some(v) = ig_wire::landscape(root) {
+        return serde_json::to_value(v).map_err(|e| e.to_string());
+    }
     let w = Wired::new(root);
     let mut v = view::run(&w.env()).map_err(|e| format!("{e:#}"))?;
     if ig_app::config::load(w.files()).is_ok_and(|c| !c.connectors.is_empty()) {

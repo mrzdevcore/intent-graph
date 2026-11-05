@@ -2,6 +2,8 @@
 //! plugged into `ig_app::Env`, and the debounced watcher behind live rebuilds.
 
 use ig_app::Env;
+use ig_app::map::View;
+use ig_app::map::landscape::{Landscape, Link, Project, Skipped, combine};
 use ig_conn_incus::IncusConnector;
 use ig_conn_traefik::TraefikConnector;
 use ig_core::ports::{Connector, LanguageFrontend, Vcs};
@@ -74,6 +76,75 @@ impl Wired {
             notice: &notice,
         }
     }
+}
+
+pub use ig_fs::folders::is_landscape;
+
+/// The projects in folder `root` that have no map of their own yet.
+pub fn unread_projects(root: &Path) -> Vec<PathBuf> {
+    let f = ig_fs::folders::scan(root);
+    (f.projects.iter())
+        .map(|p| root.join(&p.dir))
+        .filter(|d| !d.join(ig_app::map::spec::DIR).is_dir())
+        .collect()
+}
+
+/// The map of folder of projects `root`, none when it is not one. Writes nothing: a project without
+/// a map of its own stays unread until asked for.
+pub fn landscape(root: &Path) -> Option<View> {
+    if !is_landscape(root) {
+        return None;
+    }
+    let f = ig_fs::folders::scan(root);
+    let skipped = |fs: &[ig_fs::folders::Folder]| -> Vec<Skipped> {
+        fs.iter()
+            .map(|x| Skipped {
+                dir: x.dir.clone(),
+                why: x.why.clone(),
+            })
+            .collect()
+    };
+    let dirs: Vec<String> = f.projects.iter().map(|p| p.dir.clone()).collect();
+    let links = ig_fs::folders::mentions(root, &dirs)
+        .into_iter()
+        .map(|m| Link {
+            from: m.from,
+            to: m.to,
+            files: m.files,
+        })
+        .collect();
+    let info = Landscape {
+        unsure: skipped(&f.unsure),
+        left_out: skipped(&f.left_out),
+        links,
+        ..Default::default()
+    };
+    let mut failed = vec![];
+    let projects = f
+        .projects
+        .iter()
+        .map(|p| {
+            let dir = root.join(&p.dir);
+            let view = dir.join(ig_app::map::spec::DIR).is_dir().then(|| {
+                let w = Wired::new(&dir);
+                ig_app::map::view::run(&w.env())
+                    .map_err(|e| failed.push(format!("{}: {e:#}", p.dir)))
+                    .ok()
+            });
+            Project {
+                dir: p.dir.clone(),
+                why: p.why.clone(),
+                ground: p.ground,
+                view: view.flatten(),
+            }
+        })
+        .collect();
+    let name = root
+        .file_name()
+        .map_or_else(|| ".".into(), |n| n.to_string_lossy().into_owned());
+    let mut v = combine(&name, projects, info);
+    v.notices.extend(failed);
+    Some(v)
 }
 
 /// Paths a live view never rebuilds for: ig's own output, git internals, dependencies.

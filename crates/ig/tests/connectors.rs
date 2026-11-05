@@ -33,7 +33,10 @@ fn shop(tag: &str, yaml: &str) -> (PathBuf, PathBuf) {
 
 /// A fake `incus` in `bin` that touches `root/called`, then runs `body`.
 fn fake_incus(root: &Path, bin: &Path, body: &str) {
-    let script = format!("#!/bin/sh\n/usr/bin/touch {}/called\n{body}\n", root.display());
+    let script = format!(
+        "#!/bin/sh\n/usr/bin/touch {}/called\n{body}\n",
+        root.display()
+    );
     let p = bin.join("incus");
     std::fs::write(&p, script).unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -108,7 +111,10 @@ fn an_unreachable_server_is_a_notice_and_the_map_draws() {
     fake_incus(&root, &bin, "echo 'server is down' >&2\nexit 1");
     let (code, out) = ig(&root, &bin, VIEW);
     assert_eq!(code, 0, "{out}");
-    assert!(out.contains("server is down") && out.contains("\"boxes\""), "{out}");
+    assert!(
+        out.contains("server is down") && out.contains("\"boxes\""),
+        "{out}"
+    );
 }
 
 #[test]
@@ -116,7 +122,10 @@ fn a_missing_client_is_a_notice_and_the_map_draws() {
     let (root, bin) = shop("missing", INCUS);
     let (code, out) = ig(&root, &bin, VIEW);
     assert_eq!(code, 0, "{out}");
-    assert!(out.contains("could not start") && out.contains("\"boxes\""), "{out}");
+    assert!(
+        out.contains("could not start") && out.contains("\"boxes\""),
+        "{out}"
+    );
 }
 
 #[test]

@@ -10,8 +10,30 @@ test("pickApi: outside the desktop app, only the embedded view", async () => {
   document.body.innerHTML = '<script id="ig-data" type="application/json">{"version":1}</script>';
   const { pickApi } = await import("../src/api");
   const api = pickApi();
-  expect(Object.keys(api)).toEqual(["view"]);
+  expect(Object.keys(api)).toEqual(["view", "shown"]);
   expect(await api.view!()).toEqual({ version: 1 });
+  expect(api.shown!()).toBeNull();
+});
+
+test("embedded: the page's answer is read once, and a broken one is none", async () => {
+  document.body.innerHTML = '<script id="ig-show" type="application/json">{"seq":3,"title":"t","nodes":["a"]}</script>';
+  const { pickApi } = await import("../src/api");
+  expect(pickApi().shown!()).toMatchObject({ title: "t", nodes: ["a"], seq: 3 });
+  document.body.innerHTML = '<script id="ig-show" type="application/json">/*IG_SHOW*/</script>';
+  expect(pickApi().shown!()).toBeNull();
+});
+
+test("tauri onShow hands over a parsed show, and drops a bad one", async () => {
+  (window as any).__TAURI_INTERNALS__ = {};
+  const handlers: Record<string, (e: { payload: unknown }) => void> = {};
+  vi.doMock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+  vi.doMock("@tauri-apps/api/event", () => ({ listen: vi.fn(async (n: string, cb: (e: { payload: unknown }) => void) => ((handlers[n] = cb), () => {})) }));
+  const { pickApi } = await import("../src/api");
+  const got: unknown[] = [];
+  pickApi().onShow!((s) => got.push(s));
+  handlers.show({ payload: { version: 1, seq: 7, title: "t", nodes: ["a"], edges: [["a", "b"]], steps: [], mode: "focus" } });
+  handlers.show({ payload: { title: "no nodes" } });
+  expect(got).toMatchObject([{ seq: 7, title: "t", edges: [["a", "b"]] }]);
 });
 
 test("tauri agent: commands carry their arguments; onEvent hands over agent-event payloads", async () => {
