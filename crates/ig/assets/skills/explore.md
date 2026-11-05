@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Explain how part of this codebase fits together using the ig dependency graph - who uses a module, what it depends on, how a request flows. Use when asked how something works, what depends on X, or what would be affected.
+description: Explain how part of this codebase fits together and draw it on the ig map - who uses a module, what it depends on, how a request flows. Use when asked to show something, where X is used, how something works, what depends on X, or what would be affected.
 ---
 
 # Explore the code with the ig graph
@@ -19,10 +19,12 @@ new box, and use `move` to put a box elsewhere: it keeps its id.
    Code-level boxes (`level` `code`) carry graph node ids: `file#Name` for a function or class.
 2. Walk `arrows[]`: who depends on a box (`to` is it), what it depends on (`from` is it), one or two
    hops, down through `parent`. Then read the code in the box's `madeOf` files.
-3. For "how does X work" or "how is X connected", call the `ig_show` tool with the path or subgraph
-   (`nodes`, `edges` as `[from, to]` or `"from|kind|to"`), its ordered `steps` (`target`: a node id
-   or `from|to`, `text`: one line) and a `title`; `mode` is `focus`, `architecture` or `chain`.
+3. For "show me X", "where is X used", "how does X work" or "how is X connected", call the `ig_show`
+   tool: it draws the answer on the map. Give the path or subgraph (`nodes`: box ids; `edges` as
+   `[from, to]` or `"from|kind|to"`, from `arrows[]`), its ordered `steps` (`target`: a box id or
+   `from|to`, `text`: one line) and a `title`; `mode` is `focus`, `architecture` or `chain`.
    It checks every id (an unknown one comes back with suggestions) and writes only `.ig/show.json`.
    Then answer in at most 10 lines. Draw a Mermaid `flowchart` or `sequenceDiagram` (at most 12
    nodes) only when `ig_show` says no viewer is open.
-4. When no viewer was open, tell the user: "run /ig:view to see it in the graph".
+4. When `ig_show` says "shown in app", the map beside the chat already shows it: never run `ig view`.
+   When no viewer was open, tell the user: "run /ig:view to see it in the graph".

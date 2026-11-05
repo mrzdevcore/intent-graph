@@ -138,13 +138,38 @@ fn ig_show_offers_no_architecture_mode() {
     let modes = &show["inputSchema"]["properties"]["mode"]["enum"];
     assert_eq!(modes, &json!(["focus", "chain"]));
     let d = show["description"].as_str().unwrap();
-    assert!(d.contains("shown in a later version"), "{d}");
+    assert!(d.contains("Draw an answer on the ig map"), "{d}");
 }
 
 const SPEC: &str = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n}\n";
 
 fn text(r: &Value) -> String {
     r["content"][0]["text"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn show_takes_the_map_s_box_ids_and_arrows_where_no_code_is_parsed() {
+    let spec = "system \"infra\" title=\"Infra\" {\n    group \"common\" title=\"Common\" {\n        service \"graphify\" title=\"Graphify\" {\n            at \"roles/graphify/**\"\n            writes \"neo4j\"\n        }\n        store \"neo4j\" title=\"Neo4j\" {\n            at \"roles/neo4j/**\"\n        }\n    }\n}\n";
+    let dir = crate::tests::tmp_with(&[
+        ("ig/system.kdl", spec),
+        ("roles/graphify/tasks/main.yml", "- name: x\n"),
+        ("roles/neo4j/tasks/main.yml", "- name: y\n"),
+    ]);
+    let r = call_tool(
+        &dir,
+        "ig_show",
+        json!({"title": "Who writes Neo4j", "nodes": ["graphify", "neo4j"], "edges": [["graphify", "neo4j"]],
+            "steps": [{"target": "graphify|neo4j", "text": "writes the graph"}]}),
+    );
+    assert!(r.get("isError").is_none(), "{r}");
+    let r = call_tool(&dir, "ig_show", json!({"title": "t", "nodes": ["grafify"]}));
+    assert!(text(&r).contains("did you mean graphify"), "{r}");
+    let r = call_tool(
+        &dir,
+        "ig_show",
+        json!({"title": "t", "nodes": ["neo4j"], "edges": [["neo4j", "graphify"]]}),
+    );
+    assert_eq!(r["isError"], true, "{r}");
 }
 
 #[test]

@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { View } from "../map/types";
+import { parseShow } from "../model/show";
 import type { AgentEvent, IgApi, TrustState } from "./index";
 
 /** listen() is async: an unsubscribe that comes before it resolves must still unlisten. */
@@ -25,6 +26,10 @@ export function tauri(): IgApi {
     trustProject: (hash) => invoke<void>("trust_project", { hash }),
     view: () => invoke<View>("view_data"),
     onRebuild: (cb) => subscribe<void>("rebuild", () => cb()),
+    onShow: (cb) => subscribe<unknown>("show", (p) => {
+      const s = parseShow(p);
+      if (s) cb(s);
+    }),
     edit: {
       apply: (edit) => invoke<View>("edit_apply", { edit }),
       keep: (n) => invoke<View>("edit_keep", { n }),

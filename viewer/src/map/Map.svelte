@@ -14,7 +14,10 @@
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
   import Pads from "./Pads.svelte";
-  import { CARD, CARD_WIDE, fillsBeside, fitBeside, padsOf } from "./pads";
+  import { ANSWER_CARD, CARD, CARD_WIDE, fillsBeside, fitBeside, padsOf } from "./pads";
+  import { answerFrame, answerOf, arrowLit, arrowNumber, boxStates, holders, stepFrame, type Aim } from "./answer";
+  import AnswerCard from "./AnswerCard.svelte";
+  import type { Show } from "../model/show";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
   import Search from "./Search.svelte";
@@ -29,12 +32,14 @@
   import type { Act } from "./edit/menu";
   import Proposals from "./edit/Proposals.svelte";
   import Warnings from "./Warnings.svelte";
+  import Folders from "./Folders.svelte";
   import { proposed } from "./edit/proposals";
 
-  let { view, camera = new Camera(), size, edit, onview }: {
+  let { view, camera = new Camera(), size, edit, onview, show }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
     /** Only where the host can edit (the desktop app); `onview` takes the view an edit returns. */
     edit?: EditApi; onview?: (v: View) => void;
+    show?: Show | null;
   } = $props();
 
   const tool = new ToolState();
@@ -163,6 +168,13 @@
       held = undefined;
     }
   }
+  let current = $state.raw<Show | null>(null);
+  let waiting = $state.raw<Show | null>(null);
+  let step = $state(0);
+  let away = $state(false);
+  const answer = $derived(current ? answerOf(view, current) : null);
+  const states = $derived(answer ? boxStates(view, answer) : null);
+  const nowOn = $derived(new Set((answer?.steps[step]?.boxes ?? []).flatMap((id) => [id, ...holders(view, id)])));
   const by = $derived(proposed(view.proposals));
   // under the pointer: the deepest box, and an arrow
   let hot = $state<string | null>(null);
@@ -185,10 +197,12 @@
     if (camera.moving) raf = requestAnimationFrame(frame);
   }
   function glideTo(c: Cam) {
+    away = !!current;
     camera.to(c, performance.now());
     if (!raf) raf = requestAnimationFrame(frame);
   }
   function jump(c: Cam) {
+    away = !!current;
     camera.set(c);
     cam = c;
   }
@@ -221,6 +235,31 @@
     return fitTo({ x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s }, to);
   }
   const fly = (id: string) => glideTo(id === ROOT ? home() : target(id));
+  function aimAt(aim: Aim | null) {
+    if (!aim) return;
+    const pads = aim.id ? padsOf(view, aim.id, aim.frame, drawn, on) : [];
+    const beside = globalThis.matchMedia?.("(max-width: 47.5rem)").matches ? 0 : ANSWER_CARD;
+    glideTo(fitBeside(aim.frame, { w: vw, h: vh }, pads, 0, rem(), beside));
+    away = false;
+  }
+  const backToAnswer = () => answer && aimAt(answerFrame(answer, view, frameOf));
+  function land(s: Show) {
+    current = s;
+    waiting = null;
+    step = 0;
+    selected = null;
+    traced = null;
+    backToAnswer();
+  }
+  function goStep(i: number) {
+    if (!answer || i < 0 || i >= answer.steps.length) return;
+    step = i;
+    aimAt(stepFrame(answer, i, view, frameOf, cam, { w: vw, h: vh }));
+  }
+  function clearAnswer() {
+    current = null;
+    away = false;
+  }
   function openBox(id: string) {
     selected = id;
     fly(id);
@@ -234,6 +273,10 @@
   const shortcuts: Record<string, Act> = { f2: "rename", m: "move", delete: "delete", backspace: "delete" };
   function key(e: KeyboardEvent) {
     if (typing(e.target)) return;
+    if (current && !sess.ui && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+      goStep(step + (e.key === "ArrowRight" ? 1 : -1));
+      return;
+    }
     if (edit && e.key !== "Escape") {
       // a popover owns the keys while it is open or has focus
       if (e.repeat || sess.ui || (e.target as Element | null)?.closest?.("[data-popover]")) return;
@@ -254,7 +297,8 @@
     tool.current = "select";
     sess.cancel();
     if (selected) close();
-    else traced = null;
+    else if (traced) traced = null;
+    else clearAnswer();
   }
   // deep enough for the smallest code box of a deep tree
   const clampK = (k: number) => Math.min(1e9, Math.max(1e-3, k));
@@ -335,6 +379,16 @@
     selected: () => selected, select: (id) => (selected = id), tool: (t) => (tool.current = t), run,
   });
   const addParent = $derived(sess.adding ? byId.get(sess.adding.parent) : undefined);
+  let landed: Show | null | undefined;
+  $effect(() => {
+    const s = show;
+    if (!s || s === landed || !(vw > 0 && vh > 0)) return;
+    untrack(() => {
+      landed = s;
+      if (sess.ui || sess.adding || tool.current !== "select" || live) waiting = s;
+      else land(s);
+    });
+  });
   function clickCapture(e: MouseEvent) {
     if (swallow) {
       swallow = false;
@@ -428,7 +482,9 @@
   {@const near = zoom < DEEP}
   {@const all = near ? arrows.get(pid) ?? [] : []}
   {@const path = traced?.parent === pid ? traced : null}
-  {@const lit = path ? all.filter((a) => path.arrows.includes(a)) : all.filter(touches)}
+  {@const ans = path ? null : answer}
+  {@const lit = path ? all.filter((a) => path.arrows.includes(a)) : all.filter((a) => touches(a) || (ans && arrowLit(ans, a)))}
+  {@const answered = ans && (kids.get(pid) ?? []).some((b) => states?.has(b.id))}
   {@const mode = zoom < RIBBON ? "ribbon" : "routed"}
   {#if near}{#each regions.get(pid) ?? [] as r, i (i)}<Region region={r} {zoom} />{/each}{/if}
   {#if all.length && mode === "ribbon"}
@@ -438,10 +494,15 @@
   {/if}
   {#each all as a (a.id)}
     {@const c = pathOf(a, mode)}
+    {@const asked = ans && arrowLit(ans, a)}
+    {@const drawnLook = arrowLook(a, view.marks, on, by.get(a.id))}
     <div class="arrow" data-arrow={a.id}>
-      <MapArrow d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on, by.get(a.id))} {zoom}
+      <MapArrow d={c.d} mid={c.mid} arrowLook={asked ? { ...drawnLook, color: "var(--map-trace)" } : drawnLook} {zoom}
         lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
         onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
+      {#if ans && arrowNumber(ans, a)}
+        <span class="number on-arrow" class:now={arrowNumber(ans, a) === step + 1} style:left="{c.mid[0]}px" style:top="{c.mid[1]}px" style:scale={1 / zoom}>{arrowNumber(ans, a)}</span>
+      {/if}
     </div>
   {/each}
   {#each (kids.get(pid) ?? []).filter((b) => !vw || seen(b.id)) as b (b.id)}
@@ -454,7 +515,10 @@
     {@const reads = !open && (!!source || !!list) && (showsInside(sw) || (!!list && detailFor(sw) === "near"))}
     {@const anatomy = anatomies.get(b.id)?.map((k) => ({ title: k.title.value, parts: view.parts?.[k.id] ?? [] }))}
     {@const shape = shapeOf(b, kids.get(b.id))}
-    <div class="slot" data-shape={shape} class:target={sess.aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path && !path.boxes.includes(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
+    {@const st = ans ? states?.get(b.id) : undefined}
+    {@const inAnswer = !!st && (st.in || (!open && st.holds > 0))}
+    <div class="slot" data-shape={shape} class:target={sess.aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path ? !path.boxes.includes(b.id) : answered && !st}
+      class:answer={inAnswer} class:answer-now={inAnswer && nowOn.has(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
       <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
@@ -468,6 +532,12 @@
           style:transform="translate({t.x}px, {t.y}px) scale({t.s})">{@render level(b.id)}</div>
       {/if}
       {#if showsInside(sw)}<Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} />{/if}
+      {#if inAnswer}
+        <span class="numbers" style:scale={f.w / sw}>
+          {#each ans?.numbers.has(b.id) ? [ans.numbers.get(b.id)!] : st!.under as n (n)}<span class="number" class:now={n === step + 1}>{n}</span>{/each}
+        </span>
+        {#if !st!.in}<span class="holds" style:scale={f.w / sw}>{st!.holds} of {kids.get(b.id)?.length ?? st!.holds}</span>{/if}
+      {/if}
     </div>
   {/each}
   <!-- the focused arrows' labels, above the boxes -->
@@ -502,9 +572,22 @@
   {/if}
   <Proposals {view} {edit} {run} onlight={glow} />
   <Warnings warnings={view.warnings} />
+  {#if answer}
+    <AnswerCard {answer} {step} {away} onstep={goStep} onback={backToAnswer} onclear={clearAnswer} />
+  {/if}
+  {#if waiting}
+    <div class="waiting" role="status">
+      <span class="words"><span class="muted">New answer</span><b>{waiting.title}</b></span>
+      <button type="button" class="go" onclick={() => land(waiting!)}>Show</button>
+      <button type="button" onclick={() => (waiting = null)}>Later</button>
+    </div>
+  {/if}
   {#if edit}<EditLayer s={sess} boxes={view.boxes} kinds={view.kinds} root={ROOT} />{/if}
+  {#if view.landscape}
+    <Folders landscape={view.landscape} />
+  {/if}
   {#if reading}
-    <p class="reading" class:lifted={!!view.proposals?.length}>Some boxes are ig's guess. Run <code>ig view --read</code> to let an AI agent read them.</p>
+    <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig view --read</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
     <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} {edit} {run} />
@@ -520,6 +603,18 @@
   .slot { position: absolute; }
   .slot:not([data-open]) { cursor: move; }
   .slot.traced { outline: 3px solid var(--map-trace); outline-offset: 4px; border-radius: 16px; }
+  .slot.answer { outline: 2px solid var(--map-trace); outline-offset: 4px; border-radius: 16px; }
+  .slot.answer-now { outline-width: 3px; box-shadow: 0 0 0 10px color-mix(in srgb, var(--map-trace) 22%, transparent); }
+  .numbers { position: absolute; left: 0; top: 0; display: flex; gap: 0.1875rem; transform-origin: 0 0; translate: -0.6875rem -0.6875rem; pointer-events: none; z-index: 3; }
+  .number { flex: none; width: 1.375rem; height: 1.375rem; border-radius: 50%; box-shadow: 0 0 0 2px var(--map-ground); background: var(--map-trace); color: var(--color-on-accent); font: 700 var(--text-sm)/1.375rem var(--font-mono); text-align: center; }
+  .number.now { outline: 2px solid var(--map-trace); outline-offset: 2px; }
+  .number.on-arrow { position: absolute; translate: -50% -50%; pointer-events: none; z-index: 3; }
+  .holds { position: absolute; left: 0.5rem; bottom: 0.5rem; transform-origin: 0 100%; padding: 0.125rem 0.5rem; border-radius: var(--radius-pill); border: 1px solid var(--map-trace); background: var(--map-surface); color: var(--map-fg); font: 600 var(--text-xs)/1.2 var(--font-sans); pointer-events: none; white-space: nowrap; }
+  .waiting { position: absolute; z-index: 3; left: var(--space-4); top: 5.75rem; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-2-5) var(--space-2) var(--space-3); background: var(--map-surface); border: 1px solid var(--map-trace); border-radius: var(--radius-xl); box-shadow: 0 6px 20px var(--map-shadow); font-size: var(--text-md); }
+  .waiting .words { display: flex; flex-direction: column; min-width: 0; }
+  .waiting .muted { font-size: var(--text-sm); color: var(--map-muted); }
+  .waiting button { font: inherit; color: var(--map-fg); background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-md); padding: var(--space-1) var(--space-2-5); cursor: pointer; }
+  .waiting button.go { background: var(--map-trace); border-color: var(--map-trace); color: var(--color-on-accent); font-weight: 600; }
   .slot.target { outline: 3px solid var(--map-green); outline-offset: 3px; border-radius: 16px; }
   .handle { position: absolute; width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--map-blue); border: 2px solid var(--map-ground); translate: -50% -50%; cursor: crosshair; }
   .handle.l { left: 0; top: 50%; } .handle.r { left: 100%; top: 50%; } .handle.t { left: 50%; top: 0; } .handle.b { left: 50%; top: 100%; }

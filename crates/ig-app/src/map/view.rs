@@ -6,8 +6,8 @@ use super::file::{self, Field, MapBox, MapFile, refresh};
 use super::kinds::{KindView, Kinds};
 use super::layers::{Mark, file_layers, risks, rules, sort_marks};
 use super::layout::layout;
-use super::live::{apply, read_all};
 pub use super::layout::{Frame, Placed, Region, RegionKind};
+use super::live::{apply, read_all};
 use super::origin::{compare, not_read};
 use super::warn::warnings;
 use super::{MapArrow, Pattern, arrows, facts, spec};
@@ -49,6 +49,8 @@ pub struct View {
     /// No spec could be read or written: the view is of the code alone.
     #[serde(skip)]
     pub broken: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub landscape: Option<super::landscape::Landscape>,
 }
 
 /// A piece of a file: `text` from line `line` on, `cut` lines left out at its end.
@@ -182,6 +184,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
             .map(|n| n.file.clone())
             .collect(),
         broken: false,
+        landscape: None,
     }
 }
 

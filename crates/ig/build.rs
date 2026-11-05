@@ -14,7 +14,7 @@ const PLACEHOLDER: &str = r#"<!doctype html>
 <body>
 <p>viewer not built: run <code>make viewer</code></p>
 <pre id="raw"></pre>
-<script id="ig-data" type="application/json">/*IG_DATA*/</script>
+<script id="ig-data" type="application/json">/*IG_DATA*/</script><script id="ig-show" type="application/json">/*IG_SHOW*/</script>
 <script id="ig-live" type="application/json">/*IG_LIVE*/</script>
 <script>
 var raw = document.getElementById("ig-data").textContent;

@@ -61,7 +61,22 @@ pub fn warnings(m: &MapFile, kinds: &Kinds) -> Vec<String> {
         let (Some(fd), Some(td)) = (def(kinds, f), def(kinds, t)) else {
             continue;
         };
-        if a.kind == ArrowKind::Bundle || kinds.arrow_ok(a.kind, fd, td) {
+        let held = |t: &MapBox| {
+            let mut at = vec![t.id.as_str()];
+            while let Some(p) = at.pop() {
+                for b in m.boxes.iter().filter(|b| b.parent.as_deref() == Some(p)) {
+                    if def(kinds, b).is_some_and(|d| kinds.arrow_ok(a.kind, fd, d)) {
+                        return true;
+                    }
+                    at.push(&b.id);
+                }
+            }
+            false
+        };
+        if a.kind == ArrowKind::Bundle
+            || kinds.arrow_ok(a.kind, fd, td)
+            || (t.kind.value == BoxKind::Group && held(t))
+        {
             continue;
         }
         let k = serde_json::to_value(a.kind).unwrap();
@@ -124,6 +139,17 @@ mod tests {
             .replace("\"\n", "\" title=\"T\"\n")
             .replace("\" {\n", "\" title=\"T\" {\n");
         spec::parse(vec![("ig/system.kdl".into(), Some(kdl))]).unwrap()
+    }
+
+    #[test]
+    fn an_arrow_to_a_group_is_judged_by_what_the_group_holds() {
+        let s = "system \"shop\" {\n  service \"api\" {\n    reads \"data\"\n    reads \"people\"\n  }\n  group \"data\" {\n    store \"db\"\n    group \"more\" {\n      queue \"q\"\n    }\n  }\n  group \"people\" {\n    external \"gmail\"\n  }\n}\n";
+        let w = warnings(&read(s), Kinds::builtin());
+        assert!(!w.iter().any(|w| w.contains("`data`")), "{w:?}");
+        assert!(
+            w.contains(&"`api` reads `people`: reads goes to a store or queue".to_string()),
+            "{w:?}"
+        );
     }
 
     #[test]

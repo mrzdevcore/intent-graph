@@ -194,7 +194,7 @@
   .centred { justify-content: center; }
   .centred .row { flex-direction: column; gap: 6px; }
   .centred .names { align-items: center; max-width: 100%; }
-  .centred .title { line-height: 28px; }
+  .centred .title { line-height: 28px; max-width: 100%; }
   .edge-label { position: absolute; top: 0; font-family: var(--font-hand); color: var(--map-muted); white-space: nowrap; max-width: 80%; overflow: hidden; text-overflow: ellipsis; }
   .kind-icon { display: block; mask-repeat: no-repeat; mask-position: center; mask-size: contain; }
   .card.cli { color: var(--kind-cli-fg); }
