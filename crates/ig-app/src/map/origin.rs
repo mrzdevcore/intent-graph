@@ -67,7 +67,7 @@ impl Plan {
     }
 }
 
-fn glob(g: &str) -> Option<globset::Glob> {
+pub(super) fn glob(g: &str) -> Option<globset::Glob> {
     GlobBuilder::new(g).literal_separator(true).build().ok()
 }
 
