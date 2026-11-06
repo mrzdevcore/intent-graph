@@ -219,8 +219,11 @@ struct Code {
 }
 
 impl Code {
-    fn read(env: &Env) -> crate::Result<Code> {
-        let config = crate::config::load(env.files)?;
+    fn read(env: &Env, config: Option<&Config>) -> crate::Result<Code> {
+        let config = match config {
+            Some(c) => c.clone(),
+            None => crate::config::load(env.files)?,
+        };
         let built = crate::graph(env, env.files, &config, env.vcs.and_then(|v| v.head()))?;
         let infra = (!built.graph.nodes.iter().any(|n| n.is_module()))
             .then(|| super::ansible::read(env.files))
@@ -262,8 +265,9 @@ impl Code {
 
 /// The architecture level of the map (no code level, no connectors), with what `ig/` is; never
 /// writes. Without `use_spec`, or without an `ig/` that reads, the map of the code alone.
-pub fn architecture(env: &Env, use_spec: bool) -> crate::Result<Side> {
-    let c = Code::read(env)?;
+/// `config`: the ig.yaml to build with, None for the tree's own.
+pub fn architecture(env: &Env, use_spec: bool, config: Option<&Config>) -> crate::Result<Side> {
+    let c = Code::read(env, config)?;
     let spec = match spec::read(env.files) {
         Ok(Some(s)) => SpecSide::Read(s),
         Ok(None) => SpecSide::Missing,
@@ -277,7 +281,7 @@ pub fn architecture(env: &Env, use_spec: bool) -> crate::Result<Side> {
 }
 
 fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<View> {
-    let code = Code::read(env)?;
+    let code = Code::read(env, None)?;
     let (config, built, boxes, findings) = (&code.config, &code.built, &code.boxes, &code.findings);
     let g = code.g();
     let mut notices: Vec<String> = config
