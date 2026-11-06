@@ -1,0 +1,177 @@
+//! `ig diff` on temporary git repos.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+struct Out {
+    code: i32,
+    stdout: String,
+    stderr: String,
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let o = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        o.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    String::from_utf8_lossy(&o.stdout).into_owned()
+}
+
+fn write(dir: &Path, p: &str, s: &str) {
+    let f = dir.join(p);
+    std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+    std::fs::write(f, s).unwrap();
+}
+
+fn repo(tag: &str, files: &[(&str, &str)]) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ig-diff-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q"]);
+    for (p, s) in files {
+        write(&dir, p, s);
+    }
+    commit(&dir, "one");
+    dir
+}
+
+fn commit(dir: &Path, msg: &str) {
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-qm", msg]);
+}
+
+fn run_ig(dir: &Path, args: &[&str]) -> Out {
+    let o = Command::new(env!("CARGO_BIN_EXE_ig"))
+        .arg("--root")
+        .arg(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    Out {
+        code: o.status.code().unwrap(),
+        stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+    }
+}
+
+fn json(dir: &Path, args: &[&str]) -> serde_json::Value {
+    let mut a = vec!["diff"];
+    a.extend(args);
+    a.push("--json");
+    let out = run_ig(dir, &a);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    serde_json::from_str(&out.stdout).unwrap()
+}
+
+const TWO: [(&str, &str); 6] = [
+    ("package.json", "{\"name\":\"root\",\"private\":true}\n"),
+    ("pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\n"),
+    (
+        "packages/a/package.json",
+        "{\"name\":\"@t/a\",\"dependencies\":{\"@t/b\":\"workspace:*\"}}\n",
+    ),
+    ("packages/a/src/a.ts", "export function f() {}\n"),
+    (
+        "packages/b/package.json",
+        "{\"name\":\"@t/b\",\"main\":\"src/b.ts\"}\n",
+    ),
+    ("packages/b/src/b.ts", "export function g() {}\n"),
+];
+
+#[test]
+fn no_change_on_the_same_commit() {
+    let dir = repo("same", &TWO);
+    let d = json(&dir, &["HEAD", "HEAD"]);
+    assert_eq!(d["summary"], "no architecture change");
+    assert_eq!(d["boxes"]["added"].as_array().unwrap().len(), 0);
+    assert_eq!(d["arrows"]["added"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn a_new_file_in_a_box_is_a_changed_box() {
+    let dir = repo("file", &TWO);
+    write(&dir, "packages/a/src/more.ts", "export const x = 1;\n");
+    let sha = git(&dir, &["rev-parse", "--short=7", "HEAD"]);
+    let out = run_ig(&dir, &["diff", "HEAD"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    let want = format!("{}..working tree: 1 box changed", sha.trim());
+    assert!(out.stdout.starts_with(&want), "{}", out.stdout);
+}
+
+#[test]
+fn a_new_import_is_a_new_arrow() {
+    let dir = repo("import", &TWO);
+    write(
+        &dir,
+        "packages/a/src/a.ts",
+        "import { g } from '@t/b';\nexport function f() { g(); }\n",
+    );
+    commit(&dir, "two");
+    let d = json(&dir, &["HEAD~1", "HEAD"]);
+    let added = d["arrows"]["added"].as_array().unwrap();
+    assert!(!added.is_empty(), "{d}");
+    let out = run_ig(&dir, &["diff", "HEAD~1", "HEAD"]);
+    assert!(out.stdout.contains("  arrow +  "), "{}", out.stdout);
+}
+
+#[test]
+fn ig_added_by_the_change() {
+    let dir = repo("spec", &TWO);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-qm", "map"]);
+    let d = json(&dir, &["HEAD~1", "HEAD"]);
+    assert_eq!(d["intent"]["status"], "added", "{d}");
+    assert_eq!(d["boxes"]["added"].as_array().unwrap().len(), 0, "{d}");
+    assert_eq!(d["boxes"]["removed"].as_array().unwrap().len(), 0, "{d}");
+}
+
+#[test]
+fn head_without_base_is_a_usage_error() {
+    let dir = repo("usage", &TWO);
+    assert_eq!(run_ig(&dir, &["diff"]).code, 0);
+    let o = Command::new(env!("CARGO_BIN_EXE_ig"))
+        .arg("--root")
+        .arg(&dir)
+        .args(["diff", "--json", "--head"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(2));
+}
+
+#[test]
+fn not_a_commit_and_no_git() {
+    let dir = repo("bad", &TWO);
+    let out = run_ig(&dir, &["diff", "nope"]);
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stderr.trim().lines().count(), 1, "{}", out.stderr);
+    assert!(out.stderr.contains("not a commit"), "{}", out.stderr);
+    assert!(out.stdout.is_empty());
+
+    let plain = std::env::temp_dir().join(format!("ig-diff-plain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&plain);
+    write(&plain, "src/a.ts", "export function f() {}\n");
+    let out = run_ig(&plain, &["diff", "HEAD"]);
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stderr.trim(), "ig: ig diff needs a git repository");
+}
+
+#[test]
+fn nothing_is_written() {
+    let dir = repo("quiet", &TWO);
+    write(&dir, "packages/a/src/more.ts", "export const x = 1;\n");
+    let before = git(&dir, &["status", "--porcelain"]);
+    let out = run_ig(&dir, &["diff", "HEAD~0"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(git(&dir, &["status", "--porcelain"]), before);
+    assert!(!dir.join("ig").exists());
+    assert_eq!(git(&dir, &["worktree", "list"]).lines().count(), 1);
+}
