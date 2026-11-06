@@ -1,9 +1,10 @@
 use crate::cli::DiffArgs;
 use crate::say;
 use anyhow::Result;
-use ig_app::map::diff::{self, Diff, IntentStatus};
+use ig_app::map::diff::{self, ArrowRef, Diff, IntentStatus};
 use ig_app::map::view;
 use ig_wire::Wired;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub fn run(root: &Path, args: &DiffArgs, quiet: bool) -> Result<u8> {
@@ -54,22 +55,41 @@ fn short(rev: &str) -> &str {
 fn text(d: &Diff) -> String {
     let head = d.head.as_deref().map_or("working tree", short);
     let mut out = format!("{}..{head}: {}\n", short(&d.base), d.summary);
-    for c in d.boxes.changed.iter().filter(|c| c.direct) {
+    let changed = d.boxes.changed.iter().filter(|c| c.direct);
+    let mut named: Vec<(&str, &str)> = changed.clone().map(|c| (&*c.id, &*c.title)).collect();
+    let boxes = d.boxes.added.iter().chain(&d.boxes.removed);
+    named.extend(boxes.map(|b| (&*b.id, &*b.title)));
+    for a in d.arrows.added.iter().chain(&d.arrows.removed) {
+        named.extend([(&*a.from, &*a.from_title), (&*a.to, &*a.to_title)]);
+    }
+    let mut ids: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for (id, title) in named {
+        ids.entry(title).or_default().insert(id);
+    }
+    let name = |id: &str, title: &str| match ids.get(title).is_some_and(|s| s.len() > 1) {
+        true => format!("{title} ({id})"),
+        false => title.to_string(),
+    };
+    for c in changed {
         let n = c.files_changed;
         let files = if n == 1 { "file" } else { "files" };
-        out += &format!("  changed  {} ({n} {files})\n", c.title);
+        out += &format!("  changed  {} ({n} {files})\n", name(&c.id, &c.title));
     }
     for b in &d.boxes.added {
-        out += &format!("  added    {}\n", b.title);
+        out += &format!("  added    {}\n", name(&b.id, &b.title));
     }
     for b in &d.boxes.removed {
-        out += &format!("  removed  {}\n", b.title);
+        out += &format!("  removed  {}\n", name(&b.id, &b.title));
     }
+    let arrow = |a: &ArrowRef| {
+        let (f, t) = (name(&a.from, &a.from_title), name(&a.to, &a.to_title));
+        format!("{f} → {t} ({})", a.kind)
+    };
     for a in &d.arrows.added {
-        out += &format!("  arrow +  {} → {} ({})\n", a.from, a.to, a.kind);
+        out += &format!("  arrow +  {}\n", arrow(a));
     }
     for a in &d.arrows.removed {
-        out += &format!("  arrow −  {} → {} ({})\n", a.from, a.to, a.kind);
+        out += &format!("  arrow −  {}\n", arrow(a));
     }
     out += &intent(d);
     for p in &d.problems.new {
@@ -83,15 +103,10 @@ fn text(d: &Diff) -> String {
 
 fn intent(d: &Diff) -> String {
     let i = &d.intent;
+    if let IntentStatus::Added | IntentStatus::Removed | IntentStatus::BaseBroken = i.status {
+        return (i.note.as_ref()).map_or(String::new(), |n| format!("  ig/      {n}\n"));
+    }
     let mut out = String::new();
-    match i.status {
-        IntentStatus::Added => out += "  ig/      added\n",
-        IntentStatus::Removed => out += "  ig/      removed\n",
-        IntentStatus::BaseBroken | IntentStatus::Same | IntentStatus::Changed => {}
-    }
-    if let Some(n) = &i.note {
-        out += &format!("  ig/      {n}\n");
-    }
     for b in &i.added {
         out += &format!("  ig/      {}: added\n", b.id);
     }
@@ -111,10 +126,12 @@ fn intent(d: &Diff) -> String {
         out += &format!("  ig/      {}: {}\n", c.id, c.fields.join(", "));
     }
     for a in &i.arrows_added {
-        out += &format!("  ig/      arrow + {} → {} ({})\n", a.from, a.to, a.kind);
+        let (f, t) = (&a.from_title, &a.to_title);
+        out += &format!("  ig/      arrow + {f} → {t} ({})\n", a.kind);
     }
     for a in &i.arrows_removed {
-        out += &format!("  ig/      arrow − {} → {} ({})\n", a.from, a.to, a.kind);
+        let (f, t) = (&a.from_title, &a.to_title);
+        out += &format!("  ig/      arrow − {f} → {t} ({})\n", a.kind);
     }
     out
 }
