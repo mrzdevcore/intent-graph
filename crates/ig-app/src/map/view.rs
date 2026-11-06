@@ -208,8 +208,6 @@ enum Mode<'a, 'b> {
     Analyse(Option<&'b mut Ask<'a>>),
 }
 
-/// The code as the map sees it: the graph (an Ansible tree's roles when no code reads), its
-/// boxes and the rules' findings.
 struct Code {
     config: Config,
     built: crate::build::Built,
@@ -247,7 +245,6 @@ impl Code {
         self.infra.as_ref().map_or(&self.built.graph, |a| &a.graph)
     }
 
-    /// Today's map of the code, refreshed over `old`.
     fn today(&self, old: Option<&MapFile>) -> (MapFile, Vec<String>) {
         let g = self.g();
         let (mut m, reset) = refresh(old, &self.boxes, arrows(&self.boxes, g), &self.findings);
@@ -255,7 +252,6 @@ impl Code {
         (m, reset)
     }
 
-    /// The spec `s` over the code, with its marks.
     fn over(&self, s: &MapFile, prior: Option<&MapFile>) -> MapFile {
         let mut m = compare(s, &self.boxes, self.g(), prior);
         marks(&mut m, &self.findings);
@@ -263,9 +259,6 @@ impl Code {
     }
 }
 
-/// The architecture level of the map (no code level, no connectors), with what `ig/` is; never
-/// writes. Without `use_spec`, or without an `ig/` that reads, the map of the code alone.
-/// `config`: the ig.yaml to build with, None for the tree's own.
 pub fn architecture(env: &Env, use_spec: bool, config: Option<&Config>) -> crate::Result<Side> {
     let c = Code::read(env, config)?;
     let spec = match spec::read(env.files) {

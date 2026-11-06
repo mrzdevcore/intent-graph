@@ -128,7 +128,6 @@ pub struct FakeVcs {
     /// (rev, path) → contents.
     pub shows: HashMap<(String, String), String>,
     pub changed: Vec<String>,
-    /// What `changed_between` returns for any two commits.
     pub changed_between: Vec<String>,
     pub files: Vec<String>,
     pub clean: bool,
