@@ -72,6 +72,8 @@ pub struct ArrowRef {
     pub from: String,
     pub to: String,
     pub kind: String,
+    pub from_title: String,
+    pub to_title: String,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -180,7 +182,7 @@ pub fn diff(
         intent,
         problems,
     };
-    d.summary = summary(&d, direct, &head.arch);
+    d.summary = summary(&d, direct);
     d
 }
 
@@ -359,12 +361,18 @@ fn arrows_missing(
     let theirs: HashSet<(&str, &str, ArrowKind)> = (b.arrows.iter())
         .map(|x| (key(bk, &x.from), key(bk, &x.to), x.kind))
         .collect();
+    let titles: HashMap<&str, &str> = (a.boxes.iter())
+        .map(|b| (b.id.as_str(), b.title.value.as_str()))
+        .collect();
+    let title = |id: &str| titles.get(id).copied().unwrap_or(id).to_string();
     let mut out: Vec<ArrowRef> = (a.arrows.iter())
         .filter(|x| !theirs.contains(&(key(ak, &x.from), key(ak, &x.to), x.kind)))
         .map(|x| ArrowRef {
             from: x.from.clone(),
             to: x.to.clone(),
             kind: kind_name(x.kind),
+            from_title: title(&x.from),
+            to_title: title(&x.to),
         })
         .collect();
     out.sort();
@@ -414,7 +422,7 @@ fn count(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
-fn summary(d: &Diff, direct: usize, head: &MapFile) -> String {
+fn summary(d: &Diff, direct: usize) -> String {
     let mut parts: Vec<String> = vec![];
     let mut push = |n: usize, s: String| {
         if n > 0 {
@@ -426,13 +434,10 @@ fn summary(d: &Diff, direct: usize, head: &MapFile) -> String {
     push(added, count(added, "box", "boxes") + " added");
     push(removed, count(removed, "box", "boxes") + " removed");
     let arrows = d.arrows.added.len();
-    let title = |id: &str| {
-        (head.boxes.iter().find(|b| b.id == id)).map_or(id.to_string(), |b| b.title.value.clone())
-    };
     push(
         arrows,
         match d.arrows.added.as_slice() {
-            [a] => format!("1 new arrow {} → {}", title(&a.from), title(&a.to)),
+            [a] => format!("1 new arrow {} → {}", a.from_title, a.to_title),
             _ => format!("{arrows} new arrows"),
         },
     );

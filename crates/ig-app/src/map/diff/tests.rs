@@ -151,6 +151,13 @@ fn added_and_removed_boxes_and_arrows() {
     };
     assert_eq!(ends(&d.arrows.added), ["new>db:uses", "web>new:uses"]);
     assert_eq!(ends(&d.arrows.removed), ["old>db:uses", "web>old:uses"]);
+    let titles = |a: &ArrowRef| (a.from_title.clone(), a.to_title.clone());
+    assert_eq!(titles(&d.arrows.added[1]), ("Web".into(), "New".into()));
+    assert_eq!(titles(&d.arrows.removed[0]), ("Old".into(), "Db".into()));
+    assert_eq!(
+        titles(&d.intent.arrows_added[0]),
+        ("New".into(), "Db".into())
+    );
     assert!(matches!(d.intent.status, IntentStatus::Changed));
     assert_eq!(ids(&d.intent.added), ["new"]);
     assert_eq!(
@@ -368,6 +375,8 @@ fn json_shape_is_camel_case() {
     assert_eq!(j["boxes"]["changed"][0]["filesChanged"], 1);
     assert_eq!(j["intent"]["status"], "changed");
     assert_eq!(j["intent"]["arrowsAdded"][0]["kind"], "uses");
+    assert_eq!(j["arrows"]["added"][0]["fromTitle"], "Web");
+    assert_eq!(j["intent"]["arrowsAdded"][0]["toTitle"], "Db");
     assert!(j["intent"]["arrowsRemoved"].as_array().unwrap().is_empty());
     assert!(j["intent"].get("note").is_none());
     assert!(j["problems"]["new"].as_array().unwrap().is_empty());

@@ -132,6 +132,18 @@ fn ig_added_by_the_change() {
     assert_eq!(d["intent"]["status"], "added", "{d}");
     assert_eq!(d["boxes"]["added"].as_array().unwrap().len(), 0, "{d}");
     assert_eq!(d["boxes"]["removed"].as_array().unwrap().len(), 0, "{d}");
+    let out = run_ig(&dir, &["diff", "HEAD~1", "HEAD"]);
+    let ig: Vec<&str> = out
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("  ig/"))
+        .collect();
+    assert_eq!(ig.len(), 1, "{}", out.stdout);
+    assert!(
+        ig[0].starts_with("  ig/      ig/ added ("),
+        "{}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -233,5 +245,56 @@ fn json_revs_are_full_shas() {
     assert_eq!(
         d["head"].as_str().unwrap(),
         git(&dir, &["rev-parse", "HEAD"]).trim()
+    );
+}
+
+#[test]
+fn lines_name_boxes_by_title_and_tell_equal_titles_apart() {
+    let dir = repo(
+        "titles",
+        &[
+            ("package.json", "{\"name\":\"root\",\"private\":true}\n"),
+            ("pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\n"),
+            (
+                "packages/a/package.json",
+                "{\"name\":\"@t/a\",\"dependencies\":{\"@t/b\":\"workspace:*\"}}\n",
+            ),
+            (
+                "packages/b/package.json",
+                "{\"name\":\"@t/b\",\"main\":\"src/x/x.ts\"}\n",
+            ),
+            ("packages/a/src/x/x.ts", "export const x = 1;\n"),
+            ("packages/a/src/y/y.ts", "export const y = 1;\n"),
+            ("packages/b/src/x/x.ts", "export const x = 1;\n"),
+            ("packages/b/src/x/z.ts", "export const z = 1;\n"),
+        ],
+    );
+    write(&dir, "packages/a/src/x/x.ts", "export const x = 2;\n");
+    write(&dir, "packages/b/src/x/x.ts", "export const x = 2;\n");
+    write(
+        &dir,
+        "packages/a/src/y/y.ts",
+        "import { x } from '@t/b';\nexport const y = x;\n",
+    );
+    let out = run_ig(&dir, &["diff", "HEAD"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    for line in [
+        "  changed  X (a/x) (1 file)",
+        "  changed  X (b/x) (1 file)",
+        "  changed  Y (1 file)",
+        "  arrow +  A → B (uses)",
+    ] {
+        assert!(
+            out.stdout.lines().any(|l| l == line),
+            "{line}\n{}",
+            out.stdout
+        );
+    }
+    let d = json(&dir, &["HEAD"]);
+    let a = &d["arrows"]["added"][0];
+    assert_eq!(
+        (&a["fromTitle"], &a["toTitle"]),
+        (&"A".into(), &"B".into()),
+        "{d}"
     );
 }
