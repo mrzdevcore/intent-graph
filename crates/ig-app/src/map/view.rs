@@ -257,7 +257,7 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
                 }
                 refused => {
                     if let Some((None, a)) = refused {
-                        notices.extend(refusal(a, &config, false).map(String::from));
+                        notices.extend(refusal(a, &config, false));
                     }
                     notices.push(NOTHING_TO_PROPOSE.into());
                     Ok(s)

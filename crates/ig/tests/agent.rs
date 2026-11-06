@@ -162,14 +162,26 @@ fn no_tty_never_reads() {
 }
 
 #[test]
-fn a_named_agent_not_on_path_is_no_agent() {
+fn a_named_agent_not_on_path_is_named() {
     let (root, bin) = shop("named");
     fake(&bin, "claude", &[CHECKOUT]);
     let (code, out) = ig(&root, &bin, &["analyse", "--agent", "gemini"]);
     assert_eq!(code, 0, "{out}");
-    assert!(out.contains("No AI agent found"), "{out}");
+    assert!(out.contains("gemini was not found on PATH"), "{out}");
+    assert!(!out.contains("No AI agent found"), "{out}");
     assert!(!out.contains("could not start"), "{out}");
     assert!(!bin.join("prompt.1").exists(), "claude ran instead: {out}");
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn a_named_agent_on_an_empty_path_is_named() {
+    let (root, bin) = shop("named-empty");
+    let (code, out) = ig(&root, &bin, &["analyse", "--agent", "gemini"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("gemini was not found on PATH"), "{out}");
+    assert!(!out.contains("No AI agent found"), "{out}");
+    assert!(root.join("ig/system.kdl").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
 

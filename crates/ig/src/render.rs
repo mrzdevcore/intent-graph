@@ -24,6 +24,10 @@ pub fn page(data: &Value, show: Option<&Value>) -> String {
     )
 }
 
+pub fn show(root: &Path) -> Option<Value> {
+    serde_json::from_str(&std::fs::read_to_string(root.join(ig_app::show::SHOW)).ok()?).ok()
+}
+
 fn fresh_show(root: &Path) -> Option<Value> {
     let path = root.join(ig_app::show::SHOW);
     let age = SystemTime::now()
@@ -32,7 +36,7 @@ fn fresh_show(root: &Path) -> Option<Value> {
     if age > FRESH {
         return None;
     }
-    serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()
+    show(root)
 }
 
 fn fill(template: &str, data_json: &str, live: &str) -> String {
@@ -43,7 +47,11 @@ fn fill(template: &str, data_json: &str, live: &str) -> String {
 
 /// `ig view`: writes `.ig/view.html` showing `v`.
 pub fn write(w: &Wired, v: &View) -> Result<PathBuf> {
-    let html = page(&serde_json::to_value(v)?, fresh_show(w.root()).as_ref());
+    write_with(w, v, fresh_show(w.root()).as_ref())
+}
+
+pub fn write_with(w: &Wired, v: &View, show: Option<&Value>) -> Result<PathBuf> {
+    let html = page(&serde_json::to_value(v)?, show);
     let path = w.root().join(".ig/view.html");
     std::fs::create_dir_all(w.root().join(".ig"))?;
     ig_fs::write_atomic(&path, html.as_bytes())?;

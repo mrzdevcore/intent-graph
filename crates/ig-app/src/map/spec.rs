@@ -5,11 +5,17 @@
 use super::file::{MapBox, MapFile};
 use super::kinds::base_name;
 use super::{ArrowKind, Level, MapArrow, Pattern};
+use ig_core::ports::{Files, PortError};
 use kdl::{KdlDocument, KdlEntry, KdlEntryFormat, KdlNode};
 use std::collections::BTreeMap;
 
 /// The spec directory, relative to the ig root.
 pub const DIR: &str = "ig";
+pub const MISSING: &str = "no ig/ yet: run `ig analyse` to write it";
+
+pub fn exists(files: &dyn Files) -> Result<bool, PortError> {
+    Ok(!files.glob(&[format!("{DIR}/*.kdl")])?.is_empty())
+}
 pub(crate) const HEADER: &str = "// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).\n";
 /// The header older files still carry: recognized, never written.
 pub(crate) const OLD_HEADER: &str =

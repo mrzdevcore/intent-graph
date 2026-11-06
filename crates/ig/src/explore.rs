@@ -1,5 +1,5 @@
 use crate::cli::{AgentName, ExploreArgs};
-use crate::{agent, render, say_all};
+use crate::{agent, render, say, say_all};
 use anyhow::Result;
 use ig_app::map::agent::Agent;
 use ig_app::map::view;
@@ -21,7 +21,10 @@ pub fn run(root: &Path, args: &ExploreArgs, quiet: bool) -> Result<u8> {
         return Ok(2);
     }
     let w = Wired::new(root);
-    let v = view::run_live(&w.env(), &[])?;
+    let v = match ig_wire::landscape(root) {
+        Some(v) => v,
+        None => view::run_live(&w.env(), &[])?,
+    };
     say_all(quiet, &v);
     std::fs::create_dir_all(root.join(".ig"))?;
     ig_fs::write_atomic(
@@ -32,6 +35,7 @@ pub fn run(root: &Path, args: &ExploreArgs, quiet: bool) -> Result<u8> {
     let mcp = mcp_config(&std::env::current_exe()?, root);
     let argv = argv(&mcp);
     let prompt = PROMPT.replace("{{question}}", &args.question);
+    let before = render::show(root).and_then(|s| s["seq"].as_u64());
     let answer = match agent::run_argv(root, "claude", &argv, &prompt, agent::TIMEOUT) {
         Ok(a) => a,
         Err(e) => {
@@ -40,7 +44,11 @@ pub fn run(root: &Path, args: &ExploreArgs, quiet: bool) -> Result<u8> {
         }
     };
     println!("{}", answer.trim_end());
-    let path = render::write(&w, &v)?;
+    let drawn = render::show(root).filter(|s| s["seq"].as_u64() != before);
+    if drawn.is_none() {
+        say(quiet, "ig: the agent drew nothing on the map");
+    }
+    let path = render::write_with(&w, &v, drawn.as_ref())?;
     if !args.no_open {
         render::open(&path);
     }

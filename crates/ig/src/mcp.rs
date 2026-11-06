@@ -7,7 +7,6 @@ use ig_app::map::edit::Edit;
 use ig_app::map::edit::journal::{self, By};
 use ig_app::map::kinds::Kinds;
 use ig_app::map::{origin, spec, view};
-use ig_core::ports::Files;
 use ig_wire::Wired;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
@@ -83,13 +82,8 @@ fn head_graph(root: &Path) -> anyhow::Result<Graph> {
     Ok(ig_app::graph(&env, env.files, &cfg, None)?.graph)
 }
 
-const NO_SPEC: &str = "no ig/ yet: run `ig analyse` to write it";
-
 fn has_spec(w: &Wired) -> anyhow::Result<bool> {
-    Ok(!w
-        .files()
-        .glob(&[format!("{}/*.kdl", spec::DIR)])?
-        .is_empty())
+    Ok(spec::exists(w.files())?)
 }
 
 fn plan_text(w: &Wired) -> anyhow::Result<(String, Value)> {
@@ -136,7 +130,7 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
         "ig_plan" => {
             let w = Wired::new(root);
             if !has_spec(&w)? {
-                return Ok((NO_SPEC.into(), None));
+                return Ok((spec::MISSING.into(), None));
             }
             let (text, p) = plan_text(&w)?;
             Ok((text, Some(p)))
@@ -144,7 +138,7 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
         "ig_edit" => {
             let w = Wired::new(root);
             if !has_spec(&w)? {
-                anyhow::bail!(NO_SPEC);
+                anyhow::bail!(spec::MISSING);
             }
             let edits: Vec<Value> = match args.get("edits") {
                 Some(Value::Array(a)) => a.clone(),

@@ -241,15 +241,22 @@ pub fn consent(a: &mut Ask, cfg: &Config) -> Option<Agent> {
     confirm(agent).then_some(agent)
 }
 
-pub fn refusal(a: &Ask, cfg: &Config, own_reading: bool) -> Option<&'static str> {
+pub fn refusal(a: &Ask, cfg: &Config, own_reading: bool) -> Option<String> {
     if Agent::pick(cfg, a.flag, a.found).is_none() {
-        Some(if own_reading {
-            NO_AGENT
-        } else {
-            NO_AGENT_FOUND
+        let named = a
+            .flag
+            .or_else(|| cfg.agent.as_deref().and_then(Agent::parse));
+        Some(match (named, own_reading) {
+            (Some(n), true) => format!(
+                "{} was not found on PATH: showing ig's own reading.",
+                n.name()
+            ),
+            (Some(n), false) => format!("{} was not found on PATH.", n.name()),
+            (None, true) => NO_AGENT.into(),
+            (None, false) => NO_AGENT_FOUND.into(),
         })
     } else if a.flag.is_none() && cfg.agent.is_none() && a.confirm.is_none() {
-        Some(NO_TERMINAL)
+        Some(NO_TERMINAL.into())
     } else {
         None
     }
@@ -264,7 +271,7 @@ pub fn offer(
 ) -> Option<String> {
     let Some(agent) = consent(a, cfg) else {
         if let Some(why) = refusal(a, cfg, true) {
-            return Some(why.into());
+            return Some(why);
         }
         let n = (m.boxes.iter())
             .filter(|b| b.needs_reading && !b.stale)

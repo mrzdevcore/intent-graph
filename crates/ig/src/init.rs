@@ -1,5 +1,6 @@
 //! `ig init`: scaffolding. Never overwrites anything.
 
+use crate::say;
 use anyhow::Result;
 use ig_core::config::Config;
 use ig_core::workspace::{self, WorkspaceInfo};
@@ -78,7 +79,7 @@ fn create(root: &Path, path: &Path, content: &str, created: &mut Vec<String>) ->
 }
 
 /// `agents`: the coding agents to set up (the ig skills each).
-pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
+pub fn run(root: &Path, agents: &[&crate::skills::Agent], quiet: bool) -> Result<()> {
     let mut created = vec![];
 
     // ig.yaml
@@ -202,11 +203,12 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent]) -> Result<()> {
         println!("created {c}");
     }
     if created.is_empty() {
-        println!("ig init: nothing to do");
+        say(quiet, "ig init: nothing to do");
     }
     if agents.iter().any(|a| a.name == "claude") {
-        println!(
-            "Claude loads .claude/skills/ig only after you trust this folder; run /reload-plugins if /ig:explore is missing."
+        say(
+            quiet,
+            "Claude loads .claude/skills/ig only after you trust this folder; run /reload-plugins if /ig:explore is missing.",
         );
     }
     Ok(())
@@ -359,6 +361,7 @@ mod tests {
                 crate::skills::agent("claude").unwrap(),
                 crate::skills::agent("codex").unwrap(),
             ],
+            true,
         )
         .unwrap();
         assert!(
@@ -374,7 +377,7 @@ mod tests {
             "mine",
         )
         .unwrap();
-        run(&dir, &[crate::skills::agent("claude").unwrap()]).unwrap();
+        run(&dir, &[crate::skills::agent("claude").unwrap()], true).unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.join(".claude/skills/ig/skills/explore/SKILL.md")).unwrap(),
             "mine"
