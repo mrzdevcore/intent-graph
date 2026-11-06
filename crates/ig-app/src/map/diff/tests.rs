@@ -399,6 +399,38 @@ fn an_added_box_is_not_also_changed_and_an_old_at_still_counts() {
     assert_eq!(d.summary, "1 box changed, 1 box added, ig/ changed");
 }
 
+#[test]
+fn a_file_in_drift_is_no_changed_box() {
+    let mut head = shop();
+    head.boxes.push(drift("lib-drift", &["lib/**"]));
+    let d = run(
+        &with_arch(shop(), shop()),
+        &with_arch(shop(), head),
+        &["lib/x.ts"],
+    );
+    assert!(!d.boxes.changed.iter().any(|c| c.id == "lib-drift"));
+    assert!(
+        d.boxes.changed.iter().all(|c| !c.direct),
+        "{:?}",
+        d.boxes.changed
+    );
+    assert_eq!(d.summary, "ig/ unchanged, drift +1");
+}
+
+#[test]
+fn a_rule_break_on_an_arrow_to_drift_matches_across_counters() {
+    let side = |id: &str| {
+        let mut m = shop();
+        m.boxes.push(drift(id, &["lib/**"]));
+        m.arrows.push(arrow("web", id));
+        m.marks = vec![rule(&format!("web->{id}"), "no-lib")];
+        with_arch(shop(), m)
+    };
+    let d = run(&side("lib-drift"), &side("lib-drift-2"), &[]);
+    assert!(d.problems.new.is_empty(), "{:?}", d.problems.new);
+    assert!(d.problems.fixed.is_empty(), "{:?}", d.problems.fixed);
+}
+
 mod runs {
     use super::super::build::run;
     use super::*;
