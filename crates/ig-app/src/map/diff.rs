@@ -568,5 +568,8 @@ fn summary(d: &Diff, direct: usize, head: &MapFile) -> String {
     parts.join(", ")
 }
 
+mod build;
+pub use build::run;
+
 #[cfg(test)]
 mod tests;

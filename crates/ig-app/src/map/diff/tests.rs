@@ -398,3 +398,89 @@ fn an_added_box_is_not_also_changed_and_an_old_at_still_counts() {
     assert_eq!(got, [("system", 2), ("db", 1), ("web", 1)]);
     assert_eq!(d.summary, "1 box changed, 1 box added, ig/ changed");
 }
+
+mod runs {
+    use super::super::build::run;
+    use super::*;
+    use crate::map::view::architecture;
+    use crate::testing::{Fake, env};
+    use ig_core::testing::{FakeVcs, MemFiles};
+    use std::cell::RefCell;
+    use std::path::{Path, PathBuf};
+
+    const CODE: &[(&str, &str)] = &[("src/a.ts", "export function f() {}\n")];
+
+    fn vcs(root: Option<&str>) -> FakeVcs {
+        FakeVcs {
+            commits: ["b".to_string(), "h".to_string()].into(),
+            checkout_root: root.map(PathBuf::from),
+            changed_between: vec!["src/a.ts".into()],
+            ..FakeVcs::default()
+        }
+    }
+
+    #[test]
+    fn run_uses_code_ids_when_one_side_lacks_ig() {
+        let files = MemFiles::with(CODE);
+        let v = vcs(Some("wt"));
+        let e = env(&files, Some(&v), &Fake);
+        let calls = RefCell::new(vec![]);
+        let at = |root: &Path, use_spec: bool| {
+            calls.borrow_mut().push((root.to_path_buf(), use_spec));
+            let spec = map(vec![bx("spec-only", None, Level::System, &["**"])], vec![]);
+            let arch = match use_spec {
+                true => spec.clone(),
+                false => architecture(&env(&MemFiles::with(CODE), None, &Fake), false)?.arch,
+            };
+            Ok(Side {
+                arch,
+                spec: SpecSide::Read(spec),
+            })
+        };
+        let d = run(&e, "b", None, &at).unwrap();
+        assert_eq!(*calls.borrow(), [("wt".into(), true), ("wt".into(), false)]);
+        assert!(matches!(d.source, Source::Code));
+        assert!(matches!(d.intent.status, IntentStatus::Removed));
+        assert!(d.boxes.added.is_empty(), "{:?}", d.boxes.added);
+        assert!(d.boxes.removed.is_empty(), "{:?}", d.boxes.removed);
+        assert!(!d.boxes.changed.is_empty(), "src/a.ts changed");
+        assert_eq!((d.base.as_str(), d.head.as_deref()), ("b", None));
+    }
+
+    #[test]
+    fn run_builds_an_empty_base_when_the_root_did_not_exist() {
+        let files = MemFiles::with(CODE);
+        let v = vcs(None);
+        let e = env(&files, Some(&v), &Fake);
+        let at = |_: &Path, _: bool| -> crate::Result<Side> { panic!("no checkout root") };
+        let d = run(&e, "b", None, &at).unwrap();
+        assert!(!d.boxes.added.is_empty());
+        assert!(matches!(d.intent.status, IntentStatus::Same));
+    }
+
+    #[test]
+    fn run_rejects_a_rev_that_is_not_a_commit() {
+        let files = MemFiles::with(CODE);
+        let v = vcs(Some("wt"));
+        let e = env(&files, Some(&v), &Fake);
+        let at = |_: &Path, _: bool| -> crate::Result<Side> { panic!("never built") };
+        let err =
+            |base: &str, head: Option<&str>| run(&e, base, head, &at).unwrap_err().to_string();
+        assert_eq!(err("nope", None), "nope: not a commit");
+        assert_eq!(err("b", Some("nope")), "nope: not a commit");
+
+        let files = MemFiles::with(&[CODE[0], ("ig/system.kdl", "system {")]);
+        let e = env(&files, Some(&v), &Fake);
+        let at = |_: &Path, _: bool| {
+            Ok(Side {
+                arch: map(vec![], vec![]),
+                spec: SpecSide::Missing,
+            })
+        };
+        let msg = run(&e, "b", None, &at).unwrap_err().to_string();
+        assert!(
+            msg.starts_with("ig/ does not read: ig/system.kdl:"),
+            "{msg}"
+        );
+    }
+}

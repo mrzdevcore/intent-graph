@@ -319,3 +319,59 @@ fn every_arrow_between_groups_is_kept_under_the_one_drawn() {
         ]
     );
 }
+
+#[test]
+fn architecture_never_writes_and_reports_the_spec() {
+    use super::super::diff::SpecSide;
+    let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
+    let snapshot = || files.files.lock().unwrap().clone();
+    let before = snapshot();
+    let s = architecture(&env(&files, None, &Fake), true).unwrap();
+    assert!(matches!(s.spec, SpecSide::Missing));
+    assert!(!s.arch.boxes.is_empty(), "the map of the code");
+    assert_eq!(snapshot(), before, "nothing written");
+
+    analyse(&env(&files, None, &Fake), None).unwrap();
+    let before = snapshot();
+    let e = env(&files, None, &Fake);
+    let with = architecture(&e, true).unwrap();
+    let SpecSide::Read(spec) = &with.spec else {
+        panic!("ig/ reads")
+    };
+    assert_eq!(
+        with.arch.boxes.len(),
+        spec.boxes.len(),
+        "the spec's boxes, no drift"
+    );
+    let code = architecture(&e, false).unwrap();
+    assert!(matches!(code.spec, SpecSide::Read(_)), "still reported");
+    let ids = |m: &MapFile| m.boxes.iter().map(|b| b.id.clone()).collect::<Vec<_>>();
+    assert_eq!(
+        ids(&code.arch),
+        ids(&architecture(
+            &env(
+                &MemFiles::with(&[("src/a.ts", "export function f() {}\n")]),
+                None,
+                &Fake
+            ),
+            true
+        )
+        .unwrap()
+        .arch),
+        "the code-only map"
+    );
+    assert_eq!(snapshot(), before, "nothing written");
+
+    let files = MemFiles::with(&[
+        ("src/a.ts", "export function f() {}\n"),
+        ("ig/system.kdl", "system {"),
+    ]);
+    let before = files.files.lock().unwrap().clone();
+    let s = architecture(&env(&files, None, &Fake), true).unwrap();
+    let SpecSide::Broken(e) = &s.spec else {
+        panic!("broken")
+    };
+    assert!(e.starts_with("ig/system.kdl:"), "{e}");
+    assert!(!s.arch.boxes.is_empty());
+    assert_eq!(*files.files.lock().unwrap(), before);
+}
