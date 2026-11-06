@@ -83,7 +83,7 @@ fn head_graph(root: &Path) -> anyhow::Result<Graph> {
     Ok(ig_app::graph(&env, env.files, &cfg, None)?.graph)
 }
 
-const NO_SPEC: &str = "no ig/ yet: run `ig plan` or `ig view` to write it";
+const NO_SPEC: &str = "no ig/ yet: run `ig analyse` to write it";
 
 fn has_spec(w: &Wired) -> anyhow::Result<bool> {
     Ok(!w
@@ -121,14 +121,7 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
             let w = Wired::new(root);
             let targets = match ig_wire::landscape(root) {
                 Some(v) => ig_app::show::Targets::new(&Graph::empty(), Some(&v)),
-                None => {
-                    let map = if has_spec(&w)? {
-                        Some(view::run(&w.env())?)
-                    } else {
-                        None
-                    };
-                    ig_app::show::Targets::new(&head_graph(root)?, map.as_ref())
-                }
+                None => ig_app::show::Targets::new(&head_graph(root)?, Some(&view::run(&w.env())?)),
             };
             let show = ig_app::show::validate(&targets, args, seq + 1)?;
             std::fs::create_dir_all(root.join(".ig"))?;

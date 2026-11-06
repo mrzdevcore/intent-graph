@@ -8,6 +8,7 @@ use ig_core::config::Config;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub const NO_AGENT_FOUND: &str = "No AI agent found (claude, gemini or codex).";
 pub const NO_AGENT: &str = "No AI agent found (claude, gemini or codex): showing ig's own reading.";
 /// Said before claude runs.
 pub const READ_ONLY: &str = "The agent reads files in this repo with read-only tools.";
@@ -231,8 +232,6 @@ fn boxes(n: usize) -> String {
     }
 }
 
-/// The agent to read with: `--agent` or ig.yaml's `agent:` without a question, else a yes to
-/// `confirm`; None when nobody said yes or the agent is not on PATH (`refusal` says why).
 pub fn consent(a: &mut Ask, cfg: &Config) -> Option<Agent> {
     let agent = Agent::pick(cfg, a.flag, a.found)?;
     if a.flag.is_some() || cfg.agent.is_some() {
@@ -242,10 +241,13 @@ pub fn consent(a: &mut Ask, cfg: &Config) -> Option<Agent> {
     confirm(agent).then_some(agent)
 }
 
-/// Why `consent` gave no agent; None after a no.
-pub fn refusal(a: &Ask, cfg: &Config) -> Option<&'static str> {
+pub fn refusal(a: &Ask, cfg: &Config, own_reading: bool) -> Option<&'static str> {
     if Agent::pick(cfg, a.flag, a.found).is_none() {
-        Some(NO_AGENT)
+        Some(if own_reading {
+            NO_AGENT
+        } else {
+            NO_AGENT_FOUND
+        })
     } else if a.flag.is_none() && cfg.agent.is_none() && a.confirm.is_none() {
         Some(NO_TERMINAL)
     } else {
@@ -253,8 +255,6 @@ pub fn refusal(a: &Ask, cfg: &Config) -> Option<&'static str> {
     }
 }
 
-/// The first `ig analyse`'s reading of every box, on `consent`. Returns a notice: why nothing
-/// was read (after a no, the hint), or why the reading was not used.
 pub fn offer(
     a: &mut Ask,
     m: &mut MapFile,
@@ -263,7 +263,7 @@ pub fn offer(
     progress: &dyn Fn(&str),
 ) -> Option<String> {
     let Some(agent) = consent(a, cfg) else {
-        if let Some(why) = refusal(a, cfg) {
+        if let Some(why) = refusal(a, cfg, true) {
             return Some(why.into());
         }
         let n = (m.boxes.iter())

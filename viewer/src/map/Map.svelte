@@ -587,7 +587,7 @@
     <Folders landscape={view.landscape} />
   {/if}
   {#if reading}
-    <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig view --read</code> to let an AI agent read them.</p>
+    <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig analyse</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
     <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} {edit} {run} />

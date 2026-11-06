@@ -11,9 +11,6 @@ use super::super::origin::Origin;
 use ig_core::ports::Files;
 use std::collections::{BTreeSet, HashMap};
 
-/// `agent` reads `cm` (the compared map) and what the reading changed is recorded, by box id; the
-/// notices. A reading that fails records nothing; an edit that cannot be recorded is skipped and
-/// named.
 pub fn propose(
     a: &mut Ask,
     agent: Agent,
