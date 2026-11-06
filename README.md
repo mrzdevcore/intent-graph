@@ -98,6 +98,24 @@ ig explore [--agent claude] [--no-open] [-C <dir>] [-q] "<question>"
 
 Asks Claude a question about the code. Claude gets `Read`, `Grep`, `Glob`, `ig_state` and `ig_show` and nothing else; the repo's own hooks and settings do not load. The short answer goes to stdout, `ig_show` draws it, and ig writes `.ig/show.json` and `.ig/view.html` and opens the map on the answer (`--no-open` skips that). Claude is the only agent for now. It works before `ig analyse`, on the map of the code.
 
+## `ig diff`
+
+```
+ig diff [<base> [<head>]] [--json] [-C <dir>] [-q]
+```
+
+Shows what a change does to the architecture. It builds the map on both sides and compares them: boxes added, removed or changed (a box changes when a file under it does), arrows added or removed, what changed in `ig/`, and the problems the change brings or fixes. The same code gives no change.
+
+`<base>` is any commit; without it, the point where this branch left `main` (or `HEAD`, with a notice). `<head>` is a commit too; without it, the working tree, uncommitted files included. Both sides are built with the working tree's `ig.yaml`, so a config change is not an architecture change. Each commit is read in a temporary checkout: ig never touches your branches, index or working tree. Boxes get their titles from `ig/` when both sides have one, and from the code otherwise.
+
+```
+a1b2c3d..working tree: 1 box changed, 1 arrow added
+  changed  Core (2 files)
+  arrow +  web → core (import)
+```
+
+`--json` prints the same as one object: `base`, `head`, `source`, `summary`, `boxes`, `arrows`, `intent` and `problems`. Exit is 0 whatever the diff holds, 2 on a bad revision, outside git, or in a folder of projects.
+
 ## `ig view`
 
 ```
@@ -193,6 +211,7 @@ Commands:
   analyse  Read the code and write ig/ (or propose updates to it) for you to review [alias: analyze]
   view     Draw the map and open it
   explore  Ask a question; the answer is drawn on the map
+  diff     Show what a change does to the architecture
   plan     Show what to build, move and accept to bring code and map together
   check    Exit 1 when the code and the map have drifted apart
   accept   Take drift into the map
@@ -217,6 +236,7 @@ Plumbing:
 | `ig analyse [--agent <name>] [--no-agent]` | Writes `ig/` (above). |
 | `ig view [--no-open] [--json]` | Writes `.ig/view.html`. `--json` prints the map instead. |
 | `ig explore [--agent claude] [--no-open] <question>` | Writes `.ig/show.json` and `.ig/view.html`; prints the answer. |
+| `ig diff [<base> [<head>]] [--json]` | Read-only. Prints what a change does to the map; `--json` prints it as JSON. Exit 2 outside git. |
 | `ig plan [--json]` | Read-only. Prints the plan: boxes and arrows still to build, boxes to move (their `at` changed since the last commit), drift (code in no box, arrows `ig/` does not have) and code ig does not read (outside every package). Exit 2 without `ig/`. |
 | `ig check [--json]` | The plan, read-only: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. |
 | `ig accept [--all \| <id>...]` | Takes drift into `ig/`: each box or arrow id from `ig plan` (quote arrow ids: `ig accept 'web->api'`), written one by one. |
