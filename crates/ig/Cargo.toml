@@ -5,12 +5,13 @@ edition.workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
+clap_complete = "4.6.11"
 ig-app = { path = "../ig-app" }
 ig-core = { path = "../ig-core" }
 ig-fs = { path = "../ig-fs" }
 ig-lang-ts = { path = "../ig-lang-ts" }
 ig-wire = { path = "../ig-wire" }
-lexopt = "0.3.2"
 regex = "1.13.1"
 serde_json = "1.0.154"
 

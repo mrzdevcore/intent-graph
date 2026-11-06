@@ -335,4 +335,11 @@ mod tests {
         ));
         assert!(!looks_generated(".mcp.json", "{\"x\": \"ig\"}"));
     }
+
+    #[test]
+    fn no_skill_passes_no_read() {
+        for s in SKILLS {
+            assert!(!s.body.contains("--no-read"), "{}", s.name);
+        }
+    }
 }

@@ -5,6 +5,7 @@ use crate::bounded::Gate;
 use crate::commands::{Project, view_data_for};
 use ig_app::map::edit::Edit;
 use ig_app::map::edit::journal::{self, By, entries};
+use ig_app::map::spec;
 use ig_wire::Wired;
 use serde_json::Value;
 use std::path::Path;
@@ -32,6 +33,9 @@ fn then_view(
     f: impl FnOnce(&dyn ig_core::ports::Files) -> Result<(), Vec<String>>,
 ) -> Done {
     let w = Wired::new(root);
+    if !spec::exists(w.files()).map_err(|e| e.to_string())? {
+        return Err(spec::MISSING.into());
+    }
     f(w.env().files).map_err(joined)?;
     view_data_for(root)
 }
@@ -40,8 +44,6 @@ pub fn apply(root: &Path, edit: Edit) -> Done {
     if matches!(edit, Edit::Restore { .. }) {
         return Err("restore is only made by undo".into());
     }
-    // a first run writes ig/ from the code; edit what the person sees
-    view_data_for(root)?;
     then_view(root, |f| journal::record(f, By::Person, &edit).map(drop))
 }
 
@@ -151,6 +153,12 @@ mod tests {
     use std::path::PathBuf;
 
     fn scratch(tag: &str) -> PathBuf {
+        let dir = unread(tag);
+        ig_app::map::view::analyse(&Wired::new(&dir).env(), None).unwrap();
+        dir
+    }
+
+    fn unread(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("ig-edits-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ig/tests/fixtures/monorepo");
@@ -258,6 +266,19 @@ mod tests {
         let v = drop_all(&r).unwrap();
         assert_eq!(proposed(&v), 0);
         assert_eq!(spec(&r), before);
+    }
+
+    #[test]
+    fn no_edit_without_ig() {
+        let r = unread("no-ig");
+        let no_ig = ig_app::map::spec::MISSING;
+        assert_eq!(apply(&r, add("system", "cache")).unwrap_err(), no_ig);
+        assert_eq!(keep(&r, None).unwrap_err(), no_ig);
+        assert_eq!(drop_one(&r, 1).unwrap_err(), no_ig);
+        assert_eq!(drop_all(&r).unwrap_err(), no_ig);
+        assert_eq!(undo(&r).unwrap_err(), no_ig);
+        assert_eq!(redo(&r).unwrap_err(), no_ig);
+        assert!(!r.join("ig").exists());
     }
 
     #[test]

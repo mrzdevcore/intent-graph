@@ -1,7 +1,6 @@
 use super::*;
 use crate::map::file::refresh;
 use crate::map::{arrows, facts, shop};
-use ig_core::testing::MemFiles;
 
 /// The shop's fresh map and its evidence (the prisma client imports `@prisma/client`).
 fn shop_map() -> (MapFile, Evidence) {
@@ -93,13 +92,11 @@ fn only_claude_is_said_to_be_read_only() {
 }
 
 #[test]
-fn a_named_agent_missing_is_no_agent() {
+fn a_named_agent_missing_is_named() {
     let (mut m, ev) = shop_map();
     let mut run =
         |_: Agent, _: &str, _: &[String]| -> Result<String, String> { unreachable!("never run") };
-    let files = MemFiles::default();
     let mut a = Ask {
-        all: true,
         flag: Some(Agent::Gemini),
         template: "",
         found: &|n| n == "claude",
@@ -109,8 +106,21 @@ fn a_named_agent_missing_is_no_agent() {
     };
     let cfg = Config::default();
     assert_eq!(
-        offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {}).as_deref(),
-        Some(NO_AGENT)
+        offer(&mut a, &mut m, &ev, &cfg, &|_| {}).as_deref(),
+        Some("gemini was not found on PATH: showing ig's own reading.")
+    );
+    assert_eq!(
+        refusal(&a, &cfg, false).as_deref(),
+        Some("gemini was not found on PATH.")
+    );
+    a.flag = None;
+    let cfg = Config {
+        agent: Some("codex".into()),
+        ..Config::default()
+    };
+    assert_eq!(
+        refusal(&a, &cfg, false).as_deref(),
+        Some("codex was not found on PATH.")
     );
 }
 
@@ -122,26 +132,19 @@ fn one_box_is_one_box() {
     }
     let mut run =
         |_: Agent, _: &str, _: &[String]| -> Result<String, String> { unreachable!("never run") };
+    let mut no = |_: Agent| false;
     let mut a = Ask {
-        all: false,
         flag: None,
         template: "",
         found: &|_| true,
-        confirm: None,
+        confirm: Some(&mut no),
         run: &mut run,
         meter: &|_, _, _| {},
     };
-    let hint = offer(
-        &mut a,
-        &mut m,
-        &ev,
-        &Config::default(),
-        &MemFiles::default(),
-        &|_| {},
-    );
+    let hint = offer(&mut a, &mut m, &ev, &Config::default(), &|_| {});
     assert_eq!(
         hint.as_deref(),
-        Some("1 box is ig's guess; run `ig view --read` to let an AI agent read them.")
+        Some("1 box is ig's guess; run `ig analyse` to let an AI agent read them.")
     );
     let said = std::cell::RefCell::new(vec![]);
     let reply = format!(
@@ -170,40 +173,6 @@ fn one_box_is_one_box() {
         Some("1 box read"),
         "{said:?}"
     );
-}
-
-#[test]
-fn a_no_is_remembered_for_the_same_boxes() {
-    let (mut m, ev) = shop_map();
-    m.boxes[0].needs_reading = false;
-    let cfg = Config::default();
-    let files = MemFiles::default();
-    let mut run =
-        |_: Agent, _: &str, _: &[String]| -> Result<String, String> { unreachable!("never run") };
-    let asked = std::cell::Cell::new(0);
-    let mut no = |_: Agent| {
-        asked.set(asked.get() + 1);
-        false
-    };
-    let mut a = Ask {
-        all: false,
-        flag: None,
-        template: "",
-        found: &|_| true,
-        confirm: Some(&mut no),
-        run: &mut run,
-        meter: &|_, _, _| {},
-    };
-    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {}), None);
-    assert!(files.read(DECLINED).is_some());
-    // the same unread boxes: not asked again, the hint instead
-    let again = offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {});
-    assert!(again.unwrap().contains("ig view --read"));
-    assert_eq!(asked.get(), 1);
-    // another box needs reading: asked again
-    m.boxes[0].needs_reading = true;
-    offer(&mut a, &mut m, &ev, &cfg, &files, &|_| {});
-    assert_eq!(asked.get(), 2);
 }
 
 #[test]
@@ -287,7 +256,6 @@ fn offer_reads_only_on_consent() {
     let mut run =
         |_: Agent, _: &str, _: &[String]| -> Result<String, String> { unreachable!("never run") };
     let mut a = Ask {
-        all: false,
         flag: None,
         template: "",
         found: &|_| true,
@@ -295,46 +263,58 @@ fn offer_reads_only_on_consent() {
         run: &mut run,
         meter: &|_, _, _| {},
     };
-    let n = m.boxes.iter().filter(|b| b.needs_reading).count();
-    let hint =
-        format!("{n} boxes are ig's guess; run `ig view --read` to let an AI agent read them.");
-    // no terminal, no --read: never read, a hint
+    // no terminal, no --agent, no `agent:`: never read
     assert_eq!(
-        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}),
-        Some(hint.clone())
+        offer(&mut a, &mut m, &ev, &cfg, &|_| {}).as_deref(),
+        Some(NO_TERMINAL)
     );
-    // asked, and the person says no
+    let n = m.boxes.iter().filter(|b| b.needs_reading).count();
+    let hint = format!("{n} boxes are ig's guess; run `ig analyse` to let an AI agent read them.");
     let mut asked = false;
     let mut no = |_: Agent| {
         asked = true;
         false
     };
     a.confirm = Some(&mut no);
-    assert_eq!(
-        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}),
-        None
-    );
-    // no agent to ask about: the hint, not the no-agent line
+    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), Some(hint));
+    // no agent to ask about
     a.found = &|_| false;
     assert_eq!(
-        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}),
-        Some(hint)
-    );
-    // --read with no agent: the no-agent line
-    a.all = true;
-    assert_eq!(
-        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}).as_deref(),
+        offer(&mut a, &mut m, &ev, &cfg, &|_| {}).as_deref(),
         Some(NO_AGENT)
     );
-    // nothing needs reading: nothing to offer
-    a.all = false;
-    m.boxes.iter_mut().for_each(|b| b.needs_reading = false);
-    a.found = &|_| panic!("nothing needs reading");
-    assert_eq!(
-        offer(&mut a, &mut m, &ev, &cfg, &MemFiles::default(), &|_| {}),
-        None
-    );
     assert!(asked);
+}
+
+#[test]
+fn a_flag_or_config_agent_skips_the_question() {
+    let (mut m, ev) = shop_map();
+    let asked = std::cell::Cell::new(0);
+    let mut run = |_: Agent, _: &str, ids: &[String]| {
+        asked.set(asked.get() + ids.len());
+        Ok("<ig-annotations>[]</ig-annotations>".to_string())
+    };
+    let mut never = |_: Agent| -> bool { panic!("asked") };
+    let mut a = Ask {
+        flag: Some(Agent::Claude),
+        template: "",
+        found: &|_| true,
+        confirm: Some(&mut never),
+        run: &mut run,
+        meter: &|_, _, _| {},
+    };
+    assert_eq!(consent(&mut a, &Config::default()), Some(Agent::Claude));
+    a.flag = None;
+    let cfg = Config {
+        agent: Some("codex".into()),
+        ..Config::default()
+    };
+    assert_eq!(consent(&mut a, &cfg), Some(Agent::Codex));
+    m.boxes[0].needs_reading = false;
+    assert_eq!(offer(&mut a, &mut m, &ev, &cfg, &|_| {}), None);
+    // every box, not only those that need reading
+    let every = m.boxes.iter().filter(|b| !b.stale).count();
+    assert_eq!(asked.get(), every);
 }
 
 #[test]

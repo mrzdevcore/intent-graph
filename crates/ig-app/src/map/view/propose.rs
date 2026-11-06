@@ -1,24 +1,21 @@
-//! `ig view --read` with a spec in `ig/`: the AI reading of the drift and of the spec boxes with
+//! `ig analyse` with a spec in `ig/`: the AI reading of the drift and of the spec boxes with
 //! no description, recorded as `reading` edits for the person to review.
 
 use super::super::Level;
-use super::super::agent::{Agent, Ask, Evidence, NO_AGENT, read};
+use super::super::agent::{Agent, Ask, Evidence, read};
 use super::super::edit::Edit;
 use super::super::edit::journal::{By, record};
 use super::super::file::{Field, MapBox, MapFile, Source};
 use super::super::kinds::base_name;
 use super::super::origin::Origin;
-use ig_core::config::Config;
 use ig_core::ports::Files;
 use std::collections::{BTreeSet, HashMap};
 
-/// Reads `cm` (the compared map) and records what the reading changed, by box id; the notices.
-/// A reading that fails records nothing; an edit that cannot be recorded is skipped and named.
 pub fn propose(
     a: &mut Ask,
+    agent: Agent,
     cm: &MapFile,
     ev: &Evidence,
-    cfg: &Config,
     files: &dyn Files,
     progress: &dyn Fn(&str),
     git: bool,
@@ -58,9 +55,6 @@ pub fn propose(
             .cloned()
             .collect(),
         marks: vec![],
-    };
-    let Some(agent) = Agent::pick(cfg, a.flag, a.found) else {
-        return vec![NO_AGENT.into()];
     };
     if let Err(e) = read(
         agent, a.template, &mut m, ev, false, a.run, progress, a.meter,
@@ -169,7 +163,7 @@ fn value(f: &Option<Field<String>>) -> Option<&String> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::run_with;
+    use super::super::analyse;
     use super::review;
     use crate::map::agent::{Agent, Ask};
     use crate::map::edit::Edit;
@@ -182,24 +176,22 @@ mod tests {
     /// A repo whose `ig/` is written, then a file outside every `at` (drift).
     fn repo() -> MemFiles {
         let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
-        super::super::run(&env(&files, None, &Fake)).unwrap();
+        analyse(&env(&files, None, &Fake), None).unwrap();
         files
             .write_atomic("lib/c.ts", b"export const y = 2;\n")
             .unwrap();
         files
     }
 
-    /// `ig view --read` with an agent answering `reply` for the ids it is asked about.
     fn read(
         files: &MemFiles,
         reply: &dyn Fn(&[String]) -> Result<String, String>,
     ) -> super::super::View {
         let mut run = |_: Agent, _: &str, ids: &[String]| reply(ids);
-        run_with(
+        analyse(
             &env(files, None, &Fake),
             Some(&mut Ask {
-                all: true,
-                flag: None,
+                flag: Some(Agent::Claude),
                 template: "{{boxes}}",
                 found: &|_| true,
                 confirm: None,
@@ -359,7 +351,7 @@ mod tests {
     fn an_edit_that_does_not_record_is_skipped_and_named() {
         // the package's file gone: its code is drift at `**`, which no box but the system takes
         let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
-        super::super::run(&env(&files, None, &Fake)).unwrap();
+        analyse(&env(&files, None, &Fake), None).unwrap();
         for p in files.glob(&["ig/*.kdl".into()]).unwrap() {
             if !p.ends_with("/system.kdl") {
                 files.remove(&p).unwrap();

@@ -217,11 +217,13 @@ Pattern nodes use `ast-grep-core` and `ast-grep-language` (TypeScript, Tsx, Java
 
 ```
 ig [--version] | init [claude|codex|all]
-   | view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|ollama] | mcp | plugin export <dir>
-   (all accept --root <dir>)
+   | analyse [--agent claude|gemini|codex|ollama] [--no-agent] | view [--no-open] [--json] | explore <question> [--agent claude] [--no-open]
+   | plan [--json] | check [--json] | accept [--all | <id>...] | fmt [--check] | app [<dir>]
+   | mcp | plugin export <dir> | completions <shell>
+   (all accept -C/--root <dir> and -q; `ig analyse` is the only command that writes ig/ from the code)
 ```
 
-Exit codes: 0 ok, 2 usage or error (`ig: <message>` on stderr). Notices go to stderr. *(call)* `lexopt`.
+Exit codes: 0 ok, 1 check or fmt --check found something, 2 usage or error (`ig: <message>` on stderr). Notices go to stderr. *(call)* `clap`.
 
 ## System map
 
@@ -259,7 +261,7 @@ Exit codes: 0 ok, 2 usage or error (`ig: <message>` on stderr). Notices go to st
    - a layer violation;
    - a cycle.
 2. **Unit tests** for node IDs and hashes, the map's compiler and layout, the layers files, the agent command lines, init's no-overwrite behaviour, and the viewer's model (Vitest).
-3. **Real repos:** `ig view --no-read` warm on a 3,760-node monorepo in under 2 seconds; see the walkthrough for the browser checks.
+3. **Real repos:** `ig view` warm on a 3,760-node monorepo in under 2 seconds; see the walkthrough for the browser checks.
 
 ## Left to the builder
 
