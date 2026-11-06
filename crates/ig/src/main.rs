@@ -29,8 +29,9 @@ fn say(quiet: bool, line: &str) {
 }
 
 fn say_all(quiet: bool, v: &view::View) {
+    // a broken ig/'s notices are its errors: -q never drops those
     for n in &v.notices {
-        say(quiet, &format!("ig: {n}"));
+        say(quiet && !v.broken, &format!("ig: {n}"));
     }
     for w in &v.warnings {
         say(quiet, &format!("warning: {w}"));
@@ -71,10 +72,7 @@ fn run_view(root: &Path, a: &ViewArgs, quiet: bool) -> Result<u8> {
 const NO_SPEC: &str = "ig: no ig/ yet: run `ig analyse`";
 
 fn has_spec(env: &ig_app::Env) -> Result<bool> {
-    Ok(!env
-        .files
-        .glob(&[format!("{}/*.kdl", spec::DIR)])?
-        .is_empty())
+    Ok(spec::exists(env.files)?)
 }
 
 fn real_main() -> Result<u8> {
@@ -173,7 +171,7 @@ fn real_main() -> Result<u8> {
                 Some(InitAgents::Claude) => vec![skills::agent("claude")?],
                 Some(InitAgents::Codex) => vec![skills::agent("codex")?],
             };
-            init::run(&root, &agents)?;
+            init::run(&root, &agents, quiet)?;
             if ig_wire::is_landscape(&root) {
                 let n = ig_fs::folders::scan(&root).projects.len();
                 say(

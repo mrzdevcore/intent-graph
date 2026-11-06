@@ -92,7 +92,7 @@ fn only_claude_is_said_to_be_read_only() {
 }
 
 #[test]
-fn a_named_agent_missing_is_no_agent() {
+fn a_named_agent_missing_is_named() {
     let (mut m, ev) = shop_map();
     let mut run =
         |_: Agent, _: &str, _: &[String]| -> Result<String, String> { unreachable!("never run") };
@@ -107,7 +107,20 @@ fn a_named_agent_missing_is_no_agent() {
     let cfg = Config::default();
     assert_eq!(
         offer(&mut a, &mut m, &ev, &cfg, &|_| {}).as_deref(),
-        Some(NO_AGENT)
+        Some("gemini was not found on PATH: showing ig's own reading.")
+    );
+    assert_eq!(
+        refusal(&a, &cfg, false).as_deref(),
+        Some("gemini was not found on PATH.")
+    );
+    a.flag = None;
+    let cfg = Config {
+        agent: Some("codex".into()),
+        ..Config::default()
+    };
+    assert_eq!(
+        refusal(&a, &cfg, false).as_deref(),
+        Some("codex was not found on PATH.")
     );
 }
 

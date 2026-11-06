@@ -311,6 +311,48 @@ fn init_does_not_write_ig() {
 }
 
 #[test]
+fn init_notices_go_to_stderr_and_quiet_drops_them() {
+    let dir = repo("init-quiet");
+    let out = ig_in(&dir, &["init", "claude"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.stdout.contains("created "), "{}", out.stdout);
+    assert!(!out.stdout.contains("trust"), "{}", out.stdout);
+    assert!(out.stderr.contains("trust this folder"), "{}", out.stderr);
+    let out = ig_in(&dir, &["init", "claude"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.stdout.is_empty(), "{}", out.stdout);
+    assert!(
+        out.stderr.contains("ig init: nothing to do"),
+        "{}",
+        out.stderr
+    );
+    let out = ig_in(&dir, &["-q", "init", "claude"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.stdout.is_empty(), "{}", out.stdout);
+    assert!(out.stderr.is_empty(), "{}", out.stderr);
+}
+
+#[test]
+fn quiet_still_says_why_ig_does_not_read() {
+    let dir = repo("quiet-broken");
+    std::fs::create_dir_all(dir.join("ig")).unwrap();
+    std::fs::write(dir.join("ig/system.kdl"), "system \"x\" {").unwrap();
+    for args in [
+        &["-q", "check"][..],
+        &["-q", "plan"],
+        &["-q", "analyse", "--no-agent"],
+    ] {
+        let out = ig_in(&dir, args);
+        assert_eq!(out.code, 2, "{args:?}");
+        assert!(
+            out.stderr.contains("system.kdl"),
+            "{args:?}: {}",
+            out.stderr
+        );
+    }
+}
+
+#[test]
 fn analyze_is_analyse() {
     let dir = repo("analyze");
     let out = ig_in(&dir, &["analyze", "--no-agent"]);

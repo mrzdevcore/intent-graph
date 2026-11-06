@@ -111,3 +111,86 @@ fn explore_without_claude_on_path() {
     assert!(out.is_empty(), "{out}");
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
+
+fn fake_drawing_claude(bin: &Path, show: &Path, json: &str) {
+    let script = format!(
+        "#!/bin/sh\n/bin/cat > /dev/null\nprintf '%s' '{json}' > {}\necho 'The answer.'\n",
+        show.display()
+    );
+    let p = bin.join("claude");
+    std::fs::write(&p, script).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+const OLD: &str = r#"{"version":1,"seq":3,"title":"Old answer","nodes":[]}"#;
+
+#[test]
+fn an_answer_that_draws_nothing_does_not_show_the_old_one() {
+    let (root, bin) = shop("nodraw");
+    fake_claude(&bin);
+    std::fs::create_dir_all(root.join(".ig")).unwrap();
+    std::fs::write(root.join(".ig/show.json"), OLD).unwrap();
+    let (code, out, err) = ig(&root, &bin, &["explore", "how", "--no-open"]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(
+        err.contains("ig: the agent drew nothing on the map"),
+        "{err}"
+    );
+    let html = std::fs::read_to_string(root.join(".ig/view.html")).unwrap();
+    assert!(!html.contains("Old answer"));
+    assert_eq!(
+        std::fs::read_to_string(root.join(".ig/show.json")).unwrap(),
+        OLD
+    );
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn an_answer_that_draws_is_on_the_page() {
+    let (root, bin) = shop("draws");
+    std::fs::create_dir_all(root.join(".ig")).unwrap();
+    std::fs::write(root.join(".ig/show.json"), OLD).unwrap();
+    fake_drawing_claude(
+        &bin,
+        &root.join(".ig/show.json"),
+        r#"{"version":1,"seq":4,"title":"New answer","nodes":[]}"#,
+    );
+    let (code, out, err) = ig(&root, &bin, &["explore", "how", "--no-open"]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(!err.contains("drew nothing"), "{err}");
+    let html = std::fs::read_to_string(root.join(".ig/view.html")).unwrap();
+    assert!(html.contains("New answer") && !html.contains("Old answer"));
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn explore_on_a_folder_of_projects_uses_the_landscape() {
+    let base = std::env::temp_dir().join(format!("ig-explore-folder-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let (root, bin) = (base.join("folder"), base.join("bin"));
+    for (p, s) in [
+        ("web/package.json", r#"{"name":"web"}"#),
+        ("web/src/a.ts", "export const a = 1;\n"),
+        ("analytics/go.mod", "module a\n"),
+    ] {
+        let f = root.join(p);
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(f, s).unwrap();
+    }
+    std::fs::create_dir_all(&bin).unwrap();
+    fake_claude(&bin);
+    let (code, out, err) = ig(&root, &bin, &["explore", "how", "--no-open"]);
+    assert_eq!(code, 0, "{out}{err}");
+    let view: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(".ig/view.json")).unwrap())
+            .unwrap();
+    let ids: Vec<&str> = (view["boxes"].as_array().unwrap().iter())
+        .filter_map(|b| b["id"].as_str())
+        .collect();
+    assert!(
+        ids.contains(&"web") && ids.contains(&"analytics"),
+        "{ids:?}"
+    );
+    assert!(!view["landscape"].is_null(), "{view}");
+    let _ = std::fs::remove_dir_all(&base);
+}
