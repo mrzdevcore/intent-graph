@@ -122,6 +122,52 @@ impl Drop for Worktree {
     }
 }
 
+// the worktrees a killed run left: `ig-wt-<pid>-<n>` in temp, that pid gone
+fn prune_stale(top: &Path) {
+    let Ok(list) = git(top, &["worktree", "list", "--porcelain"]) else {
+        return;
+    };
+    let temp = std::env::temp_dir();
+    let temp = temp.canonicalize().unwrap_or(temp);
+    let mut pruned = false;
+    for path in list.lines().filter_map(|l| l.strip_prefix("worktree ")) {
+        let p = Path::new(path);
+        let parent = p.parent().map(|d| d.canonicalize().unwrap_or(d.into()));
+        let pid = (p.file_name().and_then(|n| n.to_str()))
+            .and_then(|n| n.strip_prefix("ig-wt-"))
+            .and_then(|n| n.split_once('-'))
+            .filter(|(pid, n)| {
+                !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) && !pid.is_empty()
+            })
+            .and_then(|(pid, _)| pid.parse::<u32>().ok());
+        if let Some(pid) = pid
+            && parent.as_deref() == Some(temp.as_path())
+            && pid != std::process::id()
+            && !alive(pid)
+        {
+            let _ = git(top, &["worktree", "remove", "--force", path]);
+            pruned = true;
+        }
+    }
+    if pruned {
+        let _ = git(top, &["worktree", "prune"]);
+    }
+}
+
+#[cfg(unix)]
+fn alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+#[cfg(not(unix))]
+fn alive(_: u32) -> bool {
+    true
+}
+
 impl Vcs for GitVcs {
     /// Outside a git checkout every call fails (None, empty or a notice).
     fn at(&self, root: &Path) -> Box<dyn Vcs> {
@@ -251,7 +297,13 @@ impl Vcs for GitVcs {
     }
 
     fn changed_between(&self, base: &str, head: Option<&str>) -> Result<Vec<String>, PortError> {
-        let mut diff = vec!["diff", "-z", "--name-only", "--relative", base];
+        let mut diff = vec![
+            "diff",
+            "-z",
+            "--name-only",
+            "--relative",
+            base,
+        ];
         diff.extend(head);
         diff.push("--");
         let mut runs = vec![diff];
@@ -323,18 +375,33 @@ impl Vcs for GitVcs {
     }
 
     fn checkout(&self, rev: &str) -> Result<Checkout, PortError> {
+        prune_stale(&self.top);
         let n = WT_COUNTER.fetch_add(1, Ordering::SeqCst);
         let dir = std::env::temp_dir().join(format!("ig-wt-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let d = dir.to_string_lossy().to_string();
-        git(
-            &self.top,
-            &["worktree", "add", "--detach", "--quiet", &d, rev],
-        )?;
-        let wt = Worktree {
+        let mut wt = Worktree {
             top: self.top.clone(),
-            dir: dir.canonicalize().unwrap_or(dir),
+            dir,
         };
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&self.top)
+            .args(["-c", "core.hooksPath=/dev/null"])
+            .args(["worktree", "add", "--detach", "--quiet", &d, rev])
+            .env("GIT_LFS_SKIP_SMUDGE", "1")
+            .output()
+            .map_err(|_| PortError::Vcs("running git".into()))?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(PortError::Vcs(match err.is_empty() {
+                true => format!("git worktree add failed for {rev}"),
+                false => err,
+            }));
+        }
+        if let Ok(c) = wt.dir.canonicalize() {
+            wt.dir = c;
+        }
         let root = match self.prefix.as_str() {
             "" => wt.dir.clone(),
             p => wt.dir.join(p),
