@@ -359,6 +359,6 @@ fn accept_says_to_quote_arrow_ids() {
         "{}",
         out.stderr
     );
-    let out = run_ig(&dir, &["--help"]);
+    let out = run_ig(&dir, &["accept", "--help"]);
     assert!(out.stdout.contains("one by one"), "{}", out.stdout);
 }
