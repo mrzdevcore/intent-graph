@@ -10,8 +10,6 @@ use ig_core::ports::{Checkout, PortError};
 use ig_core::workspace::WorkspaceInfo;
 use std::path::Path;
 
-/// The diff of `base` against `head` (the working tree when None), both built with the head's
-/// ig.yaml. `at(root, use_spec, config)` builds the side of a checkout's ig root.
 pub fn run(
     env: &Env,
     base: &str,
@@ -85,7 +83,6 @@ fn empty() -> Side {
     }
 }
 
-/// The working tree's packages, for `prepare_checkout` (just the root when discovery fails).
 fn work_info(env: &Env, config: &Config) -> WorkspaceInfo {
     crate::build::discover(env.frontends, env.files, config).unwrap_or_else(|_| WorkspaceInfo {
         root: env.root.to_path_buf(),

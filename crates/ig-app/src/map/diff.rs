@@ -300,8 +300,7 @@ fn boxes(
     )
 }
 
-// the system's `at` is the whole repo: it claims nothing. A file in drift is its nearest
-// non-drift ancestor's, as a roll-up only (false): drift is a problem, not a changed box
+// the system's `at` is the whole repo: it claims nothing; drift is a problem, not a changed box
 fn claim<'f>(m: &MapFile, files: &'f [String]) -> Vec<(&'f str, usize, bool)> {
     let mut set = GlobSetBuilder::new();
     let mut glob_box: Vec<usize> = vec![];
