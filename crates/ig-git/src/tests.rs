@@ -200,3 +200,78 @@ fn changed_between_lists_paths_between_commits_and_the_working_tree() {
     assert!(v.changed_between("nope", None).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn one_commit(name: &str) -> (PathBuf, impl Fn(&[&str]) -> String) {
+    let (dir, g) = repo(name);
+    std::fs::write(dir.join("a.ts"), "").unwrap();
+    g(&["add", "-A"]);
+    g(&["commit", "-qm", "one"]);
+    (dir, g)
+}
+
+fn hook(dir: &Path, body: &str) {
+    let h = dir.join(".git/hooks/post-checkout");
+    std::fs::write(&h, format!("#!/bin/sh\n{body}\n")).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&h, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn checkout_runs_no_hooks() {
+    let (dir, _g) = one_commit("hooks");
+    let marker = dir.join("marker");
+    hook(&dir, &format!("touch '{}'", marker.display()));
+    let v = GitVcs::open(&dir).unwrap();
+    drop(v.checkout("HEAD").unwrap());
+    assert!(!marker.exists(), "post-checkout ran");
+    hook(&dir, "exit 1");
+    assert!(v.checkout("HEAD").is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_failed_checkout_leaves_no_worktree() {
+    let (dir, g) = one_commit("failed");
+    std::fs::write(dir.join(".gitattributes"), "*.ts filter=broken\n").unwrap();
+    g(&["add", "-A"]);
+    g(&["commit", "-qm", "two"]);
+    g(&["config", "filter.broken.smudge", "false"]);
+    g(&["config", "filter.broken.required", "true"]);
+    let v = GitVcs::open(&dir).unwrap();
+    let Err(e) = v.checkout("HEAD") else {
+        panic!("checkout succeeded")
+    };
+    assert!(!e.to_string().trim().is_empty());
+    assert_eq!(g(&["worktree", "list"]).lines().count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_killed_runs_worktree_is_pruned() {
+    let (dir, g) = one_commit("stale");
+    let mut child = Command::new("true").spawn().unwrap();
+    let dead = child.id();
+    child.wait().unwrap();
+    let stale = std::env::temp_dir().join(format!("ig-wt-{dead}-0"));
+    let other = std::env::temp_dir().join(format!("ig-wtx-{dead}-0"));
+    for d in [&stale, &other] {
+        let _ = std::fs::remove_dir_all(d);
+        g(&[
+            "worktree",
+            "add",
+            "--detach",
+            "--quiet",
+            &d.to_string_lossy(),
+            "HEAD",
+        ]);
+    }
+    let v = GitVcs::open(&dir).unwrap();
+    let c = v.checkout("HEAD").unwrap();
+    let list = g(&["worktree", "list"]);
+    assert_eq!(list.lines().count(), 3, "{list}");
+    assert!(!stale.exists());
+    assert!(other.exists());
+    drop(c);
+    g(&["worktree", "remove", "--force", &other.to_string_lossy()]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
