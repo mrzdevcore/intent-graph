@@ -158,8 +158,20 @@ fn changed_lines_match_the_count_and_skip_the_package() {
     let out = run_ig(&dir, &["diff", "HEAD"]);
     assert_eq!(out.code, 0, "{}", out.stderr);
     let first = out.stdout.lines().next().unwrap();
-    let n: usize = first.split(": ").nth(1).unwrap().split(' ').next().unwrap().parse().unwrap();
-    let lines = out.stdout.lines().filter(|l| l.starts_with("  changed  ")).count();
+    let n: usize = first
+        .split(": ")
+        .nth(1)
+        .unwrap()
+        .split(' ')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let lines = out
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("  changed  "))
+        .count();
     assert_eq!(lines, n, "{}", out.stdout);
     assert!(!out.stdout.contains("changed  @t/a"), "{}", out.stdout);
 }
@@ -191,4 +203,35 @@ fn nothing_is_written() {
     assert_eq!(git(&dir, &["status", "--porcelain"]), before);
     assert!(!dir.join("ig").exists());
     assert_eq!(git(&dir, &["worktree", "list"]).lines().count(), 1);
+}
+
+#[test]
+fn a_moved_file_changes_both_boxes() {
+    let mut files = TWO.to_vec();
+    files.push(("packages/a/src/m.ts", "export const m = 1;\n"));
+    let dir = repo("rename", &files);
+    git(&dir, &["mv", "packages/a/src/m.ts", "packages/b/src/m.ts"]);
+    commit(&dir, "move");
+    let d = json(&dir, &["HEAD~1", "HEAD"]);
+    let changed: Vec<&str> = (d["boxes"]["changed"].as_array().unwrap().iter())
+        .map(|c| c["title"].as_str().unwrap())
+        .collect();
+    assert!(changed.contains(&"A") && changed.contains(&"B"), "{d}");
+}
+
+#[test]
+fn json_revs_are_full_shas() {
+    let dir = repo("shas", &TWO);
+    write(&dir, "packages/a/src/more.ts", "export const x = 1;\n");
+    commit(&dir, "two");
+    let d = json(&dir, &["HEAD~1", "HEAD"]);
+    let full = |v: &serde_json::Value| {
+        let s = v.as_str().unwrap_or_default();
+        s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())
+    };
+    assert!(full(&d["base"]) && full(&d["head"]), "{d}");
+    assert_eq!(
+        d["head"].as_str().unwrap(),
+        git(&dir, &["rev-parse", "HEAD"]).trim()
+    );
 }

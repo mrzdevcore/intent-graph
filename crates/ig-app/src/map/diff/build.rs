@@ -64,7 +64,7 @@ pub fn run(
         }
     }
     let changed = vcs.changed_between(&base_sha, head_sha.as_deref())?;
-    Ok(diff(&b, &h, &changed, base, head))
+    Ok(diff(&b, &h, &changed, &base_sha, head_sha.as_deref()))
 }
 
 fn empty() -> Side {
