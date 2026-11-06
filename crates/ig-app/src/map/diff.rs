@@ -248,19 +248,19 @@ fn boxes(
         .collect();
     let mut claims = claim(head, changed);
     let unclaimed: Vec<String> = (changed.iter())
-        .filter(|f| !claims.iter().any(|(c, _)| *c == f.as_str()))
+        .filter(|f| !claims.iter().any(|(c, _, _)| *c == f.as_str()))
         .cloned()
         .collect();
     // a file under a box's old `at` only, still a change of that box
-    for (f, i) in claim(base, &unclaimed) {
+    for (f, i, own) in claim(base, &unclaimed) {
         if let Some(&h) = head_by_key.get(key(bk, &base.boxes[i].id)) {
-            claims.push((f, h));
+            claims.push((f, h, own));
         }
     }
     let mut files: BTreeMap<usize, BTreeSet<&str>> = BTreeMap::new();
     let mut direct: HashSet<usize> = HashSet::new();
-    for (f, i) in &claims {
-        if !is_added.contains(head.boxes[*i].id.as_str()) {
+    for (f, i, own) in &claims {
+        if *own && !is_added.contains(head.boxes[*i].id.as_str()) {
             direct.insert(*i);
         }
         let mut at = Some(*i);
@@ -298,8 +298,9 @@ fn boxes(
     )
 }
 
-// the system's `at` is the whole repo: it claims nothing
-fn claim<'f>(m: &MapFile, files: &'f [String]) -> Vec<(&'f str, usize)> {
+// the system's `at` is the whole repo: it claims nothing. A file in drift is its nearest
+// non-drift ancestor's, as a roll-up only (false): drift is a problem, not a changed box
+fn claim<'f>(m: &MapFile, files: &'f [String]) -> Vec<(&'f str, usize, bool)> {
     let mut set = GlobSetBuilder::new();
     let mut glob_box: Vec<usize> = vec![];
     for (i, b) in m.boxes.iter().enumerate() {
@@ -312,6 +313,9 @@ fn claim<'f>(m: &MapFile, files: &'f [String]) -> Vec<(&'f str, usize)> {
         }
     }
     let set = set.build().unwrap_or_else(|_| GlobSet::empty());
+    let by_id: HashMap<&str, usize> = (m.boxes.iter().enumerate())
+        .map(|(i, b)| (b.id.as_str(), i))
+        .collect();
     let parents: HashMap<&str, Option<&str>> = (m.boxes.iter())
         .map(|b| (b.id.as_str(), b.parent.as_deref()))
         .collect();
@@ -327,8 +331,14 @@ fn claim<'f>(m: &MapFile, files: &'f [String]) -> Vec<(&'f str, usize)> {
     (files.iter())
         .filter_map(|f| {
             let hits = set.matches(f).into_iter().map(|k| glob_box[k]);
-            let i = hits.max_by_key(|&i| depth(&m.boxes[i].id))?;
-            Some((f.as_str(), i))
+            let mut i = hits.max_by_key(|&i| depth(&m.boxes[i].id))?;
+            let own = m.boxes[i].origin != Origin::Drift;
+            let mut hops = 0;
+            while m.boxes[i].origin == Origin::Drift && hops <= m.boxes.len() {
+                i = *by_id.get(m.boxes[i].parent.as_deref()?)?;
+                hops += 1;
+            }
+            Some((f.as_str(), i, own))
         })
         .collect()
 }
@@ -373,6 +383,7 @@ fn problems(m: &MapFile) -> BTreeMap<(u8, String, String, String), Problem> {
         };
         out.insert((1, globs, String::new(), String::new()), p);
     }
+    let keys = keys(m);
     let marks = m.marks.iter().filter(|k| k.layer == "rules");
     for k in marks.filter(|k| k.state == MarkState::Bad) {
         let text = (k.badge.as_ref().or(k.note.as_ref())).map_or(k.target.clone(), Clone::clone);
@@ -386,7 +397,8 @@ fn problems(m: &MapFile) -> BTreeMap<(u8, String, String, String), Problem> {
             text: text.clone(),
             boxes: boxes.collect(),
         };
-        out.insert((0, text, from, to), p);
+        let (kf, kt) = (key(&keys, &from).to_string(), key(&keys, &to).to_string());
+        out.insert((0, text, kf, kt), p);
     }
     out
 }
