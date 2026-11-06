@@ -250,6 +250,24 @@ impl Vcs for GitVcs {
         out
     }
 
+    fn changed_between(&self, base: &str, head: Option<&str>) -> Result<Vec<String>, PortError> {
+        let mut diff = vec!["diff", "-z", "--name-only", "--relative", base];
+        diff.extend(head);
+        diff.push("--");
+        let mut runs = vec![diff];
+        if head.is_none() {
+            runs.push(vec!["ls-files", "-z", "--others", "--exclude-standard"]);
+        }
+        let mut out = vec![];
+        for args in runs {
+            let s = git(&self.root, &args)?;
+            out.extend(s.split('\0').filter(|f| !f.is_empty()).map(String::from));
+        }
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+
     fn list_files(&self) -> Vec<String> {
         let list = |args: &[&str]| -> Vec<String> {
             git(&self.root, args)

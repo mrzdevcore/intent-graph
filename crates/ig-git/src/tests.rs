@@ -167,3 +167,36 @@ fn show_dir_reads_the_files_of_a_folder_at_a_commit_in_one_batch() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn changed_between_lists_paths_between_commits_and_the_working_tree() {
+    let (dir, g) = repo("between");
+    std::fs::create_dir_all(dir.join("app/src")).unwrap();
+    std::fs::write(dir.join("app/src/a.ts"), "").unwrap();
+    std::fs::write(dir.join("app/gone.ts"), "").unwrap();
+    std::fs::write(dir.join("outside.ts"), "").unwrap();
+    g(&["add", "-A"]);
+    g(&["commit", "-qm", "one"]);
+    let one = g(&["rev-parse", "HEAD"]);
+    std::fs::write(dir.join("app/src/a.ts"), "x").unwrap();
+    std::fs::remove_file(dir.join("app/gone.ts")).unwrap();
+    std::fs::write(dir.join("outside.ts"), "x").unwrap();
+    g(&["add", "-A"]);
+    g(&["commit", "-qm", "two"]);
+    let two = g(&["rev-parse", "HEAD"]);
+    std::fs::write(dir.join("app/b.ts"), "").unwrap();
+    std::fs::write(dir.join("app/src/a.ts"), "y").unwrap();
+    let v = GitVcs::open(&dir.join("app")).unwrap();
+    assert_eq!(
+        v.changed_between(&one, Some(&two)).unwrap(),
+        ["gone.ts", "src/a.ts"]
+    );
+    assert_eq!(v.changed_between(&two, Some(&two)).unwrap(), [""; 0]);
+    assert_eq!(v.changed_between(&two, None).unwrap(), ["b.ts", "src/a.ts"]);
+    assert_eq!(
+        v.changed_between(&one, None).unwrap(),
+        ["b.ts", "gone.ts", "src/a.ts"]
+    );
+    assert!(v.changed_between("nope", None).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

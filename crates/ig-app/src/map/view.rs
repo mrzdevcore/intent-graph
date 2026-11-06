@@ -2,6 +2,7 @@
 
 use super::agent::{Ask, Evidence, NOTHING_TO_PROPOSE, consent, offer, refusal};
 use super::code::{as_fact, code_boxes};
+use super::diff::{Side, SpecSide};
 use super::file::{self, Field, MapBox, MapFile, refresh};
 use super::kinds::{KindView, Kinds};
 use super::layers::{Mark, file_layers, risks, rules, sort_marks};
@@ -10,11 +11,11 @@ pub use super::layout::{Frame, Placed, Region, RegionKind};
 use super::live::{apply, read_all};
 use super::origin::{compare, not_read};
 use super::warn::warnings;
-use super::{MapArrow, Pattern, arrows, facts, spec};
+use super::{FactBox, MapArrow, Pattern, arrows, facts, spec};
 use crate::Env;
 use globset::GlobSet;
 use ig_core::config::Config;
-use ig_core::model::{Anatomy, Graph, Part, Range};
+use ig_core::model::{Anatomy, Finding, Graph, Part, Range};
 use ig_core::ports::{Connector, Files, LanguageFrontend};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -207,42 +208,93 @@ enum Mode<'a, 'b> {
     Analyse(Option<&'b mut Ask<'a>>),
 }
 
-fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<View> {
-    let config = crate::config::load(env.files)?;
-    let built = crate::graph(env, env.files, &config, env.vcs.and_then(|v| v.head()))?;
-    // no code ig reads: an Ansible tree's roles, when it has any
-    let infra = (!built.graph.nodes.iter().any(|n| n.is_module()))
-        .then(|| super::ansible::read(env.files))
-        .flatten();
-    let (g, ws) = (
-        infra.as_ref().map_or(&built.graph, |a| &a.graph),
-        &built.workspace,
-    );
-    let boxes = match &infra {
-        Some(a) => a.boxes.clone(),
-        None => facts(&built.workspace, g, &config),
+/// The code as the map sees it: the graph (an Ansible tree's roles when no code reads), its
+/// boxes and the rules' findings.
+struct Code {
+    config: Config,
+    built: crate::build::Built,
+    infra: Option<super::ansible::Ansible>,
+    boxes: Vec<FactBox>,
+    findings: Vec<Finding>,
+}
+
+impl Code {
+    fn read(env: &Env) -> crate::Result<Code> {
+        let config = crate::config::load(env.files)?;
+        let built = crate::graph(env, env.files, &config, env.vcs.and_then(|v| v.head()))?;
+        let infra = (!built.graph.nodes.iter().any(|n| n.is_module()))
+            .then(|| super::ansible::read(env.files))
+            .flatten();
+        let g = infra.as_ref().map_or(&built.graph, |a| &a.graph);
+        let boxes = match &infra {
+            Some(a) => a.boxes.clone(),
+            None => facts(&built.workspace, g, &config),
+        };
+        let findings = ig_core::rules::arch(g, &config, &built.workspace.packages);
+        Ok(Code {
+            config,
+            built,
+            infra,
+            boxes,
+            findings,
+        })
+    }
+
+    fn g(&self) -> &Graph {
+        self.infra.as_ref().map_or(&self.built.graph, |a| &a.graph)
+    }
+
+    /// Today's map of the code, refreshed over `old`.
+    fn today(&self, old: Option<&MapFile>) -> (MapFile, Vec<String>) {
+        let g = self.g();
+        let (mut m, reset) = refresh(old, &self.boxes, arrows(&self.boxes, g), &self.findings);
+        relift(&mut m, g, &self.findings);
+        (m, reset)
+    }
+
+    /// The spec `s` over the code, with its marks.
+    fn over(&self, s: &MapFile, prior: Option<&MapFile>) -> MapFile {
+        let mut m = compare(s, &self.boxes, self.g(), prior);
+        marks(&mut m, &self.findings);
+        m
+    }
+}
+
+/// The architecture level of the map (no code level, no connectors), with what `ig/` is; never
+/// writes. Without `use_spec`, or without an `ig/` that reads, the map of the code alone.
+pub fn architecture(env: &Env, use_spec: bool) -> crate::Result<Side> {
+    let c = Code::read(env)?;
+    let spec = match spec::read(env.files) {
+        Ok(Some(s)) => SpecSide::Read(s),
+        Ok(None) => SpecSide::Missing,
+        Err(e) => SpecSide::Broken(e.into_iter().next().unwrap_or_default()),
     };
-    let findings = ig_core::rules::arch(g, &config, &ws.packages);
+    let arch = match &spec {
+        SpecSide::Read(s) if use_spec => c.over(s, prior(env).as_ref()),
+        _ => c.today(None).0,
+    };
+    Ok(Side { arch, spec })
+}
+
+fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<View> {
+    let code = Code::read(env)?;
+    let (config, built, boxes, findings) = (&code.config, &code.built, &code.boxes, &code.findings);
+    let g = code.g();
     let mut notices: Vec<String> = config
         .notices
         .iter()
         .map(|k| format!("ig.yaml: `{k}` is no longer read; ignored"))
         .collect();
-    // today's map of the code, refreshed over `old`
-    let today = |old: Option<&MapFile>| {
-        let (mut m, reset) = refresh(old, &boxes, arrows(&boxes, g), &findings);
-        relift(&mut m, g, &findings);
-        (m, reset)
-    };
+    let today = |old: Option<&MapFile>| code.today(old);
     let mut broken = false;
     let prior = prior(env);
     let read = match spec::read(env.files) {
         Ok(Some(s)) => match mode {
             Mode::Look => Ok(s),
-            Mode::Analyse(ask) => match ask.map(|a| (consent(a, &config), a)) {
+            Mode::Analyse(ask) => match ask.map(|a| (consent(a, config), a)) {
                 Some((Some(agent), a)) => {
-                    let ev = Evidence::new(&boxes, &built.extras.imports, &config).for_spec();
-                    let cm = compare(&s, &boxes, g, prior.as_ref());
+                    let ev = Evidence::new(boxes, &built.extras.imports, config).for_spec();
+                    let cm = compare(&s, boxes, g, prior.as_ref());
                     notices.extend(propose::propose(
                         a,
                         agent,
@@ -257,7 +309,7 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
                 }
                 refused => {
                     if let Some((None, a)) = refused {
-                        notices.extend(refusal(a, &config, false));
+                        notices.extend(refusal(a, config, false));
                     }
                     notices.push(NOTHING_TO_PROPOSE.into());
                     Ok(s)
@@ -282,9 +334,9 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
                 }
                 Mode::Analyse(ask) if rejected.is_empty() => {
                     if let Some(a) = ask {
-                        let ev = Evidence::new(&boxes, &built.extras.imports, &config);
-                        notices.extend(offer(a, &mut m, &ev, &config, env.progress));
-                        relift(&mut m, g, &findings);
+                        let ev = Evidence::new(boxes, &built.extras.imports, config);
+                        notices.extend(offer(a, &mut m, &ev, config, env.progress));
+                        relift(&mut m, g, findings);
                     }
                     let from = if old.is_some() { file::MAP } else { "the code" };
                     let (said, wrote) = write_spec(env.files, &m, from)?;
@@ -317,11 +369,7 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
         }
     };
     let mut m = match read {
-        Ok(s) => {
-            let mut m = compare(&s, &boxes, g, prior.as_ref());
-            marks(&mut m, &findings);
-            m
-        }
+        Ok(s) => code.over(&s, prior.as_ref()),
         Err(m) => m,
     };
     // before `apply`: what a connector drew is nothing the person can edit
@@ -330,12 +378,12 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
         let kinds = Kinds::load(env.files).unwrap_or_else(|_| Kinds::builtin().clone());
         warnings(&m, &kinds)
     });
-    let reads = read_all(&config, connectors, env.files, env.progress);
+    let reads = read_all(config, connectors, env.files, env.progress);
     let live = apply(&mut m, &reads);
     notices.extend(live.notices);
     // what is not read now is read only when ig/ is written: no "ig's guess" banner
     m.boxes.iter_mut().for_each(|b| b.needs_reading = false);
-    let ui = components(env.files, g, env.frontends, &config);
+    let ui = components(env.files, g, env.frontends, config);
     let mut v = view(env.files, &m, g, &ui);
     notices.append(&mut v.notices);
     if let Some(w) = judged {
