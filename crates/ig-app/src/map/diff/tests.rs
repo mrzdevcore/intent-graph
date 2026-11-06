@@ -443,6 +443,7 @@ fn a_rule_break_on_an_arrow_to_drift_matches_across_counters() {
 mod runs {
     use super::super::build::run;
     use super::*;
+    use crate::Env;
     use crate::map::view::architecture;
     use crate::testing::{Fake, env};
     use ig_core::config::Config;
@@ -502,6 +503,28 @@ mod runs {
         let d = run(&e, "b", None, &at).unwrap();
         assert!(!d.boxes.added.is_empty());
         assert!(matches!(d.intent.status, IntentStatus::Same));
+    }
+
+    #[test]
+    fn the_same_commit_twice_is_one_checkout() {
+        let said: &'static std::sync::Mutex<Vec<String>> = Box::leak(Box::default());
+        let files = MemFiles::with(CODE);
+        let v = vcs(Some("wt"));
+        let progress = |m: &str| said.lock().unwrap().push(m.to_string());
+        let e = Env {
+            progress: &progress,
+            ..env(&files, Some(&v), &Fake)
+        };
+        let at = |_: &Path, _: bool, _: &Config| Ok(spec_side(shop()));
+        let d = run(&e, "b", Some("b"), &at).unwrap();
+        let outs = said
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|m| m.starts_with("checking out"))
+            .count();
+        assert_eq!(outs, 1);
+        assert_eq!((d.base.as_str(), d.head.as_deref()), ("b", Some("b")));
     }
 
     #[test]
