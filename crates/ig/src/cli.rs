@@ -44,6 +44,8 @@ pub enum Cmd {
     Analyse(AnalyseArgs),
     #[command(about = "Draw the map and open it")]
     View(ViewArgs),
+    #[command(about = "Ask a question; the answer is drawn on the map")]
+    Explore(ExploreArgs),
     #[command(about = "Show what to build, move and accept to bring code and map together")]
     Plan {
         #[arg(long, help = "Print the plan as JSON")]
@@ -136,6 +138,20 @@ pub struct ViewArgs {
     pub read: bool,
     #[arg(long, hide = true)]
     pub agent: Option<String>,
+}
+
+#[derive(Args)]
+pub struct ExploreArgs {
+    #[arg(help = "The question, in quotes")]
+    pub question: String,
+    #[arg(
+        long,
+        value_enum,
+        help = "The agent that answers (claude only for now)"
+    )]
+    pub agent: Option<AgentName>,
+    #[arg(long, help = "Draw the answer without opening the page")]
+    pub no_open: bool,
 }
 
 #[derive(Args)]
