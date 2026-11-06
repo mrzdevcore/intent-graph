@@ -21,7 +21,7 @@ make install   # builds the viewer page (viewer/dist/index.html), then `cargo in
 
 ## A folder of projects
 
-`ig .` or `ig view` on a folder that holds several projects, and is not a project itself, draws them on one map: a box per project with its own map inside, what runs the others on a band below, and dashed links where a project's files name another. A project need not be a git repo: a manifest or Terraform files are enough. Worktrees, archives, downloaded releases and folders without source are left out; the Folders panel says why. Secrets are never opened (`.env*`, `*.tfstate*`, `*.tfvars`, keys). Nothing is written until you run `ig view --read`, which reads each project without a map and writes its `ig/`.
+`ig view` on a folder that holds several projects, and is not a project itself, draws them on one map: a box per project with its own map inside, what runs the others on a band below, and dashed links where a project's files name another. A project need not be a git repo: a manifest or Terraform files are enough. Worktrees, archives, downloaded releases and folders without source are left out; the Folders panel says why. Secrets are never opened (`.env*`, `*.tfstate*`, `*.tfvars`, keys). `ig view` writes no `ig/`; `ig analyse` on the folder reads each project that has none and writes its `ig/`.
 
 ## Build
 
@@ -35,7 +35,7 @@ Desktop app: see [Desktop app (local build)](#desktop-app-local-build). The work
 
 ## Desktop app (local build)
 
-`crates/ig-desktop` is a Tauri 2 app: the map, editable (boxes, arrows, rename, move, delete, undo), beside a chat panel that runs Claude Code on your project. `ig .` (or `ig app [<dir>]`) opens it on a folder: it runs `$IG_APP` if set, else the app built next to this `ig` (`target/<profile>/ig-desktop`), else the installed `ig.app`.
+`crates/ig-desktop` is a Tauri 2 app: the map, editable (boxes, arrows, rename, move, delete, undo), beside a chat panel that runs Claude Code on your project. `ig app [<dir>]` opens it on a folder: it runs `$IG_APP` if set, else the app built next to this `ig` (`target/<profile>/ig-desktop`), else the installed `ig.app`.
 It is built locally and not distributed (no signing, no auto-update), pending Anthropic's written confirmation.
 
 ```sh
@@ -48,7 +48,7 @@ The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in developmen
 - **Needs:** Rust, pnpm, node and npm (for the Claude adapter), and the Claude CLI logged in (run `claude`, then `/login`). The app never sees your credentials.
 - **Adapter:** on the first chat, if it is missing, the app offers to install `@agentclientprotocol/claude-agent-acp@0.95.0` into its own data dir (never global).
 - **Trust screen:** before any Claude session the app lists what will run: hooks from `.claude/settings*.json`, permission settings (including bypass modes), `AGENTS.md`/`CLAUDE.md`/`CLAUDE.local.md`, MCP servers from `.mcp.json`, the ig plugin, and the project's skills, commands and agents (with any tools they pre-approve or hooks they run). Every file under `.claude/` is hashed (files over 1 MB by size only). You decide, and confirm natively. It asks again when any of them changes.
-- **Answers on the map:** when the agent calls `ig_show`, the map flies to the boxes and arrows in its answer, lights them with step numbers and fades the rest; a card lists the steps (←, → to walk, Esc to clear). If you are editing, the answer waits for you. `ig view` opens on an answer less than an hour old.
+- **Answers on the map:** when the agent calls `ig_show`, the map flies to the boxes and arrows in its answer, lights them with step numbers and fades the rest; a card lists the steps (←, → to walk, Esc to clear). If you are editing, the answer waits for you. `ig view` opens on an answer less than an hour old. The app writes no `ig/` when it opens a project: run `ig analyse` first.
 - **Plugin:** the app always uses its own ig plugin (re-exported on each run into its data dir). Run `ig init` after upgrading ig to refresh a project's copy for terminal use.
 - **Settings:** sessions load the project and local settings plus the ig plugin only. Your own skills and user settings do not load.
 - **Chat:** streaming replies, tool cards, diffs, permission and question cards, mode and model selectors (switching to a bypass mode asks to confirm) and `/` commands.
@@ -56,23 +56,59 @@ The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in developmen
 ## Quick start
 
 ```sh
-ig init            # ig.yaml, ig/ (an empty system in an empty repo), the skills, an AGENTS.md snippet, .gitignore entries
-ig .               # open the desktop app on this folder
-ig view            # build the map, write .ig/view.html and open it
-ig view --read     # the same, and let an AI agent read the architecture first
+ig init                          # ig.yaml, the agent skills, an AGENTS.md snippet, .gitignore entries
+ig analyse                       # read the code and write ig/ for you to review
+ig view                          # draw the map, write .ig/view.html and open it
+ig explore "how does X work"     # the answer on stdout, drawn on the map
 ```
+
+`ig analyse` is the only command that writes `ig/` from the code. Review it with `git diff ig/` and commit it. `ig app .` opens the desktop app instead of the browser.
+
+## `ig analyse`
+
+```
+ig analyse [--agent claude|gemini|codex|ollama] [--no-agent] [-C <dir>] [-q]
+```
+
+`ig analyse` (also `ig analyze`) is the one command that writes `ig/` from the code. `ig init`, `ig view`, `ig plan` and the desktop app never do.
+
+### Reading and consent
+
+An agent only runs when you say so:
+
+- No `ig/` yet: the agent reads every box and `ig analyse` writes the whole `ig/`.
+- `--agent <name>` runs that agent without asking. `--no-agent` never runs one: a new `ig/` is ig's reading of the code alone.
+- Plain `ig analyse` in a terminal asks `Let an AI agent (claude) read the architecture? [Y/n]`. A "no" writes the code-only `ig/`. Without a terminal (a script, CI) and without `--agent` or `agent:` in `ig.yaml`, it runs as `--no-agent`, with a notice.
+- `ig/` exists: the agent reads the drift and the boxes with no description and proposes edits to `ig/` (adds and new titles, descriptions, tech). They are written, journaled as the reading's, and you review them with `git diff ig/`.
+- `ig/` exists and no agent runs (`--no-agent`, a "no", no agent installed): nothing is written, a notice says so, and the exit is 0, so a script can run it twice.
+- On a folder of projects, it reads each project that has no `ig/`.
+
+`--agent` picks the CLI; otherwise `agent:` in `ig.yaml`, otherwise the first of `claude`, `gemini`,
+`codex` on `PATH`. The agent gets read-only tools and skips the repo's own agent configuration where
+its CLI allows: Claude runs with `--restricted --safe-mode --tools Read,Grep,Glob`; Codex with
+`--sandbox read-only`; Gemini with default approvals and no extensions. The Gemini and Codex command
+lines come from their documentation and have not been run against the real CLIs. A bad answer is
+retried once; whatever is still not valid is dropped, with a notice.
+
+## `ig explore`
+
+```
+ig explore [--agent claude] [--no-open] [-C <dir>] [-q] "<question>"
+```
+
+Asks Claude a question about the code. Claude gets `Read`, `Grep`, `Glob`, `ig_state` and `ig_show` and nothing else; the repo's own hooks and settings do not load. The short answer goes to stdout, `ig_show` draws it, and ig writes `.ig/show.json` and `.ig/view.html` and opens the map on the answer (`--no-open` skips that). Claude is the only agent for now. It works before `ig analyse`, on the map of the code.
 
 ## `ig view`
 
 ```
-ig view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|ollama] [--root <dir>]
+ig view [--no-open] [--json] [-C <dir>] [-q]
 ```
 
-`ig view` builds the map in three stages and writes `.ig/view.html`, one offline page:
+`ig view` is read-only: it never runs an agent and writes only `.ig/view.html`, one offline page. Without an `ig/` it draws the map of the code and says `run ig analyse`. It builds the map in three stages:
 
 1. **Facts (always, no AI).** The graph gives packages, the folders inside them, imports, calls and
    file counts. Every box and arrow exists after this stage, laid out and drawn.
-2. **Reading (optional, an AI agent).** The agent reads files with read-only tools and fills in each
+2. **Reading (an AI agent, from `ig analyse`).** The agent reads files with read-only tools and fills in each
    box's title, description, kind, tech, badges, logo and the pattern of its inside (`onion`,
    `hexagonal`, `layered`, or none). Every value in the map carries its source (`agent` or `ig`) and a confidence:
    `extracted` (read from a file), `inferred` (a judgment) or `ambiguous` (the agent was unsure).
@@ -80,35 +116,17 @@ ig view [--no-open] [--json] [--read | --no-read] [--agent claude|gemini|codex|o
    `ig.yaml` rules) and `risks` (ig's own code analysis), computed each run; and your own, from
    `.ig/layers/*.json` (below).
 
-**The spec `ig/` is committed.** The first `ig view` writes the intended architecture as `ig/*.kdl`:
+**The spec `ig/` is committed.** The first `ig analyse` writes the intended architecture as `ig/*.kdl`:
 from `.ig/map.json` when there is one (its readings and corrections kept), else from the code and
 the AI reading. After that `ig/` is yours: edit it by hand and commit it. ig changes it only
-through edits you ask for (`ig accept`, `ig fmt`, `ig view --read`, Claude's `ig_edit`), each
+through edits you ask for (`ig analyse`, `ig accept`, `ig fmt`, Claude's `ig_edit`), each
 in place: the nodes an edit touches change, every other line and comment keeps its text. Every run
 compares it with the code: what both have is built, what only `ig/` says is still to build, what
 only the code has is drift, and a box whose `at` changed since the last commit with the code still
 at the old place is to move. `.ig/map.json` is no longer written; delete it once `ig/` is committed. A broken
 `ig/` is left as is, with the file and line of each problem, and the map shows the code alone.
 
-### Reading and consent
-
-An agent only runs when you say so:
-
-- `ig view --read`: it runs, without asking, on every box, described ones included.
-- `ig view --no-read`: it never runs.
-- once `ig/` exists, the reading reads the drift and the boxes with no description and proposes
-  edits to `ig/` (adds and new titles, descriptions, tech): they are written, journaled as the
-  reading's, and you review them with `git diff ig/`.
-- plain `ig view` in a terminal: if boxes lack a reading, ig asks `Let an AI agent (claude) read the
-  architecture? [Y/n]` and runs it on a yes. Without a terminal (a script, CI) it does not run.
-
-`--agent` picks the CLI; otherwise `agent:` in `ig.yaml`, otherwise the first of `claude`, `gemini`,
-`codex` on `PATH`. The agent gets read-only tools and skips the repo's own agent configuration where
-its CLI allows: Claude runs with `--restricted --safe-mode --tools Read,Grep,Glob`; Codex with
-`--sandbox read-only`; Gemini with default approvals and no extensions. The Gemini and Codex command
-lines come from their documentation and have not been run against the real CLIs. A bad answer is
-retried once; whatever is still not valid is dropped, with a notice. `--json` prints the map
-and the notices instead of writing the page.
+The hidden `--no-read` is still accepted for one release, with a notice, because skills copied by older `ig init` runs pass it.
 
 ### Layers from files
 
@@ -167,19 +185,48 @@ ig reads only each instance's name, type, status and addresses. It never reads a
 
 ## Commands
 
-| Command | Does |
-|---|---|
-| `ig view [--no-open] [--json] [--read \| --no-read] [--agent <name>]` | The system map (above). |
-| `ig init [claude\|codex\|all]` | Scaffolding: `ig.yaml`, the explore and view skills for the chosen agents (default all), an `AGENTS.md` snippet, `.gitignore` entries. Never overwrites your edits. |
-| `ig plan` | Writes `ig/` from the code the first time; then prints the plan: boxes and arrows still to build, boxes to move (their `at` changed since the last commit), drift (code in no box, arrows `ig/` does not have) and code ig does not read (outside every package). |
-| `ig check` | The plan, read-only: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. |
-| `ig fmt [--check]` | Re-indents `ig/*.kdl` (four spaces a level, at most one blank line between nodes); comments and order stay. `--check` writes nothing and exits 1 when a file would change. |
-| `ig accept [--all \| <id>...]` | Takes drift into `ig/`: each box or arrow id from `ig plan` (quote arrow ids: `ig accept 'web->api'`), written one by one. |
-| `ig mcp` | MCP server on stdio: `ig_state` and `ig_show` (a coding agent draws an answer on the map: boxes, arrows and steps; ids are box ids from `ig view --json` or code graph ids), `ig_plan` (the plan) and `ig_edit` (Claude edits `ig/`: add, remove, move, rename, set, arrow, unarrow; its edits are proposals you review with `git diff ig/`). |
-| `ig plugin export <dir>` | Writes the current Claude plugin (skills, `.mcp.json`) into `<dir>`, overwriting. The desktop app uses this for its own copy. |
-| `ig --version` | Prints the version. |
+```
+Usage: ig [OPTIONS] [COMMAND]
 
-Every command accepts `--root <dir>`. Exit codes: 0 ok, 2 usage or error.
+Commands:
+  init     Set this repo up: ig.yaml, the agent skills, the AGENTS.md snippet
+  analyse  Read the code and write ig/ (or propose updates to it) for you to review [alias: analyze]
+  view     Draw the map and open it
+  explore  Ask a question; the answer is drawn on the map
+  plan     Show what to build, move and accept to bring code and map together
+  check    Exit 1 when the code and the map have drifted apart
+  accept   Take drift into the map
+  fmt      Rewrite the ig/ files in canonical form
+  app      Open the desktop app on a project
+
+Options:
+  -C, --root <DIR>  Run in DIR instead of the current folder
+  -q, --quiet       Print results only: no notices or warnings
+  -h, --help        Print help
+  -V, --version     Print version
+
+Plumbing:
+  mcp          Serve ig to an agent over MCP (stdio)
+  plugin       Write the agent plugin files
+  completions  Print a shell completion script
+```
+
+| Command | Reads and writes |
+|---|---|
+| `ig init [claude\|codex\|all]` | `ig.yaml`, the explore and view skills for the chosen agents (default all), an `AGENTS.md` snippet, `.gitignore` entries. Never overwrites your edits, never writes `ig/`. |
+| `ig analyse [--agent <name>] [--no-agent]` | Writes `ig/` (above). |
+| `ig view [--no-open] [--json]` | Writes `.ig/view.html`. `--json` prints the map instead. |
+| `ig explore [--agent claude] [--no-open] <question>` | Writes `.ig/show.json` and `.ig/view.html`; prints the answer. |
+| `ig plan [--json]` | Read-only. Prints the plan: boxes and arrows still to build, boxes to move (their `at` changed since the last commit), drift (code in no box, arrows `ig/` does not have) and code ig does not read (outside every package). Exit 2 without `ig/`. |
+| `ig check [--json]` | The plan, read-only: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. |
+| `ig accept [--all \| <id>...]` | Takes drift into `ig/`: each box or arrow id from `ig plan` (quote arrow ids: `ig accept 'web->api'`), written one by one. |
+| `ig fmt [--check]` | Re-indents `ig/*.kdl` (four spaces a level, at most one blank line between nodes); comments and order stay. `--check` writes nothing and exits 1 when a file would change. |
+| `ig app [<dir>]` | Opens the desktop app on a folder. |
+| `ig mcp` | MCP server on stdio: `ig_state` and `ig_show` (a coding agent draws an answer on the map: boxes, arrows and steps; ids are box ids from `ig view --json` or code graph ids; it draws before `ig/` exists), `ig_plan` (the plan) and `ig_edit` (Claude edits `ig/`: add, remove, move, rename, set, arrow, unarrow; its edits are proposals you review with `git diff ig/`). |
+| `ig plugin export <dir>` | Writes the current Claude plugin (skills, `.mcp.json`) into `<dir>`, overwriting. The desktop app uses this for its own copy. |
+| `ig completions <shell>` | Prints a completion script (bash, elvish, fish, powershell, zsh). |
+
+`ig <dir>` no longer opens the app: use `ig app <dir>`. Every command accepts `-C`/`--root <dir>` and `-q`; short options group (`-qC dir`) and `--` ends options. Exit codes: 0 ok, 1 `check` or `fmt --check` found something, 2 usage or error. Results go to stdout, notices and errors to stderr.
 
 **Edits and the journal.** Every edit to `ig/` (`ig accept`, the reading's, Claude's) is recorded
 in `.ig/journal.json`: who made it (person, claude or reading), the edit and the edit that undoes it,
@@ -189,7 +236,7 @@ losing it loses undo, never the spec.
 ## Config (`ig.yaml`)
 
 ```yaml
-agent: claude                 # optional: the CLI for the AI reading (claude | gemini | codex)
+agent: claude                 # optional: the CLI for `ig analyse` (claude | gemini | codex)
 layers:
   ui: ["@acme/ui"]            # a workspace package name, or a glob
   core: ["packages/core/**"]
