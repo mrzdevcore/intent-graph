@@ -30,14 +30,20 @@ pub fn run(
         vcs.checkout(sha)
     };
     let base_co = checkout(&base_sha)?;
-    let head_co = head_sha.as_deref().map(checkout).transpose()?;
-    let config = match head_co.as_ref().map(Checkout::root) {
+    let own_head = (head_sha.as_deref())
+        .filter(|h| *h != base_sha)
+        .map(checkout)
+        .transpose()?;
+    let head_co = head_sha
+        .as_ref()
+        .map(|_| own_head.as_ref().unwrap_or(&base_co));
+    let config = match head_co.map(Checkout::root) {
         None => crate::config::load(env.files)?,
         Some(Some(root)) => crate::config::load(&*env.files.at(root))?,
         Some(None) => Config::default(),
     };
     let work = work_info(env, &config);
-    for co in std::iter::once(&base_co).chain(&head_co) {
+    for co in std::iter::once(&base_co).chain(&own_head) {
         if let Some(root) = co.root() {
             for fe in env.frontends {
                 fe.prepare_checkout(&work, root, &config, true)?;
@@ -50,7 +56,7 @@ pub fn run(
         Some(Some(root)) => at(root, use_spec, &config),
     };
     let mut b = side(Some(&base_co), true)?;
-    let mut h = side(head_co.as_ref(), true)?;
+    let mut h = side(head_co, true)?;
     if let SpecSide::Broken(e) = &h.spec {
         return Err(anyhow::anyhow!("ig/ does not read: {e}").into());
     }
@@ -60,7 +66,7 @@ pub fn run(
             b = side(Some(&base_co), false)?;
         }
         if matches!(h.spec, SpecSide::Read(_)) {
-            h = side(head_co.as_ref(), false)?;
+            h = side(head_co, false)?;
         }
     }
     let changed = vcs.changed_between(&base_sha, head_sha.as_deref())?;
