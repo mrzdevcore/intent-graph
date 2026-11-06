@@ -1,4 +1,4 @@
-//! `ig init` on an empty repo, and `ig <dir>` / `ig app` opening the desktop app.
+//! `ig init` and `ig analyse` on an empty repo, and `ig app` opening the desktop app.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -12,15 +12,17 @@ fn dir(tag: &str) -> PathBuf {
 }
 
 #[test]
-fn init_on_an_empty_repo_writes_an_empty_system() {
+fn analyse_on_an_empty_repo_writes_an_empty_system() {
     let d = dir("init");
-    let o = Command::new(env!("CARGO_BIN_EXE_ig"))
-        .args(["--root"])
-        .arg(&d)
-        .arg("init")
-        .output()
-        .unwrap();
-    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for args in [&["init"][..], &["analyse", "--no-agent"]] {
+        let o = Command::new(env!("CARGO_BIN_EXE_ig"))
+            .args(["--root"])
+            .arg(&d)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    }
     let sys = std::fs::read_to_string(d.join("ig/system.kdl")).unwrap();
     assert!(sys.contains("system \"system\""), "{sys}");
     // a second init leaves ig/ alone
@@ -53,7 +55,7 @@ fn a_directory_or_app_opens_the_app_on_it() {
     std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
     let project = d.join("shop");
     std::fs::create_dir(&project).unwrap();
-    for args in [vec!["."], vec!["app"], vec!["app", "."]] {
+    for args in [vec!["app"], vec!["app", "."]] {
         let o = Command::new(env!("CARGO_BIN_EXE_ig"))
             .current_dir(&project)
             .env("IG_APP", &fake)
@@ -69,13 +71,13 @@ fn a_directory_or_app_opens_the_app_on_it() {
     let deadline = Instant::now() + Duration::from_secs(5);
     let lines = loop {
         let s = std::fs::read_to_string(&out).unwrap_or_default();
-        if s.lines().count() == 3 || Instant::now() > deadline {
+        if s.lines().count() == 2 || Instant::now() > deadline {
             break s;
         }
         std::thread::sleep(Duration::from_millis(50));
     };
     let want = format!("{}\n", project.display());
-    assert_eq!(lines, want.repeat(3));
+    assert_eq!(lines, want.repeat(2));
     let o = Command::new(env!("CARGO_BIN_EXE_ig"))
         .arg("nope-not-a-dir")
         .output()

@@ -5,8 +5,8 @@ description: Explain how part of this codebase fits together and draw it on the 
 
 # Explore the code with the ig graph
 
-You read code freely. The only file you write yourself is `.ig/show.json` (through `ig_show`);
-`ig view --json --no-read` writes the spec `ig/` (the intended architecture) on its own the first time.
+You read code freely. The only file you write yourself is `.ig/show.json`, through `ig_show`.
+Without an `ig/` (the intended architecture), tell the user to run `ig analyse`; never run it yourself.
 The architecture changes only through `ig_edit` (proposals), below.
 
 Only when the user asks to change the architecture: `ig_plan` prints what is left to build or move
@@ -14,7 +14,7 @@ and the drift; `ig_edit` edits `ig/` (`{"edits": [...]}`: add, remove, move, ren
 unarrow). Your edits are proposals the user reviews under Proposals in the map (and with `git diff ig/` in a git repository). Give `at` (code globs) for a
 new box, and use `move` to put a box elsewhere: it keeps its id.
 
-1. Find candidate ids. Run `ig view --json --no-read` and search `boxes[]` (`id`, `title`, `level`, `madeOf`)
+1. Find candidate ids. Run `ig view --json` and search `boxes[]` (`id`, `title`, `level`, `madeOf`)
    for the name; `arrows[]` (`from`, `to`, `kind`, `label`) holds the dependencies between boxes.
    Code-level boxes (`level` `code`) carry graph node ids: `file#Name` for a function or class.
 2. Walk `arrows[]`: who depends on a box (`to` is it), what it depends on (`from` is it), one or two

@@ -55,19 +55,20 @@ fn ig(root: &Path, path: &Path, args: &[&str]) -> (i32, String) {
     (out.status.code().unwrap(), text)
 }
 
-const VIEW: &[&str] = &["view", "--no-read", "--no-open", "--json"];
+const VIEW: &[&str] = &["view", "--no-open", "--json"];
 const INCUS: &str = "connectors:\n  - { kind: incus, remote: homelab }\n";
 
 #[test]
 fn view_draws_the_server_and_no_secret_reaches_the_page() {
     let (root, bin) = shop("draws", INCUS);
     fake_incus(&root, &bin, &format!("/bin/cat <<'EOF'\n{INSTANCES}\nEOF"));
+    assert_eq!(ig(&root, &bin, &["analyse", "--no-agent"]).0, 0);
     let (code, out) = ig(&root, &bin, VIEW);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("\"state\"") && out.contains("gitlab"), "{out}");
     assert!(!out.contains("SECRET_CANARY") && !out.contains("10.0.0.2"));
     // `--json` never writes the page: run again without it and read the real file.
-    let (code, out) = ig(&root, &bin, &["view", "--no-read", "--no-open"]);
+    let (code, out) = ig(&root, &bin, &["view", "--no-open"]);
     assert_eq!(code, 0, "{out}");
     let page = std::fs::read_to_string(root.join(".ig/view.html")).expect("view.html is written");
     assert!(page.contains("gitlab"), "the page draws the instance");
@@ -97,9 +98,10 @@ fn a_remote_of_many_instances_is_no_crowding_to_fix() {
 }
 
 #[test]
-fn plan_and_check_never_call_a_connector() {
+fn analyse_plan_and_check_never_call_a_connector() {
     let (root, bin) = shop("plan", INCUS);
     fake_incus(&root, &bin, &format!("/bin/cat <<'EOF'\n{INSTANCES}\nEOF"));
+    ig(&root, &bin, &["analyse", "--no-agent"]);
     ig(&root, &bin, &["plan"]);
     ig(&root, &bin, &["check"]);
     assert!(!root.join("called").exists());

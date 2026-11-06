@@ -1,3 +1,4 @@
+use super::super::agent;
 use super::super::origin::Origin;
 use super::*;
 use crate::testing::{Fake, env};
@@ -10,8 +11,7 @@ fn notices_reach_the_view_and_a_rejected_map_is_kept() {
         ("src/a.ts", "export function f() {}\n"),
         (file::MAP, "{ not json"),
     ]);
-    let fe = Fake;
-    let v = run(&env(&files, None, &fe)).unwrap();
+    let v = analyse(&env(&files, None, &Fake), None).unwrap();
     assert!(v.notices[0].contains("complexityMax"), "{:?}", v.notices);
     assert!(
         v.notices.iter().any(|n| n.contains("left as is")),
@@ -27,9 +27,18 @@ fn notices_reach_the_view_and_a_rejected_map_is_kept() {
 }
 
 #[test]
-fn the_first_run_writes_ig_and_later_runs_never_rewrite_it() {
+fn analyse_writes_ig_once_and_run_never_writes() {
     let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
     let v = run(&env(&files, None, &Fake)).unwrap();
+    assert!(files.read("ig/system.kdl").is_none());
+    assert!(!v.broken);
+    assert!(!v.boxes.is_empty(), "the map of the code");
+    assert!(
+        v.notices.iter().any(|n| n.contains("run `ig analyse`")),
+        "{:?}",
+        v.notices
+    );
+    let v = analyse(&env(&files, None, &Fake), None).unwrap();
     assert!(
         v.notices.iter().any(|n| n.starts_with("wrote ig/")),
         "{:?}",
@@ -42,9 +51,16 @@ fn the_first_run_writes_ig_and_later_runs_never_rewrite_it() {
     files
         .write_atomic("lib/c.ts", b"export const y = 2;\n")
         .unwrap(); // outside every `at`: drift
-    let v = run(&env(&files, None, &Fake)).unwrap();
+    let v = analyse(&env(&files, None, &Fake), None).unwrap();
     assert_eq!(files.read("ig/system.kdl").unwrap(), before);
     assert_eq!(files.read("ig/pkg.kdl").unwrap(), pkg);
+    assert!(
+        v.notices.iter().any(|n| n == agent::NOTHING_TO_PROPOSE),
+        "{:?}",
+        v.notices
+    );
+    let v = run(&env(&files, None, &Fake)).unwrap();
+    assert_eq!(files.read("ig/system.kdl").unwrap(), before);
     assert!(v.boxes.iter().any(|b| b.origin == Origin::Drift));
     assert!(!v.notices.iter().any(|n| n.starts_with("wrote ig/")));
     assert!(v.boxes.iter().all(|b| !b.needs_reading));
@@ -69,7 +85,7 @@ fn a_map_json_is_migrated_with_its_readings() {
     sys.pinned.push("title".into());
     file::save(&files, &m).unwrap();
     let map = files.read(file::MAP).unwrap();
-    let v = run(&e).unwrap();
+    let v = analyse(&e, None).unwrap();
     assert!(
         files
             .read("ig/system.kdl")
@@ -189,7 +205,7 @@ fn a_spec_ig_would_reject_is_never_written() {
 #[test]
 fn the_view_carries_the_kinds_and_its_own_warnings() {
     let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
-    run(&env(&files, None, &Fake)).unwrap();
+    analyse(&env(&files, None, &Fake), None).unwrap();
     let sys = files.read("ig/system.kdl").unwrap();
     let sys = sys.replacen("{\n", "{\n  usecase \"lonely\" title=\"Lonely\"\n", 1);
     files.write_atomic("ig/system.kdl", sys.as_bytes()).unwrap();

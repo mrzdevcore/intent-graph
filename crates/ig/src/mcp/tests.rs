@@ -323,3 +323,27 @@ fn tools_list_offers_the_teams_kinds_and_ig_edit_adds_one() {
     let sys = std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap();
     assert!(sys.contains("iot-device \"probe\""), "{sys}");
 }
+
+#[test]
+fn show_draws_box_ids_without_ig() {
+    let dir = crate::tests::tmp_with(&[
+        ("web/a.ts", "export const a = 1;\n"),
+        (
+            "web/b.ts",
+            "import { a } from './a';\nexport const b = a;\n",
+        ),
+    ]);
+    let w = Wired::new(&dir);
+    let v = view::run(&w.env()).unwrap();
+    let id = v.boxes[0].id.clone();
+    let r = call_tool(&dir, "ig_show", json!({"title": "t", "nodes": [id]}));
+    assert!(r.get("isError").is_none(), "{r}");
+    assert!(!dir.join("ig").exists());
+}
+
+#[test]
+fn plan_without_ig_points_to_analyse() {
+    let dir = crate::tests::tmp_with(&[("a.txt", "x")]);
+    let r = call_tool(&dir, "ig_plan", json!({}));
+    assert!(text(&r).contains("ig analyse"), "{r}");
+}

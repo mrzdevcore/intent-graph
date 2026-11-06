@@ -7,7 +7,6 @@ use ig_app::map::edit::Edit;
 use ig_app::map::edit::journal::{self, By};
 use ig_app::map::kinds::Kinds;
 use ig_app::map::{origin, spec, view};
-use ig_core::ports::Files;
 use ig_wire::Wired;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
@@ -83,16 +82,10 @@ fn head_graph(root: &Path) -> anyhow::Result<Graph> {
     Ok(ig_app::graph(&env, env.files, &cfg, None)?.graph)
 }
 
-const NO_SPEC: &str = "no ig/ yet: run `ig plan` or `ig view` to write it";
-
 fn has_spec(w: &Wired) -> anyhow::Result<bool> {
-    Ok(!w
-        .files()
-        .glob(&[format!("{}/*.kdl", spec::DIR)])?
-        .is_empty())
+    Ok(spec::exists(w.files())?)
 }
 
-/// The lines `ig plan` prints, and `{build, move, drift, notRead}`.
 fn plan_text(w: &Wired) -> anyhow::Result<(String, Value)> {
     let v = view::run(&w.env())?;
     if v.broken {
@@ -100,8 +93,7 @@ fn plan_text(w: &Wired) -> anyhow::Result<(String, Value)> {
     }
     let unread = view::unread(&w.env(), &v, &ig_fs::BUILD_DIRS)?;
     let p = origin::plan_of(&v.boxes, &v.arrows, &unread);
-    let s = json!({"build": p.build, "move": p.moves, "drift": p.drift, "notRead": p.not_read});
-    Ok((p.text("plan"), s))
+    Ok((p.text("plan"), crate::plan::json(&p)))
 }
 
 fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option<Value>)> {
@@ -123,14 +115,7 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
             let w = Wired::new(root);
             let targets = match ig_wire::landscape(root) {
                 Some(v) => ig_app::show::Targets::new(&Graph::empty(), Some(&v)),
-                None => {
-                    let map = if has_spec(&w)? {
-                        Some(view::run(&w.env())?)
-                    } else {
-                        None
-                    };
-                    ig_app::show::Targets::new(&head_graph(root)?, map.as_ref())
-                }
+                None => ig_app::show::Targets::new(&head_graph(root)?, Some(&view::run(&w.env())?)),
             };
             let show = ig_app::show::validate(&targets, args, seq + 1)?;
             std::fs::create_dir_all(root.join(".ig"))?;
@@ -145,7 +130,7 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
         "ig_plan" => {
             let w = Wired::new(root);
             if !has_spec(&w)? {
-                return Ok((NO_SPEC.into(), None));
+                return Ok((spec::MISSING.into(), None));
             }
             let (text, p) = plan_text(&w)?;
             Ok((text, Some(p)))
@@ -153,7 +138,7 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
         "ig_edit" => {
             let w = Wired::new(root);
             if !has_spec(&w)? {
-                anyhow::bail!(NO_SPEC);
+                anyhow::bail!(spec::MISSING);
             }
             let edits: Vec<Value> = match args.get("edits") {
                 Some(Value::Array(a)) => a.clone(),

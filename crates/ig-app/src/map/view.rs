@@ -1,6 +1,6 @@
 //! What `ig view` draws: the map with its code level, every layer's marks and the notices.
 
-use super::agent::{Ask, Evidence, offer};
+use super::agent::{Ask, Evidence, NOTHING_TO_PROPOSE, consent, offer, refusal};
 use super::code::{as_fact, code_boxes};
 use super::file::{self, Field, MapBox, MapFile, refresh};
 use super::kinds::{KindView, Kinds};
@@ -188,26 +188,26 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
     }
 }
 
-/// `ig view` without an agent: see `run_with`.
+const NO_SPEC_YET: &str = "no ig/ yet: run `ig analyse`";
+
 pub fn run(env: &Env) -> crate::Result<View> {
-    run_with(env, None)
+    build(env, Mode::Look, &[])
 }
 
-/// `ig view`: the spec in `ig/` compared with the code, then the view of it. The first run (no
-/// `ig/`) writes the spec from today's map: `.ig/map.json`'s reading when there is one, else the
-/// code, read by an AI agent when `ask` consents; after that `ig/` changes only by edits (with
-/// `--read`, the AI reading's proposals: `propose`), and `.ig/map.json` is never written. A broken `ig/` is left as is: the view is then of the code.
-pub fn run_with(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
-    run_live(env, ask, &[])
+pub fn run_live(env: &Env, connectors: &[&dyn Connector]) -> crate::Result<View> {
+    build(env, Mode::Look, connectors)
 }
 
-/// `run_with`, then what `connectors` read from running systems is drawn on the map. That is
-/// only drawn: it never reaches `ig/`, `validate` or `propose`.
-pub fn run_live(
-    env: &Env,
-    ask: Option<&mut Ask>,
-    connectors: &[&dyn Connector],
-) -> crate::Result<View> {
+pub fn analyse(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
+    build(env, Mode::Analyse(ask), &[])
+}
+
+enum Mode<'a, 'b> {
+    Look,
+    Analyse(Option<&'b mut Ask<'a>>),
+}
+
+fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<View> {
     let config = crate::config::load(env.files)?;
     let built = crate::graph(env, env.files, &config, env.vcs.and_then(|v| v.head()))?;
     // no code ig reads: an Ansible tree's roles, when it has any
@@ -237,23 +237,32 @@ pub fn run_live(
     let mut broken = false;
     let prior = prior(env);
     let read = match spec::read(env.files) {
-        Ok(Some(s)) => match ask.filter(|a| a.all) {
-            // `--read`: the reading's edits are in ig/ now, so it is read again
-            Some(a) => {
-                let ev = Evidence::new(&boxes, &built.extras.imports, &config).for_spec();
-                let cm = compare(&s, &boxes, g, prior.as_ref());
-                notices.extend(propose::propose(
-                    a,
-                    &cm,
-                    &ev,
-                    &config,
-                    env.files,
-                    env.progress,
-                    env.vcs.is_some_and(|v| v.head().is_some()),
-                ));
-                Ok(spec::read(env.files).ok().flatten().unwrap_or(s))
-            }
-            None => Ok(s),
+        Ok(Some(s)) => match mode {
+            Mode::Look => Ok(s),
+            Mode::Analyse(ask) => match ask.map(|a| (consent(a, &config), a)) {
+                Some((Some(agent), a)) => {
+                    let ev = Evidence::new(&boxes, &built.extras.imports, &config).for_spec();
+                    let cm = compare(&s, &boxes, g, prior.as_ref());
+                    notices.extend(propose::propose(
+                        a,
+                        agent,
+                        &cm,
+                        &ev,
+                        env.files,
+                        env.progress,
+                        env.vcs.is_some_and(|v| v.head().is_some()),
+                    ));
+                    // the reading's edits are in ig/ now, so it is read again
+                    Ok(spec::read(env.files).ok().flatten().unwrap_or(s))
+                }
+                refused => {
+                    if let Some((None, a)) = refused {
+                        notices.extend(refusal(a, &config, false));
+                    }
+                    notices.push(NOTHING_TO_PROPOSE.into());
+                    Ok(s)
+                }
+            },
         },
         Err(e) => {
             broken = true;
@@ -265,37 +274,45 @@ pub fn run_live(
             let (old, rejected) = file::load(env.files);
             let (mut m, reset) = today(old.as_ref());
             notices.extend(reset);
-            if rejected.is_empty() {
-                if let Some(a) = ask {
-                    let ev = Evidence::new(&boxes, &built.extras.imports, &config);
-                    notices.extend(offer(a, &mut m, &ev, &config, env.files, env.progress));
-                    relift(&mut m, g, &findings);
+            match mode {
+                Mode::Look => {
+                    notices.extend(rejected);
+                    notices.push(NO_SPEC_YET.into());
+                    Err(m)
                 }
-                let from = if old.is_some() { file::MAP } else { "the code" };
-                let (said, wrote) = write_spec(env.files, &m, from)?;
-                notices.push(said);
-                broken |= !wrote;
-                match spec::read(env.files) {
-                    Ok(Some(s)) => Ok(s),
-                    Ok(None) => {
-                        broken = true;
-                        Err(m)
+                Mode::Analyse(ask) if rejected.is_empty() => {
+                    if let Some(a) = ask {
+                        let ev = Evidence::new(&boxes, &built.extras.imports, &config);
+                        notices.extend(offer(a, &mut m, &ev, &config, env.progress));
+                        relift(&mut m, g, &findings);
                     }
-                    Err(e) => {
-                        broken = true;
-                        notices.extend(e);
-                        Err(m)
+                    let from = if old.is_some() { file::MAP } else { "the code" };
+                    let (said, wrote) = write_spec(env.files, &m, from)?;
+                    notices.push(said);
+                    broken |= !wrote;
+                    match spec::read(env.files) {
+                        Ok(Some(s)) => Ok(s),
+                        Ok(None) => {
+                            broken = true;
+                            Err(m)
+                        }
+                        Err(e) => {
+                            broken = true;
+                            notices.extend(e);
+                            Err(m)
+                        }
                     }
                 }
-            } else {
-                broken = true;
-                notices.extend(rejected);
-                notices.push(format!(
-                    "{} left as is; fix or delete it to let ig write {}/",
-                    file::MAP,
-                    spec::DIR
-                ));
-                Err(m)
+                Mode::Analyse(_) => {
+                    broken = true;
+                    notices.extend(rejected);
+                    notices.push(format!(
+                        "{} left as is; fix or delete it to let ig write {}/",
+                        file::MAP,
+                        spec::DIR
+                    ));
+                    Err(m)
+                }
             }
         }
     };

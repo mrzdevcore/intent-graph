@@ -21,7 +21,7 @@ pub fn prompt() -> String {
     PROMPT.replace("{kinds}", &lines.join("\n"))
 }
 
-const TIMEOUT: Duration = Duration::from_secs(10 * 60);
+pub(crate) const TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// `name` is a file in a PATH directory.
 // ponytail: no executable bit or Windows extensions (.exe, .cmd) checked; add if they misfire
@@ -48,7 +48,7 @@ pub fn confirm(agent: Agent) -> bool {
     !line.trim().to_lowercase().starts_with('n')
 }
 
-/// `ig view --read`'s status line on stderr, on a terminal only: a spinner, boxes asked about of
+/// `ig analyse`'s status line on stderr, on a terminal only: a spinner, boxes asked about of
 /// all to read as a bar, the time so far and what is happening now, redrawn in place so a long ask
 /// does not look stuck. Progress lines print above it (ig-wire clears its line first); dropped
 /// unfinished, it is wiped.
@@ -278,7 +278,7 @@ fn ollama(prompt: &str, ids: &[String]) -> Result<String, String> {
 /// `argv` run as `run` says, in its own process group: when it ends or times out, the whole
 /// group is killed, so its helpers (workers, shells, MCP servers) neither outlive it nor hold
 /// its output open past `timeout`.
-fn run_argv(
+pub(crate) fn run_argv(
     root: &Path,
     name: &str,
     argv: &[&str],
