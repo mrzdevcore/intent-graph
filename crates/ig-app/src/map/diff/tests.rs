@@ -404,6 +404,7 @@ mod runs {
     use super::*;
     use crate::map::view::architecture;
     use crate::testing::{Fake, env};
+    use ig_core::config::Config;
     use ig_core::testing::{FakeVcs, MemFiles};
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
@@ -425,12 +426,15 @@ mod runs {
         let v = vcs(Some("wt"));
         let e = env(&files, Some(&v), &Fake);
         let calls = RefCell::new(vec![]);
-        let at = |root: &Path, use_spec: bool| {
+        let at = |root: &Path, use_spec: bool, config: &Config| {
             calls.borrow_mut().push((root.to_path_buf(), use_spec));
             let spec = map(vec![bx("spec-only", None, Level::System, &["**"])], vec![]);
             let arch = match use_spec {
                 true => spec.clone(),
-                false => architecture(&env(&MemFiles::with(CODE), None, &Fake), false)?.arch,
+                false => {
+                    let f = MemFiles::with(CODE);
+                    architecture(&env(&f, None, &Fake), false, Some(config))?.arch
+                }
             };
             Ok(Side {
                 arch,
@@ -452,7 +456,8 @@ mod runs {
         let files = MemFiles::with(CODE);
         let v = vcs(None);
         let e = env(&files, Some(&v), &Fake);
-        let at = |_: &Path, _: bool| -> crate::Result<Side> { panic!("no checkout root") };
+        let at =
+            |_: &Path, _: bool, _: &Config| -> crate::Result<Side> { panic!("no checkout root") };
         let d = run(&e, "b", None, &at).unwrap();
         assert!(!d.boxes.added.is_empty());
         assert!(matches!(d.intent.status, IntentStatus::Same));
@@ -463,7 +468,7 @@ mod runs {
         let files = MemFiles::with(CODE);
         let v = vcs(Some("wt"));
         let e = env(&files, Some(&v), &Fake);
-        let at = |_: &Path, _: bool| -> crate::Result<Side> { panic!("never built") };
+        let at = |_: &Path, _: bool, _: &Config| -> crate::Result<Side> { panic!("never built") };
         let err =
             |base: &str, head: Option<&str>| run(&e, base, head, &at).unwrap_err().to_string();
         assert_eq!(err("nope", None), "nope: not a commit");
@@ -471,7 +476,7 @@ mod runs {
 
         let files = MemFiles::with(&[CODE[0], ("ig/system.kdl", "system {")]);
         let e = env(&files, Some(&v), &Fake);
-        let at = |_: &Path, _: bool| {
+        let at = |_: &Path, _: bool, _: &Config| {
             Ok(Side {
                 arch: map(vec![], vec![]),
                 spec: SpecSide::Missing,
@@ -483,4 +488,31 @@ mod runs {
             "{msg}"
         );
     }
+}
+
+#[test]
+fn both_sides_are_built_with_the_heads_ig_yaml() {
+    use super::build::run;
+    use crate::map::view::architecture;
+    use crate::testing::{Fake, env};
+    use ig_core::config::Config;
+    use ig_core::testing::{FakeVcs, MemFiles};
+    use std::path::Path;
+    let code = [
+        ("src/a.ts", "export function f() {}\n"),
+        ("src/x/b.ts", "export function g() {}\n"),
+    ];
+    let files = MemFiles::with(&code);
+    let v = FakeVcs {
+        commits: ["b".to_string()].into(),
+        checkout_root: Some("wt".into()),
+        ..FakeVcs::default()
+    };
+    let e = env(&files, Some(&v), &Fake);
+    let at = |_: &Path, use_spec: bool, config: &Config| {
+        let base = MemFiles::with(&[code[0], code[1], ("ig.yaml", "ignore:\n  - src/x\n")]);
+        architecture(&env(&base, None, &Fake), use_spec, Some(config))
+    };
+    let d = run(&e, "b", None, &at).unwrap();
+    assert_eq!(d.summary, "no architecture change", "{:?}", d.boxes);
 }

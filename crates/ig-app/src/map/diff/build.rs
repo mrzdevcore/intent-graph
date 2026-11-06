@@ -6,17 +6,17 @@ use crate::Env;
 use crate::map::file::MapFile;
 use crate::map::view;
 use ig_core::config::Config;
-use ig_core::ports::{Checkout, PortError, Vcs};
+use ig_core::ports::{Checkout, PortError};
 use ig_core::workspace::WorkspaceInfo;
 use std::path::Path;
 
-/// The diff of `base` against `head` (the working tree when None). `at(root, use_spec)` builds
-/// the side of a checkout's ig root.
+/// The diff of `base` against `head` (the working tree when None), both built with the head's
+/// ig.yaml. `at(root, use_spec, config)` builds the side of a checkout's ig root.
 pub fn run(
     env: &Env,
     base: &str,
     head: Option<&str>,
-    at: &dyn Fn(&Path, bool) -> crate::Result<Side>,
+    at: &dyn Fn(&Path, bool, &Config) -> crate::Result<Side>,
 ) -> crate::Result<Diff> {
     let vcs = env
         .vcs
@@ -25,16 +25,29 @@ pub fn run(
         |rev: &str| (vcs.verify(rev)).ok_or_else(|| PortError::Vcs(format!("{rev}: not a commit")));
     let base_sha = verify(base)?;
     let head_sha = head.map(verify).transpose()?;
-    let config = crate::config::load(env.files)?;
+    let checkout = |sha: &str| {
+        (env.progress)(&format!("checking out {}…", &sha[..sha.len().min(7)]));
+        vcs.checkout(sha)
+    };
+    let base_co = checkout(&base_sha)?;
+    let head_co = head_sha.as_deref().map(checkout).transpose()?;
+    let config = match head_co.as_ref().map(Checkout::root) {
+        None => crate::config::load(env.files)?,
+        Some(Some(root)) => crate::config::load(&*env.files.at(root))?,
+        Some(None) => Config::default(),
+    };
     let work = work_info(env, &config);
-    let base_co = checkout(env, vcs, &base_sha, &work, &config)?;
-    let head_co = (head_sha.as_deref())
-        .map(|h| checkout(env, vcs, h, &work, &config))
-        .transpose()?;
+    for co in std::iter::once(&base_co).chain(&head_co) {
+        if let Some(root) = co.root() {
+            for fe in env.frontends {
+                fe.prepare_checkout(&work, root, &config, true)?;
+            }
+        }
+    }
     let side = |co: Option<&Checkout>, use_spec: bool| match co.map(Checkout::root) {
-        None => view::architecture(env, use_spec),
+        None => view::architecture(env, use_spec, Some(&config)),
         Some(None) => Ok(empty()),
-        Some(Some(root)) => at(root, use_spec),
+        Some(Some(root)) => at(root, use_spec, &config),
     };
     let mut b = side(Some(&base_co), true)?;
     let mut h = side(head_co.as_ref(), true)?;
@@ -73,22 +86,4 @@ fn work_info(env: &Env, config: &Config) -> WorkspaceInfo {
         packages: vec![],
         files: vec![],
     })
-}
-
-/// A checkout of `sha` made buildable by every frontend from the working tree.
-fn checkout(
-    env: &Env,
-    vcs: &dyn Vcs,
-    sha: &str,
-    work: &WorkspaceInfo,
-    config: &Config,
-) -> crate::Result<Checkout> {
-    (env.progress)(&format!("checking out {}…", &sha[..sha.len().min(7)]));
-    let co = vcs.checkout(sha)?;
-    if let Some(root) = co.root() {
-        for fe in env.frontends {
-            fe.prepare_checkout(work, root, config, true)?;
-        }
-    }
-    Ok(co)
 }

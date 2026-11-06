@@ -326,7 +326,7 @@ fn architecture_never_writes_and_reports_the_spec() {
     let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
     let snapshot = || files.files.lock().unwrap().clone();
     let before = snapshot();
-    let s = architecture(&env(&files, None, &Fake), true).unwrap();
+    let s = architecture(&env(&files, None, &Fake), true, None).unwrap();
     assert!(matches!(s.spec, SpecSide::Missing));
     assert!(!s.arch.boxes.is_empty(), "the map of the code");
     assert_eq!(snapshot(), before, "nothing written");
@@ -334,7 +334,7 @@ fn architecture_never_writes_and_reports_the_spec() {
     analyse(&env(&files, None, &Fake), None).unwrap();
     let before = snapshot();
     let e = env(&files, None, &Fake);
-    let with = architecture(&e, true).unwrap();
+    let with = architecture(&e, true, None).unwrap();
     let SpecSide::Read(spec) = &with.spec else {
         panic!("ig/ reads")
     };
@@ -343,7 +343,7 @@ fn architecture_never_writes_and_reports_the_spec() {
         spec.boxes.len(),
         "the spec's boxes, no drift"
     );
-    let code = architecture(&e, false).unwrap();
+    let code = architecture(&e, false, None).unwrap();
     assert!(matches!(code.spec, SpecSide::Read(_)), "still reported");
     let ids = |m: &MapFile| m.boxes.iter().map(|b| b.id.clone()).collect::<Vec<_>>();
     assert_eq!(
@@ -354,7 +354,8 @@ fn architecture_never_writes_and_reports_the_spec() {
                 None,
                 &Fake
             ),
-            true
+            true,
+            None
         )
         .unwrap()
         .arch),
@@ -367,7 +368,7 @@ fn architecture_never_writes_and_reports_the_spec() {
         ("ig/system.kdl", "system {"),
     ]);
     let before = files.files.lock().unwrap().clone();
-    let s = architecture(&env(&files, None, &Fake), true).unwrap();
+    let s = architecture(&env(&files, None, &Fake), true, None).unwrap();
     let SpecSide::Broken(e) = &s.spec else {
         panic!("broken")
     };
