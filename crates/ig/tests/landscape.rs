@@ -41,7 +41,7 @@ fn files(d: &Path) -> Vec<PathBuf> {
 
 fn view(d: &Path) -> Value {
     let out = Command::new(env!("CARGO_BIN_EXE_ig"))
-        .args(["view", "--json", "--no-read", "--root"])
+        .args(["view", "--json", "--root"])
         .arg(d)
         .output()
         .unwrap();
@@ -148,6 +148,34 @@ fn init_in_a_folder_of_projects_leaves_it_a_folder_of_projects() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(!d.join("ig").exists(), "wrote a map of the whole folder");
-    assert!(String::from_utf8_lossy(&out.stdout).contains("folder of 3 projects"));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("folder of 3 projects"), "{err}");
+    assert_eq!(err.lines().last(), Some("next: ig analyse"), "{err}");
     assert!(view(&d).get("landscape").is_some());
+}
+
+#[test]
+fn analyse_in_a_folder_of_projects_writes_each_project_without_one() {
+    let d = folder("analyse");
+    let web = std::fs::read_to_string(d.join("web/ig/system.kdl")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_ig"))
+        .args(["analyse", "--no-agent", "--root"])
+        .arg(&d)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{err}");
+    assert!(!d.join("ig").exists(), "wrote a map of the whole folder");
+    assert!(d.join("analytics/ig/system.kdl").is_file(), "{err}");
+    assert!(d.join("infra/ig/system.kdl").is_file(), "{err}");
+    assert_eq!(
+        std::fs::read_to_string(d.join("web/ig/system.kdl")).unwrap(),
+        web
+    );
+    assert!(!d.join(".ig/view.html").exists());
+    assert_eq!(
+        err.lines().last(),
+        Some("next: ig view, then commit ig/"),
+        "{err}"
+    );
 }

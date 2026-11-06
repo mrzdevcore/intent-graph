@@ -5,15 +5,14 @@
 use super::file::{self, Confidence, Field, MapBox, MapFile, Source};
 use super::{BoxKind, FactBox};
 use ig_core::config::Config;
-use ig_core::ports::Files;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const NO_AGENT: &str = "No AI agent found (claude, gemini or codex): showing ig's own reading.";
 /// Said before claude runs.
 pub const READ_ONLY: &str = "The agent reads files in this repo with read-only tools.";
-/// The unread boxes a person said no to (a JSON array of ids), relative to the ig root.
-pub const DECLINED: &str = ".ig/declined.json";
+pub const NO_TERMINAL: &str = "no terminal to ask: pass --agent or set agent: in ig.yaml";
+pub const NOTHING_TO_PROPOSE: &str = "ig/ exists; the reading needs an agent: nothing to propose";
 const OPEN: &str = "<ig-annotations>";
 const CLOSE: &str = "</ig-annotations>";
 /// File names shown per box.
@@ -111,7 +110,7 @@ impl Agent {
     }
 
     /// The most boxes asked about at once: a small model loses the thread in a long prompt, and
-    /// smaller asks let `ig view --read` show how far it got.
+    /// smaller asks let `ig analyse` show how far it got.
     // ponytail: 20 keeps most containers in one ask (a regrouping needs all its boxes); tune
     // if bigger containers get cut too often
     pub fn batch(self) -> usize {
@@ -148,18 +147,15 @@ impl Agent {
 /// Runs an agent with a prompt about some boxes (their ids): its answer, or why it failed.
 pub type Run<'r> = dyn FnMut(Agent, &str, &[String]) -> Result<String, String> + 'r;
 
-/// What `ig view` needs from the outside to ask an agent.
+/// What `ig analyse` needs from the outside to ask an agent.
 pub struct Ask<'a> {
-    /// `--read`: every box, even the annotated ones, and no question.
-    pub all: bool,
     /// `--agent`.
     pub flag: Option<Agent>,
     /// The prompt (`read.md`); `{{boxes}}` is replaced by the boxes to read.
     pub template: &'a str,
     /// The program is on PATH.
     pub found: &'a dyn Fn(&str) -> bool,
-    /// May this agent read the architecture? None when nobody can be asked (no terminal):
-    /// then only `all` reads.
+    /// May this agent read the architecture? None when nobody can be asked (no terminal).
     pub confirm: Option<&'a mut dyn FnMut(Agent) -> bool>,
     /// Runs the agent with a prompt about the boxes `ids`; its answer, or why it failed.
     pub run: &'a mut Run<'a>,
@@ -235,57 +231,53 @@ fn boxes(n: usize) -> String {
     }
 }
 
-/// `ig view`'s reading, only on consent: `--read`, or a yes to `confirm` when some box needs
-/// reading. A no is kept in `DECLINED`: the same unread boxes are not asked about again. Returns
-/// a notice: the hint when nobody can be asked (no agent to ask about, or a no kept), no agent
-/// for `--read`, or why the reading was not used.
+/// The agent to read with: `--agent` or ig.yaml's `agent:` without a question, else a yes to
+/// `confirm`; None when nobody said yes or the agent is not on PATH (`refusal` says why).
+pub fn consent(a: &mut Ask, cfg: &Config) -> Option<Agent> {
+    let agent = Agent::pick(cfg, a.flag, a.found)?;
+    if a.flag.is_some() || cfg.agent.is_some() {
+        return Some(agent);
+    }
+    let confirm = a.confirm.as_mut()?;
+    confirm(agent).then_some(agent)
+}
+
+/// Why `consent` gave no agent; None after a no.
+pub fn refusal(a: &Ask, cfg: &Config) -> Option<&'static str> {
+    if Agent::pick(cfg, a.flag, a.found).is_none() {
+        Some(NO_AGENT)
+    } else if a.flag.is_none() && cfg.agent.is_none() && a.confirm.is_none() {
+        Some(NO_TERMINAL)
+    } else {
+        None
+    }
+}
+
+/// The first `ig analyse`'s reading of every box, on `consent`. Returns a notice: why nothing
+/// was read (after a no, the hint), or why the reading was not used.
 pub fn offer(
     a: &mut Ask,
     m: &mut MapFile,
     ev: &Evidence,
     cfg: &Config,
-    files: &dyn Files,
     progress: &dyn Fn(&str),
 ) -> Option<String> {
-    let unread: Vec<&str> = m
-        .boxes
-        .iter()
-        .filter(|b| b.needs_reading && !b.stale)
-        .map(|b| b.id.as_str())
-        .collect();
-    let n = unread.len();
-    let hint = || {
+    let Some(agent) = consent(a, cfg) else {
+        if let Some(why) = refusal(a, cfg) {
+            return Some(why.into());
+        }
+        let n = (m.boxes.iter())
+            .filter(|b| b.needs_reading && !b.stale)
+            .count();
         let are = if n == 1 { "is" } else { "are" };
-        Some(format!(
-            "{} {are} ig's guess; run `ig view --read` to let an AI agent read them.",
-            boxes(n)
-        ))
+        return (n > 0).then(|| {
+            format!(
+                "{} {are} ig's guess; run `ig analyse` to let an AI agent read them.",
+                boxes(n)
+            )
+        });
     };
-    if !a.all && n == 0 {
-        return None;
-    }
-    let agent = Agent::pick(cfg, a.flag, a.found);
-    if !a.all {
-        let (Some(ag), Some(confirm)) = (agent, a.confirm.as_mut()) else {
-            return hint();
-        };
-        let declined = files
-            .read_bytes(DECLINED)
-            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok());
-        if declined.is_some_and(|d| d == unread) {
-            return hint();
-        }
-        if !confirm(ag) {
-            let text = serde_json::to_string(&unread).unwrap_or_default();
-            // ponytail: a failed write only means the question comes back next time
-            let _ = files.write_atomic(DECLINED, text.as_bytes());
-            return None;
-        }
-    }
-    let Some(agent) = agent else {
-        return Some(NO_AGENT.into());
-    };
-    read(agent, a.template, m, ev, a.all, a.run, progress, a.meter).err()
+    read(agent, a.template, m, ev, true, a.run, progress, a.meter).err()
 }
 
 /// Asks `agent` to read the boxes that need it (`all`: every box), `agent.batch()` at a time, and

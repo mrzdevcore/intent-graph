@@ -162,7 +162,9 @@ mod tests {
             .unwrap()
             .success();
         assert!(ok);
-        dir.canonicalize().unwrap()
+        let dir = dir.canonicalize().unwrap();
+        ig_app::map::view::analyse(&Wired::new(&dir).env(), None).unwrap();
+        dir
     }
 
     fn spec(root: &Path) -> String {

@@ -1,4 +1,4 @@
-//! `ig init` on an empty repo, and `ig app` opening the desktop app.
+//! `ig init` and `ig analyse` on an empty repo, and `ig app` opening the desktop app.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -12,15 +12,17 @@ fn dir(tag: &str) -> PathBuf {
 }
 
 #[test]
-fn init_on_an_empty_repo_writes_an_empty_system() {
+fn analyse_on_an_empty_repo_writes_an_empty_system() {
     let d = dir("init");
-    let o = Command::new(env!("CARGO_BIN_EXE_ig"))
-        .args(["--root"])
-        .arg(&d)
-        .arg("init")
-        .output()
-        .unwrap();
-    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    for args in [&["init"][..], &["analyse", "--no-agent"]] {
+        let o = Command::new(env!("CARGO_BIN_EXE_ig"))
+            .args(["--root"])
+            .arg(&d)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    }
     let sys = std::fs::read_to_string(d.join("ig/system.kdl")).unwrap();
     assert!(sys.contains("system \"system\""), "{sys}");
     // a second init leaves ig/ alone

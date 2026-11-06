@@ -20,7 +20,7 @@ fn spec(dir: &std::path::Path) -> std::collections::BTreeMap<String, String> {
 fn view_json_shape() {
     let dir = git_fixture("shop");
     let w = Wired::new(&dir);
-    let mut drawn = view::run(&w.env()).unwrap();
+    let mut drawn = view::analyse(&w.env(), None).unwrap();
     let v = serde_json::to_value(&drawn).unwrap();
     for key in ["boxes", "arrows", "marks", "placed", "notices"] {
         assert!(v.get(key).is_some(), "no `{key}` in {v}");
@@ -109,7 +109,7 @@ fn many_containers_stay_loadable() {
         .collect();
     let dir = super::tmp_with(&refs);
     let w = Wired::new(&dir);
-    let v = view::run(&w.env()).unwrap();
+    let v = view::analyse(&w.env(), None).unwrap();
     assert_eq!(
         v.notices,
         ["wrote ig/: the intended architecture, from the code; edit it, commit it"]

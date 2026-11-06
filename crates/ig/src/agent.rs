@@ -48,7 +48,7 @@ pub fn confirm(agent: Agent) -> bool {
     !line.trim().to_lowercase().starts_with('n')
 }
 
-/// `ig view --read`'s status line on stderr, on a terminal only: a spinner, boxes asked about of
+/// `ig analyse`'s status line on stderr, on a terminal only: a spinner, boxes asked about of
 /// all to read as a bar, the time so far and what is happening now, redrawn in place so a long ask
 /// does not look stuck. Progress lines print above it (ig-wire clears its line first); dropped
 /// unfinished, it is wiped.

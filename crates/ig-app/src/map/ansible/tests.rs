@@ -147,7 +147,7 @@ fn tasks_templates_and_settings_draw_the_arrows() {
 #[test]
 fn ig_view_draws_an_ansible_tree_down_to_its_tasks() {
     let files = repo();
-    let v = crate::map::view::run(&env(&files, None, &Fake)).unwrap();
+    let v = crate::map::view::analyse(&env(&files, None, &Fake), None).unwrap();
     let task = (v.boxes.iter())
         .find(|b| b.kind.value == BoxKind::Task && b.title.value == "Deploy payment API")
         .unwrap();
