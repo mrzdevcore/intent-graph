@@ -38,9 +38,7 @@ pub fn run(root: &Path, args: &DiffArgs, quiet: bool) -> Result<u8> {
     if args.json {
         println!("{}", serde_json::to_string_pretty(&d)?);
     } else {
-        let full = |rev: &str| ig_core::ports::Vcs::verify(vcs, rev).unwrap_or_else(|| rev.into());
-        let (b, h) = (full(&d.base), d.head.as_deref().map(full));
-        print!("{}", text(&d, &b, h.as_deref()));
+        print!("{}", text(&d));
     }
     Ok(0)
 }
@@ -53,9 +51,9 @@ fn short(rev: &str) -> &str {
     }
 }
 
-fn text(d: &Diff, base: &str, head: Option<&str>) -> String {
-    let head = head.map_or("working tree", short);
-    let mut out = format!("{}..{head}: {}\n", short(base), d.summary);
+fn text(d: &Diff) -> String {
+    let head = d.head.as_deref().map_or("working tree", short);
+    let mut out = format!("{}..{head}: {}\n", short(&d.base), d.summary);
     for c in d.boxes.changed.iter().filter(|c| c.direct) {
         let n = c.files_changed;
         let files = if n == 1 { "file" } else { "files" };

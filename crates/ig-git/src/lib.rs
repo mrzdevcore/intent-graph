@@ -301,6 +301,7 @@ impl Vcs for GitVcs {
             "diff",
             "-z",
             "--name-only",
+            "--no-renames",
             "--relative",
             base,
         ];
