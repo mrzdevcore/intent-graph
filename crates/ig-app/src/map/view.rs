@@ -190,22 +190,14 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
 
 const NO_SPEC_YET: &str = "no ig/ yet: run `ig analyse`";
 
-/// `ig view`: the spec in `ig/` compared with the code, then the view of it; never writes. With
-/// no `ig/`, the map of the code (`.ig/map.json`'s reading when there is one). A broken `ig/` is
-/// left as is: the view is then of the code.
 pub fn run(env: &Env) -> crate::Result<View> {
     build(env, Mode::Look, &[])
 }
 
-/// `run`, then what `connectors` read from running systems is drawn on the map. That is only
-/// drawn: it never reaches `ig/`, `validate` or `propose`.
 pub fn run_live(env: &Env, connectors: &[&dyn Connector]) -> crate::Result<View> {
     build(env, Mode::Look, connectors)
 }
 
-/// `ig analyse`, the one writer of `ig/`. No `ig/`: the spec from today's map, read by an agent
-/// when `ask` consents (`offer`). With `ig/`: on consent the reading's proposals (`propose`),
-/// else nothing. A broken `ig/` is left as is. `.ig/map.json` is never written.
 pub fn analyse(env: &Env, ask: Option<&mut Ask>) -> crate::Result<View> {
     build(env, Mode::Analyse(ask), &[])
 }
@@ -265,7 +257,7 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
                 }
                 refused => {
                     if let Some((None, a)) = refused {
-                        notices.extend(refusal(a, &config).map(String::from));
+                        notices.extend(refusal(a, &config, false).map(String::from));
                     }
                     notices.push(NOTHING_TO_PROPOSE.into());
                     Ok(s)
