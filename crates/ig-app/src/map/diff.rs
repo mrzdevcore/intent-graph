@@ -55,6 +55,7 @@ pub struct ChangedBox {
     pub parent: Option<String>,
     pub files: Vec<String>,
     pub files_changed: u32,
+    pub direct: bool,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -280,6 +281,7 @@ fn boxes(
                 title: b.title.value.clone(),
                 parent: b.parent.clone(),
                 files_changed: fs.len() as u32,
+                direct: direct.contains(&i),
                 files: fs.into_iter().map(String::from).collect(),
             }
         })

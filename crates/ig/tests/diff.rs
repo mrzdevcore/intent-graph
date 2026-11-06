@@ -135,16 +135,33 @@ fn ig_added_by_the_change() {
 }
 
 #[test]
-fn head_without_base_is_a_usage_error() {
+fn no_arguments_compare_against_the_default_base() {
     let dir = repo("usage", &TWO);
-    assert_eq!(run_ig(&dir, &["diff"]).code, 0);
-    let o = Command::new(env!("CARGO_BIN_EXE_ig"))
-        .arg("--root")
-        .arg(&dir)
-        .args(["diff", "--json", "--head"])
-        .output()
-        .unwrap();
-    assert_eq!(o.status.code(), Some(2));
+    let out = run_ig(&dir, &["diff", "--json"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+}
+
+#[test]
+fn changed_lines_match_the_count_and_skip_the_package() {
+    let dir = repo(
+        "direct",
+        &[
+            ("package.json", "{\"name\":\"root\",\"private\":true}\n"),
+            ("pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\n"),
+            ("packages/a/package.json", "{\"name\":\"@t/a\"}\n"),
+            ("packages/a/src/x/x.ts", "export const x = 1;\n"),
+            ("packages/a/src/y/y.ts", "export const y = 1;\n"),
+        ],
+    );
+    write(&dir, "packages/a/src/x/x.ts", "export const x = 2;\n");
+    write(&dir, "packages/a/src/y/y.ts", "export const y = 2;\n");
+    let out = run_ig(&dir, &["diff", "HEAD"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    let first = out.stdout.lines().next().unwrap();
+    let n: usize = first.split(": ").nth(1).unwrap().split(' ').next().unwrap().parse().unwrap();
+    let lines = out.stdout.lines().filter(|l| l.starts_with("  changed  ")).count();
+    assert_eq!(lines, n, "{}", out.stdout);
+    assert!(!out.stdout.contains("changed  @t/a"), "{}", out.stdout);
 }
 
 #[test]

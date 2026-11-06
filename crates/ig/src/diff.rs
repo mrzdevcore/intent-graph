@@ -56,23 +56,7 @@ fn short(rev: &str) -> &str {
 fn text(d: &Diff, base: &str, head: Option<&str>) -> String {
     let head = head.map_or("working tree", short);
     let mut out = format!("{}..{head}: {}\n", short(base), d.summary);
-    let ids: Vec<&str> = d.boxes.changed.iter().map(|c| c.id.as_str()).collect();
-    for c in &d.boxes.changed {
-        let parent_changed = c.parent.as_deref().is_some_and(|p| ids.contains(&p));
-        let root_of_changed = c.parent.is_none()
-            && d.boxes
-                .changed
-                .iter()
-                .any(|o| o.parent.as_deref() == Some(c.id.as_str()));
-        let under_root = c.parent.as_deref().is_some_and(|p| {
-            d.boxes
-                .changed
-                .iter()
-                .any(|o| o.id == p && o.parent.is_none())
-        });
-        if root_of_changed || (parent_changed && !under_root) {
-            continue;
-        }
+    for c in d.boxes.changed.iter().filter(|c| c.direct) {
         let n = c.files_changed;
         let files = if n == 1 { "file" } else { "files" };
         out += &format!("  changed  {} ({n} {files})\n", c.title);
