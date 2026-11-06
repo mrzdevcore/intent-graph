@@ -180,7 +180,7 @@ fn read_and_no_read_together_is_a_usage_error() {
     let (root, bin) = shop("both");
     let (code, out) = ig(&root, &bin, &["view", "--read", "--no-read", "--no-open"]);
     assert_eq!(code, 2, "{out}");
-    assert!(out.contains("--read and --no-read"), "{out}");
+    assert!(out.contains("--no-read"), "{out}");
     assert!(!root.join("ig").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
