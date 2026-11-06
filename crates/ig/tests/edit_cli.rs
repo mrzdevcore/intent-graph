@@ -36,7 +36,7 @@ fn run_ig(dir: &Path, args: &[&str]) -> Out {
 
 fn planned(tag: &str) -> PathBuf {
     let dir = repo(tag, &[("src/a.ts", "export function f() {}\n")]);
-    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
     dir
 }
 
@@ -224,7 +224,7 @@ fn accepting_a_stray_script_does_not_hide_a_new_package() {
             ("apps/web/b.ts", "export const b = 1;\n"),
         ],
     );
-    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
     let p = dir.join("ig/api.kdl");
     let t = std::fs::read_to_string(&p).unwrap();
     std::fs::write(&p, t.replace("    at \"apps/api/**\"\n", "")).unwrap();
@@ -281,7 +281,7 @@ fn accept_slugs_ids_and_escapes_globs() {
             ("apps/web/b.ts", "export const b = 1;\n"),
         ],
     );
-    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
     for k in ["api", "web"] {
         let p = dir.join(format!("ig/{k}.kdl"));
         let t = std::fs::read_to_string(&p).unwrap();
@@ -321,7 +321,7 @@ fn accept_all_prints_each_item_and_skips_an_arrow_of_another_kind() {
             ),
         ],
     );
-    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
     let p = dir.join("ig/api.kdl");
     let t = std::fs::read_to_string(&p).unwrap();
     std::fs::write(&p, t.replace("    at \"apps/api/**\"\n", "")).unwrap();

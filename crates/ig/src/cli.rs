@@ -32,11 +32,16 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Cmd {
-    #[command(about = "Set ig up in this project: ig/ and the agent skills")]
+    #[command(about = "Set this repo up: ig.yaml, the agent skills, the AGENTS.md snippet")]
     Init {
         #[arg(help = "Which agent to set up (default: all)")]
         agents: Option<InitAgents>,
     },
+    #[command(
+        visible_alias = "analyze",
+        about = "Read the code and write ig/ (or propose updates to it) for you to review"
+    )]
+    Analyse(AnalyseArgs),
     #[command(about = "Draw the map and open it")]
     View(ViewArgs),
     #[command(about = "Show what to build, move and accept to bring code and map together")]
@@ -124,16 +129,25 @@ pub struct ViewArgs {
     pub no_open: bool,
     #[arg(long, help = "Print the map as JSON instead of writing a page")]
     pub json: bool,
+    // `view`'s flags from before `ig analyse`, answered for one release
+    #[arg(long, hide = true)]
+    pub no_read: bool,
+    #[arg(long, hide = true)]
+    pub read: bool,
+    #[arg(long, hide = true)]
+    pub agent: Option<String>,
+}
+
+#[derive(Args)]
+pub struct AnalyseArgs {
+    #[arg(long, value_enum, help = "The agent to read with, without asking")]
+    pub agent: Option<AgentName>,
     #[arg(
         long,
-        conflicts_with = "no_read",
-        help = "Have an agent read every box, without asking"
+        conflicts_with = "agent",
+        help = "Never start an agent: a new ig/ is ig's reading of the code alone"
     )]
-    pub read: bool,
-    #[arg(long, help = "Never start an agent")]
-    pub no_read: bool,
-    #[arg(long, value_enum, help = "The agent to read with")]
-    pub agent: Option<AgentName>,
+    pub no_agent: bool,
 }
 
 pub fn usage() -> String {

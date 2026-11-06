@@ -40,8 +40,7 @@ fn check_never_writes_ig() {
     let out = run_ig(&dir, &["check"]);
     assert_eq!(out.code, 2);
     assert!(
-        out.stderr
-            .contains("no ig/ yet: run `ig plan` or `ig view` to write it"),
+        out.stderr.contains("no ig/ yet: run `ig analyse`"),
         "{}",
         out.stderr
     );
@@ -49,9 +48,9 @@ fn check_never_writes_ig() {
 }
 
 #[test]
-fn check_passes_after_plan_writes_ig_then_fails_on_drift() {
+fn check_passes_after_analyse_writes_ig_then_fails_on_drift() {
     let dir = repo("drift", &[("src/a.ts", "export function f() {}\n")]);
-    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
     let out = run_ig(&dir, &["check"]);
     assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
     assert!(
@@ -81,7 +80,7 @@ fn check_passes_after_plan_writes_ig_then_fails_on_drift() {
 #[test]
 fn check_warns_without_failing() {
     let dir = repo("warn", &[("src/a.ts", "export function f() {}\n")]);
-    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
     let f = dir.join("ig/system.kdl");
     // a usecase straight in the system: reads, with a warning
     let t = std::fs::read_to_string(&f).unwrap();
@@ -96,10 +95,7 @@ fn check_warns_without_failing() {
         out.stderr
     );
     // every command words a warning the same
-    for args in [
-        &["check"][..],
-        &["view", "--no-read", "--no-open", "--json"],
-    ] {
+    for args in [&["check"][..], &["view", "--no-open", "--json"]] {
         let out = run_ig(&dir, args);
         assert!(
             (out.stderr.lines())
@@ -113,7 +109,7 @@ fn check_warns_without_failing() {
 #[test]
 fn check_and_plan_exit_2_on_a_broken_spec() {
     let dir = repo("broken", &[("src/a.ts", "export function f() {}\n")]);
-    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
     let f = std::fs::read_dir(dir.join("ig"))
         .unwrap()
         .next()
@@ -161,7 +157,7 @@ fn committed_shop(tag: &str) -> PathBuf {
             .success()
     );
     git(&dir, &["init", "-q"]);
-    assert_eq!(run_ig(&dir, &["plan"]).code, 0);
+    assert_eq!(run_ig(&dir, &["analyse", "--no-agent"]).code, 0);
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-qm", "base"]);
     dir

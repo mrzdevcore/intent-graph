@@ -1,4 +1,4 @@
-//! `ig view` asking an AI agent to read the architecture, with a fake agent on a temp PATH.
+//! `ig analyse` asking an AI agent to read the architecture, with a fake agent on a temp PATH.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
@@ -75,7 +75,7 @@ const CHECKOUT: &str = "<ig-annotations>[{\"id\": \"api/application-checkout\", 
 fn agent_annotates() {
     let (root, bin) = shop("annotates");
     fake(&bin, "claude", &[&format!("Here it is.\n{CHECKOUT}\n")]);
-    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
+    let (code, out) = ig(&root, &bin, &["analyse", "--agent", "claude"]);
     assert_eq!(code, 0, "{out}");
     assert!(
         spec(&root).contains("description=\"Takes an order and charges it.\""),
@@ -91,7 +91,7 @@ fn agent_annotates() {
 fn agent_garbage_still_writes_ig_and_a_failed_reading_changes_nothing() {
     let (root, bin) = shop("garbage");
     fake(&bin, "claude", &["I looked at it and it is a nice shop."]);
-    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
+    let (code, out) = ig(&root, &bin, &["analyse", "--agent", "claude"]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("<ig-annotations>"), "the reason: {out}");
     assert!(bin.join("prompt.2").exists(), "asked twice");
@@ -100,9 +100,9 @@ fn agent_garbage_still_writes_ig_and_a_failed_reading_changes_nothing() {
         "{out}"
     );
     let before = spec(&root);
-    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
+    let (code, out) = ig(&root, &bin, &["analyse", "--agent", "claude"]);
     assert_eq!(code, 0, "{out}");
-    // with ig/ written, --read reads again: its edits would be proposals
+    // with ig/ written, it reads again: its edits would be proposals
     assert!(bin.join("prompt.3").exists(), "not read again: {out}");
     assert!(out.contains("reading was not used"), "{out}");
     assert_eq!(spec(&root), before);
@@ -117,7 +117,7 @@ fn agent_retry_on_errors() {
     let bad = "<ig-annotations>[{\"id\": \"api/application-checkout\", \
                \"madeOf\": [\"../elsewhere/*\"]}]</ig-annotations>";
     fake(&bin, "claude", &[bad, CHECKOUT]);
-    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-open"]);
+    let (code, out) = ig(&root, &bin, &["analyse", "--agent", "claude"]);
     assert_eq!(code, 0, "{out}");
     let second = std::fs::read_to_string(bin.join("prompt.2")).unwrap();
     assert!(
@@ -132,15 +132,15 @@ fn agent_retry_on_errors() {
 }
 
 #[test]
-fn no_agent_still_views() {
+fn no_agent_still_writes_ig() {
     let (root, _bin) = shop("none");
-    let (code, out) = ig(&root, Path::new(""), &["view", "--read", "--no-open"]);
+    let (code, out) = ig(&root, Path::new(""), &["analyse"]);
     assert_eq!(code, 0, "{out}");
     assert!(
         out.contains("No AI agent found (claude, gemini or codex): showing ig's own reading."),
         "{out}"
     );
-    assert!(root.join(".ig/view.html").exists());
+    assert!(root.join("ig/system.kdl").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
 
@@ -148,14 +148,16 @@ fn no_agent_still_views() {
 fn no_tty_never_reads() {
     let (root, bin) = shop("notty");
     fake(&bin, "claude", &[CHECKOUT]);
-    let (code, out) = ig(&root, &bin, &["view", "--no-open"]);
+    let (code, out) = ig(&root, &bin, &["analyse"]);
     assert_eq!(code, 0, "{out}");
     assert!(!bin.join("prompt.1").exists(), "the agent ran: {out}");
     assert!(
-        out.contains("boxes are ig's guess; run `ig view --read` to let an AI agent read them."),
+        out.contains("no terminal to ask: pass --agent or set agent: in ig.yaml"),
         "{out}"
     );
     assert!(!out.contains("No AI agent found"), "{out}");
+    assert!(out.contains("wrote ig/"), "{out}");
+    assert!(!spec(&root).contains("Takes an order"), "{out}");
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
 
@@ -163,11 +165,7 @@ fn no_tty_never_reads() {
 fn a_named_agent_not_on_path_is_no_agent() {
     let (root, bin) = shop("named");
     fake(&bin, "claude", &[CHECKOUT]);
-    let (code, out) = ig(
-        &root,
-        &bin,
-        &["view", "--read", "--agent", "gemini", "--no-open"],
-    );
+    let (code, out) = ig(&root, &bin, &["analyse", "--agent", "gemini"]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("No AI agent found"), "{out}");
     assert!(!out.contains("could not start"), "{out}");
@@ -176,11 +174,11 @@ fn a_named_agent_not_on_path_is_no_agent() {
 }
 
 #[test]
-fn read_and_no_read_together_is_a_usage_error() {
+fn agent_and_no_agent_together_is_a_usage_error() {
     let (root, bin) = shop("both");
-    let (code, out) = ig(&root, &bin, &["view", "--read", "--no-read", "--no-open"]);
+    let (code, out) = ig(&root, &bin, &["analyse", "--agent", "claude", "--no-agent"]);
     assert_eq!(code, 2, "{out}");
-    assert!(out.contains("--no-read"), "{out}");
+    assert!(out.contains("--no-agent"), "{out}");
     assert!(!root.join("ig").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
@@ -203,7 +201,7 @@ fn removed_commands_say_so() {
 fn no_git_noise_and_the_page_is_ignored() {
     let (root, bin) = shop("nogit");
     let path = format!("{}:/usr/bin:/bin", bin.display());
-    let (code, out) = ig(&root, Path::new(&path), &["view", "--no-read", "--no-open"]);
+    let (code, out) = ig(&root, Path::new(&path), &["view", "--no-open"]);
     assert_eq!(code, 0, "{out}");
     assert!(!out.contains("fatal"), "{out}");
     assert_eq!(
@@ -213,7 +211,7 @@ fn no_git_noise_and_the_page_is_ignored() {
     // a repo that ignores `.ig/*` itself gets no `.ig/.gitignore`
     std::fs::remove_dir_all(root.join(".ig")).unwrap();
     std::fs::write(root.join(".gitignore"), ".ig/*\n").unwrap();
-    let (code, out) = ig(&root, Path::new(&path), &["view", "--no-read", "--no-open"]);
+    let (code, out) = ig(&root, Path::new(&path), &["view", "--no-open"]);
     assert_eq!(code, 0, "{out}");
     assert!(!root.join(".ig/.gitignore").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
