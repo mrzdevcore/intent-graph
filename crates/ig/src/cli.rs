@@ -46,6 +46,8 @@ pub enum Cmd {
     View(ViewArgs),
     #[command(about = "Ask a question; the answer is drawn on the map")]
     Explore(ExploreArgs),
+    #[command(about = "Show what a change does to the architecture")]
+    Diff(DiffArgs),
     #[command(about = "Show what to build, move and accept to bring code and map together")]
     Plan {
         #[arg(long, help = "Print the plan as JSON")]
@@ -152,6 +154,19 @@ pub struct ExploreArgs {
     pub agent: Option<AgentName>,
     #[arg(long, help = "Draw the answer without opening the page")]
     pub no_open: bool,
+}
+
+#[derive(Args)]
+pub struct DiffArgs {
+    #[arg(help = "The commit to compare against (default: where this branch left main)")]
+    pub base: Option<String>,
+    #[arg(
+        requires = "base",
+        help = "The commit to compare (default: the working tree)"
+    )]
+    pub head: Option<String>,
+    #[arg(long, help = "Print the diff as JSON")]
+    pub json: bool,
 }
 
 #[derive(Args)]

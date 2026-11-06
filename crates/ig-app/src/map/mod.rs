@@ -5,6 +5,7 @@ pub mod agent;
 pub mod ansible;
 pub mod arrows;
 pub mod code;
+pub mod diff;
 pub mod edit;
 pub mod externals;
 pub mod facts;

@@ -128,6 +128,7 @@ pub struct FakeVcs {
     /// (rev, path) → contents.
     pub shows: HashMap<(String, String), String>,
     pub changed: Vec<String>,
+    pub changed_between: Vec<String>,
     pub files: Vec<String>,
     pub clean: bool,
     pub history: Vec<Vec<String>>,
@@ -174,6 +175,15 @@ impl Vcs for FakeVcs {
     }
     fn changed_files(&self, _base: Option<&str>, _notices: &mut Vec<String>) -> Vec<String> {
         self.changed.clone()
+    }
+    fn changed_between(&self, base: &str, head: Option<&str>) -> Result<Vec<String>, PortError> {
+        match std::iter::once(base)
+            .chain(head)
+            .find(|r| self.verify(r).is_none())
+        {
+            Some(r) => Err(PortError::Vcs(format!("{r}: not a commit"))),
+            None => Ok(self.changed_between.clone()),
+        }
     }
     fn list_files(&self) -> Vec<String> {
         self.files.clone()

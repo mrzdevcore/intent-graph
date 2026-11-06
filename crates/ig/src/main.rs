@@ -3,6 +3,7 @@ mod agent;
 mod analyse;
 mod app;
 mod cli;
+mod diff;
 mod explore;
 mod init;
 mod mcp;
@@ -111,6 +112,7 @@ fn real_main() -> Result<u8> {
         Cmd::View(a) => run_view(&root, &a, quiet),
         Cmd::Analyse(a) => analyse::run(&root, &a, quiet),
         Cmd::Explore(a) => explore::run(&root, &a, quiet),
+        Cmd::Diff(a) => diff::run(&root, &a, quiet),
         Cmd::Plan { json } | Cmd::Check { json } => {
             let check = matches!(command, Cmd::Check { .. });
             let name = if check { "check" } else { "plan" };
