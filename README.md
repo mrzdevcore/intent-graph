@@ -106,15 +106,16 @@ ig diff [<base> [<head>]] [--json] [-C <dir>] [-q]
 
 Shows what a change does to the architecture. It builds the map on both sides and compares them: boxes added, removed or changed (a box changes when a file under it does), arrows added or removed, what changed in `ig/`, and the problems the change brings or fixes. The same code gives no change.
 
-`<base>` is any commit; without it, the point where this branch left `main` (or `HEAD`, with a notice). `<head>` is a commit too; without it, the working tree, uncommitted files included. Both sides are built with the working tree's `ig.yaml`, so a config change is not an architecture change. Each commit is read in a temporary checkout: ig never touches your branches, index or working tree. Boxes get their titles from `ig/` when both sides have one, and from the code otherwise.
+`<base>` is any commit; without it, the point where this branch left `main` (or `HEAD`, with a notice). `<head>` is a commit too; without it, the working tree, uncommitted files included. Both sides are built with the head's `ig.yaml` (the working tree's, or the head commit's when `<head>` is given), so a config change is not an architecture change. Each commit is read in a temporary checkout: ig never touches your branches, index or working tree. Boxes get their titles from `ig/` when both sides have one, and from the code otherwise.
 
 ```
-a1b2c3d..working tree: 1 box changed, 1 arrow added
-  changed  Core (2 files)
-  arrow +  web → core (import)
+03d4b9d..c251685: 2 boxes changed, 1 new arrow Web → Core
+  changed  Src (core/root) (1 file)
+  changed  Src (web/root) (1 file)
+  arrow +  Web → Core (bundle)
 ```
 
-`--json` prints the same as one object: `base`, `head`, `source`, `summary`, `boxes`, `arrows`, `intent` and `problems`. Exit is 0 whatever the diff holds, 2 on a bad revision, outside git, or in a folder of projects.
+Two boxes with the same title get their ids after it. `--json` prints the same as one object: `base`, `head`, `source`, `summary`, `boxes`, `arrows`, `intent` and `problems`; `base` and `head` are full commit shas (`head` is null for the working tree). Exit is 0 whatever the diff holds, 2 on a bad revision, outside git, or in a folder of projects.
 
 ## `ig view`
 
