@@ -73,13 +73,12 @@ ig-diff:
   variables:
     GIT_DEPTH: 0
   script:
-    - ./ig-x86_64-linux diff "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD
+    - ./ig-x86_64-linux diff --no-open "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD
     - ./ig-x86_64-linux diff -q "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD --json > ig-diff.json
-    - ./ig-x86_64-linux view --no-open
-    - cp .ig/view.html ig-view.html
+    - cp .ig/diff.html ig-diff.html
   artifacts:
     expose_as: ig diff
-    paths: [ig-diff.json, ig-view.html]
+    paths: [ig-diff.html, ig-diff.json]
     expire_in: 1 month
 
 publish:
