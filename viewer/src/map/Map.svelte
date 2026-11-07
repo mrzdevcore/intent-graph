@@ -6,7 +6,7 @@
   import { onDestroy, untrack } from "svelte";
   import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
-  import { arrowLook, insideCounts, linksOf, look } from "./looks";
+  import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
   import { wires, type Mode } from "./wires";
   import MapBox from "./MapBox.svelte";
@@ -18,6 +18,9 @@
   import { answerFrame, answerOf, arrowLit, arrowNumber, boxStates, holders, stepFrame, type Aim } from "./answer";
   import AnswerCard from "./AnswerCard.svelte";
   import type { Show } from "../model/show";
+  import type { Diff } from "../model/diff";
+  import { diffAnswer, diffLines } from "./diff";
+  import { key as arrowKey } from "./answer";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
   import Search from "./Search.svelte";
@@ -35,12 +38,20 @@
   import Folders from "./Folders.svelte";
   import { proposed } from "./edit/proposals";
 
-  let { view, camera = new Camera(), size, edit, onview, show }: {
+  let { view: given, camera = new Camera(), size, edit, onview, show, diff }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
     /** Only where the host can edit (the desktop app); `onview` takes the view an edit returns. */
     edit?: EditApi; onview?: (v: View) => void;
     show?: Show | null;
+    diff?: Diff | null;
   } = $props();
+  const diffed = $derived(diff ? diffAnswer(given, diff) : null);
+  const view = $derived(diffed?.view ?? given);
+  let cleared = $state(false);
+  const showingDiff = $derived(!!diffed && !cleared);
+  const marks = $derived(showingDiff ? diffed!.marks : null);
+  const lines = $derived(diff ? diffLines(diff) : null);
+  const files = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
 
   const tool = new ToolState();
   let note = $state("");
@@ -172,7 +183,7 @@
   let waiting = $state.raw<Show | null>(null);
   let step = $state(0);
   let away = $state(false);
-  const answer = $derived(current ? answerOf(view, current) : null);
+  const answer = $derived(showingDiff ? diffed!.answer : current ? answerOf(view, current) : null);
   const states = $derived(answer ? boxStates(view, answer) : null);
   const nowOn = $derived(new Set((answer?.steps[step]?.boxes ?? []).flatMap((id) => [id, ...holders(view, id)])));
   const by = $derived(proposed(view.proposals));
@@ -197,12 +208,12 @@
     if (camera.moving) raf = requestAnimationFrame(frame);
   }
   function glideTo(c: Cam) {
-    away = !!current;
+    away = !!current || showingDiff;
     camera.to(c, performance.now());
     if (!raf) raf = requestAnimationFrame(frame);
   }
   function jump(c: Cam) {
-    away = !!current;
+    away = !!current || showingDiff;
     camera.set(c);
     cam = c;
   }
@@ -258,6 +269,7 @@
   }
   function clearAnswer() {
     current = null;
+    cleared = true;
     away = false;
   }
   function openBox(id: string) {
@@ -273,7 +285,7 @@
   const shortcuts: Record<string, Act> = { f2: "rename", m: "move", delete: "delete", backspace: "delete" };
   function key(e: KeyboardEvent) {
     if (typing(e.target)) return;
-    if (current && !sess.ui && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+    if ((current || showingDiff) && !sess.ui && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
       goStep(step + (e.key === "ArrowRight" ? 1 : -1));
       return;
     }
@@ -382,11 +394,21 @@
   let landed: Show | null | undefined;
   $effect(() => {
     const s = show;
-    if (!s || s === landed || !(vw > 0 && vh > 0)) return;
+    if (!s || s === landed || diff || !(vw > 0 && vh > 0)) return;
     untrack(() => {
       landed = s;
       if (sess.ui || sess.adding || tool.current !== "select" || live) waiting = s;
       else land(s);
+    });
+  });
+  let diffLanded = false;
+  $effect(() => {
+    if (!diffed || diffLanded || !(vw > 0 && vh > 0)) return;
+    untrack(() => {
+      diffLanded = true;
+      step = 0;
+      backToAnswer();
+      away = false;
     });
   });
   function clickCapture(e: MouseEvent) {
@@ -483,7 +505,7 @@
   {@const all = near ? arrows.get(pid) ?? [] : []}
   {@const path = traced?.parent === pid ? traced : null}
   {@const ans = path ? null : answer}
-  {@const lit = path ? all.filter((a) => path.arrows.includes(a)) : all.filter((a) => touches(a) || (ans && arrowLit(ans, a)))}
+  {@const lit = path ? all.filter((a) => path.arrows.includes(a)) : all.filter((a) => touches(a) || (ans && arrowLit(ans, a) && (!marks || (nowOn.has(a.from) && nowOn.has(a.to)))))}
   {@const answered = ans && (kids.get(pid) ?? []).some((b) => states?.has(b.id))}
   {@const mode = zoom < RIBBON ? "ribbon" : "routed"}
   {#if near}{#each regions.get(pid) ?? [] as r, i (i)}<Region region={r} {zoom} />{/each}{/if}
@@ -496,8 +518,9 @@
     {@const c = pathOf(a, mode)}
     {@const asked = ans && arrowLit(ans, a)}
     {@const drawnLook = arrowLook(a, view.marks, on, by.get(a.id))}
+    {@const changeLook = !marks ? null : a.ghost ? "ghost" : marks.addedArrows.has(arrowKey(a.from, a.to)) ? "added" : null}
     <div class="arrow" data-arrow={a.id}>
-      <MapArrow d={c.d} mid={c.mid} arrowLook={asked ? { ...drawnLook, color: "var(--map-trace)" } : drawnLook} {zoom}
+      <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(drawnLook, changeLook) : asked ? { ...drawnLook, color: "var(--map-trace)" } : drawnLook} {zoom}
         lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
         onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
       {#if ans && arrowNumber(ans, a)}
@@ -517,8 +540,10 @@
     {@const shape = shapeOf(b, kids.get(b.id))}
     {@const st = ans ? states?.get(b.id) : undefined}
     {@const inAnswer = !!st && (st.in || (!open && st.holds > 0))}
+    {@const change = marks?.boxes.get(b.id)}
+    {@const goneHere = marks?.removedHere.get(b.id)?.length ?? 0}
     <div class="slot" data-shape={shape} class:target={sess.aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path ? !path.boxes.includes(b.id) : answered && !st}
-      class:answer={inAnswer} class:answer-now={inAnswer && nowOn.has(b.id)} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
+      class:answer={inAnswer && (!marks || nowOn.has(b.id))} class:answer-now={inAnswer && nowOn.has(b.id)} class:diff-changed={change === "changed"} class:diff-added={change === "added"} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
       <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
@@ -534,10 +559,12 @@
       {#if showsInside(sw)}<Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} />{/if}
       {#if inAnswer}
         <span class="numbers" style:scale={f.w / sw}>
-          {#each ans?.numbers.has(b.id) ? [ans.numbers.get(b.id)!] : st!.under as n (n)}<span class="number" class:now={n === step + 1}>{n}</span>{/each}
+          {#each (ans?.numbers.has(b.id) ? [ans.numbers.get(b.id)!] : st!.under).filter((n) => !marks || n === step + 1) as n (n)}<span class="number" class:now={n === step + 1}>{n}</span>{/each}
         </span>
-        {#if !st!.in}<span class="holds" style:scale={f.w / sw}>{st!.holds} of {kids.get(b.id)?.length ?? st!.holds}</span>{/if}
+        {#if !st!.in && !marks}<span class="holds" style:scale={f.w / sw}>{st!.holds} of {kids.get(b.id)?.length ?? st!.holds}</span>{/if}
       {/if}
+      {#if change}<span class="change {change}" style:scale={f.w / sw}>{change === "added" ? "new" : files(marks!.files.get(b.id) ?? 0)}</span>{/if}
+      {#if goneHere}<span class="gone-here" style:scale={f.w / sw}>−{goneHere} removed here</span>{/if}
     </div>
   {/each}
   <!-- the focused arrows' labels, above the boxes -->
@@ -573,7 +600,18 @@
   <Proposals {view} {edit} {run} onlight={glow} />
   <Warnings warnings={view.warnings} />
   {#if answer}
-    <AnswerCard {answer} {step} {away} onstep={goStep} onback={backToAnswer} onclear={clearAnswer} />
+    <AnswerCard {answer} {step} {away} onstep={goStep} onback={backToAnswer} onclear={clearAnswer}
+      label={showingDiff ? answer.title : undefined} sub={showingDiff ? lines?.sub : undefined} note={showingDiff ? lines?.note : undefined}
+      empty={showingDiff ? "No change to the architecture" : undefined} />
+  {/if}
+  {#if showingDiff}
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw changed"></span>changed</li>
+      <li><span class="sw added"></span>added</li>
+      <li><span class="sw removed"></span>removed, counted on its parent</li>
+      <li><svg width="26" height="8" aria-hidden="true"><path d="M0 4 H26" class="w-added" /></svg>new arrow</li>
+      <li><svg width="26" height="8" aria-hidden="true"><path d="M0 4 H26" class="w-ghost" /></svg>removed arrow, both ends still here</li>
+    </ul>
   {/if}
   {#if waiting}
     <div class="waiting" role="status">
@@ -619,6 +657,23 @@
   .handle { position: absolute; width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--map-blue); border: 2px solid var(--map-ground); translate: -50% -50%; cursor: crosshair; }
   .handle.l { left: 0; top: 50%; } .handle.r { left: 100%; top: 50%; } .handle.t { left: 50%; top: 0; } .handle.b { left: 50%; top: 100%; }
   .slot.faded { opacity: 0.35; transition: opacity 150ms; }
+  .slot.diff-changed { outline: 2px solid var(--color-changed); outline-offset: 2px; border-radius: 16px; }
+  .slot.diff-added { outline: 2px solid var(--color-added); outline-offset: 2px; border-radius: 16px; }
+  .slot.answer-now.diff-changed, .slot.answer-now.diff-added { outline: 3px solid var(--map-trace); outline-offset: 5px; }
+  .change, .gone-here { position: absolute; pointer-events: none; z-index: 3; white-space: nowrap; font: 600 var(--text-xs)/1.4 var(--font-sans); padding: 0 var(--space-1-5); border-radius: var(--radius-pill); }
+  .change { right: 0; top: 0; transform-origin: 100% 0; translate: 0 -55%; }
+  .change.changed { color: var(--color-changed); background: color-mix(in srgb, var(--color-changed) 15%, var(--map-surface)); }
+  .change.added { color: var(--color-added); background: color-mix(in srgb, var(--color-added) 15%, var(--map-surface)); }
+  .gone-here { left: 50%; bottom: 0; transform-origin: 0 100%; translate: -50% 50%; color: var(--color-removed); background: var(--map-ground); border: 1px dashed var(--color-removed); }
+  .legend { position: absolute; z-index: 2; right: var(--space-4); bottom: var(--space-4); margin: 0; padding: var(--space-1-5) var(--space-3); list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4);
+    background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--map-muted); max-width: calc(100% - 2rem); box-sizing: border-box; }
+  .legend li { display: flex; align-items: center; gap: var(--space-1-5); }
+  .legend .sw { width: 1.125rem; height: 0.75rem; border-radius: 3px; box-sizing: border-box; background: var(--map-surface); }
+  .legend .sw.changed { border: 2px solid var(--color-changed); }
+  .legend .sw.added { border: 2px solid var(--color-added); }
+  .legend .sw.removed { border: 1px dashed var(--color-removed); }
+  .legend .w-added { stroke: var(--color-added); stroke-width: 2; }
+  .legend .w-ghost { stroke: var(--color-removed); stroke-width: 1.5; stroke-dasharray: 5 4; }
   .arrow { display: contents; }
   .sleeves { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; fill: none; stroke: var(--map-line-soft); stroke-linecap: round; }
   .inside { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }

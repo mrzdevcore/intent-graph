@@ -8,11 +8,11 @@
   const REST = 0.35, DIM = 0.12;
 </script>
 <script lang="ts">
-  import type { arrowLook as AL } from "./looks";
+  import type { ArrowLook } from "./looks";
   import { steady } from "./camera";
 
   let { d, mid, arrowLook, part = "line", zoom = 1, lit = false, dim = false, onhover }: {
-    d: string; mid: [number, number]; arrowLook: ReturnType<typeof AL>; part?: "line" | "label"; zoom?: number;
+    d: string; mid: [number, number]; arrowLook: ArrowLook; part?: "line" | "label"; zoom?: number;
     lit?: boolean; dim?: boolean; onhover?: (on: boolean) => void;
   } = $props();
 
@@ -20,7 +20,7 @@
   const m = $derived(steady(zoom));
   const w = $derived((arrowLook.label?.length ?? 0) * 6.5 + 16);
   const state = $derived(lit ? "lit" : dim ? "dim" : "rest");
-  const alpha = $derived(lit || arrowLook.tone !== "neutral" ? 1 : dim ? DIM : REST);
+  const alpha = $derived(lit || arrowLook.strong || arrowLook.tone !== "neutral" ? 1 : dim ? DIM : REST);
   const TEXT = { neutral: "var(--map-fg)", warn: "var(--map-warn-text)", bad: "var(--map-bad-text)", down: "var(--map-fg-2)" };
 </script>
 
