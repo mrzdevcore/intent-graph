@@ -336,10 +336,10 @@ pub(crate) fn run_argv(
 
 /// Kills `child`'s process group (it leads it) and reaps `child`.
 fn kill_group(child: &mut std::process::Child) {
-    // `kill` is a shell builtin: no libc dependency, and no PATH lookup
+    // `kill` is a shell builtin: no libc dependency, and no PATH lookup; no `--`, which dash rejects
     #[cfg(unix)]
     let _ = Command::new("/bin/sh")
-        .args(["-c", &format!("kill -KILL -- -{} 2>/dev/null", child.id())])
+        .args(["-c", &format!("kill -KILL -{} 2>/dev/null", child.id())])
         .status();
     let _ = child.kill();
     let _ = child.wait();
