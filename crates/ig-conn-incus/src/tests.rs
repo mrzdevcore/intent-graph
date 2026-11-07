@@ -28,9 +28,12 @@ fn settings(remote: &str) -> Settings {
 fn script(name: &str, body: &str) -> String {
     let dir = std::env::temp_dir().join(format!("ig-incus-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let p = dir.join("incus");
-    std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (draft, p) = (dir.join("incus.draft"), dir.join("incus"));
+    std::fs::write(&draft, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&draft, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // a child forked meanwhile by another test would hold our write fd: ETXTBSY on Linux
+    let cp = std::process::Command::new("cp").arg(&draft).arg(&p).status().unwrap();
+    assert!(cp.success());
     p.to_string_lossy().into_owned()
 }
 
