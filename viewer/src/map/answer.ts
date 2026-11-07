@@ -2,19 +2,20 @@ import type { Show } from "../model/show";
 import { detailFor, type Cam } from "./camera";
 import type { Frame, MapArrow, View } from "./types";
 
-const ROOT = "system";
+export const ROOT = "system";
 
-export type Step = { target: string; text: string; title: string; boxes: string[]; gone: boolean };
+export type DiffKind = "changed" | "added" | "removed" | "problem";
+export type Step = { target: string; text: string; title: string; boxes: string[]; gone: boolean; group?: string; kind?: DiffKind; meta?: string };
 export type Answer = { title: string; steps: Step[]; boxes: Set<string>; edges: Set<string>; numbers: Map<string, number> };
 export type Aim = { id?: string; frame: Frame };
 
-const key = (from: string, to: string) => JSON.stringify([from, to]);
+export const key = (from: string, to: string) => JSON.stringify([from, to]);
 
-function parents(view: View) {
+export function parents(view: View) {
   return new Map(view.boxes.map((b) => [b.id, b.parent]));
 }
 
-function line(up: Map<string, string | undefined>, id: string): string[] {
+export function line(up: Map<string, string | undefined>, id: string): string[] {
   const out: string[] = [], seen = new Set<string>();
   for (let p: string | undefined = id; p && p !== ROOT && !seen.has(p); p = up.get(p)) {
     seen.add(p);

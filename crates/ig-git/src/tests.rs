@@ -81,9 +81,16 @@ fn changed_files_are_relative_and_unfiltered() {
 fn base_resolution() {
     let (dir, g) = repo("base");
     let repo = GitVcs::open(&dir).unwrap();
+    // an MR pipeline sets CI_MERGE_REQUEST_DIFF_BASE_SHA, which these repos never hold
+    let own = |n: &[String]| -> Vec<String> {
+        n.iter()
+            .filter(|s| !s.starts_with("CI_MERGE_REQUEST_DIFF_BASE_SHA"))
+            .cloned()
+            .collect()
+    };
     let mut notices = vec![];
     assert_eq!(repo.resolve_base(None, &mut notices).unwrap(), None);
-    assert!(notices[0].contains("no commits"));
+    assert!(own(&notices)[0].contains("no commits"));
     g(&["commit", "-q", "--allow-empty", "-m", "one"]);
     let one = repo.head().unwrap();
     notices.clear();
@@ -91,7 +98,7 @@ fn base_resolution() {
         repo.resolve_base(None, &mut notices).unwrap(),
         Some(one.clone())
     );
-    assert!(notices[0].contains("comparing against HEAD"));
+    assert!(own(&notices)[0].contains("comparing against HEAD"));
     g(&["branch", "main"]);
     g(&["commit", "-q", "--allow-empty", "-m", "two"]);
     notices.clear();
@@ -100,7 +107,7 @@ fn base_resolution() {
         Some(one.clone()),
         "merge-base with main"
     );
-    assert!(notices.is_empty());
+    assert!(own(&notices).is_empty());
     assert_eq!(
         repo.resolve_base(Some("HEAD"), &mut notices).unwrap(),
         repo.head()

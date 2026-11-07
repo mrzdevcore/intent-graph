@@ -3,12 +3,14 @@
 
 use super::{Diff, Side, SpecSide, diff};
 use crate::Env;
-use crate::map::file::MapFile;
-use crate::map::view;
+use crate::map::file::{MapBox, MapFile};
+use crate::map::view::{self, View};
 use ig_core::config::Config;
 use ig_core::ports::{Checkout, PortError};
 use ig_core::workspace::WorkspaceInfo;
 use std::path::Path;
+
+pub type ViewAt<'a> = &'a dyn Fn(Option<&Path>) -> crate::Result<View>;
 
 pub fn run(
     env: &Env,
@@ -16,6 +18,16 @@ pub fn run(
     head: Option<&str>,
     at: &dyn Fn(&Path, bool, &Config) -> crate::Result<Side>,
 ) -> crate::Result<Diff> {
+    run_with_view(env, base, head, at, None).map(|(d, _)| d)
+}
+
+pub fn run_with_view(
+    env: &Env,
+    base: &str,
+    head: Option<&str>,
+    at: &dyn Fn(&Path, bool, &Config) -> crate::Result<Side>,
+    view_at: Option<ViewAt>,
+) -> crate::Result<(Diff, Option<View>)> {
     let vcs = env
         .vcs
         .ok_or_else(|| PortError::Vcs("not a git repository".into()))?;
@@ -51,7 +63,10 @@ pub fn run(
     let side = |co: Option<&Checkout>, use_spec: bool| match co.map(Checkout::root) {
         None => view::architecture(env, use_spec, Some(&config)),
         Some(None) => Ok(empty()),
-        Some(Some(root)) => at(root, use_spec, &config),
+        Some(Some(root)) => at(root, use_spec, &config).map(|mut s| {
+            own_name(&mut s.arch.boxes, root, env.root);
+            s
+        }),
     };
     let mut b = side(Some(&base_co), true)?;
     let mut h = side(head_co, true)?;
@@ -68,7 +83,27 @@ pub fn run(
         }
     }
     let changed = vcs.changed_between(&base_sha, head_sha.as_deref())?;
-    Ok(diff(&b, &h, &changed, &base_sha, head_sha.as_deref()))
+    let view = match (view_at, head_co.map(Checkout::root)) {
+        (None, _) | (_, Some(None)) => None,
+        (Some(f), None) => Some(f(None)?),
+        (Some(f), Some(Some(root))) => {
+            let mut v = f(Some(root))?;
+            own_name(&mut v.boxes, root, env.root);
+            Some(v)
+        }
+    };
+    Ok((diff(&b, &h, &changed, &base_sha, head_sha.as_deref()), view))
+}
+
+fn own_name(boxes: &mut [MapBox], checkout: &Path, repo: &Path) {
+    let (Some(co), Some(name)) = (checkout.file_name(), repo.file_name()) else {
+        return;
+    };
+    for b in boxes.iter_mut() {
+        if b.id == "system" && *b.title.value == *co.to_string_lossy() {
+            b.title.value = name.to_string_lossy().into_owned();
+        }
+    }
 }
 
 fn empty() -> Side {

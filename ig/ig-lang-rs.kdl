@@ -1,9 +1,9 @@
 // ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
-module "ig-lang-rs" title="Rust frontend" tech="Rust · tree-sitter" description="Language frontend that pulls modules, uses and symbols out of Rust sources." logo="rust" {
+adapter "ig-lang-rs" title="Rust extractor" tech="Rust · tree-sitter" description="Parses Rust sources with tree-sitter to extract modules, imports and code." {
     at "crates/ig-lang-rs/**"
     pattern "none"
     calls "ig-core"
-    usecase "ig-lang-rs/root" title="Rust extractor" tech="Rust · tree-sitter" description="Parses Rust with tree-sitter and pulls out imports and symbols." logo="rust" {
+    adapter "ig-lang-rs/root" title="Rust parser" tech="Rust · tree-sitter" description="Parses Rust sources with tree-sitter and pulls out their modules, uses and symbols." logo="rust" {
         at "crates/ig-lang-rs/src/*"
     }
 }

@@ -1,0 +1,9 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+adapter "ig-conn-incus" title="Incus connector" tech="Rust · serde" description="Reads Incus instances so they appear as infrastructure on the map." {
+    at "crates/ig-conn-incus/**"
+    pattern "none"
+    calls "ig-core"
+    adapter "ig-conn-incus/root" title="Incus reader" tech="Rust · serde · incus CLI" description="Fills the Connector port by reading a running Incus server through the incus client, read-only: each instance's name, status and addresses." logo="linuxcontainers" {
+        at "crates/ig-conn-incus/src/*"
+    }
+}

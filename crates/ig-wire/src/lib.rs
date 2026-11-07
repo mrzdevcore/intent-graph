@@ -263,6 +263,8 @@ pub fn watch(
             let (mut any, mut c) = (false, Changed::default());
             let mut maybe: BTreeSet<PathBuf> = BTreeSet::new();
             let mut see = |e: notify::Result<notify::Event>| {
+                // inotify reports reads too: git check-ignore reading .gitignore is no change
+                let e = e.ok().filter(|e| !e.kind.is_access());
                 for p in e.iter().flat_map(|e| &e.paths) {
                     if *p == show {
                         any = true;

@@ -101,7 +101,7 @@ Asks Claude a question about the code. Claude gets `Read`, `Grep`, `Glob`, `ig_s
 ## `ig diff`
 
 ```
-ig diff [<base> [<head>]] [--json] [-C <dir>] [-q]
+ig diff [<base> [<head>]] [--json] [--no-open] [-C <dir>] [-q]
 ```
 
 Shows what a change does to the architecture. It builds the map on both sides and compares them: boxes added, removed or changed (a box changes when a file under it does), arrows added or removed, what changed in `ig/`, and the problems the change brings or fixes. The same code gives no change.
@@ -115,7 +115,9 @@ Shows what a change does to the architecture. It builds the map on both sides an
   arrow +  Web → Core (bundle)
 ```
 
-Two boxes with the same title get their ids after it. `--json` prints the same as one object: `base`, `head`, `source`, `summary`, `boxes`, `arrows`, `intent` and `problems`; `base` and `head` are full commit shas (`head` is null for the working tree). Exit is 0 whatever the diff holds, 2 on a bad revision, outside git, or in a folder of projects.
+It then writes `.ig/diff.html`, the head's map with the change marked and a card that steps through it, and opens it (`--no-open` writes it only). `ig view` afterwards shows the plain map again.
+
+Two boxes with the same title get their ids after it. `--json` prints the same as one object, and writes no page: `base`, `head`, `source`, `summary`, `boxes`, `arrows`, `intent` and `problems`; `base` and `head` are full commit shas (`head` is null for the working tree). Exit is 0 whatever the diff holds, 2 on a bad revision, outside git, or in a folder of projects.
 
 ## `ig view`
 
@@ -237,7 +239,7 @@ Plumbing:
 | `ig analyse [--agent <name>] [--no-agent]` | Writes `ig/` (above). |
 | `ig view [--no-open] [--json]` | Writes `.ig/view.html`. `--json` prints the map instead. |
 | `ig explore [--agent claude] [--no-open] <question>` | Writes `.ig/show.json` and `.ig/view.html`; prints the answer. |
-| `ig diff [<base> [<head>]] [--json]` | Read-only. Prints what a change does to the map; `--json` prints it as JSON. Exit 2 outside git. |
+| `ig diff [<base> [<head>]] [--json] [--no-open]` | Prints what a change does to the map and writes `.ig/diff.html` with the change drawn on it; `--json` prints it as JSON, no page. Exit 2 outside git. |
 | `ig plan [--json]` | Read-only. Prints the plan: boxes and arrows still to build, boxes to move (their `at` changed since the last commit), drift (code in no box, arrows `ig/` does not have) and code ig does not read (outside every package). Exit 2 without `ig/`. |
 | `ig check [--json]` | The plan, read-only: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. |
 | `ig accept [--all \| <id>...]` | Takes drift into `ig/`: each box or arrow id from `ig plan` (quote arrow ids: `ig accept 'web->api'`), written one by one. |

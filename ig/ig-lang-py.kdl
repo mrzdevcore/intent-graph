@@ -1,9 +1,9 @@
 // ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
-module "ig-lang-py" title="Python frontend" tech="Rust · tree-sitter" description="Language frontend that pulls imports and symbols out of Python sources." logo="python" {
+adapter "ig-lang-py" title="Python extractor" tech="Rust · tree-sitter" description="Parses Python sources with tree-sitter to extract imports and code, telling stdlib from packages." {
     at "crates/ig-lang-py/**"
     pattern "none"
     calls "ig-core"
-    usecase "ig-lang-py/root" title="Python extractor" tech="Rust · tree-sitter" description="Parses Python with tree-sitter and pulls out imports, keeping the stdlib apart." logo="python" {
+    adapter "ig-lang-py/root" title="Python parser" tech="Rust · tree-sitter · regex" description="Parses Python sources with tree-sitter and pulls out their imports and symbols, telling standard-library modules apart." logo="python" {
         at "crates/ig-lang-py/src/*"
     }
 }
