@@ -4,11 +4,13 @@
 use super::{Diff, Side, SpecSide, diff};
 use crate::Env;
 use crate::map::file::MapFile;
-use crate::map::view;
+use crate::map::view::{self, View};
 use ig_core::config::Config;
 use ig_core::ports::{Checkout, PortError};
 use ig_core::workspace::WorkspaceInfo;
 use std::path::Path;
+
+pub type ViewAt<'a> = &'a dyn Fn(Option<&Path>) -> crate::Result<View>;
 
 pub fn run(
     env: &Env,
@@ -16,6 +18,17 @@ pub fn run(
     head: Option<&str>,
     at: &dyn Fn(&Path, bool, &Config) -> crate::Result<Side>,
 ) -> crate::Result<Diff> {
+    run_with_view(env, base, head, at, None).map(|(d, _)| d)
+}
+
+/// The diff and, with `view_at`, the head's map: `view_at(None)` draws the working tree.
+pub fn run_with_view(
+    env: &Env,
+    base: &str,
+    head: Option<&str>,
+    at: &dyn Fn(&Path, bool, &Config) -> crate::Result<Side>,
+    view_at: Option<ViewAt>,
+) -> crate::Result<(Diff, Option<View>)> {
     let vcs = env
         .vcs
         .ok_or_else(|| PortError::Vcs("not a git repository".into()))?;
@@ -68,7 +81,12 @@ pub fn run(
         }
     }
     let changed = vcs.changed_between(&base_sha, head_sha.as_deref())?;
-    Ok(diff(&b, &h, &changed, &base_sha, head_sha.as_deref()))
+    let view = match (view_at, head_co.map(Checkout::root)) {
+        (None, _) | (_, Some(None)) => None,
+        (Some(f), None) => Some(f(None)?),
+        (Some(f), Some(Some(root))) => Some(f(Some(root))?),
+    };
+    Ok((diff(&b, &h, &changed, &base_sha, head_sha.as_deref()), view))
 }
 
 fn empty() -> Side {

@@ -167,6 +167,8 @@ pub struct DiffArgs {
     pub head: Option<String>,
     #[arg(long, help = "Print the diff as JSON")]
     pub json: bool,
+    #[arg(long, help = "Write the page without opening it")]
+    pub no_open: bool,
 }
 
 #[derive(Args)]
