@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use ig_app::map::View;
+use ig_app::map::diff::Diff;
 use ig_wire::Wired;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -15,13 +16,27 @@ const FRESH: Duration = Duration::from_secs(3600);
 
 /// The page for `data`. The viewer's `live` marker stays `false`: nothing serves it any more.
 pub fn page(data: &Value, show: Option<&Value>) -> String {
-    let safe = |v: &Value| v.to_string().replace('<', "\\u003c");
-    let show = show.map_or_else(|| "null".to_string(), safe);
-    fill(
-        TEMPLATE.replace("/*IG_SHOW*/", &show).as_str(),
-        &safe(data),
-        "false",
-    )
+    filled(data, show, None)
+}
+
+pub fn diff_page(data: &Value, diff: &Value) -> String {
+    filled(data, None, Some(diff))
+}
+
+fn safe(v: &Value) -> String {
+    v.to_string().replace('<', "\\u003c")
+}
+
+fn filled(data: &Value, show: Option<&Value>, diff: Option<&Value>) -> String {
+    filled_in(TEMPLATE, data, show, diff)
+}
+
+fn filled_in(template: &str, data: &Value, show: Option<&Value>, diff: Option<&Value>) -> String {
+    let or_null = |v: Option<&Value>| v.map_or_else(|| "null".to_string(), safe);
+    let template = template
+        .replace("/*IG_SHOW*/", &or_null(show))
+        .replace("/*IG_DIFF*/", &or_null(diff));
+    fill(&template, &safe(data), "false")
 }
 
 pub fn show(root: &Path) -> Option<Value> {
@@ -51,8 +66,16 @@ pub fn write(w: &Wired, v: &View) -> Result<PathBuf> {
 }
 
 pub fn write_with(w: &Wired, v: &View, show: Option<&Value>) -> Result<PathBuf> {
-    let html = page(&serde_json::to_value(v)?, show);
-    let path = w.root().join(".ig/view.html");
+    write_page(w, "view.html", &page(&serde_json::to_value(v)?, show))
+}
+
+pub fn write_diff(w: &Wired, v: &View, d: &Diff) -> Result<PathBuf> {
+    let html = diff_page(&serde_json::to_value(v)?, &serde_json::to_value(d)?);
+    write_page(w, "diff.html", &html)
+}
+
+fn write_page(w: &Wired, name: &str, html: &str) -> Result<PathBuf> {
+    let path = w.root().join(".ig").join(name);
     std::fs::create_dir_all(w.root().join(".ig"))?;
     ig_fs::write_atomic(&path, html.as_bytes())?;
     Ok(path)
@@ -108,7 +131,15 @@ mod tests {
         let placeholder = include_str!(concat!(env!("OUT_DIR"), "/placeholder.html"));
         for (name, html) in [
             ("view", page(&json!({"nodes": [], "x": "</script>"}), None)),
-            ("placeholder", fill(placeholder, data, "false")),
+            (
+                "placeholder",
+                filled_in(
+                    placeholder,
+                    &json!({"nodes": [], "x": "</script>"}),
+                    None,
+                    None,
+                ),
+            ),
         ] {
             assert!(html.contains(data), "{name}: data missing");
             assert!(
@@ -117,6 +148,7 @@ mod tests {
             );
             assert!(!html.contains("/*IG_DATA*/"), "{name}: data marker left");
             assert!(!html.contains("/*IG_LIVE*/"), "{name}: live marker left");
+            assert!(!html.contains("/*IG_DIFF*/"), "{name}: diff marker left");
         }
     }
 
@@ -130,5 +162,16 @@ mod tests {
         assert!(html.contains(r#"\u003c/script>"#) && !html.contains("/*IG_SHOW*/"));
         assert!(fresh_show(&crate::tests::tmp_with(&[])).is_none());
         assert!(page(&json!({}), None).contains(r#"id="ig-show" type="application/json">null<"#));
+    }
+
+    #[test]
+    fn the_diff_page_carries_view_and_diff_safely() {
+        let html = diff_page(&json!({"nodes": []}), &json!({"summary": "</script>"}));
+        assert!(
+            html.contains(r#"id="ig-diff" type="application/json">{"summary":"\u003c/script>"}<"#)
+        );
+        assert!(html.contains(r#"id="ig-show" type="application/json">null<"#));
+        assert!(!html.contains("/*IG_DIFF*/"));
+        assert!(page(&json!({}), None).contains(r#"id="ig-diff" type="application/json">null<"#));
     }
 }

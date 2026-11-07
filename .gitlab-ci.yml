@@ -1,0 +1,104 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+stages: [viewer, build, review, publish]
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  CARGO_TERM_COLOR: always
+  # Jobs on the homelab runner cannot reach the public URL (Cloudflare Access); override per project
+  IG_API_URL: $CI_API_V4_URL
+
+.rust:
+  image: rust:1
+  needs: [viewer]
+  cache:
+    key:
+      files: [Cargo.lock]
+      prefix: $CI_JOB_NAME
+    paths: [.cargo/registry/, .cargo/git/, target/]
+
+viewer:
+  stage: viewer
+  image: node:22
+  before_script:
+    - corepack enable
+    - pnpm config set store-dir "$CI_PROJECT_DIR/.pnpm-store"
+  script:
+    - cd viewer
+    - pnpm install --frozen-lockfile --ignore-scripts
+    - pnpm run build
+    - pnpm run test
+  cache:
+    key:
+      files: [viewer/pnpm-lock.yaml]
+    paths: [.pnpm-store/]
+  artifacts:
+    paths: [viewer/dist/]
+    expire_in: 1 week
+
+build:
+  extends: .rust
+  stage: build
+  script:
+    - cargo build --release --locked -p intent-graph
+    - cp target/release/ig ig-x86_64-linux
+    - ./ig-x86_64-linux --version
+  artifacts:
+    paths: [ig-x86_64-linux]
+    expire_in: 1 month
+
+test:
+  extends: .rust
+  stage: build
+  before_script:
+    - git config --global user.name "ig CI"
+    - git config --global user.email "ci@ig.invalid"
+    - git config --global init.defaultBranch main
+  script:
+    # ig-desktop is the Tauri app: it needs WebKitGTK, which this image lacks
+    - cargo test --workspace --exclude ig-desktop --locked
+
+ig-diff:
+  stage: review
+  image: rust:1
+  needs: [build]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - ./ig-x86_64-linux diff --no-open "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD
+    - ./ig-x86_64-linux diff -q "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD --json > ig-diff.json
+    - cp .ig/diff.html ig-diff.html
+  artifacts:
+    expose_as: ig diff
+    paths: [ig-diff.html, ig-diff.json]
+    expire_in: 1 month
+
+publish:
+  stage: publish
+  image: curlimages/curl:latest
+  needs: [build, test]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+    - test "$CARGO_VERSION" = "$VERSION" || { echo "tag $CI_COMMIT_TAG does not match Cargo.toml $CARGO_VERSION"; exit 1; }
+    - sha256sum ig-x86_64-linux > ig-x86_64-linux.sha256
+    - PKG="$IG_API_URL/projects/$CI_PROJECT_ID/packages/generic/ig/$VERSION"
+    - |
+      for f in ig-x86_64-linux ig-x86_64-linux.sha256; do
+        curl --fail-with-body -sS -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "$PKG/$f"
+      done
+    - |
+      curl --fail-with-body -sS -H "JOB-TOKEN: $CI_JOB_TOKEN" -H "Content-Type: application/json" \
+        -X POST "$IG_API_URL/projects/$CI_PROJECT_ID/releases" \
+        --data "{\"tag_name\":\"$CI_COMMIT_TAG\",\"name\":\"ig $VERSION\",\"assets\":{\"links\":[
+          {\"name\":\"ig-x86_64-linux\",\"url\":\"$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/ig/$VERSION/ig-x86_64-linux\",\"link_type\":\"package\"}]}}"

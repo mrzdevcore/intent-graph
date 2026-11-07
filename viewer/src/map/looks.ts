@@ -106,5 +106,13 @@ export function arrowLook(arrow: MapArrow, marks: Mark[], on: Set<string>, by?: 
   };
 }
 
+export type ArrowLook = ReturnType<typeof arrowLook> & { strong?: boolean };
+
+export function diffLook(look: ArrowLook, as: "added" | "ghost"): ArrowLook {
+  return as === "ghost"
+    ? { ...look, color: "var(--color-removed)", dash: "5 4", strong: true }
+    : { ...look, color: "var(--color-added)", strong: true };
+}
+
 /** How many links an arrow stands for: a declared one has count 0 and is one. */
 export const linkCount = (a: MapArrow) => Math.max(1, a.count);

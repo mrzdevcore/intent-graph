@@ -1,14 +1,45 @@
 // ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
-module "ig-app" title="ig app" tech="Rust" description="The application layer: builds, edits and shows the map from the core model, shared by the CLI and the desktop app." {
+module "ig-app" title="Map engine" tech="Rust · KDL" description="Library that builds, reads, edits, lays out and shows the architecture map; used by the CLI, the desktop app and the wiring crate." {
     at "crates/ig-app/**"
     pattern "none"
     calls "ig-core"
-    usecase "ig-app/map" title="Map" tech="Rust · KDL · serde" description="Builds and edits the map: boxes, arrows, code view, agent annotations and readers such as Ansible." {
-        at "crates/ig-app/src/map/**"
-        calls "ig-app/root"
+    agent "ig-app/agent" title="Map agent" tech="Rust" description="Builds the prompt that asks an AI agent to name the boxes and reads its annotations back." {
+        at "crates/ig-app/src/map/agent.rs" "crates/ig-app/src/map/agent/**"
+        calls "ig-app/facts"
+        calls "ig-app/spec"
+        calls "ig-app/view"
     }
-    usecase "ig-app/root" title="Build, setup & show" tech="Rust" description="The app's use cases: build the map, set up a repository, show it, and load its config." {
+    usecase "ig-app/edit" title="Edit map" tech="Rust" description="Applies edits to the map (set, move, tidy), guards them, formats the file and keeps a journal." {
+        at "crates/ig-app/src/map/edit.rs" "crates/ig-app/src/map/edit/**"
+        calls "ig-app/facts" label="push"
+        calls "ig-app/spec"
+        calls "ig-app/view"
+    }
+    module "ig-app/facts" title="Facts" tech="Rust" description="Turns counted facts into boxes: code, externals, Ansible infrastructure, live routes and the landscape of a folder of projects." {
+        at "crates/ig-app/src/map/facts.rs" "crates/ig-app/src/map/facts/**" "crates/ig-app/src/map/code.rs" "crates/ig-app/src/map/code/**" "crates/ig-app/src/map/externals.rs" "crates/ig-app/src/map/externals/**" "crates/ig-app/src/map/ansible.rs" "crates/ig-app/src/map/ansible/**" "crates/ig-app/src/map/live.rs" "crates/ig-app/src/map/live/**" "crates/ig-app/src/map/landscape.rs"
+        calls "ig-app/spec"
+        calls "ig-app/view"
+        calls "ig-app/workflows"
+    }
+    module "ig-app/spec" title="Map file" tech="Rust · KDL" description="Reads and refreshes the KDL map files: box kinds, specs and where each box comes from." {
+        at "crates/ig-app/src/map/mod.rs" "crates/ig-app/src/map/spec.rs" "crates/ig-app/src/map/spec/**" "crates/ig-app/src/map/file.rs" "crates/ig-app/src/map/file/**" "crates/ig-app/src/map/kinds.rs" "crates/ig-app/src/map/kinds/**" "crates/ig-app/src/map/origin.rs" "crates/ig-app/src/map/origin/**"
+        uses "ig-app/agent"
+        calls "ig-app/edit"
+        calls "ig-app/facts"
+        calls "ig-app/view"
+    }
+    module "ig-app/view" title="Layout & view" tech="Rust" description="Lays out boxes, layers and arrows, builds the view with its proposals and warnings." {
+        at "crates/ig-app/src/map/layout.rs" "crates/ig-app/src/map/layout/**" "crates/ig-app/src/map/layers.rs" "crates/ig-app/src/map/layers/**" "crates/ig-app/src/map/arrows.rs" "crates/ig-app/src/map/view.rs" "crates/ig-app/src/map/view/**" "crates/ig-app/src/map/warn.rs"
+        calls "ig-app/agent"
+        calls "ig-app/edit"
+        calls "ig-app/facts"
+        calls "ig-app/spec"
+        calls "ig-app/workflows"
+    }
+    usecase "ig-app/workflows" title="Build, setup & show" tech="Rust" description="Top-level actions of the engine: building a map, setting up a project, showing a box, plus config and errors." {
         at "crates/ig-app/src/*"
-        calls "ig-app/map"
+        calls "ig-app/facts"
+        calls "ig-app/spec"
+        calls "ig-app/view"
     }
 }

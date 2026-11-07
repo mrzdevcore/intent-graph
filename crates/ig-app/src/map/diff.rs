@@ -474,7 +474,7 @@ fn summary(d: &Diff, direct: usize) -> String {
 
 mod build;
 mod intent;
-pub use build::run;
+pub use build::{ViewAt, run, run_with_view};
 use intent::intent;
 
 #[cfg(test)]

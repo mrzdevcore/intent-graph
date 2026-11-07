@@ -1,5 +1,6 @@
 //! Use cases over the real adapters (temporary trees and git repos), and their helpers.
 
+mod diff;
 mod graph;
 mod setup;
 mod view;

@@ -49,10 +49,14 @@ fn commit(dir: &Path, msg: &str) {
 }
 
 fn run_ig(dir: &Path, args: &[&str]) -> Out {
+    let mut args = args.to_vec();
+    if args.first() == Some(&"diff") {
+        args.insert(1, "--no-open");
+    }
     let o = Command::new(env!("CARGO_BIN_EXE_ig"))
         .arg("--root")
         .arg(dir)
-        .args(args)
+        .args(&args)
         .output()
         .unwrap();
     Out {
@@ -212,7 +216,11 @@ fn nothing_is_written() {
     let before = git(&dir, &["status", "--porcelain"]);
     let out = run_ig(&dir, &["diff", "HEAD~0"]);
     assert_eq!(out.code, 0, "{}", out.stderr);
-    assert_eq!(git(&dir, &["status", "--porcelain"]), before);
+    let all = |d: &Path| git(d, &["status", "--porcelain", "--untracked-files=all"]);
+    let after: Vec<String> = all(&dir).lines().map(String::from).collect();
+    assert_eq!(after, ["?? .ig/.gitignore", "?? packages/a/src/more.ts"]);
+    assert_eq!(before.trim(), "?? packages/a/src/more.ts");
+    assert!(dir.join(".ig/diff.html").exists());
     assert!(!dir.join("ig").exists());
     assert_eq!(git(&dir, &["worktree", "list"]).lines().count(), 1);
 }

@@ -132,3 +132,8 @@ test("the same answer sent again draws again after it was cleared", () => {
   flushSync();
   expect(card(target)!.textContent).toContain("Twice");
 });
+
+test("an answer's card keeps its own hint", () => {
+  const { target } = setup({ nodes: [KID, OTHER], steps: STEPS });
+  expect(card(target)!.querySelector(".hint")!.textContent).toBe("Esc clears");
+});
