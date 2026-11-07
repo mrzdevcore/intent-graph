@@ -1,5 +1,3 @@
-//! `ig diff` writing its page over a git fixture: the head's map and the diff.
-
 use super::git_fixture;
 use crate::cli::DiffArgs;
 use serde_json::Value;
@@ -34,7 +32,6 @@ fn add_folder(dir: &Path, name: &str) {
     std::fs::write(f, format!("export const {name} = 1;\n")).unwrap();
 }
 
-/// The shop fixture with a second commit adding a billing folder.
 fn two_commits() -> (std::path::PathBuf, String, String) {
     let dir = git_fixture("shop");
     let first = git(&dir, &["rev-parse", "HEAD"]);

@@ -21,7 +21,6 @@ pub fn run(
     run_with_view(env, base, head, at, None).map(|(d, _)| d)
 }
 
-/// The diff and, with `view_at`, the head's map: `view_at(None)` draws the working tree.
 pub fn run_with_view(
     env: &Env,
     base: &str,
@@ -96,7 +95,6 @@ pub fn run_with_view(
     Ok((diff(&b, &h, &changed, &base_sha, head_sha.as_deref()), view))
 }
 
-/// A root titled after its folder is titled after the repo, not the temporary checkout.
 fn own_name(boxes: &mut [MapBox], checkout: &Path, repo: &Path) {
     let (Some(co), Some(name)) = (checkout.file_name(), repo.file_name()) else {
         return;

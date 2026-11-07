@@ -19,7 +19,6 @@ pub fn page(data: &Value, show: Option<&Value>) -> String {
     filled(data, show, None)
 }
 
-/// `ig diff`'s page: the head's map and the diff, no answer.
 pub fn diff_page(data: &Value, diff: &Value) -> String {
     filled(data, None, Some(diff))
 }
@@ -70,7 +69,6 @@ pub fn write_with(w: &Wired, v: &View, show: Option<&Value>) -> Result<PathBuf> 
     write_page(w, "view.html", &page(&serde_json::to_value(v)?, show))
 }
 
-/// `ig diff`: writes `.ig/diff.html` showing `d` on the head's map `v`.
 pub fn write_diff(w: &Wired, v: &View, d: &Diff) -> Result<PathBuf> {
     let html = diff_page(&serde_json::to_value(v)?, &serde_json::to_value(d)?);
     write_page(w, "diff.html", &html)

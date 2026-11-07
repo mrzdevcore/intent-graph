@@ -216,9 +216,10 @@ fn nothing_is_written() {
     let before = git(&dir, &["status", "--porcelain"]);
     let out = run_ig(&dir, &["diff", "HEAD~0"]);
     assert_eq!(out.code, 0, "{}", out.stderr);
-    let status = git(&dir, &["status", "--porcelain"]);
-    let outside_ig: Vec<&str> = status.lines().filter(|l| *l != "?? .ig/").collect();
-    assert_eq!(outside_ig, before.lines().collect::<Vec<_>>());
+    let all = |d: &Path| git(d, &["status", "--porcelain", "--untracked-files=all"]);
+    let after: Vec<String> = all(&dir).lines().map(String::from).collect();
+    assert_eq!(after, ["?? .ig/.gitignore", "?? packages/a/src/more.ts"]);
+    assert_eq!(before.trim(), "?? packages/a/src/more.ts");
     assert!(dir.join(".ig/diff.html").exists());
     assert!(!dir.join("ig").exists());
     assert_eq!(git(&dir, &["worktree", "list"]).lines().count(), 1);

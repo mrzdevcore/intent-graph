@@ -47,8 +47,8 @@ pub fn run(root: &Path, args: &DiffArgs, quiet: bool) -> Result<u8> {
     }
     print!("{}", text(&d));
     if let Some(v) = head_view {
-        crate::render::ignore_ig_dir(root)?;
         let path = crate::render::write_diff(&w, &v, &d)?;
+        crate::render::ignore_ig_dir(root)?;
         say(quiet, "ig: wrote .ig/diff.html");
         if !args.no_open {
             crate::render::open(&path);

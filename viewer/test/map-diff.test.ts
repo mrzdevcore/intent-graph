@@ -76,6 +76,13 @@ test("a ghost arrow is drawn dashed", () => {
   expect(ghost!.querySelector("path[stroke-dasharray]")).not.toBeNull();
 });
 
+test("after Esc the plain map draws no removed arrow", () => {
+  const t = setup(diff({ arrowsRemoved: [arrow("api/root", "api/domain-order")] }));
+  expect(t.querySelector('[data-arrow^="ghost:"]')).not.toBeNull();
+  press("Escape");
+  expect(t.querySelector('[data-arrow^="ghost:"]')).toBeNull();
+});
+
 test("no change shows the plain map", () => {
   const t = setup(diff());
   expect(t.querySelector(".faded")).toBeNull();

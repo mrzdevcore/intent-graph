@@ -128,7 +128,6 @@ export interface IgApi {
   onRebuild?(cb: () => void): () => void;
   onShow?(cb: (s: Show) => void): () => void;
   shown?(): Show | null;
-  /** `ig diff`'s page: the change to draw on the map. */
   diff?(): Diff | null;
 }
 

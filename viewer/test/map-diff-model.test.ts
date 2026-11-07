@@ -69,11 +69,31 @@ test("arrows between nested boxes match the drawn arrow", () => {
   const base = view();
   const top = base.arrows.find((a) => a.id === "web->api")!;
   top.parts = [{ ...top, id: "web/pages->api/routers", from: "web/pages", to: "api/routers", parent: "system" }];
-  const d = diff({ arrowsAdded: [arrow("web/pages", "api/routers")], arrowsRemoved: [arrow("web/pages", "api/domain-order")] });
-  const { view: v, marks } = diffAnswer(base, d);
+  const d = diff({ arrowsAdded: [arrow("web/pages", "api/routers")] });
+  const { marks } = diffAnswer(base, d);
   expect(marks.addedArrows.has(JSON.stringify(["web", "api"]))).toBe(true);
-  const ghost = v.arrows.find((a) => a.ghost)!;
-  expect([ghost.from, ghost.to, ghost.parent]).toEqual(["web", "api", "system"]);
+});
+
+test("a removed arrow lifted onto an arrow the map still draws is no ghost", () => {
+  const { view: v } = diffAnswer(view(), diff({ arrowsRemoved: [arrow("web/pages", "api/domain-order")] }));
+  expect(v.arrows.some((a) => a.ghost)).toBe(false);
+});
+
+test("removed arrows lifted onto the same pair make one ghost holding them all", () => {
+  const d = diff({ arrowsRemoved: [arrow("api/routers", "web/pages"), arrow("api/root", "web/pages")] });
+  const ghosts = diffAnswer(view(), d).view.arrows.filter((a) => a.ghost);
+  expect(ghosts.map((a) => [a.from, a.to, a.parent])).toEqual([["api", "web", "system"]]);
+  expect(ghosts[0].parts!.map((p) => p.from).sort()).toEqual(["api/root", "api/routers"]);
+});
+
+test("every step's boxes are lit, problems and ig/ ones too", () => {
+  const d = diff({ changed: [changed("api/domain-order", "api", 3)] }, {
+    problems: { new: [{ kind: "rule", text: "x", boxes: ["api/domain-payment"] }], fixed: [] },
+    intent: { status: "changed", added: [], removed: [], moved: [], changed: [{ id: "api/infra-stripe", fields: ["title"] }], arrowsAdded: [], arrowsRemoved: [] },
+  });
+  const { answer } = diffAnswer(view(), d);
+  expect(answer.boxes.has("api/domain-payment")).toBe(true);
+  expect(answer.boxes.has("api/infra-stripe")).toBe(true);
 });
 
 test("no change: no steps, nothing marked", () => {
