@@ -1,9 +1,9 @@
 // ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
-module "ig-git" title="ig git" tech="Rust" description="Fills the core's git port: reads facts from the repository's history." logo="git" {
+adapter "ig-git" title="Git" tech="Rust" description="Reads Git history and state for the map." logo="git" {
     at "crates/ig-git/**"
     pattern "none"
     calls "ig-core"
-    usecase "ig-git/root" title="Git adapter" tech="Rust" description="Reads git data for the map." logo="git" {
+    adapter "ig-git/root" title="Git reader" tech="Rust · git CLI" description="Fills the Vcs port by running git: it finds the base and head, reads the history and manages worktrees." logo="git" {
         at "crates/ig-git/src/*"
     }
 }
