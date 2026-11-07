@@ -1,16 +1,16 @@
 <script lang="ts">
   import type { Answer } from "./answer";
 
-  let { answer, step, away, onstep, onback, onclear, label = "The answer", sub, note, empty }: {
+  let { answer, step, away, onstep, onback, onclear, change = false, sub, note }: {
     answer: Answer; step: number; away: boolean; onstep: (i: number) => void; onback: () => void; onclear: () => void;
-    label?: string; sub?: string; note?: string; empty?: string;
+    change?: boolean; sub?: string; note?: string;
   } = $props();
   const GLYPH = { changed: "~", added: "+", removed: "−", problem: "!" };
   let folded = $state(false);
   const count = $derived(answer.steps.length);
 </script>
 
-<section class="answer" class:folded aria-label={label}>
+<section class="answer" class:folded aria-label={change ? answer.title : "The answer"}>
   <div class="head">
     {#if folded}<span class="n now">{step + 1}</span>{/if}
     <b>{answer.title}</b>
@@ -20,7 +20,7 @@
   {#if !folded}
     {#if sub}<p class="sub">{sub}</p>{/if}
     {#if note}<p class="note">{note}</p>{/if}
-    {#if empty && !count}<p class="none">{empty}</p>{/if}
+    {#if change && !count}<p class="none">No change to the architecture</p>{/if}
     <ol>
       {#each answer.steps as s, i (i)}
         {#if s.group && s.group !== answer.steps[i - 1]?.group}<li class="grp" role="presentation">{s.group}</li>{/if}
@@ -36,7 +36,7 @@
       {/each}
     </ol>
     <div class="foot">
-      {#if away && count}<button type="button" class="back" onclick={onback}>{label === "The answer" ? "Back to the answer" : "Back to the change"}</button>
+      {#if away && (!change || count)}<button type="button" class="back" onclick={onback}>{change ? "Back to the change" : "Back to the answer"}</button>
       {:else if count > 1}
         <span class="walk">
           <button type="button" aria-label="Previous step" disabled={step === 0} onclick={() => onstep(step - 1)}>‹</button>
@@ -44,7 +44,7 @@
           <button type="button" aria-label="Next step" disabled={step === count - 1} onclick={() => onstep(step + 1)}>›</button>
         </span>
       {:else}<span></span>{/if}
-      <span class="hint">{count > 1 ? "← → step · " : ""}Esc clears</span>
+      <span class="hint">{change && count > 1 ? "← → step · " : ""}Esc clears</span>
     </div>
   {/if}
 </section>

@@ -11,7 +11,7 @@ export type Marks = {
 };
 
 const plural = (n: number, one: string, many = one + "es") => `${n} ${n === 1 ? one : many}`;
-const files = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
+export const files = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
 
 function names(titles: string[], max = 5): string {
   const shown = titles.slice(0, max).join(", ");
@@ -97,21 +97,24 @@ export function diffAnswer(view: View, d: Diff): { answer: Answer; marks: Marks;
     if (v) marks.addedArrows.add(key(v.from, v.to));
   }
 
-  const ghosts: MapArrow[] = [];
+  const drawn = new Set(view.arrows.map((a) => key(a.from, a.to)));
+  const lifted = new Map<string, MapArrow>();
   for (const a of d.arrows.removed) {
     if (!on(a.from) || !on(a.to)) continue;
     const lf = [a.from, ...line(up, a.from).slice(1)].reverse(), lt = [a.to, ...line(up, a.to).slice(1)].reverse();
     let k = 0;
     while (k < lf.length && k < lt.length && lf[k] === lt[k]) k++;
     const from = lf[k], to = lt[k];
-    if (!from || !to || from === to) continue;
-    const id = `ghost:${a.from}|${a.to}`;
-    if (marks.ghostIds.has(id)) continue;
-    marks.ghostIds.add(id);
+    if (!from || !to || from === to || drawn.has(key(from, to))) continue;
     const kind = a.kind as MapArrow["kind"];
-    const written: MapArrow = { id: `${a.from}->${a.to}`, parent: k ? lf[k - 1] : ROOT, from: a.from, to: a.to, kind, count: 1, kinds: [kind] };
-    ghosts.push({ ...written, id, parent: k ? lf[k - 1] : ROOT, from, to, ghost: true, ...(from !== a.from || to !== a.to ? { parts: [written] } : {}) });
+    const parent = k ? lf[k - 1] : ROOT;
+    const written: MapArrow = { id: `${a.from}->${a.to}`, parent, from: a.from, to: a.to, kind, count: 1, kinds: [kind] };
+    const g = lifted.get(key(from, to));
+    if (g) g.parts = [...(g.parts ?? []), written];
+    else lifted.set(key(from, to), { ...written, id: `ghost:${from}|${to}`, from, to, ghost: true, parts: [written] });
   }
+  const ghosts = [...lifted.values()];
+  for (const g of ghosts) marks.ghostIds.add(g.id);
 
   const numbers = new Map<string, number>();
   steps.forEach((s, n) => s.boxes.length === 1 && !numbers.has(s.boxes[0]) && numbers.set(s.boxes[0], n + 1));
@@ -119,7 +122,7 @@ export function diffAnswer(view: View, d: Diff): { answer: Answer; marks: Marks;
     title: "What this change does",
     steps,
     numbers,
-    boxes: new Set([...marks.boxes.keys(), ...[...marks.removedHere.keys()].filter(on), ...steps.filter((s) => s.group === "Arrows").flatMap((s) => s.boxes)]),
+    boxes: new Set([...marks.boxes.keys(), ...[...marks.removedHere.keys()].filter(on), ...steps.flatMap((s) => s.boxes)]),
     edges: new Set([...marks.addedArrows, ...ghosts.map((g) => key(g.from, g.to))]),
   };
   return { answer, marks, view: ghosts.length ? { ...view, arrows: [...view.arrows, ...ghosts] } : view };

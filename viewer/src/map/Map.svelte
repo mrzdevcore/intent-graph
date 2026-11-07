@@ -19,7 +19,7 @@
   import AnswerCard from "./AnswerCard.svelte";
   import type { Show } from "../model/show";
   import type { Diff } from "../model/diff";
-  import { diffAnswer, diffLines } from "./diff";
+  import { diffAnswer, diffLines, files } from "./diff";
   import { key as arrowKey } from "./answer";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
@@ -45,13 +45,13 @@
     show?: Show | null;
     diff?: Diff | null;
   } = $props();
-  const diffed = $derived(diff ? diffAnswer(given, diff) : null);
-  const view = $derived(diffed?.view ?? given);
+  const view = $derived(given);
+  const diffed = $derived(diff ? diffAnswer(view, diff) : null);
   let cleared = $state(false);
   const showingDiff = $derived(!!diffed && !cleared);
+  const ghosts = $derived(showingDiff ? diffed!.view.arrows.filter((a) => a.ghost) : []);
   const marks = $derived(showingDiff ? diffed!.marks : null);
   const lines = $derived(diff ? diffLines(diff) : null);
-  const files = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
 
   const tool = new ToolState();
   let note = $state("");
@@ -125,8 +125,8 @@
   /** Each parent's wires both ways, from its children's frames as drawn. */
   const wired = (as: Arrow[], frames: Record<string, Frame>) => ({ routed: wires(as, frames, "routed"), ribbon: wires(as, frames, "ribbon") });
   const siblings = (p: string) => Object.fromEntries((kids.get(p) ?? []).map((b) => [b.id, shown.placed.frames[b.id]]));
-  const wiring = $derived(new Map([...group(view.arrows, (a: Arrow) => a.parent)].map(([p, as]) => [p, wired(as, siblings(p))])));
-  const arrows = $derived(group(view.arrows.filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));
+  const wiring = $derived(new Map([...group([...view.arrows, ...ghosts], (a: Arrow) => a.parent)].map(([p, as]) => [p, wired(as, siblings(p))])));
+  const arrows = $derived(group([...view.arrows, ...ghosts].filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));
   // the box being dragged and its shift so far: only it and its parent's arrows follow the pointer
   let live = $state<{ id: string; x: number; y: number } | null>(null);
   const shifted = (id: string, d: { x: number; y: number }) => {
@@ -601,16 +601,15 @@
   <Warnings warnings={view.warnings} />
   {#if answer}
     <AnswerCard {answer} {step} {away} onstep={goStep} onback={backToAnswer} onclear={clearAnswer}
-      label={showingDiff ? answer.title : undefined} sub={showingDiff ? lines?.sub : undefined} note={showingDiff ? lines?.note : undefined}
-      empty={showingDiff ? "No change to the architecture" : undefined} />
+      change={showingDiff} sub={showingDiff ? lines?.sub : undefined} note={showingDiff ? lines?.note : undefined} />
   {/if}
   {#if showingDiff}
     <ul class="legend" aria-label="Legend">
       <li><span class="sw changed"></span>changed</li>
       <li><span class="sw added"></span>added</li>
       <li><span class="sw removed"></span>removed, counted on its parent</li>
-      <li><svg width="26" height="8" aria-hidden="true"><path d="M0 4 H26" class="w-added" /></svg>new arrow</li>
-      <li><svg width="26" height="8" aria-hidden="true"><path d="M0 4 H26" class="w-ghost" /></svg>removed arrow, both ends still here</li>
+      <li><svg viewBox="0 0 26 8" aria-hidden="true"><path d="M0 4 H26" class="w-added" /></svg>new arrow</li>
+      <li><svg viewBox="0 0 26 8" aria-hidden="true"><path d="M0 4 H26" class="w-ghost" /></svg>removed arrow, both ends still here</li>
     </ul>
   {/if}
   {#if waiting}
@@ -657,9 +656,9 @@
   .handle { position: absolute; width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--map-blue); border: 2px solid var(--map-ground); translate: -50% -50%; cursor: crosshair; }
   .handle.l { left: 0; top: 50%; } .handle.r { left: 100%; top: 50%; } .handle.t { left: 50%; top: 0; } .handle.b { left: 50%; top: 100%; }
   .slot.faded { opacity: 0.35; transition: opacity 150ms; }
-  .slot.diff-changed { outline: 2px solid var(--color-changed); outline-offset: 2px; border-radius: 16px; }
-  .slot.diff-added { outline: 2px solid var(--color-added); outline-offset: 2px; border-radius: 16px; }
-  .slot.answer-now.diff-changed, .slot.answer-now.diff-added { outline: 3px solid var(--map-trace); outline-offset: 5px; }
+  .slot.diff-changed { outline: 0.125rem solid var(--color-changed); outline-offset: 0.125rem; border-radius: 1rem; }
+  .slot.diff-added { outline: 0.125rem solid var(--color-added); outline-offset: 0.125rem; border-radius: 1rem; }
+  .slot.answer-now.diff-changed, .slot.answer-now.diff-added { outline: 0.1875rem solid var(--map-trace); outline-offset: 0.3125rem; }
   .change, .gone-here { position: absolute; pointer-events: none; z-index: 3; white-space: nowrap; font: 600 var(--text-xs)/1.4 var(--font-sans); padding: 0 var(--space-1-5); border-radius: var(--radius-pill); }
   .change { right: 0; top: 0; transform-origin: 100% 0; translate: 0 -55%; }
   .change.changed { color: var(--color-changed); background: color-mix(in srgb, var(--color-changed) 15%, var(--map-surface)); }
@@ -668,7 +667,8 @@
   .legend { position: absolute; z-index: 2; right: var(--space-4); bottom: var(--space-4); margin: 0; padding: var(--space-1-5) var(--space-3); list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4);
     background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--map-muted); max-width: calc(100% - 2rem); box-sizing: border-box; }
   .legend li { display: flex; align-items: center; gap: var(--space-1-5); }
-  .legend .sw { width: 1.125rem; height: 0.75rem; border-radius: 3px; box-sizing: border-box; background: var(--map-surface); }
+  .legend .sw { width: 1.125rem; height: 0.75rem; border-radius: var(--radius-sm); box-sizing: border-box; background: var(--map-surface); }
+  .legend svg { width: 1.625rem; height: 0.5rem; }
   .legend .sw.changed { border: 2px solid var(--color-changed); }
   .legend .sw.added { border: 2px solid var(--color-added); }
   .legend .sw.removed { border: 1px dashed var(--color-removed); }

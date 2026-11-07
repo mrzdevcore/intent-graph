@@ -1,5 +1,3 @@
-// `ig diff --json` (crates/ig-app/src/map/diff.rs), as the page carries it in #ig-diff.
-
 export type BoxRef = { id: string; title: string; parent: string | null };
 export type ChangedBox = BoxRef & { files: string[]; filesChanged: number; direct: boolean };
 export type ArrowRef = { from: string; to: string; kind: string; fromTitle: string; toTitle: string };
