@@ -6,11 +6,13 @@ workflow:
     - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
 
-stages: [viewer, build]
+stages: [viewer, build, publish]
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo
   CARGO_TERM_COLOR: always
+  # Jobs on the homelab runner cannot reach the public URL (Cloudflare Access); override per project
+  IG_API_URL: http://10.86.4.95/api/v4
 
 .rust:
   image: rust:1
@@ -61,3 +63,25 @@ test:
   script:
     # ig-desktop is the Tauri app: it needs WebKitGTK, which this image lacks
     - cargo test --workspace --exclude ig-desktop --locked
+
+publish:
+  stage: publish
+  image: curlimages/curl:latest
+  needs: [build, test]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+    - test "$CARGO_VERSION" = "$VERSION" || { echo "tag $CI_COMMIT_TAG does not match Cargo.toml $CARGO_VERSION"; exit 1; }
+    - mv ig ig-x86_64-linux && sha256sum ig-x86_64-linux > ig-x86_64-linux.sha256
+    - PKG="$IG_API_URL/projects/$CI_PROJECT_ID/packages/generic/ig/$VERSION"
+    - |
+      for f in ig-x86_64-linux ig-x86_64-linux.sha256; do
+        curl --fail-with-body -sS -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "$PKG/$f"
+      done
+    - |
+      curl --fail-with-body -sS -H "JOB-TOKEN: $CI_JOB_TOKEN" -H "Content-Type: application/json" \
+        -X POST "$IG_API_URL/projects/$CI_PROJECT_ID/releases" \
+        --data "{\"tag_name\":\"$CI_COMMIT_TAG\",\"name\":\"ig $VERSION\",\"assets\":{\"links\":[
+          {\"name\":\"ig-x86_64-linux\",\"url\":\"$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/ig/$VERSION/ig-x86_64-linux\",\"link_type\":\"package\"}]}}"
