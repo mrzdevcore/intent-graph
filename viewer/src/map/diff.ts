@@ -72,7 +72,7 @@ export function diffAnswer(view: View, d: Diff): { answer: Answer; marks: Marks;
   }
   const extra = (id: string) => (folded.get(id) ?? []).map((f) => `${f.sign} ${f.title}`).join(", ");
   const meta = (...parts: string[]) => parts.filter(Boolean).join(" · ") || undefined;
-  const own = <T extends BoxRef>(bs: T[]) => bs.filter((b) => !owner(b.id));
+  const own = <T extends BoxRef>(bs: T[]) => bs.filter((b) => b.id !== ROOT && !owner(b.id));
   for (const c of own(d.boxes.changed).sort((a, b) => b.filesChanged - a.filesChanged))
     step("Boxes", "changed", c.id, c.title, [on(c.id) ? c.id : nearest(c.id)], meta(files(c.filesChanged), extra(c.id)));
   for (const a of own(d.boxes.added)) step("Boxes", "added", a.id, a.title, [on(a.id) ? a.id : nearest(a.id)], meta(extra(a.id)));
@@ -119,8 +119,18 @@ export function diffAnswer(view: View, d: Diff): { answer: Answer; marks: Marks;
     title: "What this change does",
     steps,
     numbers,
-    boxes: new Set([...marks.boxes.keys(), ...[...marks.removedHere.keys()].filter(on)]),
+    boxes: new Set([...marks.boxes.keys(), ...[...marks.removedHere.keys()].filter(on), ...steps.filter((s) => s.group === "Arrows").flatMap((s) => s.boxes)]),
     edges: new Set([...marks.addedArrows, ...ghosts.map((g) => key(g.from, g.to))]),
   };
   return { answer, marks, view: ghosts.length ? { ...view, arrows: [...view.arrows, ...ghosts] } : view };
+}
+
+const short = (rev: string) => (/^[0-9a-f]{40}$/.test(rev) ? rev.slice(0, 7) : rev);
+
+export function diffLines(d: Diff): { sub: string; note: string } {
+  const quiet = [
+    d.intent.status === "same" ? "ig/ unchanged" : "",
+    d.problems.new.length ? "" : "no new problems",
+  ].filter(Boolean);
+  return { sub: `${short(d.base)} → ${d.head ? short(d.head) : "working tree"} · ${d.summary}`, note: quiet.join(" · ") };
 }

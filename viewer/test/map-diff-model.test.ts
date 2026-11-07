@@ -83,3 +83,15 @@ test("no change: no steps, nothing marked", () => {
   expect(answer.boxes.size).toBe(0);
   expect(v.arrows.some((a) => a.ghost)).toBe(false);
 });
+
+test("the ends of a changed arrow are part of the change", () => {
+  const { answer } = diffAnswer(view(), diff({ arrowsRemoved: [arrow("api/root", "api/domain-order")] }));
+  expect([...answer.boxes].sort()).toEqual(["api/domain-order", "api/root"]);
+});
+
+test("the root of the map gets no step of its own", () => {
+  const d = diff({ changed: [{ ...changed("system", "x", 192), parent: null }, changed("api", "system", 12)] });
+  const { answer, marks } = diffAnswer(view(), d);
+  expect(answer.steps.map((s) => s.target)).toEqual(["api"]);
+  expect(marks.boxes.has("system")).toBe(false);
+});

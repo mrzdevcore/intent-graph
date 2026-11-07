@@ -116,3 +116,41 @@ fn diff_with_a_head_commit_draws_that_commit() {
     assert!(ids.iter().any(|id| id.contains("billing")), "{ids:?}");
     assert!(!ids.iter().any(|id| id.contains("shipping")), "{ids:?}");
 }
+
+#[test]
+fn the_root_is_named_after_the_repo_not_its_checkout() {
+    let dir = super::tmp_with(&[("src/a.ts", "export const a = 1;\n")]);
+    let dir = dir.canonicalize().unwrap();
+    git(&dir, &["init", "-q"]);
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-qm", "one"]);
+    let first = git(&dir, &["rev-parse", "HEAD"]);
+    std::fs::write(dir.join("src/a.ts"), "export const a = 2;\n").unwrap();
+    git(&dir, &["commit", "-qam", "two"]);
+    let second = git(&dir, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        crate::diff::run(&dir, &args(&first, &second, false), true).unwrap(),
+        0
+    );
+    let name = dir.file_name().unwrap().to_string_lossy().to_string();
+    let html = std::fs::read_to_string(dir.join(".ig/diff.html")).unwrap();
+    let view = embedded(&html, "ig-data");
+    let root = view["boxes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["id"] == "system")
+        .unwrap();
+    assert_eq!(root["title"]["value"], name.as_str());
+    let d = embedded(&html, "ig-diff");
+    let titles: Vec<&str> = d["boxes"]["changed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["title"].as_str().unwrap())
+        .collect();
+    assert!(
+        !titles.iter().any(|t| t.starts_with("ig-wt-")),
+        "{titles:?}"
+    );
+}

@@ -41,6 +41,7 @@
   });
   const host = untrack(() => api);
   let show = $state.raw(host.shown?.() ?? null);
+  const diff = host.diff?.() ?? null;
   onDestroy(host.onShow?.((s) => (show = s)) ?? (() => {}));
   if (host.view) {
     void load();
@@ -65,7 +66,7 @@
 </header>
 <main>
   <div id="map">
-    {#if view}<Map {view} edit={view.landscape ? undefined : edit} {onview} {show} />{:else if loadError}<p class="map-error">Could not read the map: {loadError}</p>{/if}
+    {#if view}<Map {view} edit={view.landscape || diff ? undefined : edit} {onview} {show} {diff} />{:else if loadError}<p class="map-error">Could not read the map: {loadError}</p>{/if}
   </div>
   {#if chatApi}
     <aside id="chat" hidden={!chatOpen}>
