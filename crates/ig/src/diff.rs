@@ -35,11 +35,24 @@ pub fn run(root: &Path, args: &DiffArgs, quiet: bool) -> Result<u8> {
     let at = |at: &Path, use_spec: bool, cfg: &_| {
         view::architecture(&Wired::new(at).env(), use_spec, Some(cfg))
     };
-    let d = diff::run(&w.env(), &base, args.head.as_deref(), &at)?;
+    let view_at = |at: Option<&Path>| match at {
+        None => view::run(&w.env()),
+        Some(r) => view::run(&Wired::new(r).env()),
+    };
+    let want = (!args.json).then_some(&view_at as diff::ViewAt);
+    let (d, head_view) = diff::run_with_view(&w.env(), &base, args.head.as_deref(), &at, want)?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&d)?);
-    } else {
-        print!("{}", text(&d));
+        return Ok(0);
+    }
+    print!("{}", text(&d));
+    if let Some(v) = head_view {
+        crate::render::ignore_ig_dir(root)?;
+        let path = crate::render::write_diff(&w, &v, &d)?;
+        say(quiet, "ig: wrote .ig/diff.html");
+        if !args.no_open {
+            crate::render::open(&path);
+        }
     }
     Ok(0)
 }
