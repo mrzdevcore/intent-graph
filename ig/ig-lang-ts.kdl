@@ -1,19 +1,31 @@
 // ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
-module "ig-lang-ts" title="TypeScript frontend" tech="Rust · oxc · ast-grep" description="Language frontend for TypeScript and JavaScript: resolves imports, reads tsconfig and workspaces, and spots frameworks." logo="typescript" {
+module "ig-lang-ts" title="TypeScript reader" tech="Rust · oxc · ast-grep" description="Parses TypeScript and JavaScript projects to extract imports, calls, HTTP routes and React anatomy for the map." {
     at "crates/ig-lang-ts/**"
+    badges "oxc" "ast-grep"
     pattern "none"
     calls "ig-core"
-    usecase "ig-lang-ts/anatomy" title="Framework anatomy" tech="Rust" description="Spots framework structure such as React components in TypeScript code." logo="react" {
-        at "crates/ig-lang-ts/src/anatomy/**"
-        calls "ig-lang-ts/root"
+    module "ig-lang-ts/anatomy" title="Anatomy" tech="Rust" description="Recognises the anatomy of frameworks such as React: components, hooks and their roles." {
+        at "crates/ig-lang-ts/src/anatomy.rs" "crates/ig-lang-ts/src/anatomy/**"
+        calls "ig-lang-ts/extract"
+        calls "ig-lang-ts/patterns"
+        calls "ig-lang-ts/project"
     }
-    usecase "ig-lang-ts/extract" title="AST extraction" tech="Rust · oxc" description="Walks the oxc AST to pull out imports, callees and HTTP calls." {
+    module "ig-lang-ts/extract" title="Extract" tech="Rust · oxc_ast_visit" description="Walks the AST to extract symbols, callees and HTTP calls from each file." {
         at "crates/ig-lang-ts/src/extract/**"
-        calls "ig-lang-ts/root"
+        calls "ig-lang-ts/anatomy" label="push"
+        calls "ig-lang-ts/patterns"
+        calls "ig-lang-ts/project"
     }
-    usecase "ig-lang-ts/root" title="Resolve & prepare" tech="Rust · oxc_resolver · ast-grep · rayon" description="Prepares the TypeScript workspace: tsconfig, module resolution, auto-imports, embedded scripts and patterns." {
-        at "crates/ig-lang-ts/src/*"
+    module "ig-lang-ts/patterns" title="Patterns" tech="Rust · ast-grep" description="Matches structural code patterns with ast-grep rules." {
+        at "crates/ig-lang-ts/src/patterns.rs"
+        calls "ig-lang-ts/anatomy"
+        uses "ig-lang-ts/extract"
+        calls "ig-lang-ts/project" label="get"
+    }
+    module "ig-lang-ts/project" title="Project & resolution" tech="Rust · oxc_resolver" description="Loads workspaces and tsconfig, prepares sources, including embedded scripts, and resolves imports and auto-imports." {
+        at "crates/ig-lang-ts/src/lib.rs" "crates/ig-lang-ts/src/prepare.rs" "crates/ig-lang-ts/src/resolve.rs" "crates/ig-lang-ts/src/tsconfig.rs" "crates/ig-lang-ts/src/workspace.rs" "crates/ig-lang-ts/src/autoimports.rs" "crates/ig-lang-ts/src/embedded.rs"
         calls "ig-lang-ts/anatomy"
         calls "ig-lang-ts/extract"
+        calls "ig-lang-ts/patterns"
     }
 }
