@@ -29,8 +29,12 @@ fn safe(v: &Value) -> String {
 }
 
 fn filled(data: &Value, show: Option<&Value>, diff: Option<&Value>) -> String {
+    filled_in(TEMPLATE, data, show, diff)
+}
+
+fn filled_in(template: &str, data: &Value, show: Option<&Value>, diff: Option<&Value>) -> String {
     let or_null = |v: Option<&Value>| v.map_or_else(|| "null".to_string(), safe);
-    let template = TEMPLATE
+    let template = template
         .replace("/*IG_SHOW*/", &or_null(show))
         .replace("/*IG_DIFF*/", &or_null(diff));
     fill(&template, &safe(data), "false")
@@ -129,7 +133,15 @@ mod tests {
         let placeholder = include_str!(concat!(env!("OUT_DIR"), "/placeholder.html"));
         for (name, html) in [
             ("view", page(&json!({"nodes": [], "x": "</script>"}), None)),
-            ("placeholder", fill(placeholder, data, "false")),
+            (
+                "placeholder",
+                filled_in(
+                    placeholder,
+                    &json!({"nodes": [], "x": "</script>"}),
+                    None,
+                    None,
+                ),
+            ),
         ] {
             assert!(html.contains(data), "{name}: data missing");
             assert!(
