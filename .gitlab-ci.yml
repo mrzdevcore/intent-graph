@@ -6,7 +6,7 @@ workflow:
     - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
 
-stages: [viewer, build, publish]
+stages: [viewer, build, review, publish]
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo
@@ -47,10 +47,10 @@ build:
   stage: build
   script:
     - cargo build --release --locked -p intent-graph
-    - cp target/release/ig ig
-    - ./ig --version
+    - cp target/release/ig ig-x86_64-linux
+    - ./ig-x86_64-linux --version
   artifacts:
-    paths: [ig]
+    paths: [ig-x86_64-linux]
     expire_in: 1 month
 
 test:
@@ -64,6 +64,24 @@ test:
     # ig-desktop is the Tauri app: it needs WebKitGTK, which this image lacks
     - cargo test --workspace --exclude ig-desktop --locked
 
+ig-diff:
+  stage: review
+  image: rust:1
+  needs: [build]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - ./ig-x86_64-linux diff "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD
+    - ./ig-x86_64-linux diff -q "$CI_MERGE_REQUEST_DIFF_BASE_SHA" HEAD --json > ig-diff.json
+    - ./ig-x86_64-linux view --no-open
+    - cp .ig/view.html ig-view.html
+  artifacts:
+    expose_as: ig diff
+    paths: [ig-diff.json, ig-view.html]
+    expire_in: 1 month
+
 publish:
   stage: publish
   image: curlimages/curl:latest
@@ -74,7 +92,7 @@ publish:
     - VERSION="${CI_COMMIT_TAG#v}"
     - CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
     - test "$CARGO_VERSION" = "$VERSION" || { echo "tag $CI_COMMIT_TAG does not match Cargo.toml $CARGO_VERSION"; exit 1; }
-    - mv ig ig-x86_64-linux && sha256sum ig-x86_64-linux > ig-x86_64-linux.sha256
+    - sha256sum ig-x86_64-linux > ig-x86_64-linux.sha256
     - PKG="$IG_API_URL/projects/$CI_PROJECT_ID/packages/generic/ig/$VERSION"
     - |
       for f in ig-x86_64-linux ig-x86_64-linux.sha256; do
