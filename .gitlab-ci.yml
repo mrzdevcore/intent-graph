@@ -1,0 +1,63 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+stages: [viewer, build]
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  CARGO_TERM_COLOR: always
+
+.rust:
+  image: rust:1
+  needs: [viewer]
+  cache:
+    key:
+      files: [Cargo.lock]
+      prefix: $CI_JOB_NAME
+    paths: [.cargo/registry/, .cargo/git/, target/]
+
+viewer:
+  stage: viewer
+  image: node:22
+  before_script:
+    - corepack enable
+    - pnpm config set store-dir "$CI_PROJECT_DIR/.pnpm-store"
+  script:
+    - cd viewer
+    - pnpm install --frozen-lockfile --ignore-scripts
+    - pnpm run build
+    - pnpm run test
+  cache:
+    key:
+      files: [viewer/pnpm-lock.yaml]
+    paths: [.pnpm-store/]
+  artifacts:
+    paths: [viewer/dist/]
+    expire_in: 1 week
+
+build:
+  extends: .rust
+  stage: build
+  script:
+    - cargo build --release --locked -p intent-graph
+    - cp target/release/ig ig
+    - ./ig --version
+  artifacts:
+    paths: [ig]
+    expire_in: 1 month
+
+test:
+  extends: .rust
+  stage: build
+  before_script:
+    - git config --global user.name "ig CI"
+    - git config --global user.email "ci@ig.invalid"
+    - git config --global init.defaultBranch main
+  script:
+    # ig-desktop is the Tauri app: it needs WebKitGTK, which this image lacks
+    - cargo test --workspace --exclude ig-desktop --locked
