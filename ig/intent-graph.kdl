@@ -1,24 +1,33 @@
 // ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
-app "intent-graph" title="ig CLI" tech="Rust · lexopt" description="The ig command: indexes a repository, renders the map, takes edits and serves the same tools to AI agents over MCP." {
+app "intent-graph" title="ig CLI" tech="Rust · lexopt" description="The ig command developers run: init, render and accept maps, and serve them to AI agents over MCP." logo="rust" {
     at "crates/ig/**"
+    badges "cli" "mcp"
     pattern "none"
     calls "ig-app"
     calls "ig-core"
     calls "ig-fs"
     calls "ig-lang-ts" label="is_source_ext"
     calls "ig-wire"
-    usecase "intent-graph/mcp" title="MCP server" tech="Rust · serde_json" description="Serves ig's tools to AI agents over the Model Context Protocol, with their JSON schemas." {
-        at "crates/ig/src/mcp/**"
-        calls "intent-graph/root"
-        calls "intent-graph/tests"
+    agent "intent-graph/agent" title="Annotating agent" tech="Rust" description="Prompts an AI agent with the counted facts and skills so it names the boxes of the map." {
+        at "crates/ig/src/agent.rs" "crates/ig/src/skills.rs"
     }
-    entry "intent-graph/root" title="Src" {
-        at "crates/ig/src/*"
-        uses "intent-graph/mcp"
+    entry "intent-graph/cli" title="Commands" tech="Rust · lexopt" description="Parses the command line and runs ig's commands: init, accept and the app entry." {
+        at "crates/ig/build.rs" "crates/ig/src/main.rs" "crates/ig/src/cli.rs" "crates/ig/src/app.rs" "crates/ig/src/init.rs" "crates/ig/src/accept.rs"
+        calls "intent-graph/agent"
+        calls "intent-graph/mcp"
+        calls "intent-graph/render"
         uses "intent-graph/tests"
     }
-    usecase "intent-graph/tests" title="Test fixtures" tech="Rust" description="Shared setup and helpers for the CLI's graph and view tests." {
+    entry "intent-graph/mcp" title="MCP server" tech="Rust · JSON-RPC" description="Exposes the map to AI agents as MCP tools, such as ig_show, with their JSON schemas." {
+        at "crates/ig/src/mcp.rs" "crates/ig/src/mcp/**"
+        calls "intent-graph/tests"
+    }
+    module "intent-graph/render" title="Render" tech="Rust" description="Renders the map for output." {
+        at "crates/ig/src/render.rs"
+    }
+    module "intent-graph/tests" title="Tests" tech="Rust" description="Test setup and graph and view tests for the CLI and its MCP tools." {
         at "crates/ig/src/tests/**"
-        calls "intent-graph/root" label="write"
+        badges "tests"
+        calls "intent-graph/render" label="write"
     }
 }
