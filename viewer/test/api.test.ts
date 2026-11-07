@@ -10,7 +10,7 @@ test("pickApi: outside the desktop app, only the embedded view", async () => {
   document.body.innerHTML = '<script id="ig-data" type="application/json">{"version":1}</script>';
   const { pickApi } = await import("../src/api");
   const api = pickApi();
-  expect(Object.keys(api)).toEqual(["view", "shown"]);
+  expect(Object.keys(api)).toEqual(["view", "shown", "diff"]);
   expect(await api.view!()).toEqual({ version: 1 });
   expect(api.shown!()).toBeNull();
 });
