@@ -1,0 +1,9 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+adapter "ig-conn-traefik" title="Traefik connector" tech="Rust · serde" description="Reads Traefik routes so they appear as entry points on the map." logo="traefikproxy" {
+    at "crates/ig-conn-traefik/**"
+    pattern "none"
+    calls "ig-core"
+    adapter "ig-conn-traefik/root" title="Traefik reader" tech="Rust · serde" description="Fills the Connector port by reading a Traefik dynamic config file in the repo: the routers' rules and services and the services' server URLs." logo="traefikproxy" {
+        at "crates/ig-conn-traefik/src/*"
+    }
+}

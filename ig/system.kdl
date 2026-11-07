@@ -1,12 +1,4 @@
 // ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
-system "system" title="intent-graph" description="ig reads a repository's code and draws its architecture as a C4 map, from the terminal, a desktop app and AI agents." {
+system "system" title="intent-graph" description="ig reads a codebase's facts and draws its architecture as a C4 map, annotated by an AI agent." {
     at "**"
-    module "ig-conn-incus" title="ig conn incus" tech="Rust" description="Connector for a live Incus server: lists its instances, read-only." {
-        at "crates/ig-conn-incus/**"
-        calls "ig-core"
-    }
-    module "ig-conn-traefik" title="ig conn traefik" tech="Rust" description="Connector for Traefik: reads routes from a config file in the repo." {
-        at "crates/ig-conn-traefik/**"
-        calls "ig-core"
-    }
 }
