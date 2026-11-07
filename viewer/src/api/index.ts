@@ -2,6 +2,7 @@
 // and the desktop app (Tauri): the trust gate, the agent and links.
 
 import type { Edit, View } from "../map/types";
+import type { Diff } from "../model/diff";
 import type { Show } from "../model/show";
 import { embedded } from "./embedded";
 import { tauri } from "./tauri";
@@ -127,6 +128,8 @@ export interface IgApi {
   onRebuild?(cb: () => void): () => void;
   onShow?(cb: (s: Show) => void): () => void;
   shown?(): Show | null;
+  /** `ig diff`'s page: the change to draw on the map. */
+  diff?(): Diff | null;
 }
 
 export function pickApi(): IgApi {
