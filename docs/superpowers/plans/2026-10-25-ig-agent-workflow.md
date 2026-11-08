@@ -665,7 +665,7 @@ Added on 2026-10-25 at the user's request, after viewing the shop Architecture s
     - `monitoring`: apm, datadog, sentry, newrelic, opentelemetry, grafana, prometheus, logrocket
     - `auth`: auth0, okta, keycloak, cognito, clerk, firebase-auth, next-auth, passport
     - `cms`: contentful, strapi, sanity, prismic, storyblok, directus, ghost
-    - `analytics`: power bi, powerbi, segment, mixpanel, amplitude, google-analytics, gtag, matomo, posthog
+    - `analytics`: segment, mixpanel, amplitude, google-analytics, gtag, matomo, posthog
     - `queue`: kafka, rabbit, amqp, sqs, bull, nats
     - `storage`: s3, @aws-sdk/client-s3, minio, cloudinary, blob
     - `payment`: stripe, paypal, adyen
@@ -685,7 +685,7 @@ Added on 2026-10-25 at the user's request, after viewing the shop Architecture s
     - When the scope holds a single layer (the user drilled into one), keep the rows too: the scope's children fill their layer's row, and the context and systems keep theirs.
   - JS, system nodes:
     - Each is drawn with an icon and its name below it.
-    - **Brand icon first:** `viewer/src/icons.ts` has a curated map from a lower-cased system name or package to a `simple-icons` export. It covers postgres, mysql, mariadb, mongodb, redis, sqlite, supabase, firebase, elasticsearch, elastic (APM), algolia, meilisearch, opensearch, datadog, sentry, newrelic, opentelemetry, grafana, prometheus, auth0, okta, keycloak, clerk, contentful, strapi, sanity, prismic, storyblok, directus, ghost, segment, mixpanel, amplitude, googleanalytics, matomo, posthog, kafka, rabbitmq, nats, amazons3, minio, cloudinary, stripe, paypal, sendgrid, mailgun, and power bi if `simple-icons` still ships it.
+    - **Brand icon first:** `viewer/src/icons.ts` has a curated map from a lower-cased system name or package to a `simple-icons` export. It covers postgres, mysql, mariadb, mongodb, redis, sqlite, supabase, firebase, elasticsearch, elastic (APM), algolia, meilisearch, opensearch, datadog, sentry, newrelic, opentelemetry, grafana, prometheus, auth0, okta, keycloak, clerk, contentful, strapi, sanity, prismic, storyblok, directus, ghost, segment, mixpanel, amplitude, googleanalytics, matomo, posthog, kafka, rabbitmq, nats, amazons3, minio, cloudinary, stripe, paypal, sendgrid and mailgun.
     - **Fallback:** a `lucide` icon by `category`:
       - database → `Database`
       - search → `Search`
@@ -722,7 +722,7 @@ fn system_categories() {
     assert_eq!(system_category("Search", &p(&["@elastic/elasticsearch"])), "search");
     assert_eq!(system_category("Auth0", &p(&["@auth0/auth0-react"])), "auth");
     assert_eq!(system_category("Contentful", &p(&["contentful"])), "cms");
-    assert_eq!(system_category("Power BI", &p(&["powerbi-client"])), "analytics");
+    assert_eq!(system_category("Mixpanel", &p(&["mixpanel-browser"])), "analytics");
     assert_eq!(system_category("Shop BFF", &p(&["@shop/sdk"])), "service");
 }
 ```

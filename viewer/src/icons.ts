@@ -1,6 +1,6 @@
 // System icons: a brand logo (simple-icons) for the systems below, else a lucide icon by category.
 // Only what is imported here is bundled. simple-icons 16 no longer ships Segment, Amplitude,
-// Amazon S3, SendGrid or Power BI; those get their category's icon.
+// Amazon S3 or SendGrid; those get their category's icon.
 
 import { Activity, Archive, ChartBar, Cloud, CreditCard, Database, FileText, KeyRound, ListOrdered, Mail, Search } from "lucide-static";
 import {

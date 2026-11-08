@@ -324,7 +324,7 @@ const SYSTEM_CATEGORIES: &[(&str, &[&str])] = &[
     ("monitoring", &["apm", "datadog", "sentry", "newrelic", "opentelemetry", "grafana", "prometheus", "logrocket"]),
     ("auth", &["auth0", "okta", "keycloak", "cognito", "clerk", "firebase-auth", "next-auth", "passport"]),
     ("cms", &["contentful", "strapi", "sanity", "prismic", "storyblok", "directus", "ghost"]),
-    ("analytics", &["power bi", "powerbi", "segment", "mixpanel", "amplitude", "google-analytics", "gtag", "matomo", "posthog"]),
+    ("analytics", &["segment", "mixpanel", "amplitude", "google-analytics", "gtag", "matomo", "posthog"]),
     ("queue", &["kafka", "rabbit", "amqp", "sqs", "bull", "nats", "pika", "celery"]),
     ("storage", &["s3", "@aws-sdk/client-s3", "minio", "cloudinary", "blob"]),
     ("payment", &["stripe", "paypal", "adyen"]),
@@ -493,7 +493,7 @@ mod tests {
         );
         assert_eq!(system_category("Contentful", &p(&["contentful"])), "cms");
         assert_eq!(
-            system_category("Power BI", &p(&["powerbi-client"])),
+            system_category("Mixpanel", &p(&["mixpanel-browser"])),
             "analytics"
         );
         assert_eq!(system_category("Shop BFF", &p(&["@shop/sdk"])), "service");
