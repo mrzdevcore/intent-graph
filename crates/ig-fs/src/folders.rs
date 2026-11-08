@@ -212,7 +212,7 @@ fn lockfile(name: &str) -> bool {
     )
 }
 
-// `llk-ody-${env}` is that project; the `powerbi-client` package is not `powerbi`
+// `db-${env}` is that project; the `api-client` package is not `api`
 fn names(text: &str, name: &str) -> bool {
     let word = |c: char| c.is_alphanumeric() || c == '_';
     let open = |first: Option<char>, second: Option<char>| match first {
@@ -337,12 +337,12 @@ mod tests {
         let d = tree(
             "ground",
             &[
-                ("llk-infra/a.tf", "x"),
-                ("llk-vpc/main.tf", "x"),
-                ("llk-iac/go.mod", "x"),
+                ("acme-infra/a.tf", "x"),
+                ("acme-vpc/main.tf", "x"),
+                ("acme-iac/go.mod", "x"),
                 ("commune/.git/HEAD", "x"),
                 ("commune/ansible/site.yml", "x"),
-                ("llk-authz/a.tf", "x"),
+                ("acme-authz/a.tf", "x"),
                 ("infravision/package.json", "{}"),
             ],
         );
@@ -353,7 +353,7 @@ mod tests {
             .filter(|p| p.ground)
             .map(|p| p.dir.as_str())
             .collect();
-        assert_eq!(ground, ["commune", "llk-iac", "llk-infra", "llk-vpc"]);
+        assert_eq!(ground, ["acme-iac", "acme-infra", "acme-vpc", "commune"]);
     }
 
     #[test]

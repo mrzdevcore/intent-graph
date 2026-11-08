@@ -288,7 +288,7 @@ The Task 4 review ran the chain for shop's `dashboard/[reportName]/index.vue` an
 
 - **A. Stale declarations.** shop's `.nuxt/imports.d.ts` predates `useDashboardCatalog` (`nuxt prepare` wasn't re-run), so the call stays a guess. Rule: a `Callee::Free(name)` that autoImports can't resolve, but whose name has **exactly one** exported definition inside a directory already covered by the declaration file's entries (the set of source directories its specs point into, such as `src/application/composables/`), resolves to that definition with confidence `resolved`. Each build then adds one notice: `autoImports: N names not in <file> resolved from its directories (run nuxt prepare): a, b, c` (at most 10 names listed).
 - **B. Package-sourced names.** A name declared in a declaration file from a package (`export { useI18n } from 'vue-i18n'`) is recorded as external. A `Free` call to it resolves to **nothing**: no by-name guess, so it never lands on `test/nuxt-imports.stub.ts#useI18n`.
-- **C. Bare-constant route paths.** Route ids like `GET BASE_PATH` (pattern `path: BASE_PATH`, with `const BASE_PATH = '/powerbi-integration'` in the same file) substitute same-file string constants for a **bare identifier** path, not only inside `${…}`. The result here is `GET /powerbi-integration`, so the existing HTTP matching links the template call `/api/powerbi-integration/${…}/embed-config` to `GET ${BASE_PATH}/{reportName}/embed-config`, whose id becomes `GET /powerbi-integration/{reportName}/embed-config`.
+- **C. Bare-constant route paths.** Route ids like `GET BASE_PATH` (pattern `path: BASE_PATH`, with `const BASE_PATH = '/reports'` in the same file) substitute same-file string constants for a **bare identifier** path, not only inside `${…}`. The result here is `GET /reports`, so the existing HTTP matching links the template call `/api/reports/${…}/embed-config` to `GET ${BASE_PATH}/{reportName}/embed-config`, whose id becomes `GET /reports/{reportName}/embed-config`.
 
 **Files:** `src/autoimports.rs`, `src/graph.rs`, `src/patterns.rs` (or wherever route ids substitute constants), `src/git.rs` (`GRAPH_REVISION` → 12). Tests go in the same modules.
 
@@ -318,7 +318,7 @@ The Task 4 review ran the chain for shop's `dashboard/[reportName]/index.vue` an
   - `module start adds uses once`: a module with 3 members and one file `uses` edge gives exactly 1 `uses` step.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement** the changes above.
-- [ ] **Step 4: Run** `bun run test` and `bun run typecheck`. Then run the e2e on the scratch shop copy (after Task 5). The dashboard page's chain should reach `DashboardReport`, `useDashboardCatalog` and `DashboardService`, through the HTTP routes to the API use cases and adapters, and to Power BI.
+- [ ] **Step 4: Run** `bun run test` and `bun run typecheck`. Then run the e2e on the scratch shop copy (after Task 5). The dashboard page's chain should reach `DashboardReport`, `useDashboardCatalog` and `DashboardService`, through the HTTP routes to the API use cases and adapters, and to the reporting service.
 - [ ] **Step 5: Commit:** `git commit -m "Call chain follows rendered components and inner members"`
 
 ### Task 7: Reach the database through injected fields; no repeated steps (added after Task 6)
