@@ -272,21 +272,21 @@ test("mermaid uses lifeline labels and step numbers", () => {
 
 - [ ] **Step 4: Verify.**
   1. Run `make test` and `bun run typecheck`.
-  2. Run the e2e check by hand on acme, the user's real repo. It is read-only, so don't modify it; copy `ig.yaml` into a scratch copy, or point `--root` at it if `ig.yaml` already has `autoImports`.
-     - With `autoImports` set to `front/acme-front/.nuxt/{imports,components}.d.ts` (and the backoffice equivalent), run `ig view --no-open` and open `dashboard/[reportName]/index.vue`.
+  2. Run the e2e check by hand on shop, the user's real repo. It is read-only, so don't modify it; copy `ig.yaml` into a scratch copy, or point `--root` at it if `ig.yaml` already has `autoImports`.
+     - With `autoImports` set to `front/shop-front/.nuxt/{imports,components}.d.ts` (and the backoffice equivalent), run `ig view --no-open` and open `dashboard/[reportName]/index.vue`.
      - The "Calls down" list must reach beyond `index.vue`, into composables and services and, where the HTTP links exist, the API routes.
      - Record the step list in the report.
-  3. If acme isn't available, use the `tests/fixtures/monorepo` scratch copy with a `.nuxt/imports.d.ts` added.
+  3. If shop isn't available, use the `tests/fixtures/monorepo` scratch copy with a `.nuxt/imports.d.ts` added.
 
 - [ ] **Step 5: Commit:** `git commit -m "Viewer: Calls down — call chain list and diagram replace the sequence"` (explicit paths).
 
 ---
 
-### Task 5: Graph gaps found on acme (added after Task 4's review)
+### Task 5: Graph gaps found on shop (added after Task 4's review)
 
-The Task 4 review ran the chain for acme's `dashboard/[reportName]/index.vue` and found it stops early, for graph reasons:
+The Task 4 review ran the chain for shop's `dashboard/[reportName]/index.vue` and found it stops early, for graph reasons:
 
-- **A. Stale declarations.** acme's `.nuxt/imports.d.ts` predates `useDashboardCatalog` (`nuxt prepare` wasn't re-run), so the call stays a guess. Rule: a `Callee::Free(name)` that autoImports can't resolve, but whose name has **exactly one** exported definition inside a directory already covered by the declaration file's entries (the set of source directories its specs point into, such as `src/application/composables/`), resolves to that definition with confidence `resolved`. Each build then adds one notice: `autoImports: N names not in <file> resolved from its directories (run nuxt prepare): a, b, c` (at most 10 names listed).
+- **A. Stale declarations.** shop's `.nuxt/imports.d.ts` predates `useDashboardCatalog` (`nuxt prepare` wasn't re-run), so the call stays a guess. Rule: a `Callee::Free(name)` that autoImports can't resolve, but whose name has **exactly one** exported definition inside a directory already covered by the declaration file's entries (the set of source directories its specs point into, such as `src/application/composables/`), resolves to that definition with confidence `resolved`. Each build then adds one notice: `autoImports: N names not in <file> resolved from its directories (run nuxt prepare): a, b, c` (at most 10 names listed).
 - **B. Package-sourced names.** A name declared in a declaration file from a package (`export { useI18n } from 'vue-i18n'`) is recorded as external. A `Free` call to it resolves to **nothing**: no by-name guess, so it never lands on `test/nuxt-imports.stub.ts#useI18n`.
 - **C. Bare-constant route paths.** Route ids like `GET BASE_PATH` (pattern `path: BASE_PATH`, with `const BASE_PATH = '/powerbi-integration'` in the same file) substitute same-file string constants for a **bare identifier** path, not only inside `${…}`. The result here is `GET /powerbi-integration`, so the existing HTTP matching links the template call `/api/powerbi-integration/${…}/embed-config` to `GET ${BASE_PATH}/{reportName}/embed-config`, whose id becomes `GET /powerbi-integration/{reportName}/embed-config`.
 
@@ -298,7 +298,7 @@ The Task 4 review ran the chain for acme's `dashboard/[reportName]/index.vue` an
   - `bare_constant_route_path`: `const BASE_PATH = '/p'; app.get(BASE_PATH, h)` with the Express pattern. Expect route id `GET /p`, and a page calling `` fetch(`/p`) `` gets an `http` edge to it.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement.** Bump `GRAPH_REVISION` to 12.
-- [ ] **Step 4: Run** `cargo test` (golden files unchanged, or reviewed). Then repeat the e2e on the scratch acme copy with its **real**, stale `.nuxt`. `useDashboardCatalog` must now appear in the chain, along with the notice, and `dashboard.service.ts` must have `http` edges.
+- [ ] **Step 4: Run** `cargo test` (golden files unchanged, or reviewed). Then repeat the e2e on the scratch shop copy with its **real**, stale `.nuxt`. `useDashboardCatalog` must now appear in the chain, along with the notice, and `dashboard.service.ts` must have `http` edges.
 - [ ] **Step 5: Commit:** `git commit -m "autoImports: resolve stale names from covered dirs, never guess package names; bare-constant route paths"`
 
 ### Task 6: The chain follows components and inner members (added after Task 4's review)
@@ -318,12 +318,12 @@ The Task 4 review ran the chain for acme's `dashboard/[reportName]/index.vue` an
   - `module start adds uses once`: a module with 3 members and one file `uses` edge gives exactly 1 `uses` step.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement** the changes above.
-- [ ] **Step 4: Run** `bun run test` and `bun run typecheck`. Then run the e2e on the scratch acme copy (after Task 5). The dashboard page's chain should reach `DashboardReport`, `useDashboardCatalog` and `DashboardService`, through the HTTP routes to the API use cases and adapters, and to Power BI.
+- [ ] **Step 4: Run** `bun run test` and `bun run typecheck`. Then run the e2e on the scratch shop copy (after Task 5). The dashboard page's chain should reach `DashboardReport`, `useDashboardCatalog` and `DashboardService`, through the HTTP routes to the API use cases and adapters, and to Power BI.
 - [ ] **Step 5: Commit:** `git commit -m "Call chain follows rendered components and inner members"`
 
 ### Task 7: Reach the database through injected fields; no repeated steps (added after Task 6)
 
-On acme, the dashboard chain stops at the repositories. They query through an injected field, `this.knexDatabase.knex(...)`, where `knexDatabase: KnexDatabase` comes through the constructor and `knex` is a property, not a method. Extraction emits no edge for that, so the chain never reaches `knex.database.ts`, which holds the `uses` edge to PostgreSQL.
+On shop, the dashboard chain stops at the repositories. They query through an injected field, `this.knexDatabase.knex(...)`, where `knexDatabase: KnexDatabase` comes through the constructor and `knex` is a property, not a method. Extraction emits no edge for that, so the chain never reaches `knex.database.ts`, which holds the `uses` edge to PostgreSQL.
 
 - **Rust:** in `src/extract.rs`, a member access or call through a **typed** receiver (`this.f.x(...)`, `this.f.x`, or `v.x` where the type of `f` or `v` resolves to a repo class, using the same narrow type inference that already resolves `this.f.m()` to the method) gets an edge when `x` is not a method of that class. The edge is `calls` from the enclosing function to the **class node**, confidence `resolved`. Then `GRAPH_REVISION` → 13. Arch rules see this as a real dependency, which it is.
 - **TypeScript:** in `callchain.ts` `collect`, a `shown` set of edges (generalizing `usesShown` to every kind) means each edge appears at most once per chain. Tests to add:
@@ -338,5 +338,5 @@ On acme, the dashboard chain stops at the repositories. They query through an in
   - The TypeScript tests above.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement** both changes.
-- [ ] **Step 4: Run** `cargo test` (check whether the golden files change, and review any change) and `make test`. Then run the acme e2e: the dashboard chain must end at **PostgreSQL** (via the repositories → `KnexDatabase` → `uses`) and must not repeat a step. Record the final list.
+- [ ] **Step 4: Run** `cargo test` (check whether the golden files change, and review any change) and `make test`. Then run the shop e2e: the dashboard chain must end at **PostgreSQL** (via the repositories → `KnexDatabase` → `uses`) and must not repeat a step. Record the final list.
 - [ ] **Step 5: Commit** (explicit paths): `git commit -m "Typed field property access links to its class; call chain shows each edge once"`

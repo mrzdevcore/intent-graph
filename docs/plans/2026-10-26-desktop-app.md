@@ -41,7 +41,7 @@
 2. **An untrusted project never starts a session,** even through "Plan this" or a deep link, and a changed hook re-prompts. *(Task 5)*
 3. **Concurrent permission requests** from sub-agents (`parent_tool_use_id`) are each answered exactly once, and a closed window rejects any pending ones. *(Task 6)*
 4. **The adapter crashes mid-turn:** the session shows "agent stopped", offers a restart, and keeps the transcript. *(Task 6)*
-5. **A large repo** (the size of acme or bigshop): the file tree and graph load lazily, with the first paint in under 2 s. *(Tasks 3–4)*
+5. **A large repo** (the size of shop or bigshop): the file tree and graph load lazily, with the first paint in under 2 s. *(Tasks 3–4)*
 
 ---
 

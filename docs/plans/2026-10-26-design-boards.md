@@ -209,7 +209,7 @@ The spec leaves these to the builder, unless a line says the decision was the us
 - **Performance:**
   - 200 elements smooth at 60 fps, and 2,000 elements usable;
   - pinned by headless engine benchmarks (scene build, hit-testing), not GPU timings;
-  - an edit shows its check result in under 150 ms on acme.
+  - an edit shows its check result in under 150 ms on shop.
 - **The boards are desktop-only.** The wasm is never inlined into `ig view`. `ig view`, `ig serve` and flat plans keep working unchanged.
 - **Dependencies:** only those named in Decisions 21–25, pinned exactly. No global installs.
 - **Files are ≤ 600 lines.**
@@ -225,7 +225,7 @@ The spec leaves these to the builder, unless a line says the decision was the us
   - Never push.
   - Never stage the root screenshots.
 - **Screenshots** capture the app window only.
-- **The user's repositories are read-only:** `<shop repo>` (acme) and `<intake repo>`. Manual checks use `cp -R` copies in the scratch folder.
+- **The user's repositories are read-only:** the shop and intake repos. Manual checks use `cp -R` copies in the scratch folder.
 
 ## Review Focus
 
@@ -1396,7 +1396,7 @@ impl Engine { pub fn set_read_only(&mut self, pick: bool); }   // pick mode: hov
   - **Screenshots:** window-only.
 - [ ] **Step 5: Commit** `The bridge: screen-to-architecture links, call chain on hover, requirements for plan and apply`.
 
-### Task 16: Usability check (the intake walkthrough), performance on acme, docs (old Task 13)
+### Task 16: Usability check (the intake walkthrough), performance on shop, docs (old Task 13)
 
 **Added for the engine and sigma:**
 - the walkthrough gains a keyboard-only and VoiceOver pass (Review Focus 9), plus a Graph-view check on sigma;
@@ -1409,7 +1409,7 @@ impl Engine { pub fn set_read_only(&mut self, pick: bool); }   // pick mode: hov
 
 - [ ] **Step 1: Make scratch copies.**
   - `cp -R <intake repo> <scratch>/intake`;
-  - `cp -R <shop repo> <scratch>/acme`;
+  - `cp -R <shop repo> <scratch>/shop`;
   - run `ig init` if needed.
   - Never open the originals.
 - [ ] **Step 2: Scripted walkthrough on `intake`,** without docs, timed, each step pass or fail with a note:
@@ -1430,16 +1430,16 @@ impl Engine { pub fn set_read_only(&mut self, pick: bool); }   // pick mode: hov
   15. Quit and reopen the app: everything is there, and `git diff plans/` reads cleanly.
 
   **Pass bar:** every step done without docs. A dialog, a missing shortcut or a lost edit is a bug to fix before the commit.
-- [ ] **Step 3: Measure performance on `acme`.**
+- [ ] **Step 3: Measure performance on `shop`.**
   - A throwaway script writes a 200-element design and 5 screens of 40 pieces into `plans/perf/` of the scratch copy.
   - The edit-to-shown median over 20 edits must be under 150 ms, measured with `performance.now()` in dev builds.
   - Pan and zoom must stay at 60 fps on both boards with 200 elements (note the frame rate from the Web Inspector).
   - A second generated design of 2,000 elements must stay usable; record the frame times.
   - Keyboard-only and VoiceOver: the walkthrough's steps 2, 3 and 10, done with the accessibility list only.
-  - Graph view on acme (sigma): measure open to first paint, and check that `ig_show` highlighting works.
+  - Graph view on shop (sigma): measure open to first paint, and check that `ig_show` highlighting works.
   - Record the numbers. If over budget, record the profile and stop: an incremental merge is added only on this evidence.
 - [ ] **Step 4: Update the docs,** then run `make test` and the gates.
-- [ ] **Step 5: Commit** `Design boards docs; intake walkthrough and acme timings`, with the results in the body.
+- [ ] **Step 5: Commit** `Design boards docs; intake walkthrough and shop timings`, with the results in the body.
 
 ---
 

@@ -66,7 +66,7 @@ commands come later, on top of the same map file.
   < 140 px ≤ mid < 220 px ≤ near. A box's inside fades in once the box is ≥ 560 px wide on screen.
 - **Fonts:** Kalam for box titles, Inter for UI text, `ui-monospace` for code-level titles and
   labels.
-- **Read-only repos:** the user's repos under `~/code/shop` and `~/code/intake` are never
+- **Read-only repos:** the user's real repos are never
   written. Use scratch copies only.
 - **No synthetic OS input of any kind.** Screenshots are of the app window only
   (`screencapture -l`).
