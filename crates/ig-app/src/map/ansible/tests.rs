@@ -51,7 +51,7 @@ fn repo() -> MemFiles {
             "ansible/roles/front_shop/tasks/main.yml",
             "- name: Deploy\n  debug: {}\n",
         ),
-        ("ansible/roles/front_shop/meta/targets.yml", "- aladin\n"),
+        ("ansible/roles/front_shop/meta/targets.yml", "- acme\n"),
         (
             "ansible/roles/helper_deploy_helm_chart/tasks/main.yml",
             "- name: Helm\n  debug: {}\n",
@@ -69,9 +69,9 @@ fn roles_are_services_grouped_by_where_they_deploy() {
         got,
         [
             // one role alone for its target: still its own container, the only small one
-            ("aladin", Level::Container, BoxKind::Group, "Aladin"),
+            ("acme", Level::Container, BoxKind::Group, "Acme"),
             (
-                "aladin/front-shop",
+                "acme/front-shop",
                 Level::Component,
                 BoxKind::App,
                 "front_shop"
@@ -171,12 +171,12 @@ fn a_large_tree_keeps_every_box_to_twelve() {
         "STRIPE",
         "ALGOLIA",
         "CONTENTFUL",
-        "IZANAMI",
-        "DALENYS",
-        "MANGOPAY",
-        "ZENDESK",
-        "MAILJET",
-        "MIRAKL",
+        "DATADOG",
+        "POSTHOG",
+        "SENDGRID",
+        "OPENAI",
+        "METABASE",
+        "ANTHROPIC",
         "LANGFUSE",
         "REDIS",
         "MONGO",
@@ -192,7 +192,7 @@ fn a_large_tree_keeps_every_box_to_twelve() {
         let t = if i < 20 {
             "common"
         } else {
-            ["aladin", "farmi", "retail"][i % 3]
+            ["acme", "orbit", "retail"][i % 3]
         };
         owned.push((format!("{r}/meta/targets.yml"), format!("- {t}\n")));
         let s = systems[i % systems.len()];
