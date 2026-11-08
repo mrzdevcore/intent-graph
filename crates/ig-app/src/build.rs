@@ -496,6 +496,6 @@ mod tests {
             system_category("Power BI", &p(&["powerbi-client"])),
             "analytics"
         );
-        assert_eq!(system_category("Maite BFF", &p(&["@maite/sdk"])), "service");
+        assert_eq!(system_category("Shop BFF", &p(&["@shop/sdk"])), "service");
     }
 }

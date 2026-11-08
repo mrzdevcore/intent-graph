@@ -649,7 +649,7 @@ fn reviewer_findings_block_until_the_change_moves() {
 
 ### Task 9: Layered architecture view, system icons, hide links
 
-Added on 2026-10-25 at the user's request, after viewing the maite Architecture screenshot. The request: make the view more structural, organised by layers like the blueprint, with all external services at the bottom; give systems different icons (Postgres, Mongo, Elastic APM, Auth0, Contentful…); and add a way to hide the arrows.
+Added on 2026-10-25 at the user's request, after viewing the shop Architecture screenshot. The request: make the view more structural, organised by layers like the blueprint, with all external services at the bottom; give systems different icons (Postgres, Mongo, Elastic APM, Auth0, Contentful…); and add a way to hide the arrows.
 
 **Files:**
 - Modify: the viewer from Task 10 (`viewer/src/`: architecture layout, system icons, links toggle), `viewer/package.json` (adds `simple-icons` and `lucide`), `src/view.rs` (a system `category` and `packages` in the node data)
@@ -703,7 +703,7 @@ Added on 2026-10-25 at the user's request, after viewing the maite Architecture 
     - Vitest checks:
       - "PostgreSQL" with package `pg` gives the PostgreSQL brand icon;
       - "Elastic APM" gives the Elastic brand icon;
-      - "Maite BFF" gives lucide `Cloud`;
+      - "Shop BFF" gives lucide `Cloud`;
       - an unknown system in category `database` gives lucide `Database`.
   - JS, links toggle:
     - A header button "Links" (`aria-pressed`) shows or hides all edges in every mode.
@@ -723,7 +723,7 @@ fn system_categories() {
     assert_eq!(system_category("Auth0", &p(&["@auth0/auth0-react"])), "auth");
     assert_eq!(system_category("Contentful", &p(&["contentful"])), "cms");
     assert_eq!(system_category("Power BI", &p(&["powerbi-client"])), "analytics");
-    assert_eq!(system_category("Maite BFF", &p(&["@maite/sdk"])), "service");
+    assert_eq!(system_category("Shop BFF", &p(&["@shop/sdk"])), "service");
 }
 ```
 

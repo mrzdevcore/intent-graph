@@ -211,7 +211,7 @@ The spec leaves these to the builder, unless a line says the decision was the us
 - **Performance:**
   - 200 elements smooth at 60 fps, and 2,000 elements usable;
   - pinned by headless engine benchmarks (scene build, hit-testing), not GPU timings;
-  - an edit shows its check result in under 150 ms on maite.
+  - an edit shows its check result in under 150 ms on shop.
 - **The boards are desktop-only.** The wasm is never inlined into `ig view`. `ig view`, `ig serve` and flat plans keep working unchanged.
 - **Dependencies:** only those named in Decisions 21–25, pinned exactly. No global installs.
 - **Files are ≤ 600 lines.**
@@ -227,7 +227,7 @@ The spec leaves these to the builder, unless a line says the decision was the us
   - Never push.
   - Never stage the root screenshots.
 - **Screenshots** capture the app window only.
-- **The user's repositories are read-only:** `/Users/mrzdevcore/Projects/invivo/` (maite) and `/Users/mrzdevcore/Projects/afweba/afwaCollect-Actes`. Manual checks use `cp -R` copies in the scratchpad.
+- **The user's repositories are read-only:** the shop and intake repos. Manual checks use `cp -R` copies in the scratchpad.
 
 ## Review Focus
 
@@ -1398,7 +1398,7 @@ impl Engine { pub fn set_read_only(&mut self, pick: bool); }   // pick mode: hov
   - **Screenshots:** window-only.
 - [ ] **Step 5: Commit** `The bridge: screen-to-architecture links, call chain on hover, requirements for plan and apply`.
 
-### Task 16: Usability check (the afwaCollect walkthrough), performance on maite, docs (old Task 13)
+### Task 16: Usability check (the intake walkthrough), performance on shop, docs (old Task 13)
 
 **Added for the engine and sigma:**
 - the walkthrough gains a keyboard-only and VoiceOver pass (Review Focus 9), plus a Graph-view check on sigma;
@@ -1410,11 +1410,11 @@ impl Engine { pub fn set_read_only(&mut self, pick: bool); }   // pick mode: hov
 - Create: nothing in the repo. The report lives in the session scratchpad and its findings go into the commit body.
 
 - [ ] **Step 1: Make scratch copies.**
-  - `cp -R /Users/mrzdevcore/Projects/afweba/afwaCollect-Actes <scratchpad>/afwa`;
-  - `cp -R /Users/mrzdevcore/Projects/invivo/maite <scratchpad>/maite`;
+  - `cp -R <intake repo> <scratchpad>/intake`;
+  - `cp -R <shop repo> <scratchpad>/shop`;
   - run `ig init` if needed.
   - Never open the originals.
-- [ ] **Step 2: Scripted walkthrough on `afwa`,** without docs, timed, each step pass or fail with a note:
+- [ ] **Step 2: Scripted walkthrough on `intake`,** without docs, timed, each step pass or fail with a note:
   1. Open the project, then Design, then a new feature: "Patient export". Use "design around" the patients page.
   2. Architecture: place `GET /api/patients/export`, then the use case `exportPatientsCsv`, and link them. Link the use case to the existing repository, mark the repository changed, and link it to PostgreSQL (uses). Link the page to the route: the kind is http.
   3. Add a sticky note "Big wards: 40k rows. Sync download OK?" and mark it as a question. The indicator says "Not clear yet: 1 open question, …".
@@ -1432,16 +1432,16 @@ impl Engine { pub fn set_read_only(&mut self, pick: bool); }   // pick mode: hov
   15. Quit and reopen the app: everything is there, and `git diff plans/` reads cleanly.
 
   **Pass bar:** every step done without docs. A dialog, a missing shortcut or a lost edit is a bug to fix before the commit.
-- [ ] **Step 3: Measure performance on `maite`.**
+- [ ] **Step 3: Measure performance on `shop`.**
   - A throwaway script writes a 200-element design and 5 screens of 40 pieces into `plans/perf/` of the scratch copy.
   - The edit-to-shown median over 20 edits must be under 150 ms, measured with `performance.now()` in dev builds.
   - Pan and zoom must stay at 60 fps on both boards with 200 elements (note the frame rate from the Web Inspector).
   - A second generated design of 2,000 elements must stay usable; record the frame times.
   - Keyboard-only and VoiceOver: the walkthrough's steps 2, 3 and 10, done with the accessibility list only.
-  - Graph view on maite (sigma): measure open to first paint, and check that `ig_show` highlighting works.
+  - Graph view on shop (sigma): measure open to first paint, and check that `ig_show` highlighting works.
   - Record the numbers. If over budget, record the profile and stop: an incremental merge is added only on this evidence.
 - [ ] **Step 4: Update the docs,** then run `make test` and the gates.
-- [ ] **Step 5: Commit** `Design boards docs; afwaCollect walkthrough and maite timings`, with the results in the body.
+- [ ] **Step 5: Commit** `Design boards docs; intake walkthrough and shop timings`, with the results in the body.
 
 ---
 
@@ -1467,7 +1467,7 @@ impl Engine { pub fn set_read_only(&mut self, pick: bool); }   // pick mode: hov
   | Screens: sketch pieces, props, pen, arrows and navs, states, PNG and JPEG import | 13, 14 |
   | Bridge: drag or `K`, call chain, requirements; skills for plan and apply; design system rule | 15 |
   | 60 fps with 200 elements and 2,000 usable (headless benchmarks plus a manual check) | 7, 14, 16 |
-  | Usability bar on afwaCollect (sketch, plan, apply) | 16 |
+  | Usability bar on intake (sketch, plan, apply) | 16 |
 
   **Out of scope:** as-built consolidation (step 8), Figma by link, and an in-app notes.md UI.
 - **Step scan:** every new task names its tests and assertions, its commands and expected results, and its exact pins. Code blocks hold signatures only.

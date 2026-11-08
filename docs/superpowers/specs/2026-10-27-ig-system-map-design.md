@@ -406,7 +406,7 @@ draw identically, and it is testable without a browser.
 - No new runtime dependencies are needed (Svelte, simple-icons and mermaid are already in). Any new
   one is pinned to an exact version.
 - Never push without the user's explicit consent. No Claude attribution in commits.
-- Each goal ends with the user using it on a real repo (afwa and front-vision-board scratch copies)
+- Each goal ends with the user using it on a real repo (intake and front-vision-board scratch copies)
   before the next starts.
 
 ## Left to the builder

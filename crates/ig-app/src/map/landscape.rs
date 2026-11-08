@@ -272,7 +272,7 @@ mod tests {
 
     fn inner() -> View {
         let mut v = view_of();
-        v.boxes.iter_mut().find(|b| b.id == ROOT).unwrap().title = Field::ig("Maite".to_string());
+        v.boxes.iter_mut().find(|b| b.id == ROOT).unwrap().title = Field::ig("Shop".to_string());
         v
     }
     fn view_of() -> View {
@@ -352,30 +352,30 @@ mod tests {
     #[test]
     fn a_project_s_map_sits_inside_its_box_under_its_own_ids() {
         let v = combine(
-            "invivo",
-            vec![project("maite", false, Some(inner()))],
+            "acme",
+            vec![project("shop", false, Some(inner()))],
             Landscape::default(),
         );
         let b = |id: &str| v.boxes.iter().find(|b| b.id == id).unwrap();
-        assert_eq!(b(ROOT).title.value, "invivo");
-        assert_eq!(b("maite").title.value, "Maite");
-        assert_eq!(b("maite").tech.as_ref().unwrap().value, "Rust");
-        assert!(!b("maite").needs_reading);
-        assert_eq!(b("maite/api").parent.as_deref(), Some("maite"));
-        assert_eq!(b("maite/api/db").parent.as_deref(), Some("maite/api"));
-        assert_eq!(b("maite/api").made_of, ["maite/api/**"]);
+        assert_eq!(b(ROOT).title.value, "acme");
+        assert_eq!(b("shop").title.value, "Shop");
+        assert_eq!(b("shop").tech.as_ref().unwrap().value, "Rust");
+        assert!(!b("shop").needs_reading);
+        assert_eq!(b("shop/api").parent.as_deref(), Some("shop"));
+        assert_eq!(b("shop/api/db").parent.as_deref(), Some("shop/api"));
+        assert_eq!(b("shop/api").made_of, ["shop/api/**"]);
         assert_eq!(v.boxes.iter().filter(|x| x.id == ROOT).count(), 1);
         let a = &v.arrows[0];
         assert_eq!(
             (a.id.as_str(), a.parent.as_str()),
-            ("maite/api->maite/api/db", "maite")
+            ("shop/api->shop/api/db", "shop")
         );
-        assert_eq!(a.parts[0].from, "maite/api");
-        assert_eq!(v.marks[0].target, "maite/api->maite/api/db");
-        assert_eq!(v.placed.inner["maite"], (10.0, 20.0));
-        assert_eq!(v.placed.frames["maite/api"].x, 1.0);
-        assert_eq!(v.placed.regions[0].parent, "maite/api");
-        assert_eq!(v.notices, ["maite: hello"]);
+        assert_eq!(a.parts[0].from, "shop/api");
+        assert_eq!(v.marks[0].target, "shop/api->shop/api/db");
+        assert_eq!(v.placed.inner["shop"], (10.0, 20.0));
+        assert_eq!(v.placed.frames["shop/api"].x, 1.0);
+        assert_eq!(v.placed.regions[0].parent, "shop/api");
+        assert_eq!(v.notices, ["shop: hello"]);
     }
 
     #[test]

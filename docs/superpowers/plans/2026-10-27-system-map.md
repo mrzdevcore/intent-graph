@@ -68,7 +68,7 @@ commands come later, on top of the same map file.
   < 140 px ≤ mid < 220 px ≤ near. A box's inside fades in once the box is ≥ 560 px wide on screen.
 - **Fonts:** Kalam for box titles, Inter for UI text, `ui-monospace` for code-level titles and
   labels.
-- **Read-only repos:** the user's repos under `~/Projects/invivo` and `~/Projects/afweba` are never
+- **Read-only repos:** the user's real repos are never
   written. Use scratch copies only.
 - **No synthetic OS input of any kind.** Screenshots are of the app window only
   (`screencapture -l`).
@@ -565,7 +565,7 @@ commands come later, on top of the same map file.
 
 ### Task 10: Real repos, timings, docs
 
-- [ ] **Step 1:** Run `ig view --read` on scratch copies of afwa and front-vision-board, with one
+- [ ] **Step 1:** Run `ig view --read` on scratch copies of intake and front-vision-board, with one
   agent run each, and record whether the containers, patterns and descriptions are right.
 - [ ] **Step 2: Measure.**
   - `ig view --no-read --no-open` on front-vision-board (3,760 nodes) must take < 2 s warm;

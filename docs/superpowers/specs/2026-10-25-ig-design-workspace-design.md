@@ -205,11 +205,11 @@ It renders as a sequence with **one lifeline per lane or layer** (page, composab
 ## Author's calls (from the builder check, not discussed with the user)
 
 - **Several features per project.** The app lists the features (the folders under `plans/`, plus flat plans), creates a new one (a folder with an empty `design.json`), and switches between them. The API and events are per feature, keyed by slug. A feature can exist with only a design: no `plan.md` is needed to draw or to add notes. The chat session is per feature.
-- **Live checks are exact and computed in Rust:** the design is sent to the Rust core, which merges it like `plan::merge` and runs the same checks as `ig plan check`. There is never a TypeScript port of the rules. Edits are debounced (target under 150 ms from the edit to the shown result) and measured on a repository of maite's size. An incremental merge is added only if the measurement says so.
+- **Live checks are exact and computed in Rust:** the design is sent to the Rust core, which merges it like `plan::merge` and runs the same checks as `ig plan check`. There is never a TypeScript port of the rules. Edits are debounced (target under 150 ms from the edit to the shown result) and measured on a repository of shop's size. An incremental merge is added only if the measurement says so.
 
 ## Usability bar (acceptance)
 
-The user should be able to sketch the afwaCollect patient-export feature end to end without reading docs:
+The user should be able to sketch the intake patient-export feature end to end without reading docs:
 
 - **Direct manipulation:** drag to place, drag to link, double-click to rename, Delete to remove; no modal dialogs for common actions.
 - **Undo and redo** for every action, with Cmd/Ctrl+Z and Shift+Z.
@@ -217,9 +217,9 @@ The user should be able to sketch the afwaCollect patient-export feature end to 
 - **Navigation:** zoom, pan and fit; snapping to rows and a grid; multi-select; copy and paste; duplicate.
 - **Saving:** autosave to files, never a save button, never losing work. Files are written atomically.
 - **Feedback:** rule problems are visible immediately on the element, with the reason on hover.
-- **Speed:** smooth on a design with 200 elements over the context of a repository the size of maite (about 1,000 modules).
+- **Speed:** smooth on a design with 200 elements over the context of a repository the size of shop (about 1,000 modules).
 - **Themes:** light and dark.
-- Before the MVP is called done, it is tried on afwaCollect: sketch patient export, get a plan, and apply it.
+- Before the MVP is called done, it is tried on intake: sketch patient export, get a plan, and apply it.
 
 ## Constraints
 

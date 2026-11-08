@@ -301,7 +301,7 @@ mod tests {
                 ("web/package.json", "{}"),
                 (
                     "web-DM-1/.git",
-                    "gitdir: /x/invivo/web/.git/worktrees/web-DM-1\n",
+                    "gitdir: /x/acme/web/.git/worktrees/web-DM-1\n",
                 ),
                 ("web-DM-1/package.json", "{}"),
                 ("authf/main.ts", "x"),

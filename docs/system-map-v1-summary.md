@@ -123,7 +123,7 @@ checkers are gone. Old setups keep working:
 - **Tasks:** 15 tasks, each implemented by a fresh agent and reviewed independently.
 - **Final review:** one review of the whole branch, followed by one fix wave.
 - **Tests:** 187 Rust tests and 70 viewer tests.
-- **Trials:** run on scratch copies only. One real Claude reading of afwa took 11 s.
+- **Trials:** run on scratch copies only. One real Claude reading of intake took 11 s.
 
 ## Still open
 
