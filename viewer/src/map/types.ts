@@ -126,4 +126,5 @@ export type Edit =
   | { op: "set"; id: string; key: string; value: string | null }
   | { op: "arrow"; from: string; to: string; kind: ArrowKind; label: string | null }
   | { op: "unarrow"; from: string; to: string; kind: ArrowKind }
+  | { op: "arrowset"; from: string; to: string; key: string; value: string | null }
   | { op: "restore"; parent: string; before: string | null; kdl: string };

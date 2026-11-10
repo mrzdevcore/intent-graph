@@ -203,6 +203,21 @@ impl Spec {
             }
             Edit::Arrow { from, to, kind, .. } => has_arrow(from, to, *kind),
             Edit::Unarrow { from, to, kind } => !has_arrow(from, to, *kind),
+            Edit::ArrowSet {
+                from,
+                to,
+                key,
+                value,
+                ..
+            } => match (key.as_str(), value) {
+                ("to", Some(v)) => self.arrow_node(from, v).is_some(),
+                ("from", Some(v)) => self.arrow_node(v, to).is_some(),
+                ("flip", _) => self.arrow_node(to, from).is_some(),
+                (k, v) => self.arrow_node(from, to).is_some_and(|n| match k {
+                    "kind" => Some(n.name().value()) == v.as_deref(),
+                    _ => n.get(k).and_then(|x| x.as_string()) == v.as_deref(),
+                }),
+            },
             Edit::Restore { .. } => true,
         }
     }

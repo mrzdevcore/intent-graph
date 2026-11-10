@@ -1,6 +1,7 @@
 use super::*;
 use ig_core::testing::MemFiles;
 
+mod arrow;
 mod context;
 mod files;
 mod fmt;

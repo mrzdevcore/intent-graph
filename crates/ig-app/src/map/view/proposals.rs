@@ -64,6 +64,10 @@ pub fn proposals(entries: &[Entry], boxes: &[MapBox]) -> Vec<Proposal> {
                     format!("unarrow {} {} {}", t(from), word(kind), t(to)),
                     ids(&[&format!("{from}->{to}")]),
                 ),
+                Edit::ArrowSet { from, to, key, .. } => (
+                    format!("{} → {}: {key}", t(from), t(to)),
+                    ids(&[&format!("{from}->{to}")]),
+                ),
                 Edit::Restore { parent, .. } => ("restore".into(), ids(&[parent])),
             };
             // a move's destination is lit on hover but is not what changed

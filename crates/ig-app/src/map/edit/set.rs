@@ -289,7 +289,7 @@ impl Spec {
 
 /// A string value as written for the node at `indent`: a raw multi-line string when it has line
 /// breaks that one can write that way, else a quoted one.
-fn context_format(v: &str, indent: &str) -> KdlEntryFormat {
+pub(super) fn context_format(v: &str, indent: &str) -> KdlEntryFormat {
     let plain = |c: char| (!c.is_control() || c == '\n' || c == '\t') && !spec::disallowed(c);
     let multi = v.contains('\n')
         && v.chars().all(plain)

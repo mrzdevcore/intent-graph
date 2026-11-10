@@ -10,10 +10,11 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod arrow;
 pub(crate) mod fmt;
 pub mod journal;
 mod moves;
-mod set;
+pub(super) mod set;
 pub(crate) mod tidy;
 pub use fmt::fmt;
 
@@ -71,6 +72,17 @@ pub enum Edit {
         from: String,
         to: String,
         kind: ArrowKind,
+    },
+    /// Changes the arrow `from->to`: `kind`, `label`, `note`, `context` (`None` removes the last
+    /// three), `from` or `to` (the new end), or `flip`, which swaps the ends.
+    ArrowSet {
+        from: String,
+        to: String,
+        key: String,
+        value: Option<String>,
+        /// Only in an inverse of `from` and `flip`: the sibling the arrow was before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
     },
     /// Puts back a removed node verbatim; only made as an inverse. `before` names a sibling box
     /// by id, or a sibling arrow by `from->to`.
@@ -395,6 +407,13 @@ impl Spec {
                     kind: *kind,
                 })
             }
+            Edit::ArrowSet {
+                from,
+                to,
+                key,
+                value,
+                before,
+            } => self.arrow_set(from, to, key, value.as_deref(), before.as_deref()),
             Edit::Unarrow { from, to, kind } => {
                 let (path, mut at) = self.must(from)?;
                 let nodes = (self.node(&(path.clone(), at.clone())).children())
