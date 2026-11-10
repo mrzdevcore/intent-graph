@@ -122,6 +122,7 @@ pub fn env<'a>(files: &'a dyn Files, vcs: Option<&'a dyn Vcs>, fe: &'a Fake) -> 
         files,
         vcs,
         frontends: fes,
+        schema: None,
         progress: &quiet,
         notice: &quiet,
     }

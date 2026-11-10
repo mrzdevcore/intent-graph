@@ -72,6 +72,7 @@ impl Wired {
             files: &self.files,
             vcs: self.vcs.as_ref().map(|v| v as &dyn Vcs),
             frontends: FRONTENDS,
+            schema: Some(&ig_schema::SchemaFiles),
             progress: &progress,
             notice: &notice,
         }

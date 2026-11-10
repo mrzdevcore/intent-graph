@@ -5,6 +5,7 @@ use super::file::{MapBox, MapFile};
 use super::origin::{Origin, glob};
 use super::{ArrowKind, Level, MarkState};
 use globset::{GlobSet, GlobSetBuilder};
+use ig_core::model::Schema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -17,6 +18,8 @@ pub enum SpecSide {
 pub struct Side {
     pub arch: MapFile,
     pub spec: SpecSide,
+    /// The tables the side's code declares.
+    pub schema: Schema,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,6 +31,8 @@ pub struct Diff {
     pub summary: String,
     pub boxes: BoxChanges,
     pub arrows: ArrowChanges,
+    #[serde(skip_serializing_if = "TableChanges::is_empty")]
+    pub tables: TableChanges,
     pub intent: Intent,
     pub problems: Problems,
 }
@@ -179,6 +184,7 @@ pub fn diff(
         summary: String::new(),
         boxes,
         arrows,
+        tables: tables::tables(&base.schema, &head.schema),
         intent,
         problems,
     };
@@ -442,6 +448,9 @@ fn summary(d: &Diff, direct: usize) -> String {
     );
     let gone = d.arrows.removed.len();
     push(gone, count(gone, "arrow", "arrows") + " removed");
+    let t = &d.tables;
+    let tables = t.added.len() + t.removed.len() + t.changed.len();
+    push(tables, count(tables, "table", "tables") + " changed");
     let ps = &d.problems;
     let rules = ps
         .new
@@ -474,8 +483,10 @@ fn summary(d: &Diff, direct: usize) -> String {
 
 mod build;
 mod intent;
+pub mod tables;
 pub use build::{ViewAt, run, run_with_view};
 use intent::intent;
+pub use tables::TableChanges;
 
 #[cfg(test)]
 mod tests;

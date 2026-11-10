@@ -8,21 +8,25 @@
      Sizes stay in px: they are the layout's units, scaled with the map. -->
 <script lang="ts">
   import type { Look, Tone } from "./looks";
-  import type { KindView, MapBox, Part, Snippet } from "./types";
+  import type { KindView, MapBox, Part, Snippet, Table as TableData } from "./types";
   import { boxLogo } from "./logo";
   import { steady } from "./camera";
   import { iconMask, kindOf } from "./edit/add";
   import Code from "./Code.svelte";
+  import Table from "./Table.svelte";
+  import type { TableMark } from "./diff";
   import Shape from "./Shape.svelte";
   import { padOf, hue, shapeOf, type ShapeName } from "./shapes";
 
   // more: how many boxes it holds
   // parts: a component's part box's list; anatomy: a component's part boxes (title, list), for
-  // its chips; w, h: its frame; shape: what it is drawn as (Map knows its children, for a CLI)
-  let { box, look, detail, onopen, inside = 0, more = 0, zoom = 1, source, parts, anatomy, kinds = [], w = 264, h = 152, shape: drawnAs }: {
+  // its chips; w, h: its frame; shape: what it is drawn as (Map knows its children, for a CLI);
+  // table: a table box's table, rows: its columns' marks in a diff
+  let { box, look, detail, onopen, inside = 0, more = 0, zoom = 1, source, parts, anatomy, kinds = [], w = 264, h = 152, shape: drawnAs, table, rows }: {
     box: MapBox; look: Look; detail: "far" | "mid" | "near" | "open" | "source"; onopen: () => void;
     inside?: number; more?: number; zoom?: number; source?: Snippet; parts?: Part[];
     anatomy?: { title: string; parts: Part[] }[]; kinds?: KindView[]; w?: number; h?: number; shape?: ShapeName;
+    table?: TableData; rows?: TableMark;
   } = $props();
 
   const CHIP: Record<Tone, string> = {
@@ -35,6 +39,7 @@
     file: ["M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7zM14 2v4a2 2 0 0 0 2 2h4", "var(--map-muted)"],
     component: ["M3 5h18v14H3zM3 9h18M7 13h4M7 16h7", "var(--map-blue)"],
     parts: ["M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", "var(--map-muted)"],
+    table: ["M3 5h18v14H3zM3 10h18M9 10v9", "var(--map-blue)"],
   };
   const GLYPH: Record<string, string> = { class: "C", method: "m", group: "≡", task: "▸" };
   // a design block's tile and icon: [tint, ink]
@@ -99,7 +104,9 @@
   const unread = $derived(kind === "group" && box.id.endsWith("/unread"));
 </script>
 
-{#if unread}
+{#if table && kind === "table"}
+  <Table {table} {look} {rows} {onopen} />
+{:else if unread}
   <button class="chip-box" type="button" aria-label="Open {title}" onclick={onopen}>{title}</button>
 {:else if kind === "person"}
   <button class="figure" type="button" aria-label="Open {title}" style:opacity={look.fade} onclick={onopen}>

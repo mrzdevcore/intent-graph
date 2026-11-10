@@ -1,0 +1,8 @@
+[package]
+name = "ig-schema"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ig-core = { path = "../ig-core" }
+regex = "1.13.1"

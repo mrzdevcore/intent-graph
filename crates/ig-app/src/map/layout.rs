@@ -99,9 +99,27 @@ fn size(b: &MapBox) -> (f32, f32) {
     }
 }
 
+/// A table box's width, its header's height and a column's row: the viewer draws its card in
+/// these.
+pub const TABLE: (f32, f32, f32) = (320.0, 56.0, 26.0);
+
+/// A table box's size: its header and a row for each of its `rows` columns (2 at least).
+fn table_size(rows: u32) -> (f32, f32) {
+    (TABLE.0, TABLE.1 + TABLE.2 * rows.max(2) as f32 + 8.0)
+}
+
 /// Every box with children laid out in its inner space; the notices name the arrows with an end
 /// that has no place.
 pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
+    layout_with(boxes, arrows, &BTreeMap::new())
+}
+
+/// `layout`, a table box as tall as its rows (its column count, by box id).
+pub fn layout_with(
+    boxes: &[MapBox],
+    arrows: &[MapArrow],
+    rows: &BTreeMap<String, u32>,
+) -> (Placed, Vec<String>) {
     let by_id: BTreeMap<&str, &MapBox> = boxes.iter().map(|b| (b.id.as_str(), b)).collect();
     let mut kids: BTreeMap<&str, Vec<&MapBox>> = BTreeMap::new();
     for b in by_id.values() {
@@ -120,6 +138,7 @@ pub fn layout(boxes: &[MapBox], arrows: &[MapArrow]) -> (Placed, Vec<String>) {
     for (parent, kids) in &kids {
         let mut l = Lay {
             near: &near,
+            rows,
             cx: BTreeMap::new(),
             frames: vec![],
             regions: vec![],
@@ -189,6 +208,8 @@ fn cuts(p: (f32, f32), q: (f32, f32), f: &Frame) -> bool {
 #[derive(Clone)]
 struct Lay<'a> {
     near: &'a BTreeMap<&'a str, Vec<&'a str>>,
+    /// See `layout_with`.
+    rows: &'a BTreeMap<String, u32>,
     /// Centers of the boxes placed so far, for the barycenter order.
     cx: BTreeMap<&'a str, f32>,
     frames: Vec<(&'a str, Frame)>,
@@ -199,6 +220,14 @@ struct Lay<'a> {
 }
 
 impl<'a> Lay<'a> {
+    /// `b`'s size at "near" detail (`size`), a table's from its rows.
+    fn size(&self, b: &MapBox) -> (f32, f32) {
+        match self.rows.get(&b.id) {
+            Some(n) if b.kind.value == BoxKind::Table => table_size(*n),
+            _ => size(b),
+        }
+    }
+
     /// `items` ordered by the mean center of their placed neighbours (those with none last),
     /// ties by id.
     fn order(&self, mut items: Vec<&'a MapBox>) -> Vec<&'a MapBox> {
@@ -253,7 +282,7 @@ impl<'a> Lay<'a> {
         }
         let items = self.order(items);
         let start = self.frames.len();
-        let sizes: Vec<(f32, f32)> = items.iter().map(|b| size(b)).collect();
+        let sizes: Vec<(f32, f32)> = items.iter().map(|b| self.size(b)).collect();
         let cw = sizes.iter().map(|s| s.0).fold(0.0, f32::max);
         let rows: Vec<&[(f32, f32)]> = sizes.chunks(cols).collect();
         let heights: Vec<f32> = rows
@@ -337,7 +366,7 @@ impl<'a> Lay<'a> {
         let mut bounds: Option<Frame> = None;
         let start = self.frames.len();
         for b in self.order(items) {
-            let (w, h) = size(b);
+            let (w, h) = self.size(b);
             let f = Frame { x, y, w, h };
             self.put(&b.id, f);
             bounds = Some(bounds.map_or(f, |b| b.union(&f)));

@@ -60,6 +60,71 @@ pub struct Part {
     pub detail: Option<String>,
 }
 
+/// A database's tables and views as its schema declares them: SQL DDL and migrations (applied in
+/// order), a Prisma schema, ORM models.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Schema {
+    /// "postgresql", "mysql", "sqlite", "mongodb", when the schema says (a Prisma datasource,
+    /// a Drizzle `pgTable`, types only one dialect has).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub dialect: Option<String>,
+    /// Sorted by name.
+    pub tables: Vec<Table>,
+}
+
+/// A table or a view.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Table {
+    pub name: String,
+    /// "table" or "view".
+    pub kind: String,
+    /// What declared it: "sql", "prisma", "django", "sqlalchemy", "drizzle" or "typeorm".
+    pub source: String,
+    /// Where it is declared (a migration's `CREATE TABLE`, a model class).
+    pub file: String,
+    pub range: Range,
+    pub columns: Vec<Column>,
+    /// A view's: the tables and views it reads.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub reads: Vec<String>,
+}
+
+/// One column of a table, in declaration order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Column {
+    pub name: String,
+    /// As written, lower case for SQL (`varchar(40)`, `uuid`, `int4`, `varchar[]`); a model's
+    /// type for an ORM (`String?` is `String`, nullable).
+    #[serde(rename = "type")]
+    pub ty: String,
+    pub line: u32,
+    #[serde(skip_serializing_if = "is_false", default)]
+    pub pk: bool,
+    #[serde(skip_serializing_if = "is_false", default)]
+    pub nullable: bool,
+    #[serde(skip_serializing_if = "is_false", default)]
+    pub unique: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub default: Option<String>,
+    /// The column it is a foreign key to.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub references: Option<ColumnRef>,
+    /// Its `CHECK`, as written.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub check: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColumnRef {
+    pub table: String,
+    /// None when the schema leaves it to the table's primary key.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub column: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {

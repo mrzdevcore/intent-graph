@@ -1,3 +1,5 @@
+import type { Column } from "../map/types";
+
 export type BoxRef = { id: string; title: string; parent: string | null };
 export type ChangedBox = BoxRef & { files: string[]; filesChanged: number; direct: boolean };
 export type ArrowRef = { from: string; to: string; kind: string; fromTitle: string; toTitle: string };
@@ -13,6 +15,9 @@ export type Intent = {
   arrowsAdded: ArrowRef[];
   arrowsRemoved: ArrowRef[];
 };
+export type TableRef = { name: string; kind: "table" | "view" };
+export type ChangedTable = TableRef & { added: Column[]; removed: Column[]; changed: { name: string; base: Column; what: string[] }[] };
+export type TableChanges = { added: TableRef[]; removed: TableRef[]; changed: ChangedTable[] };
 export type Diff = {
   base: string;
   head: string | null;
@@ -20,6 +25,8 @@ export type Diff = {
   summary: string;
   boxes: { added: BoxRef[]; removed: BoxRef[]; changed: ChangedBox[] };
   arrows: { added: ArrowRef[]; removed: ArrowRef[] };
+  /** Absent when no table changed. */
+  tables?: TableChanges;
   intent: Intent;
   problems: { new: Problem[]; fixed: Problem[] };
 };
@@ -34,6 +41,7 @@ export function parseDiff(raw: unknown): Diff | null {
   if (!isObj(boxes) || !has(boxes, "added", "removed", "changed") || !isObj(arrows) || !has(arrows, "added", "removed")) return null;
   const i = isObj(raw.intent) ? raw.intent : {};
   const p = isObj(raw.problems) ? raw.problems : {};
+  const t = isObj(raw.tables) ? raw.tables : {};
   return {
     base: raw.base,
     head: typeof raw.head === "string" ? raw.head : null,
@@ -41,6 +49,7 @@ export function parseDiff(raw: unknown): Diff | null {
     summary: raw.summary,
     boxes: { added: list(boxes.added), removed: list(boxes.removed), changed: list(boxes.changed) },
     arrows: { added: list(arrows.added), removed: list(arrows.removed) },
+    tables: { added: list(t.added), removed: list(t.removed), changed: list(t.changed) },
     intent: {
       status: (typeof i.status === "string" ? i.status : "same") as IntentStatus,
       ...(typeof i.note === "string" ? { note: i.note } : {}),

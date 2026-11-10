@@ -130,6 +130,7 @@ fn a_function_box_carries_its_code() {
         &m,
         &g,
         &[],
+        &Default::default(),
     );
     let s = &v.sources[&f.id];
     assert_eq!((s.file.as_str(), s.line), (f.file.as_str(), a));

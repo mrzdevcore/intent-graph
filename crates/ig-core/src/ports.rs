@@ -1,9 +1,9 @@
-//! The four boundaries ig talks to the world through. Adapters live in their own crates; fakes
+//! The boundaries ig talks to the world through. Adapters live in their own crates; fakes
 //! for tests live in `crate::testing` (feature `testing`).
 
 use crate::config::Config;
 use crate::http::HttpCall;
-use crate::model::{Anatomy, Edge, Node, ParseError};
+use crate::model::{Anatomy, Edge, Node, ParseError, Schema};
 use crate::workspace::{Layout, Package, SourceFile, WorkspaceInfo};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -170,6 +170,14 @@ pub trait LanguageFrontend: Send + Sync {
     fn anatomy(&self, _path: &str, _source: &str, _config: &Config) -> Vec<Anatomy> {
         vec![]
     }
+}
+
+/// Reads a database's schema from the files that declare it (SQL, a Prisma schema, ORM models).
+pub trait SchemaReader: Send + Sync {
+    /// Whether `path` may declare tables, so is worth reading.
+    fn wants(&self, path: &str) -> bool;
+    /// The schema `files` (path, text) declare, and notices on what could not be applied.
+    fn read(&self, files: &[(String, String)]) -> (Schema, Vec<String>);
 }
 
 /// A connector's `ig.yaml` keys other than `kind`.

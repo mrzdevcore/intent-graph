@@ -15,4 +15,5 @@ ig-git = { path = "../ig-git" }
 ig-lang-py = { path = "../ig-lang-py" }
 ig-lang-rs = { path = "../ig-lang-rs" }
 ig-lang-ts = { path = "../ig-lang-ts" }
+ig-schema = { path = "../ig-schema" }
 notify = "8.2.0"

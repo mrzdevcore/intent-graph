@@ -104,6 +104,9 @@ fn text(d: &Diff) -> String {
     for a in &d.arrows.removed {
         out += &format!("  arrow −  {}\n", arrow(a));
     }
+    for l in ig_app::map::diff::tables::lines(&d.tables) {
+        out += &format!("  {l}\n");
+    }
     out += &intent(d);
     for p in &d.problems.new {
         out += &format!("  problem  {}\n", p.text);

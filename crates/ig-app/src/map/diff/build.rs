@@ -115,6 +115,7 @@ fn empty() -> Side {
             marks: vec![],
         },
         spec: SpecSide::Missing,
+        schema: Default::default(),
     }
 }
 

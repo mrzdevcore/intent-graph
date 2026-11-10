@@ -46,6 +46,8 @@ pub enum BoxKind {
     Parts,
     /// An Ansible task.
     Task,
+    /// A database's table or view, inside the store it is kept in.
+    Table,
     Function,
     Class,
     Method,
@@ -74,41 +76,9 @@ impl BoxKind {
             Group => Role::Group,
             Service | Job | App | Store | Queue | Model | External | Person => Role::Run,
             Entry | Usecase | Domain | Port | Adapter | Agent | Module => Role::Design,
-            Folder | File | Component | Parts | Task | Function | Class | Method => Role::Code,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase", try_from = "RawPattern")]
-pub enum Pattern {
-    Onion,
-    Layered { bands: Vec<String> },
-    Hexagonal,
-    None,
-}
-
-/// `Pattern` as read: serde lets unknown keys through on an internally tagged unit variant even
-/// with `deny_unknown_fields`, so it is read through this struct.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawPattern {
-    kind: String,
-    bands: Option<Vec<String>>,
-}
-
-impl TryFrom<RawPattern> for Pattern {
-    type Error = String;
-    fn try_from(r: RawPattern) -> Result<Pattern, String> {
-        match (r.kind.as_str(), r.bands) {
-            ("layered", Some(bands)) => Ok(Pattern::Layered { bands }),
-            ("onion", None) => Ok(Pattern::Onion),
-            ("hexagonal", None) => Ok(Pattern::Hexagonal),
-            ("none", None) => Ok(Pattern::None),
-            (k, _) => Err(format!(
-                "pattern: kind `{k}` with these keys is not one of onion, hexagonal, none, \
-                 layered (with bands)"
-            )),
+            Folder | File | Component | Parts | Task | Table | Function | Class | Method => {
+                Role::Code
+            }
         }
     }
 }
@@ -592,7 +562,9 @@ fn kind_of(folder: &str) -> BoxKind {
 }
 
 mod group;
+mod pattern;
 mod slug;
+pub use pattern::Pattern;
 pub(super) use slug::dedupe;
 pub(crate) use slug::slug;
 

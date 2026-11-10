@@ -9,7 +9,7 @@ fn shop() -> (Vec<MapBox>, Vec<MapArrow>) {
     let (ws, g, cfg) = crate::map::shop::load();
     let b = facts(&ws, &g, &cfg);
     let m: MapFile = refresh(None, &b, arrows(&b, &g), &[]).0;
-    let v = view(&MemFiles::with(&[]), &m, &g, &[]);
+    let v = view(&MemFiles::with(&[]), &m, &g, &[], &Default::default());
     (v.boxes, v.arrows)
 }
 

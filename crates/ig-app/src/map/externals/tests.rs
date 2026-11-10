@@ -73,7 +73,7 @@ impl LanguageFrontend for Imports {
 fn map(files: &[(&str, &str)], yaml: &str) -> (Vec<FactBox>, Vec<crate::map::MapArrow>) {
     let files = MemFiles::with(files);
     let cfg = Config::parse(yaml).unwrap();
-    let b = build_graph(&[&Imports], &files, &cfg).unwrap();
+    let b = build_graph(&[&Imports], None, &files, &cfg).unwrap();
     let boxes = facts(&b.workspace, &b.graph, &cfg);
     let a = arrows(&boxes, &b.graph);
     (boxes, a)

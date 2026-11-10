@@ -30,6 +30,8 @@
   --map-bar-out: #c98a0f; --map-bar-in: #5c4a2a;
   /* map: a path the search lit */
   --map-trace: #c98a0f;
+  /* a table box's header, and a view's */
+  --map-table-head: #263a7a; --map-view-head: #1f6f5c;
   /* map: each run block's hue: its outline, fill and band (a service's header, a store's lid…); a CLI's terminal stays dark */
   --kind-service: #3b6fd8; --kind-service-fill: #eef3fd; --kind-service-band: #d5e2fa;
   --kind-app: #1f8080; --kind-app-fill: #e8f5f4; --kind-app-band: #cce8e6;

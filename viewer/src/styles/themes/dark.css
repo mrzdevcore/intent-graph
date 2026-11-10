@@ -20,6 +20,8 @@
   --map-group-bg: rgba(255, 255, 255, 0.03);
   --map-bar-out: #e8a317; --map-bar-in: #8f7d5c;
   --map-trace: #e8a317;
+  /* a table box's header, and a view's */
+  --map-table-head: #34509e; --map-view-head: #2a8670;
   /* map: each run block's hue: its outline, fill and band (a service's header, a store's lid…) */
   --kind-service: #6f8fd8; --kind-service-fill: #2f3440; --kind-service-band: #3d4f7a;
   --kind-app: #5fb3b3; --kind-app-fill: #2e3a3b; --kind-app-band: #3a5556;

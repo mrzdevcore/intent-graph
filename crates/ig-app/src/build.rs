@@ -4,8 +4,8 @@
 use crate::map::externals;
 use ig_core::config::Config;
 use ig_core::http;
-use ig_core::model::{Edge, Graph, Node, ParseError, TOOL_VERSION};
-use ig_core::ports::{FileFacts, Files, LanguageFrontend, PortError};
+use ig_core::model::{Edge, Graph, Node, ParseError, Schema, TOOL_VERSION};
+use ig_core::ports::{FileFacts, Files, LanguageFrontend, PortError, SchemaReader};
 use ig_core::workspace::{self, Layout, Package, SourceFile, WorkspaceInfo};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -14,6 +14,10 @@ pub struct Built {
     pub workspace: WorkspaceInfo,
     /// Facts that are not graph data, for `setup::facts`.
     pub extras: Extras,
+    /// The tables the tree declares (`ig_schema::read`).
+    pub schema: Schema,
+    /// What the schema's read could not apply (an `ALTER` of a table nobody created…).
+    pub schema_notices: Vec<String>,
 }
 
 #[derive(Default)]
@@ -48,9 +52,10 @@ pub fn discover(
 }
 
 /// Builds the graph of the tree `files` is rooted at. Each source file goes to the first
-/// frontend that handles it. `graph.commit` is left for the caller.
+/// frontend that handles it; `tables` reads its tables. `graph.commit` is left for the caller.
 pub fn build_graph(
     frontends: &[&dyn LanguageFrontend],
+    tables: Option<&dyn SchemaReader>,
     files: &dyn Files,
     config: &Config,
 ) -> Result<Built, PortError> {
@@ -121,6 +126,12 @@ pub fn build_graph(
     }
 
     let mut nodes: Vec<Node> = system_nodes;
+    let (schema, schema_notices) = tables
+        .map(|r| read_schema(r, files, &ws, config, &tests))
+        .unwrap_or_default();
+    if let Some(db) = database(&schema, &nodes) {
+        nodes.push(db);
+    }
     for f in &mut facts {
         if let Some(m) = &f.parse_error {
             parse_errors.push(ParseError {
@@ -178,6 +189,77 @@ pub fn build_graph(
         graph,
         workspace: ws,
         extras,
+        schema,
+        schema_notices,
+    })
+}
+
+/// The schema of the tree: its `.sql` and `.prisma` files (found as source files are: what git
+/// lists, outside build output and `ignore`) and the source files that may declare models,
+/// outside tests and folders whose name starts with `.` (a `.claude/worktrees` checkout is
+/// another copy of the same migrations); the notices are on statements it could not apply.
+fn read_schema(
+    reader: &dyn SchemaReader,
+    files: &dyn Files,
+    ws: &WorkspaceInfo,
+    config: &Config,
+    tests: &globset::GlobSet,
+) -> (Schema, Vec<String>) {
+    let declared = |p: &str| p.ends_with(".sql") || p.ends_with(".prisma");
+    let layout = Layout {
+        packages: vec![],
+        fences: vec![],
+        source: &declared,
+    };
+    let found = files.discover(config, &layout).map_or(vec![], |w| w.files);
+    let sources = ws.files.iter().chain(&found).map(|f| f.path.clone());
+    let mut paths: Vec<String> = sources
+        .filter(|p| !p.split('/').any(|d| d.starts_with('.')))
+        .filter(|p| reader.wants(p) && !tests.is_match(p))
+        .collect();
+    paths.sort();
+    paths.dedup();
+    // ponytail: every source file is read again here; the frontends read them once already
+    let texts: Vec<(String, String)> = paths
+        .into_iter()
+        .filter_map(|p| Some((p.clone(), files.read(&p)?)))
+        .collect();
+    reader.read(&texts)
+}
+
+/// The database a schema with tables is kept in, when no known database is imported: a system
+/// node named for its dialect.
+fn database(schema: &Schema, nodes: &[Node]) -> Option<Node> {
+    if schema.tables.is_empty() {
+        return None;
+    }
+    let is_db = |n: &Node| {
+        n.kind == "system"
+            && externals::by_title(&n.name).is_some_and(|k| externals::relational(k.id))
+    };
+    if nodes.iter().any(is_db) {
+        return None;
+    }
+    let name = externals::for_dialect(schema.dialect.as_deref()).title;
+    let id = format!("system:{name}");
+    Some(Node {
+        hash: ig_core::model::sha1_hex(&id),
+        id,
+        kind: "system".into(),
+        name: name.into(),
+        file: String::new(),
+        range: ig_core::model::Range {
+            start_line: 1,
+            end_line: 1,
+        },
+        parent: None,
+        package: None,
+        exported: false,
+        metrics: ig_core::model::Metrics {
+            loc: 0,
+            complexity: 0,
+        },
+        intents: vec![],
     })
 }
 
@@ -345,157 +427,4 @@ pub fn system_category(name: &str, packages: &[String]) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ig_core::model::{Metrics, Range};
-    use ig_core::ports::FrontendOutput;
-    use ig_core::testing::MemFiles;
-
-    fn node(id: &str, file: &str) -> Node {
-        Node {
-            id: id.into(),
-            kind: if id == file { "module" } else { "function" }.into(),
-            name: id.rsplit('#').next().unwrap().into(),
-            file: file.into(),
-            range: Range {
-                start_line: 1,
-                end_line: 1,
-            },
-            parent: None,
-            package: None,
-            exported: false,
-            hash: String::new(),
-            metrics: Metrics {
-                loc: 1,
-                complexity: 1,
-            },
-            intents: vec![],
-        }
-    }
-
-    fn edge(from: &str, kind: &str, to: &str, confidence: &str, line: u32) -> Edge {
-        Edge {
-            from: from.into(),
-            to: to.into(),
-            kind: kind.into(),
-            confidence: confidence.into(),
-            file: "src/a.ts".into(),
-            line,
-            namespace: false,
-            reexport: false,
-            in_loop: false,
-        }
-    }
-
-    /// One node per file plus `src/a.ts#f`, and canned edges.
-    struct Fake;
-
-    impl LanguageFrontend for Fake {
-        fn handles(&self, path: &str, _: &Config) -> bool {
-            path.ends_with(".ts")
-        }
-        fn build(
-            &self,
-            files: &[(SourceFile, String)],
-            _: &WorkspaceInfo,
-            _: &Config,
-        ) -> FrontendOutput {
-            let mut facts: Vec<FileFacts> = files
-                .iter()
-                .map(|(f, src)| FileFacts {
-                    file: f.path.clone(),
-                    nodes: vec![node(&f.path, &f.path)],
-                    parse_error: (src == "broken").then(|| "bad".into()),
-                    ..FileFacts::default()
-                })
-                .collect();
-            facts[0].nodes.push(node("src/a.ts#f", "src/a.ts"));
-            FrontendOutput {
-                facts,
-                edges: vec![
-                    edge("src/a.ts#f", "calls", "src/b.ts", "guessed", 3),
-                    edge("src/a.ts#f", "calls", "src/b.ts", "resolved", 2),
-                    edge("src/a.ts", "imports", "test/stub.ts", "resolved", 1),
-                    edge("src/a.ts#f", "calls", "test/stub.ts", "resolved", 1),
-                    edge("src/a.ts#f", "calls", "src/a.ts#Iface", "resolved", 1),
-                ],
-                parse_errors: vec![],
-                packages: vec![
-                    ("src/a.ts".into(), "knex".into(), 1),
-                    ("src/a.ts".into(), "knex".into(), 2),
-                    ("test/stub.ts".into(), "knex".into(), 1),
-                ],
-                notices: vec![],
-            }
-        }
-        fn prepare_checkout(
-            &self,
-            _: &WorkspaceInfo,
-            _: &std::path::Path,
-            _: &Config,
-            _: bool,
-        ) -> Result<(), PortError> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn assembles_merges_and_filters() {
-        let files = MemFiles::with(&[
-            ("src/a.ts", ""),
-            ("src/b.ts", "broken"),
-            ("test/stub.ts", ""),
-        ]);
-        let config =
-            Config::parse("tests: ['test/**']\nblueprint:\n  systems:\n    PostgreSQL: [knex]\n")
-                .unwrap();
-        let b = build_graph(&[&Fake], &files, &config).unwrap();
-        let edges: Vec<String> = b
-            .graph
-            .edges
-            .iter()
-            .map(|e| format!("{} {} {} {} {}", e.from, e.kind, e.to, e.confidence, e.line))
-            .collect();
-        // Merged (resolved wins, first line), imports into tests kept, other edges into tests
-        // and edges to non-nodes dropped; `uses` edges to the system node.
-        assert_eq!(
-            edges,
-            [
-                "src/a.ts imports test/stub.ts resolved 1",
-                "src/a.ts uses system:PostgreSQL resolved 1",
-                "src/a.ts#f calls src/b.ts resolved 2",
-                "test/stub.ts uses system:PostgreSQL resolved 1",
-            ]
-        );
-        assert!(b.graph.nodes.iter().any(|n| n.id == "system:PostgreSQL"));
-        assert_eq!(b.graph.parse_errors.len(), 1);
-        assert_eq!(b.graph.parse_errors[0].file, "src/b.ts");
-        // Test files don't count towards packages.
-        assert_eq!(b.extras.packages.get("knex"), Some(&1));
-    }
-
-    #[test]
-    fn system_categories() {
-        let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(system_category("PostgreSQL", &p(&["pg"])), "database");
-        assert_eq!(system_category("MongoDB", &p(&["mongoose"])), "database");
-        assert_eq!(
-            system_category("Elastic APM", &p(&["elastic-apm-node"])),
-            "monitoring"
-        );
-        assert_eq!(
-            system_category("Search", &p(&["@elastic/elasticsearch"])),
-            "search"
-        );
-        assert_eq!(
-            system_category("Auth0", &p(&["@auth0/auth0-react"])),
-            "auth"
-        );
-        assert_eq!(system_category("Contentful", &p(&["contentful"])), "cms");
-        assert_eq!(
-            system_category("Mixpanel", &p(&["mixpanel-browser"])),
-            "analytics"
-        );
-        assert_eq!(system_category("Shop BFF", &p(&["@shop/sdk"])), "service");
-    }
-}
+mod tests;

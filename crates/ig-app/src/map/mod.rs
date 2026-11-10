@@ -17,6 +17,7 @@ pub mod layout;
 pub mod live;
 pub mod origin;
 pub mod spec;
+pub mod tables;
 pub mod view;
 pub mod warn;
 

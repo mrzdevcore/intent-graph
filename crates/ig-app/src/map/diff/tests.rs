@@ -78,6 +78,7 @@ fn spec_side(m: MapFile) -> Side {
     Side {
         arch: m.clone(),
         spec: SpecSide::Read(m),
+        schema: Default::default(),
     }
 }
 
@@ -183,10 +184,12 @@ fn ig_added_is_not_churn() {
     let base = Side {
         arch: shop(),
         spec: SpecSide::Missing,
+        schema: Default::default(),
     };
     let head = Side {
         arch: shop(),
         spec: SpecSide::Read(shop()),
+        schema: Default::default(),
     };
     let d = run(&base, &head, &[]);
     assert!(matches!(d.source, Source::Code));
@@ -201,10 +204,12 @@ fn ig_removed_and_none_on_either_side() {
     let base = Side {
         arch: shop(),
         spec: SpecSide::Read(shop()),
+        schema: Default::default(),
     };
     let head = Side {
         arch: shop(),
         spec: SpecSide::Missing,
+        schema: Default::default(),
     };
     let d = run(&base, &head, &[]);
     assert!(matches!(d.intent.status, IntentStatus::Removed));
@@ -212,6 +217,7 @@ fn ig_removed_and_none_on_either_side() {
     let none = Side {
         arch: shop(),
         spec: SpecSide::Missing,
+        schema: Default::default(),
     };
     let d = run(&none, &none, &["apps/db/x.ts"]);
     assert!(matches!(d.intent.status, IntentStatus::Same));
@@ -225,10 +231,12 @@ fn base_ig_broken_is_noted() {
     let base = Side {
         arch: shop(),
         spec: SpecSide::Broken("ig/web.kdl:3: unknown node `tecc`".into()),
+        schema: Default::default(),
     };
     let head = Side {
         arch: drifting.clone(),
         spec: SpecSide::Read(drifting),
+        schema: Default::default(),
     };
     let d = run(&base, &head, &[]);
     assert!(matches!(d.source, Source::Code));
@@ -285,6 +293,7 @@ fn with_arch(spec: MapFile, arch: MapFile) -> Side {
     Side {
         arch,
         spec: SpecSide::Read(spec),
+        schema: Default::default(),
     }
 }
 
@@ -383,6 +392,7 @@ fn json_shape_is_camel_case() {
     let broken = Side {
         arch: shop(),
         spec: SpecSide::Broken("x".into()),
+        schema: Default::default(),
     };
     let j = serde_json::to_value(run(&broken, &spec_side(shop()), &[])).unwrap();
     assert_eq!(j["intent"]["status"], "baseBroken");
@@ -481,6 +491,7 @@ mod runs {
             Ok(Side {
                 arch,
                 spec: SpecSide::Read(spec),
+                schema: Default::default(),
             })
         };
         let d = run(&e, "b", None, &at).unwrap();
@@ -544,6 +555,7 @@ mod runs {
             Ok(Side {
                 arch: map(vec![], vec![]),
                 spec: SpecSide::Missing,
+                schema: Default::default(),
             })
         };
         let msg = run(&e, "b", None, &at).unwrap_err().to_string();

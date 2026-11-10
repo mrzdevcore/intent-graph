@@ -1,9 +1,17 @@
 import type { ArrowRef, BoxRef, Diff } from "../model/diff";
+import type { Column } from "./types";
 import { key, line, parents, ROOT, type Answer, type DiffKind, type Step } from "./answer";
 import type { MapArrow, View } from "./types";
 
+/** A table box's rows in a diff: its columns added or changed (by lower-cased name), the base's it dropped. */
+export type TableMark = { added: boolean; columns: Map<string, "added" | "changed">; removed: Column[] };
+
 export type Marks = {
   boxes: Map<string, "changed" | "added">;
+  /** By table box id. */
+  tables: Map<string, TableMark>;
+  /** What a changed box's chip says, when not its files (a table's columns). */
+  chips: Map<string, string>;
   files: Map<string, number>;
   removedHere: Map<string, BoxRef[]>;
   addedArrows: Set<string>;
@@ -36,7 +44,7 @@ export function diffAnswer(view: View, d: Diff): { answer: Answer; marks: Marks;
   const nearest = (id: string) => ancestors(id).find(on) ?? ROOT;
   const title = (id: string) => byId.get(id)?.title.value ?? named.get(id)?.title ?? id;
 
-  const marks: Marks = { boxes: new Map(), files: new Map(), removedHere: new Map(), addedArrows: new Set(), ghostIds: new Set() };
+  const marks: Marks = { boxes: new Map(), tables: new Map(), chips: new Map(), files: new Map(), removedHere: new Map(), addedArrows: new Set(), ghostIds: new Set() };
   for (const c of d.boxes.changed) if (on(c.id)) { marks.boxes.set(c.id, "changed"); marks.files.set(c.id, c.filesChanged); }
   for (const a of d.boxes.added) if (on(a.id)) marks.boxes.set(a.id, "added");
   for (const r of d.boxes.removed) {
@@ -90,6 +98,8 @@ export function diffAnswer(view: View, d: Diff): { answer: Answer; marks: Marks;
   arrowSteps(d.arrows.added, "added");
   arrowSteps(d.arrows.removed, "removed");
 
+  tableSteps(view, d, marks, step);
+
   const drawnAs = (from: string, to: string) =>
     view.arrows.find((a) => (a.from === from && a.to === to) || a.parts?.some((p) => p.from === from && p.to === to));
   for (const a of d.arrows.added) {
@@ -126,6 +136,42 @@ export function diffAnswer(view: View, d: Diff): { answer: Answer; marks: Marks;
     edges: new Set([...marks.addedArrows, ...ghosts.map((g) => key(g.from, g.to))]),
   };
   return { answer, marks, view: ghosts.length ? { ...view, arrows: [...view.arrows, ...ghosts] } : view };
+}
+
+/** The tables the change adds, drops and changes column by column: marked on their boxes (the dropped ones on their
+ * store), one step each. */
+function tableSteps(view: View, d: Diff, marks: Marks, step: (group: string, kind: DiffKind, target: string, title: string, boxes: string[], meta?: string) => void) {
+  const t = d.tables;
+  if (!t || (!t.added.length && !t.removed.length && !t.changed.length)) return;
+  const ids = new Map(Object.entries(view.tables ?? {}).map(([id, tb]) => [tb.name.toLowerCase(), id]));
+  const store = view.boxes.find((b) => ids.has((view.tables?.[b.id]?.name ?? "").toLowerCase()))?.parent;
+  const word = (k: string) => (k === "view" ? "view" : "table");
+  for (const a of t.added) {
+    const id = ids.get(a.name.toLowerCase());
+    if (!id) continue;
+    marks.boxes.set(id, "added");
+    marks.tables.set(id, { added: true, columns: new Map(), removed: [] });
+    step("Tables", "added", id, a.name, [id], `new ${word(a.kind)}`);
+  }
+  for (const c of t.changed) {
+    const id = ids.get(c.name.toLowerCase());
+    if (!id) continue;
+    const columns = new Map<string, "added" | "changed">([
+      ...c.added.map((x) => [x.name.toLowerCase(), "added"] as const),
+      ...c.changed.map((x) => [x.name.toLowerCase(), "changed"] as const),
+    ]);
+    marks.boxes.set(id, "changed");
+    marks.tables.set(id, { added: false, columns, removed: c.removed });
+    const n = c.added.length + c.removed.length + c.changed.length;
+    marks.chips.set(id, `${n} ${n === 1 ? "column" : "columns"}`);
+    const meta = [...c.added.map((x) => `+ ${x.name}`), ...c.changed.map((x) => `~ ${x.name} (${x.what.join(", ")})`), ...c.removed.map((x) => `− ${x.name}`)];
+    step("Tables", "changed", id, c.name, [id], names(meta));
+  }
+  if (store && t.removed.length) {
+    const gone = t.removed.map((r) => ({ id: `${store}#${r.name}`, title: r.name, parent: store }));
+    marks.removedHere.set(store, [...(marks.removedHere.get(store) ?? []), ...gone]);
+    step("Tables", "removed", `tables/removed`, `${t.removed.length} ${t.removed.length === 1 ? "table" : "tables"} dropped`, [store], names(t.removed.map((r) => r.name)));
+  }
 }
 
 const short = (rev: string) => (/^[0-9a-f]{40}$/.test(rev) ? rev.slice(0, 7) : rev);

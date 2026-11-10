@@ -76,7 +76,7 @@ Asks Claude a question about the code. Claude gets `Read`, `Grep`, `Glob`, `ig_s
 ig diff [<base> [<head>]] [--json] [--no-open] [-C <dir>] [-q]
 ```
 
-Shows what a change does to the architecture. It builds the map on both sides and compares them: boxes added, removed or changed (a box changes when a file under it does), arrows added or removed, what changed in `ig/`, and the problems the change brings or fixes. The same code gives no change.
+Shows what a change does to the architecture. It builds the map on both sides and compares them: boxes added, removed or changed (a box changes when a file under it does), arrows added or removed, tables and views added, dropped or changed column by column, what changed in `ig/`, and the problems the change brings or fixes. The same code gives no change.
 
 `<base>` is any commit; without it, the point where this branch left `main` (or `HEAD`, with a notice). `<head>` is a commit too; without it, the working tree, uncommitted files included. Both sides are built with the head's `ig.yaml` (the working tree's, or the head commit's when `<head>` is given), so a config change is not an architecture change. Each commit is read in a temporary checkout: ig never touches your branches, index or working tree. Boxes get their titles from `ig/` when both sides have one, and from the code otherwise.
 
@@ -87,9 +87,16 @@ Shows what a change does to the architecture. It builds the map on both sides an
   arrow +  Web → Core (bundle)
 ```
 
+A change to the database's schema adds a line per table:
+
+```
+  view  +  v_batches_notes_impacts
+  table ~  batches_notes: + impacts varchar[], ~ gap_minutes (check), − impact
+```
+
 It then writes `.ig/diff.html`, the head's map with the change marked and a card that steps through it, and opens it (`--no-open` writes it only). `ig view` afterwards shows the plain map again.
 
-Two boxes with the same title get their ids after it. `--json` prints the same as one object, and writes no page: `base`, `head`, `source`, `summary`, `boxes`, `arrows`, `intent` and `problems`; `base` and `head` are full commit shas (`head` is null for the working tree). Exit is 0 whatever the diff holds, 2 on a bad revision, outside git, or in a folder of projects.
+Two boxes with the same title get their ids after it. `--json` prints the same as one object, and writes no page: `base`, `head`, `source`, `summary`, `boxes`, `arrows`, `tables` (only when a table changed), `intent` and `problems`; `base` and `head` are full commit shas (`head` is null for the working tree). Exit is 0 whatever the diff holds, 2 on a bad revision, outside git, or in a folder of projects.
 
 ## `ig view`
 
@@ -120,6 +127,24 @@ at the old place is to move. `.ig/map.json` is no longer written; delete it once
 `ig/` is left as is, with the file and line of each problem, and the map shows the code alone.
 
 The hidden `--no-read` is still accepted for one release, with a notice, because skills copied by older `ig init` runs pass it.
+
+### Databases
+
+ig reads the tables a repo declares and draws each one inside the store it is kept in, as a card:
+its name, then a row per column with its `PK` and `FK` badges and its type. An arrow joins a table
+to each table its foreign keys point at, labelled with those columns; a view has an arrow to each
+table it reads. It reads:
+
+- **SQL**: `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE` and `CREATE VIEW` in any `.sql` file.
+  Migrations are applied in the order of their names (`V2__` before `V10__`), so the map shows the
+  schema they end with; down and undo migrations are skipped.
+- **Prisma**: the models of a `.prisma` schema (its own migrations are then not read again).
+- **Django** and **SQLAlchemy** models, **Drizzle** tables and **TypeORM** entities.
+
+The store is the database the code imports (PostgreSQL for `pg`, the provider of a Prisma
+schema…), or else one named for the schema's dialect, added to the map. Never a cache, a bucket
+or a search index. `ig diff` marks the columns a change adds or changes, and draws the ones it drops
+struck through. Files under `ignore` or `tests` in `ig.yaml` are not read.
 
 ### Layers from files
 
@@ -170,7 +195,7 @@ ig reads only each instance's name, type, status and addresses. It never reads a
 - **Wheel or trackpad pinch** zooms about the pointer; **drag** pans.
 - **Click a box** to glide into it and open its details card (description, tech, kind, source and
   confidence of each value, marks). Zoomed in far enough, a box shows its inside: components, then
-  functions.
+  functions; a database, its tables.
 - **Esc** closes the card and gives the focus back to the box.
 - **Breadcrumb** (top left) jumps to any level above you.
 - **Layers** (top right) turns each layer on and off; **-**, **Fit** and **+** zoom, and Fit returns to the whole system.

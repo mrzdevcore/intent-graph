@@ -33,6 +33,7 @@ pub fn facts(env: &Env) -> crate::Result<Value> {
         graph: g,
         workspace: ws,
         extras,
+        ..
     } = crate::graph(env, env.files, &config, None)?;
     let tests = globset(&config.tests)?;
     let modules: Vec<&str> = g

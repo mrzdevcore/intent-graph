@@ -2244,6 +2244,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ig-schema"
+version = "0.1.0"
+dependencies = [
+ "ig-core",
+ "regex",
+]
+
+[[package]]
 name = "ig-wire"
 version = "0.1.0"
 dependencies = [
@@ -2256,6 +2264,7 @@ dependencies = [
  "ig-lang-py",
  "ig-lang-rs",
  "ig-lang-ts",
+ "ig-schema",
  "notify",
 ]
 

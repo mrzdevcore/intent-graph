@@ -41,6 +41,7 @@ pub const KNOWN: &[Known] = &[
     k("elasticsearch", "Elasticsearch", Store, Some("elasticsearch"), &["@elastic/elasticsearch", "elasticsearch"]),
     k("prisma", "Database (Prisma)", Store, Some("prisma"), &["@prisma/client"]),
     k("drizzle", "Database (Drizzle)", Store, None, &["drizzle-orm"]),
+    k("database", "Database", Store, None, &[]),
     k("bull", "Bull queue (Redis)", Queue, Some("redis"), &["bullmq", "bull"]),
     k("kafka", "Kafka", Queue, Some("apachekafka"), &["kafkajs", "kafka", "confluent_kafka", "aiokafka", "rdkafka"]),
     k("rabbitmq", "RabbitMQ", Queue, Some("rabbitmq"), &["amqplib", "pika", "aio_pika", "lapin"]),
@@ -60,6 +61,26 @@ pub const KNOWN: &[Known] = &[
 
 fn by_id(id: &str) -> Option<&'static Known> {
     KNOWN.iter().find(|k| k.id == id)
+}
+
+/// The databases a schema's tables may be kept in (`for_dialect`'s, and the ORMs').
+pub fn relational(id: &str) -> bool {
+    [
+        "postgres", "mysql", "sqlite", "mongodb", "prisma", "drizzle", "supabase", "database",
+    ]
+    .contains(&id)
+}
+
+/// The database a schema of `dialect` is kept in; "Database" when it does not say.
+pub fn for_dialect(dialect: Option<&str>) -> &'static Known {
+    let id = match dialect {
+        Some("postgresql") => "postgres",
+        Some("mysql") => "mysql",
+        Some("sqlite") => "sqlite",
+        Some("mongodb") => "mongodb",
+        _ => "database",
+    };
+    by_id(id).expect("a known database")
 }
 
 /// The known system titled `title` (a detected system's graph node name).

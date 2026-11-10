@@ -6,7 +6,7 @@ export type Level = "system" | "container" | "component" | "code";
 export type BoxKind =
   | "person" | "system" | "external" | "app" | "service" | "job" | "store" | "queue" | "model"
   | "module" | "entry" | "usecase" | "port" | "adapter" | "agent" | "domain" | "group"
-  | "folder" | "file" | "component" | "parts" | "task" | "function" | "class" | "method";
+  | "folder" | "file" | "component" | "parts" | "task" | "table" | "function" | "class" | "method";
 export type Pattern =
   | { kind: "onion" } | { kind: "hexagonal" } | { kind: "none" } | { kind: "layered"; bands: string[] };
 export type MapBox = {
@@ -78,6 +78,16 @@ export type Placed = {
 };
 /** One declared part of a UI component: `kind` says how (prop, emit, ref, computed, useState…). */
 export type Part = { name: string; kind: string; line: number; detail?: string };
+/** One column of a table, as its schema declares it (crates/ig-core/src/model.rs). */
+export type Column = {
+  name: string; type: string; line: number; pk?: boolean; nullable?: boolean; unique?: boolean; default?: string;
+  references?: { table: string; column?: string }; check?: string;
+};
+/** A table or view a table box draws: `reads` are a view's tables. */
+export type Table = {
+  name: string; kind: "table" | "view"; source: string; file: string; range: { startLine: number; endLine: number };
+  columns: Column[]; reads?: string[];
+};
 /** A piece of a file: `text` from line `line` on, `cut` lines left out at its end. */
 export type Snippet = { file: string; line: number; text: string; cut?: number; complexity: number };
 export type View = {
@@ -90,6 +100,8 @@ export type View = {
   sources?: Record<string, Snippet>;
   /** The list each part box of a component holds (inputs, state, uses, renders), by box id. */
   parts?: Record<string, Part[]>;
+  /** The table or view each table box draws, by box id. */
+  tables?: Record<string, Table>;
   notices: string[];
   /** What reads but looks wrong in ig/ (crowded boxes, arrows the kinds do not expect…). */
   warnings: string[];

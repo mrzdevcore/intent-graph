@@ -547,7 +547,7 @@
       <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
-        kinds={view.kinds} w={f.w} h={f.h} {shape} />
+        kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} />
       {#if edit && selected === b.id && !open}
         {#each ["l", "r", "t", "b"] as h (h)}<span class="handle {h}" data-handle aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
       {/if}
@@ -563,7 +563,7 @@
         </span>
         {#if !st!.in && !marks}<span class="holds" style:scale={f.w / sw}>{st!.holds} of {kids.get(b.id)?.length ?? st!.holds}</span>{/if}
       {/if}
-      {#if change}<span class="change {change}" style:scale={f.w / sw}>{change === "added" ? "new" : files(marks!.files.get(b.id) ?? 0)}</span>{/if}
+      {#if change}<span class="change {change}" style:scale={f.w / sw}>{change === "added" ? "new" : marks!.chips.get(b.id) ?? files(marks!.files.get(b.id) ?? 0)}</span>{/if}
       {#if goneHere}<span class="gone-here" style:scale={f.w / sw}>−{goneHere} removed here</span>{/if}
     </div>
   {/each}

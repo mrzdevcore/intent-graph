@@ -1,6 +1,6 @@
 //! The pattern shapes of a parent's inside: onion rings, layered bands, a hexagonal core.
 
-use super::{CHIP, Frame, GUTTER, Lay, PAD, RegionKind, size};
+use super::{CHIP, Frame, GUTTER, Lay, PAD, RegionKind};
 use crate::map::file::MapBox;
 
 impl<'a> Lay<'a> {
@@ -37,10 +37,10 @@ impl<'a> Lay<'a> {
             all = all.union(&b);
         }
         for (column, left) in [(left, true), (right, false)] {
-            let total: f32 = column.iter().map(|b| size(b).1 + GUTTER).sum::<f32>() - GUTTER;
+            let total: f32 = column.iter().map(|b| self.size(b).1 + GUTTER).sum::<f32>() - GUTTER;
             let mut y = inner.y + (inner.h - total) / 2.0;
             for b in column {
-                let (w, h) = size(b);
+                let (w, h) = self.size(b);
                 let x = if left {
                     inner.x - gap - w
                 } else {
@@ -59,7 +59,7 @@ impl<'a> Lay<'a> {
     /// length nearest 16:10 (a side column never taller than `inner`), and the ring `name`
     /// drawn round them all when given. Returns the bounds of everything placed.
     fn ring(&mut self, items: Vec<&'a MapBox>, inner: Frame, name: Option<&str>) -> Frame {
-        let h = items.iter().map(|b| size(b).1).fold(0.0, f32::max);
+        let h = items.iter().map(|b| self.size(b).1).fold(0.0, f32::max);
         let tall = ((inner.h + GUTTER) / (h + GUTTER)).floor() as usize;
         let n = items.len();
         let opts = (1..=n.max(1)).flat_map(|c| (0..=tall.min(n / 2)).map(move |s| (c, s)));
@@ -144,10 +144,10 @@ impl<'a> Lay<'a> {
     /// The core in the middle, the ports on its edge, the adapters around.
     pub(super) fn hexagonal(&mut self, in_slot: &dyn Fn(&[&str]) -> Vec<&'a MapBox>) {
         let ports = in_slot(&["ports"]);
-        let ph = ports.iter().map(|b| size(b).1).fold(152.0, f32::max);
+        let ph = ports.iter().map(|b| self.size(b).1).fold(152.0, f32::max);
         // the wider row of ports (`around` puts half of them on each edge)
         let k = ports.len().div_ceil(2);
-        let pw = k as f32 * ports.iter().map(|b| size(b).0).fold(0.0, f32::max)
+        let pw = k as f32 * ports.iter().map(|b| self.size(b).0).fold(0.0, f32::max)
             + (k as f32 - 1.0).max(0.0) * GUTTER;
         let core = in_slot(&["core", "domain"]);
         self.pick(1..=core.len().max(1), |l, cols| {

@@ -6,7 +6,7 @@ use super::diff::{Side, SpecSide};
 use super::file::{self, Field, MapBox, MapFile, refresh};
 use super::kinds::{KindView, Kinds};
 use super::layers::{Mark, file_layers, risks, rules, sort_marks};
-use super::layout::layout;
+use super::layout::layout_with;
 pub use super::layout::{Frame, Placed, Region, RegionKind};
 use super::live::{apply, read_all};
 use super::origin::{compare, not_read};
@@ -15,7 +15,7 @@ use super::{FactBox, MapArrow, Pattern, arrows, facts, spec};
 use crate::Env;
 use globset::GlobSet;
 use ig_core::config::Config;
-use ig_core::model::{Anatomy, Finding, Graph, Part, Range};
+use ig_core::model::{Anatomy, Finding, Graph, Part, Range, Schema, Table};
 use ig_core::ports::{Connector, Files, LanguageFrontend};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -36,6 +36,9 @@ pub struct View {
     pub sources: BTreeMap<String, Snippet>,
     /// The list each part box of a component holds, by box id.
     pub parts: BTreeMap<String, Vec<Part>>,
+    /// The table or view each table box draws, by box id.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub tables: BTreeMap<String, Table>,
     pub notices: Vec<String>,
     /// What reads but looks wrong in `ig/` (`warn::warnings`); never a reason to fail.
     pub warnings: Vec<String>,
@@ -127,13 +130,18 @@ pub fn components(
     out
 }
 
-/// `m` with its code level (`ui`: the components of `components`), the marks of `.ig/layers`
-/// and where everything is drawn; the notices are those layers' and the layout's.
-pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
+/// `m` with its code level (`ui`: the components of `components`) and its tables (`db`'s, in
+/// their store), the marks of `.ig/layers` and where everything is drawn; the notices are those
+/// layers', the tables' and the layout's.
+pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy], db: &Schema) -> View {
     let code = code_boxes(m, g, ui);
     let sources = snippets(files, &code.spans);
     let parts = code.parts.into_iter().collect();
-    let mut boxes: Vec<MapBox> = m.boxes.iter().cloned().chain(code.boxes).collect();
+    let tables = super::tables::tables(m, db);
+    let mut boxes: Vec<MapBox> = (m.boxes.iter().cloned())
+        .chain(code.boxes)
+        .chain(tables.boxes)
+        .collect();
     let patterns: HashMap<String, Pattern> = code.patterns.into_iter().collect();
     for b in boxes.iter_mut().filter(|b| b.pattern.is_none()) {
         b.pattern = patterns.get(&b.id).cloned().map(Field::ig);
@@ -144,7 +152,10 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         .collect();
     let arrows = arrows::lift(
         &parents,
-        m.arrows.iter().cloned().chain(code.arrows).collect(),
+        (m.arrows.iter().cloned())
+            .chain(code.arrows)
+            .chain(tables.arrows)
+            .collect(),
     );
     // an arrow as written → the arrow drawn for it
     let drawn: HashMap<&str, &str> = (arrows.iter())
@@ -157,6 +168,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         .chain(drawn.keys().copied())
         .collect();
     let (extra, mut notices) = file_layers(files, &known);
+    notices.extend(tables.notices);
     let mut marks: Vec<Mark> = m.marks.iter().cloned().chain(extra).collect();
     for k in &mut marks {
         if let Some(id) = drawn.get(k.target.as_str()) {
@@ -164,7 +176,10 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         }
     }
     sort_marks(&mut marks);
-    let (placed, mut unrouted) = layout(&boxes, &arrows);
+    let rows = (tables.tables.iter())
+        .map(|(id, t)| (id.clone(), t.columns.len() as u32))
+        .collect();
+    let (placed, mut unrouted) = layout_with(&boxes, &arrows, &rows);
     notices.append(&mut unrouted);
     View {
         version: m.version,
@@ -174,6 +189,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy]) -> View {
         placed,
         sources,
         parts,
+        tables: tables.tables,
         notices,
         warnings: vec![],
         // a team kind file that does not read is reported by the spec's read
@@ -270,7 +286,11 @@ pub fn architecture(env: &Env, use_spec: bool, config: Option<&Config>) -> crate
         SpecSide::Read(s) if use_spec => c.over(s, prior(env).as_ref()),
         _ => c.today(None).0,
     };
-    Ok(Side { arch, spec })
+    Ok(Side {
+        arch,
+        spec,
+        schema: c.built.schema,
+    })
 }
 
 fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<View> {
@@ -381,7 +401,8 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
     // what is not read now is read only when ig/ is written: no "ig's guess" banner
     m.boxes.iter_mut().for_each(|b| b.needs_reading = false);
     let ui = components(env.files, g, env.frontends, config);
-    let mut v = view(env.files, &m, g, &ui);
+    let mut v = view(env.files, &m, g, &ui, &built.schema);
+    notices.extend(built.schema_notices.iter().map(|n| format!("schema: {n}")));
     notices.append(&mut v.notices);
     if let Some(w) = judged {
         v.warnings = w;
