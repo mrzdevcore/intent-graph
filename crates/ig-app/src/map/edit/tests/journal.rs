@@ -224,3 +224,31 @@ fn keep_of_an_unknown_entry_errs_and_writes_nothing() {
     );
     assert_eq!(f.read_bytes(JOURNAL), before);
 }
+
+#[test]
+fn a_batch_is_one_journal_entry_and_undoes_in_one_step() {
+    let f = spec();
+    let before = ig(&f);
+    let e = Edit::Batch {
+        edits: vec![
+            add("cache"),
+            Edit::Arrow {
+                from: "web".into(),
+                to: "cache".into(),
+                kind: ArrowKind::Reads,
+                label: None,
+            },
+            set("db", "PG"),
+        ],
+    };
+    record(&f, By::Claude, &e).unwrap();
+    assert_eq!(entries(&f).0.len(), 1);
+    let done = ig(&f);
+    assert_ne!(done, before);
+    undo(&f).unwrap();
+    assert_eq!(ig(&f), before);
+    redo(&f).unwrap();
+    assert_eq!(ig(&f), done);
+    undo(&f).unwrap();
+    assert_eq!(ig(&f), before);
+}

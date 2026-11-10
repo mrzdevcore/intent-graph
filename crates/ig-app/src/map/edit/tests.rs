@@ -2,6 +2,7 @@ use super::*;
 use ig_core::testing::MemFiles;
 
 mod arrow;
+mod batch;
 mod context;
 mod files;
 mod fmt;

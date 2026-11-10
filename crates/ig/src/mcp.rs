@@ -155,7 +155,14 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
                 };
                 let e: Edit = serde_json::from_value(raw.clone())
                     .map_err(|e| anyhow::anyhow!("edit {}: {e}{kept}", i + 1))?;
-                if matches!(e, Edit::Restore { .. }) {
+                fn restores(e: &Edit) -> bool {
+                    match e {
+                        Edit::Restore { .. } => true,
+                        Edit::Batch { edits } => edits.iter().any(restores),
+                        _ => false,
+                    }
+                }
+                if restores(&e) {
                     anyhow::bail!("edit {}: restore is not an edit you can make{kept}", i + 1);
                 }
                 match journal::record(w.files(), By::Claude, &e) {

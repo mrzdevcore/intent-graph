@@ -218,6 +218,7 @@ impl Spec {
                     _ => n.get(k).and_then(|x| x.as_string()) == v.as_deref(),
                 }),
             },
+            Edit::Batch { edits } => edits.iter().all(|e| self.holds(e)),
             Edit::Restore { .. } => true,
         }
     }

@@ -85,6 +85,10 @@ pub enum Edit {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         restore: Vec<(usize, String)>,
     },
+    /// Edits applied in order as one: all or nothing, one undo; only the end state has to read.
+    Batch {
+        edits: Vec<Edit>,
+    },
     /// Puts back a removed node verbatim; only made as an inverse. `before` names a sibling box
     /// by id, or a sibling arrow by `from->to`.
     Restore {
@@ -416,6 +420,18 @@ impl Spec {
                 before,
                 restore,
             } => self.arrow_set(from, to, key, value.as_deref(), before.as_deref(), restore),
+            Edit::Batch { edits } => {
+                if edits.is_empty() {
+                    return Err("a batch has no edits".into());
+                }
+                let mut inverses = vec![];
+                for (i, e) in edits.iter().enumerate() {
+                    let inv = self.edit(e).map_err(|m| format!("edit {}: {m}", i + 1))?;
+                    inverses.push(inv);
+                }
+                inverses.reverse();
+                Ok(Edit::Batch { edits: inverses })
+            }
             Edit::Unarrow { from, to, kind } => {
                 let (path, mut at) = self.must(from)?;
                 let nodes = (self.node(&(path.clone(), at.clone())).children())

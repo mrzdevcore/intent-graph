@@ -30,7 +30,7 @@ fn s(d: &str) -> Value {
 
 /// The tools, with the kinds of the project's table.
 pub fn tools(k: &Kinds) -> Value {
-    let one = json!({"oneOf": [
+    let mut one = json!({"oneOf": [
         op("add", json!({
             "parent": s("id of the box it goes in"),
             "kind": {"type": "string", "enum": kinds(k)},
@@ -62,6 +62,12 @@ pub fn tools(k: &Kinds) -> Value {
             "kind": {"type": "string", "enum": arrows()}
         }), &["from", "to", "kind"]),
     ]});
+    let batch = op(
+        "batch",
+        json!({"edits": {"type": "array", "minItems": 1, "items": one.clone(), "description": "applied in order as one edit: all or nothing, one undo; only the end state has to be valid"}}),
+        &["edits"],
+    );
+    one["oneOf"].as_array_mut().expect("oneOf").push(batch);
     json!([
         {
             "name": "ig_state",
@@ -94,7 +100,7 @@ pub fn tools(k: &Kinds) -> Value {
         },
         {
             "name": "ig_edit",
-            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow). Your edits are proposals the user reviews under Proposals in the map (and with `git diff ig/` in a git repository). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. To change a box's kind use `set` with key `kind`: an `app` no person uses that serves routes is most likely a `service`; propose `set kind service` for it. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
+            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow, batch). Your edits are proposals the user reviews under Proposals in the map (and with `git diff ig/` in a git repository). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. To change a box's kind use `set` with key `kind`: an `app` no person uses that serves routes is most likely a `service`; propose `set kind service` for it. Use `batch` ({\"op\": \"batch\", \"edits\": [...]}) for edits that belong together, like a new box and an arrow to it: all or nothing, one journal entry, one undo, and only the end state has to be valid. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"edits": {"type": "array", "minItems": 1, "items": one}},

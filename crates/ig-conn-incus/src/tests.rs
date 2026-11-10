@@ -32,7 +32,11 @@ fn script(name: &str, body: &str) -> String {
     std::fs::write(&draft, format!("#!/bin/sh\n{body}\n")).unwrap();
     std::fs::set_permissions(&draft, std::fs::Permissions::from_mode(0o755)).unwrap();
     // a child forked meanwhile by another test would hold our write fd: ETXTBSY on Linux
-    let cp = std::process::Command::new("cp").arg(&draft).arg(&p).status().unwrap();
+    let cp = std::process::Command::new("cp")
+        .arg(&draft)
+        .arg(&p)
+        .status()
+        .unwrap();
     assert!(cp.success());
     p.to_string_lossy().into_owned()
 }

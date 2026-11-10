@@ -23,6 +23,57 @@ fn word<T: Serialize>(v: &T) -> String {
         .unwrap_or_default()
 }
 
+fn ids(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+fn describe(e: &Edit, t: &dyn Fn(&str) -> String) -> (String, Vec<String>) {
+    match e {
+        Edit::Add {
+            kind, id, title, ..
+        } => (format!("add {} {title}", word(kind)), ids(&[id])),
+        Edit::Remove { id } => (format!("remove {}", t(id)), ids(&[id])),
+        Edit::Move { id, parent, .. } => (
+            format!("move {} → {}", t(id), t(parent)),
+            ids(&[id, parent]),
+        ),
+        Edit::Rename { id, to } => (format!("rename {} → {to}", t(id)), ids(&[id, to])),
+        Edit::Set { id, key, .. } => (format!("{}: {key}", t(id)), ids(&[id])),
+        Edit::Arrow {
+            from,
+            to,
+            kind,
+            label,
+        } => (
+            format!(
+                "arrow {} {} {}{}",
+                t(from),
+                word(kind),
+                t(to),
+                label.as_ref().map_or(String::new(), |l| format!(" {l}"))
+            ),
+            ids(&[&format!("{from}->{to}")]),
+        ),
+        Edit::Unarrow { from, to, kind } => (
+            format!("unarrow {} {} {}", t(from), word(kind), t(to)),
+            ids(&[&format!("{from}->{to}")]),
+        ),
+        Edit::ArrowSet { from, to, key, .. } => (
+            format!("{} → {}: {key}", t(from), t(to)),
+            ids(&[&format!("{from}->{to}")]),
+        ),
+        Edit::Batch { edits } => {
+            let parts: Vec<_> = edits.iter().map(|e| describe(e, t)).collect();
+            let summary = parts.iter().map(|p| p.0.as_str()).collect::<Vec<_>>();
+            (
+                summary.join("; "),
+                parts.into_iter().flat_map(|p| p.1).collect(),
+            )
+        }
+        Edit::Restore { parent, .. } => ("restore".into(), ids(&[parent])),
+    }
+}
+
 /// A line for each entry not kept and not undone; box titles where the view knows the box.
 pub fn proposals(entries: &[Entry], boxes: &[MapBox]) -> Vec<Proposal> {
     let t = |id: &str| {
@@ -31,45 +82,9 @@ pub fn proposals(entries: &[Entry], boxes: &[MapBox]) -> Vec<Proposal> {
             .find(|b| b.id == id)
             .map_or(id.to_string(), |b| b.title.value.clone())
     };
-    let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     (entries.iter().filter(|e| !e.kept && !e.undone))
         .map(|e| {
-            let (summary, ids) = match &e.edit {
-                Edit::Add {
-                    kind, id, title, ..
-                } => (format!("add {} {title}", word(kind)), ids(&[id])),
-                Edit::Remove { id } => (format!("remove {}", t(id)), ids(&[id])),
-                Edit::Move { id, parent, .. } => (
-                    format!("move {} → {}", t(id), t(parent)),
-                    ids(&[id, parent]),
-                ),
-                Edit::Rename { id, to } => (format!("rename {} → {to}", t(id)), ids(&[id, to])),
-                Edit::Set { id, key, .. } => (format!("{}: {key}", t(id)), ids(&[id])),
-                Edit::Arrow {
-                    from,
-                    to,
-                    kind,
-                    label,
-                } => (
-                    format!(
-                        "arrow {} {} {}{}",
-                        t(from),
-                        word(kind),
-                        t(to),
-                        label.as_ref().map_or(String::new(), |l| format!(" {l}"))
-                    ),
-                    ids(&[&format!("{from}->{to}")]),
-                ),
-                Edit::Unarrow { from, to, kind } => (
-                    format!("unarrow {} {} {}", t(from), word(kind), t(to)),
-                    ids(&[&format!("{from}->{to}")]),
-                ),
-                Edit::ArrowSet { from, to, key, .. } => (
-                    format!("{} → {}: {key}", t(from), t(to)),
-                    ids(&[&format!("{from}->{to}")]),
-                ),
-                Edit::Restore { parent, .. } => ("restore".into(), ids(&[parent])),
-            };
+            let (summary, ids) = describe(&e.edit, &t);
             // a move's destination is lit on hover but is not what changed
             let marks = match &e.edit {
                 Edit::Move { id, .. } => vec![id.clone()],

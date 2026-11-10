@@ -135,4 +135,5 @@ export type Edit =
       before?: string | null;
       restore?: [number, string][];
     }
+  | { op: "batch"; edits: Edit[] }
   | { op: "restore"; parent: string; before: string | null; kdl: string };
