@@ -18,8 +18,8 @@ function ease(p: number): number {
  * fixed point (the world point both cameras put on the same screen spot), so a deep zoom heads
  * straight in instead of swinging past; with no change of scale it is a plain eased pan.
  */
-export function glide(from: Cam, to: Cam, t: number): Cam {
-  const p = t / GLIDE_MS;
+export function glide(from: Cam, to: Cam, t: number, ms = GLIDE_MS): Cam {
+  const p = t / ms;
   if (!(p > 0)) return { ...from };
   if (p >= 1) return { ...to };
   const e = ease(p);
@@ -42,6 +42,7 @@ export class Camera {
   private from: Cam;
   private target: Cam | null = null;
   private start = 0;
+  private ms = GLIDE_MS;
   private last = 0;
 
   constructor(cam: Cam = { x: 0, y: 0, k: 1 }) {
@@ -51,7 +52,8 @@ export class Camera {
   get moving(): boolean {
     return this.target !== null;
   }
-  to(target: Cam, now = this.last): void {
+  to(target: Cam, now = this.last, ms = GLIDE_MS): void {
+    this.ms = ms;
     this.from = this.cam;
     this.target = target;
     this.start = now;
@@ -63,8 +65,8 @@ export class Camera {
   tick(now: number): Cam {
     this.last = now;
     if (this.target) {
-      this.cam = glide(this.from, this.target, now - this.start);
-      if (now - this.start >= GLIDE_MS) this.target = null;
+      this.cam = glide(this.from, this.target, now - this.start, this.ms);
+      if (now - this.start >= this.ms) this.target = null;
     }
     return this.cam;
   }

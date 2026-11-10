@@ -8,6 +8,7 @@
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
+  import { GRID, gridLevel, momentum, softK, wheelIntent, type WheelPref } from "./nav";
   import { wires, type Mode } from "./wires";
   import MapBox from "./MapBox.svelte";
   import { shapeOf } from "./shapes";
@@ -158,6 +159,8 @@
   let cw = $state(0), ch = $state(0);
   const vw = $derived(size?.w ?? cw), vh = $derived(size?.h ?? ch);
   let cam = $state<Cam>(untrack(() => camera.cam));
+  // the camera detail and wires are worked out from: it trails `cam` while a wheel or drag gesture runs
+  let lod = $state<Cam>(untrack(() => camera.cam));
   let selected = $state<string | null>(null);
   // the path the search lit: its boxes and arrows drawn in full, the rest of that level faded
   let traced = $state<Trace | null>(null);
@@ -204,22 +207,73 @@
   let raf = 0;
   function frame(now: number) {
     raf = 0;
-    cam = camera.tick(now);
+    cam = lod = camera.tick(now);
     if (camera.moving) raf = requestAnimationFrame(frame);
   }
-  function glideTo(c: Cam) {
+  function glideTo(c: Cam, ms?: number) {
     away = !!current || showingDiff;
-    camera.to(c, performance.now());
+    coast = null;
+    camera.to(c, performance.now(), ms);
     if (!raf) raf = requestAnimationFrame(frame);
   }
   function jump(c: Cam) {
     away = !!current || showingDiff;
     camera.set(c);
-    cam = c;
+    cam = lod = c;
   }
+  const SETTLE = 120;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let anchorPt = { x: 0, y: 0 };
+  function gesture(c: Cam) {
+    away = !!current || showingDiff;
+    camera.set(c);
+    cam = c;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(settle, SETTLE);
+  }
+  function settle() {
+    lod = cam;
+    const [lo, hi] = limits();
+    if (cam.k < lo || cam.k > hi) zoomAt(anchorPt.x, anchorPt.y, clampTo(cam.k, lo, hi) / cam.k, true);
+  }
+  const clampTo = (k: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, k));
+  // zoom stays between the whole map filling a quarter of the view and the smallest box filling it
+  function limits(): [number, number] {
+    const lo = home().k / 4;
+    let w = Infinity;
+    for (const f of world.values()) if (f.w > 0) w = Math.min(w, f.w);
+    const hi = Number.isFinite(w) && vw > 0 ? Math.max(lo, vw / w) : 1e9;
+    return [lo, Math.min(1e9, hi)];
+  }
+  let coast: { x: number; y: number } | null = null;
+  let coastRaf = 0;
+  function stopCoast() {
+    coast = null;
+    cancelAnimationFrame(coastRaf);
+  }
+  function startCoast(v: { x: number; y: number }) {
+    stopCoast();
+    coast = v;
+    let last = performance.now();
+    const step = (now: number) => {
+      const dt = Math.min(64, now - last);
+      last = now;
+      if (!coast) return;
+      const c = camera.cam;
+      gesture({ k: c.k, x: c.x + coast.x * dt, y: c.y + coast.y * dt });
+      coast = momentum(coast, dt);
+      if (coast.x || coast.y) coastRaf = requestAnimationFrame(step);
+      else coast = null;
+    };
+    coastRaf = requestAnimationFrame(step);
+  }
+  onDestroy(() => {
+    clearTimeout(settleTimer);
+    stopCoast();
+  });
   /** Advance the camera to `now` (tests; the rAF loop does this in the page). */
   export function tick(now: number) {
-    cam = camera.tick(now);
+    cam = lod = camera.tick(now);
   }
   onDestroy(() => cancelAnimationFrame(raf));
 
@@ -281,7 +335,43 @@
     selected = null;
     if (id) sess.focusBox(id);
   }
-  const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow" };
+  const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow", h: "hand" };
+  let space = $state(false);
+  const KEY_MS = 150, PAN_STEP = 96;
+  function navKey(e: KeyboardEvent): boolean {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && (e.key === "+" || e.key === "=" || e.key === "-" || e.key === "_" || e.key === "0")) {
+      e.preventDefault();
+      const c = camera.cam;
+      if (e.key === "0") {
+        const k = clampK(1), r = k / c.k;
+        glideTo({ k, x: vw / 2 - (vw / 2 - c.x) * r, y: vh / 2 - (vh / 2 - c.y) * r }, KEY_MS);
+      } else zoomAt(vw / 2, vh / 2, e.key === "-" || e.key === "_" ? 1 / 1.25 : 1.25, true);
+      return true;
+    }
+    if (e.shiftKey && !mod && !e.altKey && e.code === "Digit1") {
+      e.preventDefault();
+      glideTo(home(), KEY_MS);
+      return true;
+    }
+    if (e.shiftKey && !mod && !e.altKey && e.code === "Digit2") {
+      e.preventDefault();
+      if (selected) glideTo(fitTo(frameOf(selected), { w: vw, h: vh }), KEY_MS);
+      return true;
+    }
+    const dir = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
+    if (dir && !mod && !e.altKey) {
+      if (selected) return false; // moving the selection by a grid step comes with the places store
+      e.preventDefault();
+      const c = camera.cam;
+      glideTo({ k: c.k, x: c.x + dir[0] * PAN_STEP, y: c.y + dir[1] * PAN_STEP }, KEY_MS);
+      return true;
+    }
+    return false;
+  }
+  function keyup(e: KeyboardEvent) {
+    if (e.key === " ") space = false;
+  }
   const shortcuts: Record<string, Act> = { f2: "rename", m: "move", delete: "delete", backspace: "delete" };
   function key(e: KeyboardEvent) {
     if (typing(e.target)) return;
@@ -289,6 +379,12 @@
       goStep(step + (e.key === "ArrowRight" ? 1 : -1));
       return;
     }
+    if (e.key === " " && !(e.target as Element | null)?.closest?.("button, summary, a, [data-popover]")) {
+      e.preventDefault();
+      space = true;
+      return;
+    }
+    if (!sess.ui && !(e.target as Element | null)?.closest?.("[data-popover]") && navKey(e)) return;
     if (edit && e.key !== "Escape") {
       // a popover owns the keys while it is open or has focus
       if (e.repeat || sess.ui || (e.target as Element | null)?.closest?.("[data-popover]")) return;
@@ -315,17 +411,38 @@
   // deep enough for the smallest code box of a deep tree
   const clampK = (k: number) => Math.min(1e9, Math.max(1e-3, k));
   function zoomAt(px: number, py: number, f: number, smooth = false) {
-    const c = camera.cam, k = clampK(c.k * f), r = k / c.k;
+    const c = camera.cam, [lo, hi] = limits(), k = clampK(smooth ? clampTo(c.k * f, lo, hi) : softK(c.k * f, lo, hi)), r = k / c.k;
     const next = { k, x: px - (px - c.x) * r, y: py - (py - c.y) * r };
-    if (smooth) glideTo(next); else jump(next);
+    anchorPt = { x: px, y: py };
+    if (smooth) glideTo(next, KEY_MS); else gesture(next);
+  }
+  let wheelPref = $state<WheelPref>(untrack(() => loadPref()));
+  function loadPref(): WheelPref {
+    try {
+      const v = globalThis.window?.localStorage?.getItem("ig-wheel");
+      return v === "zoom" || v === "pan" ? v : "auto";
+    } catch {
+      return "auto";
+    }
+  }
+  function setPref(p: WheelPref) {
+    wheelPref = p;
+    try {
+      if (p === "auto") globalThis.window?.localStorage?.removeItem("ig-wheel");
+      else globalThis.window?.localStorage?.setItem("ig-wheel", p);
+    } catch { /* private mode: the setting lasts the page */ }
   }
 
   // Wheel needs a non-passive listener to stop the page scrolling.
   $effect(() => {
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
+      stopCoast();
       const r = stage.getBoundingClientRect();
-      zoomAt(e.clientX - r.left, e.clientY - r.top, wheelFactor(e));
+      if (wheelIntent(e, wheelPref) === "zoom") return zoomAt(e.clientX - r.left, e.clientY - r.top, wheelFactor(e));
+      const u = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1, c = camera.cam;
+      const swap = e.shiftKey && e.deltaX === 0;
+      gesture({ k: c.k, x: c.x - (swap ? e.deltaY : e.deltaX) * u, y: c.y - (swap ? 0 : e.deltaY) * u });
     };
     stage.addEventListener("wheel", wheel, { passive: false });
     return () => stage.removeEventListener("wheel", wheel);
@@ -333,19 +450,33 @@
 
   // Drag pans, or moves the closed box under the pointer (`box`: its id, its shift at the start
   // and screen pixels per unit of its parent); a drag's trailing click must not open a box.
-  let drag: { x: number; y: number; from: Cam; moved: boolean; pointer: number; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
+  let drag: { x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; track?: { x: number; y: number; t: number }[]; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
   let swallow = false;
   function down(e: PointerEvent) {
     swallow = false;
+    stopCoast();
+    if (e.button === 1) e.preventDefault();
     // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
-    if (e.button !== 0 || (e.target as Element | null)?.closest?.("[data-pad]")) return;
-    if (sess.startLink(e, tool.current === "arrow")) return;
+    if ((e.button !== 0 && e.button !== 1) || (e.target as Element | null)?.closest?.("[data-pad]")) return;
+    const panning = e.button === 1 || space || tool.current === "hand";
+    if (!panning && sess.startLink(e, tool.current === "arrow")) return;
     drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     const id = el && !el.hasAttribute("data-open") ? el.dataset.box : undefined;
+    if (panning || (!id && e.pointerType === "touch")) {
+      drag.pan = true;
+      drag.track = [];
+      return;
+    }
+    if (!id) {
+      marquee(e);
+      drag = null;
+      return;
+    }
     const b = id ? byId.get(id) : undefined;
     if (b) drag.box = { id: b.id, at: moves[b.id] ?? { x: 0, y: 0 }, k: (unit.get(b.parent ?? ROOT) ?? 1) * camera.cam.k };
   }
+  function marquee(_e: PointerEvent) {}
   /** Shift `d` of box `id`, kept inside its parent's frame (the system has none: anywhere). */
   function within(id: string, d: { x: number; y: number }) {
     const f = view.placed.frames[id], p = byId.get(id)?.parent;
@@ -367,7 +498,11 @@
     drag.moved = true;
     const b = drag.box;
     if (b && b.k > 0) live = { id: b.id, ...within(b.id, { x: b.at.x + dx / b.k, y: b.at.y + dy / b.k }) };
-    else jump({ k: drag.from.k, x: drag.from.x + dx, y: drag.from.y + dy });
+    else if (drag.pan) {
+      const now = performance.now();
+      drag.track = [...(drag.track ?? []).filter((p) => now - p.t < 80), { x: e.clientX, y: e.clientY, t: now }];
+      gesture({ k: drag.from.k, x: drag.from.x + dx, y: drag.from.y + dy });
+    }
   }
   function up() {
     if (sess.endLink()) {
@@ -376,12 +511,19 @@
     }
     sess.release();
     swallow = !!drag?.moved;
+    const tr = drag?.pan ? drag.track : undefined;
+    if (tr && tr.length > 1) {
+      const a = tr[0], b = tr[tr.length - 1], dt = b.t - a.t;
+      if (dt > 0 && performance.now() - b.t < 50) startCoast(momentum({ x: (b.x - a.x) / dt, y: (b.y - a.y) / dt }, 0));
+    }
     if (live) keep({ ...moves, [live.id]: { x: live.x, y: live.y } });
     live = null;
     drag = null;
   }
   // a cancelled pointer, or the window losing focus mid-gesture, leaves nothing half done
   function abort() {
+    space = false;
+    stopCoast();
     sess.dropLink();
     live = null;
     drag = null;
@@ -433,6 +575,7 @@
   /** The deepest box holding the view's centre and filling >= 60% of the view's width or height;
    *  a box with pads may do so in the space opening it fits it to, beside the card. */
   const trail = $derived.by(() => {
+    const cam = lod;
     const out = [ROOT], card = cardRem(), r = rem();
     // ponytail: padsOf walks every arrow, but only for the box or two a frame's test lets through; memo per view if a huge map shows it
     const hasPads = (id: string) => padsOf(view, id, frameOf(id), () => undefined, on).length > 0;
@@ -450,6 +593,7 @@
   /** The deepest open box of the trail covering the whole view: only its inside is drawn, placed
    *  straight on the screen, so neither the boxes around it nor a huge scale cost anything. */
   const anchor = $derived.by(() => {
+    const cam = lod;
     let a = ROOT;
     for (const id of trail.slice(1)) {
       const f = world.get(id)!, x = f.x * cam.k + cam.x, y = f.y * cam.k + cam.y;
@@ -490,6 +634,11 @@
     const u = sess.ui;
     if ((u && (gone(u.t === "arrow" ? u.from : u.id) || (u.t === "arrow" && gone(u.to)))) || (sess.adding && gone(sess.adding.parent))) sess.cancel();
   });
+  const dots = $derived.by(() => {
+    const { step, fade } = gridLevel(cam.k, GRID), sp = GRID * step * cam.k;
+    const at = (sp: number, opacity: number) => ({ sp, opacity, x: (((cam.x - sp / 2) % sp) + sp) % sp, y: (((cam.y - sp / 2) % sp) + sp) % sp });
+    return sp > 0 && Number.isFinite(sp) ? [at(sp, 1), ...(fade > 0 ? [at(sp / 2, fade)] : [])] : [];
+  });
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
 
   /** A box's inner space inside its own frame, below its header (as place.inside, locally). */
@@ -500,7 +649,7 @@
 </script>
 
 {#snippet level(pid: string)}
-  {@const zoom = (unit.get(pid) ?? 1) * cam.k}
+  {@const zoom = (unit.get(pid) ?? 1) * lod.k}
   {@const near = zoom < DEEP}
   {@const all = near ? arrows.get(pid) ?? [] : []}
   {@const path = traced?.parent === pid ? traced : null}
@@ -530,7 +679,7 @@
   {/each}
   {#each (kids.get(pid) ?? []).filter((b) => !vw || seen(b.id)) as b (b.id)}
     {@const f = drawn(b.id)}
-    {@const sw = world.get(b.id)!.w * cam.k}
+    {@const sw = world.get(b.id)!.w * lod.k}
     {@const open = showsInside(sw) && kids.has(b.id) && !!view.placed.inner[b.id]}
     {@const source = view.sources?.[b.id]}
     {@const list = view.parts?.[b.id]}
@@ -576,18 +725,21 @@
   {/each}
 {/snippet}
 
-<svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={(e) => sess.outside(e)} onkeydown={key} />
+<svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={(e) => sess.outside(e)} onkeydown={key} onkeyup={keyup} />
 
-<!-- the dot grid pans with the world; it keeps its size at any zoom -->
-<div class="map" bind:clientWidth={cw} bind:clientHeight={ch} style:background-position="{base.x}px {base.y}px">
-  <div class="stage" bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture} oncontextmenu={(e) => sess.menuAt(e)}
+<!-- the dot grid sits on the map's own grid and moves and scales with it; a dot keeps its size on screen -->
+<div class="map" bind:clientWidth={cw} bind:clientHeight={ch}>
+  {#each dots as d, i (i)}
+    <div class="dots" aria-hidden="true" style:opacity={d.opacity} style:background-size="{d.sp}px {d.sp}px" style:background-position="{d.x}px {d.y}px"></div>
+  {/each}
+  <div class="stage" class:hand={tool.current === "hand" || space} bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture} oncontextmenu={(e) => sess.menuAt(e)}
     onpointerover={over} onpointerleave={() => (hot = hotArrow = null)}>
     <div class="world" style:transform="translate({base.x}px, {base.y}px) scale({base.k})">{@render level(anchor)}</div>
   </div>
   <Controls {crumbs} {layers} {on} oncrumb={fly}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
-    onreset={Object.keys(moves).length ? () => keep({}) : undefined}>
+    onreset={Object.keys(moves).length ? () => keep({}) : undefined} {wheelPref} onwheel={setPref}>
     {#snippet bar()}
       {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={() => run(() => edit.undo())} onredo={() => run(() => edit.redo())} {note} />{/if}
     {/snippet}
@@ -633,9 +785,11 @@
 
 <style>
   .map { position: absolute; inset: 0; overflow: hidden;
-    background: var(--map-ground) radial-gradient(var(--map-dots) 1.2px, transparent 1.4px) 0 0 / 18px 18px; color: var(--map-fg); }
-  .stage { position: absolute; inset: 0; cursor: grab; touch-action: none; }
-  .stage:active { cursor: grabbing; }
+    background: var(--map-ground); color: var(--map-fg); }
+  .dots { position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(var(--map-dots) 1.2px, transparent 1.4px); }
+  .stage { position: absolute; inset: 0; touch-action: none; }
+  .stage.hand { cursor: grab; }
+  .stage.hand:active { cursor: grabbing; }
   .world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .slot { position: absolute; }
   .slot:not([data-open]) { cursor: move; }

@@ -3,10 +3,10 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset, bar, children }: {
+  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset, wheelPref, onwheel, bar, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void; onzoom: (f: number) => void; onfit: () => void;
-    onreset?: () => void; bar?: Snippet; children?: Snippet;
+    onreset?: () => void; wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void; bar?: Snippet; children?: Snippet;
   } = $props();
 </script>
 
@@ -28,6 +28,14 @@
     {#each layers as l (l)}
       <label><input type="checkbox" checked={on.has(l)} onchange={() => ontoggle(l)} /> {l}</label>
     {/each}
+  </details>
+  <details class="layers more">
+    <summary>More</summary>
+    <label>Scroll wheel
+      <select value={wheelPref} onchange={(e) => onwheel(e.currentTarget.value as "auto" | "zoom" | "pan")}>
+        <option value="auto">Automatic</option><option value="zoom">Zoom</option><option value="pan">Pan</option>
+      </select>
+    </label>
   </details>
   <div class="zoom">
     <button type="button" aria-label="Zoom out" onclick={() => onzoom(1 / 1.6)}>−</button>
