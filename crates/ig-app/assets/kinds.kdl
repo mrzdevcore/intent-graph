@@ -27,6 +27,7 @@ kind "agent" title="Agent" icon="bot" means="An AI agent: a prompt, a model and 
 }
 kind "domain" title="Domain" icon="shapes" means="The core: the rules and the words of the business"
 kind "group" title="Group" icon="folder" code=#false means="Boxes kept together, with nothing of its own"
+kind "box" title="Not decided yet" icon="square-dashed" means="A box drawn before its kind is chosen"
 
 // Which kinds an arrow joins (kind names; none = any). An arrow kind with no rule joins any two.
 arrow "reads" to="store" "queue"

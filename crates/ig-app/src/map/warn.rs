@@ -29,6 +29,17 @@ fn run_above(by: &HashMap<&str, &MapBox>, b: &MapBox) -> bool {
     false
 }
 
+fn in_box(by: &HashMap<&str, &MapBox>, b: &MapBox) -> bool {
+    let mut at = Some(b);
+    while let Some(x) = at {
+        if x.kind.value == BoxKind::Box {
+            return true;
+        }
+        at = x.parent.as_deref().and_then(|p| by.get(p).copied());
+    }
+    false
+}
+
 /// What is wrong when `b`, as a box of `kind` (named `n`), sits where it does; `None` when it
 /// may sit there. `set kind` refuses with it.
 pub(crate) fn misplaced(
@@ -38,6 +49,9 @@ pub(crate) fn misplaced(
     n: &str,
 ) -> Option<String> {
     let p = b.parent.as_deref().and_then(|p| by.get(p))?;
+    if kind == BoxKind::Box || in_box(by, p) {
+        return None;
+    }
     if kind_may_sit(kind, p.kind.value.role(), !run_above(by, p)) {
         return None;
     }

@@ -38,6 +38,7 @@ pub enum BoxKind {
     Agent,
     Domain,
     Group,
+    Box,
     Folder,
     File,
     /// A UI component (Vue, React), opening onto its parts.
@@ -74,7 +75,7 @@ impl BoxKind {
         match self {
             System => Role::Root,
             Group => Role::Group,
-            Service | Job | App | Store | Queue | Model | External | Person => Role::Run,
+            Service | Job | App | Store | Queue | Model | External | Person | Box => Role::Run,
             Entry | Usecase | Domain | Port | Adapter | Agent | Module => Role::Design,
             Folder | File | Component | Parts | Task | Table | Function | Class | Method => {
                 Role::Code

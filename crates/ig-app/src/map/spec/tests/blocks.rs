@@ -188,3 +188,24 @@ fn spec_read_takes_the_team_kinds_from_ig_kinds() {
     let m = read(&files).unwrap().unwrap();
     assert_eq!(m.boxes.iter().filter(|b| b.custom.is_some()).count(), 1);
 }
+
+#[test]
+fn reads_a_box_with_no_kind_yet() {
+    use crate::map::facts::BoxKind;
+    let m = parse(&sys("  box \"billing\" title=\"billing\"")).unwrap();
+    let b = m.boxes.iter().find(|b| b.id == "billing").unwrap();
+    assert_eq!(b.kind.value, BoxKind::Box);
+    assert!(crate::map::warn::warnings(&m, &crate::map::kinds::Kinds::builtin()).is_empty());
+}
+
+#[test]
+fn a_box_holds_run_and_design_blocks() {
+    let m = parse(&sys(
+        "  box \"b\" title=\"B\" {\n    service \"s\" title=\"S\"\n    module \"b/m\" title=\"M\"\n    usecase \"b/u\" title=\"U\"\n  }\n  group \"g\" title=\"G\" {\n    box \"gb\" title=\"GB\" {\n      store \"st\" title=\"St\"\n    }\n  }\n  service \"api\" title=\"Api\" {\n    box \"ab\" title=\"AB\" {\n      usecase \"ab/u\" title=\"U\"\n    }\n  }",
+    ))
+    .unwrap();
+    assert_eq!(
+        crate::map::warn::warnings(&m, &crate::map::kinds::Kinds::builtin()),
+        Vec::<String>::new()
+    );
+}

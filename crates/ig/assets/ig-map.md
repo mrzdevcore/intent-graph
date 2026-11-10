@@ -56,6 +56,7 @@ The design of a block sits inside a block that runs, inside another design box, 
 And:
 
 - `system`: the whole system this map draws; exactly one, in `ig/system.kdl`.
+- `box`: a box whose kind is not decided yet. It sits anywhere a block that runs or a design block may, and holds either; it is never warned about as misplaced. Takes `at`; `ig plan` lists it as to build, kind not decided.
 - `group`: boxes kept together, with nothing of its own. It sits anywhere. Not code: it takes no `at`.
 
 A box in a place its kind does not sit in is a warning, not an error.

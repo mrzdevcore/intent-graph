@@ -87,3 +87,18 @@ fn other_code_between_the_new_and_the_old_parent_is_still_drift() {
         "{d:?}"
     );
 }
+
+#[test]
+fn plan_lists_a_box_as_to_build_kind_not_decided() {
+    let mut w = spec_files();
+    w.insert(
+        "ig/billing.kdl".into(),
+        "box \"billing\" title=\"Billing\" {\n  at \"billing/**\"\n}\n".into(),
+    );
+    let p = plan(&compare(&read_files(&w), &facts(), &graph(), None));
+    assert!(
+        p.build
+            .contains(&"to build: box billing, kind not decided (billing/**)".into()),
+        "{p:?}"
+    );
+}

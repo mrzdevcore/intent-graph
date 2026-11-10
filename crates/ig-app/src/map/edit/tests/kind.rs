@@ -188,3 +188,16 @@ fn dropping_a_kind_change_puts_a_box_back_where_it_was_out_of_place() {
     let f = MemFiles::with(&[("ig/system.kdl", sys)]);
     apply(&f, &kind("u", "domain")).unwrap();
 }
+
+#[test]
+fn set_kind_from_box_and_back_restores_bytes() {
+    let src = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n    box \"b\" title=\"B\" {\n        at \"b/**\"\n    }\n}\n";
+    let f = MemFiles::with(&[("ig/system.kdl", src)]);
+    let want = src.replace("box \"b\"", "store \"b\"");
+    let inv = check_on(f, kind("b", "store"), &[("ig/system.kdl", &want)]);
+    assert_eq!(inv, kind("b", "box"));
+    let f = MemFiles::with(&[("ig/system.kdl", &want)]);
+    check_on(f, inv, &[("ig/system.kdl", src)]);
+    let f = MemFiles::with(&[("ig/system.kdl", &want)]);
+    check_on(f, kind("b", "box"), &[("ig/system.kdl", src)]);
+}

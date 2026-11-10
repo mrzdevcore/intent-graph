@@ -522,16 +522,16 @@ pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow], unread: &[String]) -> Plan
     for b in boxes {
         match b.origin {
             Origin::Built | Origin::Unmanaged => {}
-            Origin::Build if b.made_of.is_empty() => {
-                p.build
-                    .push(format!("to build: {} {}", name(&b.kind.value), b.id))
+            Origin::Build => {
+                let mut l = format!("to build: {} {}", name(&b.kind.value), b.id);
+                if b.kind.value == BoxKind::Box {
+                    l.push_str(", kind not decided");
+                }
+                if !b.made_of.is_empty() {
+                    l.push_str(&format!(" ({})", b.made_of.join(", ")));
+                }
+                p.build.push(l)
             }
-            Origin::Build => p.build.push(format!(
-                "to build: {} {} ({})",
-                name(&b.kind.value),
-                b.id,
-                b.made_of.join(", ")
-            )),
             Origin::Moved => p.moves.push(format!(
                 "move: {} → {} ({})",
                 b.moved_from.join(", "),

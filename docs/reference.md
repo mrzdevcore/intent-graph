@@ -116,6 +116,8 @@ ig view [--no-open] [--json] [-C <dir>] [-q]
    `ig.yaml` rules) and `risks` (ig's own code analysis), computed each run; and your own, from
    `.ig/layers/*.json` (below).
 
+A box drawn before its kind is chosen is kind `box` ("Not decided yet"): it sits wherever a block that runs or a design block may, holds either, and never draws a misplaced warning. `ig plan` lists it as `to build: box <id>, kind not decided`.
+
 **The spec `ig/` is committed.** The first `ig analyse` writes the intended architecture as `ig/*.kdl`:
 from `.ig/map.json` when there is one (its readings and corrections kept), else from the code and
 the AI reading. After that `ig/` is yours: edit it by hand and commit it. ig changes it only
