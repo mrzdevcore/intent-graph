@@ -474,7 +474,7 @@ fn set_at_on_a_box_without_one_puts_it_first() {
             "ig/api.kdl",
             &API.replace(
                 "    usecase \"api/orders\" title=\"Orders\" // the orders\n",
-                "    usecase \"api/orders\" title=\"Orders\" {\n        at \"apps/api/src/orders/**\"\n    } // the orders\n",
+                "    usecase \"api/orders\" title=\"Orders\" { // the orders\n        at \"apps/api/src/orders/**\"\n    }\n",
             ),
         )],
     );

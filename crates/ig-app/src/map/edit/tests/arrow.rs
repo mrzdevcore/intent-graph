@@ -248,3 +248,35 @@ fn arrowset_from_and_flip_undo_when_the_arrow_is_last_before_the_boxes() {
     kept(&t, set("api", "db", "from", Some("web")));
     kept(&t, set("api", "db", "flip", None));
 }
+
+fn arrow_from(id: &str) -> Edit {
+    Edit::Arrow {
+        from: id.into(),
+        to: "db".into(),
+        kind: ArrowKind::Reads,
+        label: None,
+    }
+}
+
+#[test]
+fn an_arrow_from_a_box_with_a_trailing_comment_and_no_body() {
+    let want = SYS.replace(
+        "external \"stripe\" title=\"Stripe\" // the PSP",
+        "external \"stripe\" title=\"Stripe\" { // the PSP\n        reads \"db\"\n    }",
+    );
+    check(arrow_from("stripe"), &[("ig/system.kdl", &want)]);
+}
+
+#[test]
+fn an_arrow_from_a_box_whose_brace_line_has_a_comment() {
+    let sys = SYS.replace(
+        "app \"web\" title=\"Web\" {",
+        "app \"web\" title=\"Web\" { // the site",
+    );
+    let want = sys.replace(
+        "        uses \"api\"\n",
+        "        uses \"api\"\n        reads \"db\"\n",
+    );
+    let f = MemFiles::with(&[("ig/system.kdl", &sys), ("ig/api.kdl", API)]);
+    check_on(f, arrow_from("web"), &[("ig/system.kdl", &want)]);
+}

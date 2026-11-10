@@ -13,8 +13,11 @@ pub(crate) fn tidy(block: &mut KdlDocument, indent: &str) {
         let first = if i == 0 { "\n" } else { "" };
         if laid_out(n) {
             let f = n.format_mut().expect("laid out");
-            if i == 0 && !f.leading.starts_with('\n') {
-                f.leading.insert(0, '\n');
+            if i == 0 {
+                let at = head_len(&f.leading);
+                if !f.leading[at..].starts_with('\n') {
+                    f.leading.insert(at, '\n');
+                }
             }
             continue;
         }
@@ -117,11 +120,25 @@ fn split_tail(n: &mut KdlNode) -> String {
     tail
 }
 
-/// `n`'s leading without the line break that ends the `{` line (a first child has it).
-fn unfirst(n: &mut KdlNode) {
-    if let Some(f) = n.format_mut().filter(|f| f.leading.starts_with('\n')) {
+/// Length of the comment a first child's `leading` carries from the `{` line.
+fn head_len(leading: &str) -> usize {
+    match leading.find('\n') {
+        Some(k) if !leading[..k].trim().is_empty() => k,
+        _ => 0,
+    }
+}
+
+/// `n`'s leading without the line break that ends the `{` line (a first child has it); returns
+/// the comment that was on the `{` line.
+fn unfirst(n: &mut KdlNode) -> String {
+    let Some(f) = n.format_mut() else {
+        return String::new();
+    };
+    let head: String = f.leading.drain(..head_len(&f.leading)).collect();
+    if f.leading.starts_with('\n') {
         f.leading.remove(0);
     }
+    head
 }
 
 impl Spec {
@@ -145,9 +162,15 @@ impl Spec {
     pub(super) fn put(&mut self, loc: &Loc, i: usize, n: KdlNode) {
         let node = self.node_mut(loc);
         let ind = indent_of(node);
+        let mut head = String::new();
         if node.children().is_none() {
             if let Some(f) = node.format_mut() {
                 f.before_children = " ".into();
+                if f.terminator.trim_start().starts_with("//") {
+                    let end = f.terminator.trim_end_matches('\n').to_string();
+                    head = std::mem::take(&mut f.before_terminator) + &end;
+                    f.terminator = "\n".into();
+                }
             }
             let mut d = KdlDocument::new();
             d.set_format(KdlDocumentFormat {
@@ -164,7 +187,7 @@ impl Spec {
         let mut n = if laid_out { reindent(n, &inner) } else { n };
         if i == 0 {
             if let Some(old) = block.nodes_mut().first_mut() {
-                unfirst(old);
+                head = unfirst(old);
             }
             if let Some(f) = n.format_mut().filter(|_| laid_out) {
                 f.leading.insert(0, '\n');
@@ -172,6 +195,9 @@ impl Spec {
         }
         block.nodes_mut().insert(i, n);
         tidy(block, &inner);
+        if let Some(f) = block.nodes_mut()[0].format_mut() {
+            f.leading.insert_str(0, &head);
+        }
     }
 
     /// Takes the node at `loc` out, with the comments above it and without the line break of
@@ -197,10 +223,13 @@ impl Spec {
         let before = block.nodes()[i..]
             .iter()
             .find_map(|s| sibling_id(&parent, s));
+        let mut head = String::new();
         if i == 0 {
-            unfirst(&mut n);
+            head = unfirst(&mut n);
             if let Some(f) = block.nodes_mut().first_mut().and_then(|f| f.format_mut()) {
                 f.leading.insert(0, '\n');
+                f.leading.insert_str(0, &head);
+                head.clear();
             }
         }
         let blank = block.format().is_none_or(|f| f.trailing.trim().is_empty());
@@ -208,6 +237,10 @@ impl Spec {
             pn.clear_children();
             if let Some(f) = pn.format_mut() {
                 f.before_children.clear();
+                if let Some(k) = head.find("//") {
+                    f.before_terminator = head[..k].into();
+                    f.terminator = format!("{}\n", &head[k..]);
+                }
             }
         }
         (n, before)
