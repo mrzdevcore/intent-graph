@@ -1,4 +1,4 @@
-<!-- The box menu (right-click, or the card's ⋯): Rename, Move to…, Add box inside, Arrow from here, Arrange inside (a box with children), Delete.
+<!-- The box menu (right-click, or the card's ⋯): Rename, Move to…, Add box inside, Arrow from here, Arrange inside (a box with children and no pattern), Delete.
      Arrow keys move between items; Esc closes (handled here: the map ignores keys while focus is in a field). -->
 <script lang="ts">
   import { onMount } from "svelte";
@@ -27,7 +27,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div role="menu" data-popover aria-label="{title} menu" tabindex="-1" bind:this={menu} style:left="{x}px" style:top="{y}px" onkeydown={keydown}>
   {#each items as [a, label, hint] (a)}
-    <button type="button" role="menuitem" class:bad={a === "delete"} onclick={() => onpick(a)}><span>{label}</span><kbd>{hint}</kbd></button>
+    <button type="button" role="menuitem" class:bad={a === "delete"} onclick={() => onpick(a)}><span>{label}</span>{#if hint}<kbd>{hint}</kbd>{/if}</button>
   {/each}
 </div>
 

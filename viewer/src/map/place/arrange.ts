@@ -1,6 +1,7 @@
 import type { View } from "../types";
+import { HEAD, fitInner } from "../camera";
 import { inside, type Place } from "./places";
-import { nudge } from "./rules";
+import { nudge, settle } from "./rules";
 
 export type Link = { from: string; to: string; weight: number };
 type Tree = { root: string; parentOf: Map<string, string>; kidsOf: Map<string, string[]> };
@@ -27,7 +28,7 @@ const depth = (t: Tree, id: string) => {
 };
 
 // an arrow between two boxes deep inside counts between the members that hold them
-function linksAmong(view: View, t: Tree, members: string[]): Link[] {
+function linksAmong(view: View, t: Tree, members: string[], kindOf: (id: string) => string): Link[] {
   const set = new Set(members), sum = new Map<string, Link>();
   const lift = (id: string) => {
     for (let q: string | undefined = id, n = 0; q !== undefined && n < 64; q = t.parentOf.get(q), n++) if (set.has(q)) return q;
@@ -35,8 +36,10 @@ function linksAmong(view: View, t: Tree, members: string[]): Link[] {
   };
   for (const a of view.arrows) {
     if (a.ghost) continue;
-    const from = lift(a.from), to = lift(a.to);
+    let from = lift(a.from), to = lift(a.to);
     if (!from || !to || from === to) continue;
+    // a reader's arrow points at the queue, but the messages flow from the queue to it
+    if (a.kind === "reads" && kindOf(to) === "queue") [from, to] = [to, from];
     const k = `${from}\n${to}`, l = sum.get(k);
     if (l) l.weight += a.count || 1;
     else sum.set(k, { from, to, weight: a.count || 1 });
@@ -141,8 +144,8 @@ function strongest(id: string, near: Map<string, Map<string, number>>, ok: (o: s
   return best;
 }
 
-function place(cols: string[][], links: Link[], size: (id: string) => Place, grid: number): Record<string, Place> {
-  const up = (v: number) => Math.ceil(v / grid) * grid, snap = (v: number) => Math.round(v / grid) * grid;
+function place(cols: string[][], links: Link[], size: (id: string) => Place, tall: (id: string, w: number) => number, grid: number): Record<string, Place> {
+  const up = (v: number) => Math.ceil(v / grid) * grid;
   const margin = 4 * grid, colGap = 4 * grid, rowGap = 2 * grid;
   const near = new Map<string, Map<string, number>>();
   for (const l of links) for (const [a, b] of [[l.from, l.to], [l.to, l.from]]) {
@@ -156,24 +159,25 @@ function place(cols: string[][], links: Link[], size: (id: string) => Place, gri
     const w = Math.max(...c.map((id) => size(id).w));
     let y = margin;
     for (const id of c) {
-      out[id] = { x, y, w, h: size(id).h };
-      y = up(y + size(id).h + rowGap);
+      out[id] = { x, y, w, h: tall(id, w) };
+      y = up(y + out[id].h + rowGap);
     }
     x = up(x + w + colGap);
   }
   const done = new Set<string>();
   const mid = (id: string) => out[id].y + out[id].h / 2;
   for (const c of cols) {
-    let floor = margin;
+    let floor = -Infinity;
     for (const id of c) {
       const to = strongest(id, near, (o) => done.has(o)) ?? strongest(id, near, () => true);
-      const y = to ? Math.max(floor, snap(mid(to) - out[id].h / 2)) : floor;
+      // level centres, not grid tops: the arrow between them is then straight
+      const y = to ? Math.max(floor, mid(to) - out[id].h / 2) : Math.max(floor, margin);
       out[id] = { ...out[id], y };
       floor = up(y + out[id].h + rowGap);
     }
     for (const id of c) done.add(id);
   }
-  const top = Math.min(...Object.values(out).map((p) => p.y)) - margin;
+  const top = Math.floor((Math.min(...Object.values(out).map((p) => p.y)) - margin) / grid) * grid;
   if (top) for (const id of Object.keys(out)) out[id] = { ...out[id], y: out[id].y - top };
   return out;
 }
@@ -185,10 +189,15 @@ function cross(a: Place, b: Place, c: Place, d: Place): boolean {
   return o(p, q, r) * o(p, q, s) < 0 && o(r, s, p) * o(r, s, q) < 0;
 }
 
+const kindsOf = (view: View) => {
+  const kinds = new Map(view.boxes.map((b) => [b.id, b.kind.value as string]));
+  return (id: string) => kinds.get(id) ?? "box";
+};
+
 export function crossings(view: View, places: Record<string, Place>, parent: string, members?: string[]): number {
   const t = treeOf(view, places), ids = members ?? t.kidsOf.get(parent) ?? [];
   const at = (id: string) => places[id] ?? view.placed.frames[id];
-  const ls = linksAmong(view, t, ids);
+  const ls = linksAmong(view, t, ids, kindsOf(view));
   let n = 0;
   for (let i = 0; i < ls.length; i++) for (let j = i + 1; j < ls.length; j++) {
     const a = ls[i], b = ls[j];
@@ -198,28 +207,41 @@ export function crossings(view: View, places: Record<string, Place>, parent: str
   return n;
 }
 
-function layout(view: View, t: Tree, ids: string[], places: Record<string, Place>, grid: number): Record<string, Place> {
-  const kinds = new Map(view.boxes.map((b) => [b.id, b.kind.value as string]));
-  const kindOf = (id: string) => kinds.get(id) ?? "box";
+// the head an open box keeps above its inside (fitInner's, in the box's own units)
+const withHead = (c: number) => (c >= 3 * HEAD ? c + HEAD : (c * 4) / 3);
+
+type Lay = { view: View; t: Tree; kindOf: (id: string) => string; inner: Map<string, [number, number]>; grid: number };
+
+function layout(c: Lay, ids: string[], places: Record<string, Place>): Record<string, Place> {
+  const { view, t, kindOf, inner, grid } = c;
   const size = (id: string) => places[id] ?? view.placed.frames[id];
-  const links = linksAmong(view, t, ids);
+  const tall = (id: string, w: number) => {
+    const r = inner.get(id), f = size(id);
+    if (r) return withHead((r[1] * w) / r[0]);
+    return t.kidsOf.get(id)?.length ? withHead(((f.h - Math.min(HEAD, f.h / 4)) * w) / f.w) : f.h;
+  };
+  const links = linksAmong(view, t, ids, kindOf);
   const cols = layers(ids, flow(ids, links, kindOf), kindOf);
+  const now = cols.map((col) => [...col].sort((a, b) => size(a).y - size(b).y || (a < b ? -1 : 1)));
   let best: Record<string, Place> = {}, fewest = Infinity;
-  for (const o of order(cols, links)) {
-    const p = place(o, links, size, grid), n = crossings(view, p, "", ids);
+  for (const o of [now, ...order(cols, links)]) {
+    const p = place(o, links, size, tall, grid), n = crossings(view, p, "", ids);
     if (n < fewest) [best, fewest] = [p, n];
   }
   return best;
 }
 
+// a box with a pattern keeps the inside the server drew its rings around
+const patterned = (view: View) => new Set(view.boxes.filter((b) => b.pattern && b.pattern.value.kind !== "none").map((b) => b.id));
+
 export function arranged(scope: string[], view: View, places: Record<string, Place>): string[] {
   const t = treeOf(view, places);
-  return groupsOf(scope, t).flatMap((g) => t.kidsOf.get(g) ?? []).concat(scope.length > 1 ? scope.filter((id) => t.parentOf.has(id)) : []);
+  return groupsOf(scope, t, patterned(view)).flatMap((g) => t.kidsOf.get(g) ?? []).concat(scope.length > 1 ? scope.filter((id) => t.parentOf.has(id)) : []);
 }
 
-function groupsOf(scope: string[], t: Tree): string[] {
+function groupsOf(scope: string[], t: Tree, kept: Set<string>): string[] {
   const out = new Set<string>(), walk = (id: string) => {
-    if (out.has(id) || !t.kidsOf.get(id)?.length) return;
+    if (out.has(id) || kept.has(id) || !t.kidsOf.get(id)?.length) return;
     out.add(id);
     for (const k of t.kidsOf.get(id)!) walk(k);
   };
@@ -230,20 +252,35 @@ function groupsOf(scope: string[], t: Tree): string[] {
   return [...out].sort((a, b) => depth(t, b) - depth(t, a) || (a < b ? -1 : 1));
 }
 
+// at least as wide as the server drew it, its inside at least at the server's scale
+function widthOf(view: View, id: string, iw: number, ih: number): number {
+  const f = view.placed.frames[id], r = view.placed.inner[id];
+  return f && r ? Math.max(f.w, iw * fitInner(f, r[0], r[1]).s) : Math.max(iw, ih) / 4;
+}
+
 export function arrange(scope: string[], view: View, places: Record<string, Place>, grid: number): Record<string, Place> {
-  const t = treeOf(view, places), out = { ...places };
-  for (const g of groupsOf(scope, t)) {
-    const kids = t.kidsOf.get(g)!, laid = layout(view, t, kids, out, grid);
+  const t = treeOf(view, places), out = { ...places }, up = (v: number) => Math.ceil(v / grid) * grid;
+  const c: Lay = { view, t, kindOf: kindsOf(view), inner: new Map(), grid };
+  for (const g of groupsOf(scope, t, patterned(view))) {
+    const kids = t.kidsOf.get(g)!, laid = layout(c, kids, out);
     Object.assign(out, laid);
     const r = Math.max(...kids.map((id) => laid[id].x + laid[id].w)), b = Math.max(...kids.map((id) => laid[id].y + laid[id].h));
-    out[inside(g)] = { x: 0, y: 0, w: r + 4 * grid, h: b + 4 * grid };
+    const w = up(r + 4 * grid), h = up(b + 4 * grid), f = out[g] ?? view.placed.frames[g];
+    out[inside(g)] = { x: 0, y: 0, w, h };
+    c.inner.set(g, [w, h]);
+    if (f && g !== t.root) {
+      const fw = widthOf(view, g, w, h);
+      out[g] = { x: f.x, y: f.y, w: fw, h: withHead((h * fw) / w) };
+    }
   }
   const sel = scope.filter((id) => t.parentOf.has(id));
+  // a group arranged alone changed size: its siblings make room and its parents grow
+  if (scope.length === 1 && t.parentOf.has(scope[0]) && out[scope[0]]) return settle(out, view, { [scope[0]]: out[scope[0]] }, scope[0]);
   const parent = t.parentOf.get(sel[0]);
   if (scope.length < 2 || sel.length < 2 || sel.some((id) => t.parentOf.get(id) !== parent)) return out;
   const was = sel.map((id) => places[id] ?? view.placed.frames[id]);
   const x0 = Math.round(Math.min(...was.map((p) => p.x)) / grid) * grid, y0 = Math.round(Math.min(...was.map((p) => p.y)) / grid) * grid;
-  const laid = layout(view, t, [...sel].sort(), out, grid);
+  const laid = layout(c, [...sel].sort(), out);
   const lx = Math.min(...sel.map((id) => laid[id].x)), ly = Math.min(...sel.map((id) => laid[id].y));
   for (const id of sel) out[id] = { ...laid[id], x: laid[id].x - lx + x0, y: laid[id].y - ly + y0 };
   const block = "\0these", r = Math.max(...sel.map((id) => out[id].x + out[id].w)), b = Math.max(...sel.map((id) => out[id].y + out[id].h));

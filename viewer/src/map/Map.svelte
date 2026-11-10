@@ -190,9 +190,9 @@
     tidyTimer = setTimeout(() => (tidied = null), 6000);
   }
   // what is open on screen: the deepest box of the breadcrumb that holds boxes
-  const arrangeMap = () => arrangeIn([[...trail].reverse().find((id) => kids.get(id)?.length) ?? ROOT]);
+  const arrangeMap = () => arrangeIn([[...trail].reverse().find((id) => arrangeable.has(id)) ?? ROOT]);
   function undoArrange() {
-    if (tidied?.stamp !== undefined && history.last === tidied.stamp) undo();
+    if (tidied?.stamp !== undefined && history.last === tidied.stamp && undoNext(edits, history) === "place") undo();
     tidied = null;
   }
   const shown = $derived(shownView(view, showing));
@@ -208,6 +208,8 @@
   });
   const byId = $derived(new Map(view.boxes.map((b) => [b.id, b])));
   const kids = $derived(group(framed, (b: Box) => b.parent ?? ROOT));
+  // a box with a pattern keeps the inside its rings were drawn around
+  const arrangeable = $derived(new Set([...kids.keys()].filter((id) => (byId.get(id)?.pattern?.value.kind ?? "none") === "none")));
   // a component's part boxes (inputs, state, uses, renders): its card sums them up
   const anatomies = $derived(group(view.boxes.filter((b) => b.kind.value === "parts" && !!b.parent), (b: Box) => b.parent!));
   // world frames, once per layout (linear in the boxes): a drag in flight leaves them be
@@ -898,7 +900,7 @@
       {#if tidied.stamp !== undefined}<button type="button" onclick={undoArrange}>Undo</button>{/if}
     </div>
   {/if}
-  {#if edit}<EditLayer s={sess} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
+  {#if edit}<EditLayer s={sess} {arrangeable} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
   {#if view.landscape}
     <Folders landscape={view.landscape} />
   {/if}
