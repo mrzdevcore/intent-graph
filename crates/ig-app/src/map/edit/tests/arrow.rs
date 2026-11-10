@@ -1,5 +1,3 @@
-//! `ArrowSet`: kind, label, note, context, the ends, flip.
-
 use super::*;
 
 fn set(from: &str, to: &str, key: &str, v: Option<&str>) -> Edit {
@@ -9,6 +7,7 @@ fn set(from: &str, to: &str, key: &str, v: Option<&str>) -> Edit {
         key: key.into(),
         value: v.map(String::from),
         before: None,
+        restore: vec![],
     }
 }
 
@@ -26,8 +25,20 @@ fn back(from: &str, to: &str, key: &str, v: Option<&str>) -> Edit {
             key,
             value,
             before: Some("api->stripe".into()),
+            restore: vec![],
         },
         e => e,
+    }
+}
+
+fn restoring(key: &str, v: &str, i: usize, text: &str) -> Edit {
+    Edit::ArrowSet {
+        from: "api".into(),
+        to: "db".into(),
+        key: key.into(),
+        value: Some(v.into()),
+        before: None,
+        restore: vec![(i, text.into())],
     }
 }
 
@@ -55,10 +66,10 @@ fn arrowset_label() {
         set("api", "db", "label", Some("the orders")),
         &[("ig/api.kdl", &want)],
     );
-    assert_eq!(inv, set("api", "db", "label", Some("orders")));
+    assert_eq!(inv, restoring("label", "orders", 1, " label=\"orders\""));
     let want = api("data \"db\" label=\"orders\"", "data \"db\"");
     let inv = check(set("api", "db", "label", None), &[("ig/api.kdl", &want)]);
-    assert_eq!(inv, set("api", "db", "label", Some("orders")));
+    assert_eq!(inv, restoring("label", "orders", 1, " label=\"orders\""));
     let want = api("network \"stripe\"", "network \"stripe\" label=\"charges\"");
     let inv = check(
         set("api", "stripe", "label", Some("charges")),
@@ -84,7 +95,7 @@ fn arrowset_note() {
         set("api", "db", "note", Some("cold")),
         &[("ig/api.kdl", &want.replace("hot path", "cold"))],
     );
-    assert_eq!(inv, set("api", "db", "note", Some("hot path")));
+    assert_eq!(inv, restoring("note", "hot path", 2, " note=\"hot path\""));
 }
 
 #[test]
@@ -191,4 +202,49 @@ fn arrowset_refuses_a_note_over_80() {
         set("api", "db", "note", Some(&"x".repeat(81))),
         "at most 80",
     );
+}
+
+fn kept(text: &str, e: Edit) {
+    let f = MemFiles::with(&[("ig/system.kdl", SYS), ("ig/api.kdl", text)]);
+    let before = texts(&f);
+    let inv = apply(&f, &e).unwrap();
+    assert_ne!(texts(&f), before);
+    apply(&f, &inv).unwrap();
+    assert_eq!(texts(&f), before);
+}
+
+#[test]
+fn arrowset_undoes_a_raw_string_label_exactly() {
+    let t = api("label=\"orders\"", "label=#\"or\"ders\"#");
+    kept(&t, set("api", "db", "label", Some("x")));
+    kept(&t, set("api", "db", "label", None));
+}
+
+#[test]
+fn arrowset_undoes_a_multiline_context_exactly() {
+    let t = api(
+        "network \"stripe\"",
+        "network \"stripe\" context=#\"\"\"\n        a\n          b\n        \"\"\"#",
+    );
+    kept(&t, set("api", "stripe", "context", None));
+    kept(&t, set("api", "stripe", "context", Some("one")));
+}
+
+#[test]
+fn arrowset_undoes_a_one_line_context_and_props_out_of_order() {
+    let t = api(
+        "network \"stripe\"",
+        "network \"stripe\" context=\"c\"   note=\"n\" label=\"l\"",
+    );
+    kept(&t, set("api", "stripe", "context", Some("d")));
+    kept(&t, set("api", "stripe", "context", None));
+    kept(&t, set("api", "stripe", "label", None));
+    kept(&t, set("api", "stripe", "note", Some("m")));
+}
+
+#[test]
+fn arrowset_from_and_flip_undo_when_the_arrow_is_last_before_the_boxes() {
+    let t = api("    network \"stripe\"\n", "");
+    kept(&t, set("api", "db", "from", Some("web")));
+    kept(&t, set("api", "db", "flip", None));
 }

@@ -15,6 +15,7 @@ impl Spec {
         key: &str,
         value: Option<&str>,
         before: Option<&str>,
+        restore: &[(usize, String)],
     ) -> Result<Edit, String> {
         let (loc, i) = self.arrow_at(from, to)?;
         let at = |i: usize| {
@@ -29,6 +30,7 @@ impl Spec {
             key: k.into(),
             value: old,
             before: None,
+            restore: vec![],
         };
         match key {
             "kind" => {
@@ -50,6 +52,7 @@ impl Spec {
                     key: "to".into(),
                     value: Some(to.into()),
                     before: None,
+                    restore: vec![],
                 })
             }
             "from" => {
@@ -62,6 +65,7 @@ impl Spec {
                     key: "from".into(),
                     value: Some(from.into()),
                     before: was,
+                    restore: vec![],
                 })
             }
             "flip" => {
@@ -73,12 +77,20 @@ impl Spec {
                     key: "flip".into(),
                     value: None,
                     before: was,
+                    restore: vec![],
                 })
             }
             k if PROPS.contains(&k) => {
                 let n = self.node_mut(&at(i));
-                let old = prop(n, k, value);
-                Ok(set(k, old))
+                let (old, was) = prop(n, k, value, restore)?;
+                Ok(Edit::ArrowSet {
+                    from: from.into(),
+                    to: to.into(),
+                    key: k.into(),
+                    value: old,
+                    before: None,
+                    restore: was,
+                })
             }
             _ => Err(format!(
                 "`{key}` is not something to set on an arrow: one of kind, label, note, context, from, to, flip"
@@ -103,8 +115,6 @@ impl Spec {
         Ok((loc, i))
     }
 
-    /// Moves the arrow node at `at` into box `new`, before the sibling `before` names, else after
-    /// its arrows; `to` points it somewhere else. Returns the sibling it was before.
     fn relocate(
         &mut self,
         at: &super::Loc,
@@ -133,22 +143,39 @@ impl Spec {
     }
 }
 
-fn prop(n: &mut KdlNode, key: &str, value: Option<&str>) -> Option<String> {
+type Was = (Option<String>, Vec<(usize, String)>);
+
+fn prop(
+    n: &mut KdlNode,
+    key: &str,
+    value: Option<&str>,
+    restore: &[(usize, String)],
+) -> Result<Was, String> {
     let is_key = |e: &KdlEntry| e.name().is_some_and(|k| k.value() == key);
     let at = n.entries().iter().position(is_key);
     let old = at.and_then(|i| n.entries()[i].value().as_string().map(String::from));
+    let was = at.map(|i| (i, n.entries()[i].to_string()));
+    let back = |text: &str| {
+        text.parse::<KdlEntry>()
+            .map_err(|_| format!("cannot read `{text}` back"))
+    };
     let format = |n: &KdlNode, e: &mut KdlEntry, v: &str| match key {
         "context" => e.set_format(context_format(v, &tidy::indent_of(n))),
         _ => set_str(e, v),
     };
-    match (value, at) {
-        (Some(v), Some(i)) => {
+    match (value, at, restore.first()) {
+        (Some(_), Some(i), Some((_, text))) => n.entries_mut()[i] = back(text)?,
+        (Some(v), Some(i), None) => {
             let mut e = n.entries()[i].clone();
             e.set_value(v);
             format(n, &mut e, v);
             n.entries_mut()[i] = e;
         }
-        (Some(v), None) => {
+        (Some(_), None, Some((i, text))) => {
+            let i = (*i).min(n.entries().len());
+            n.entries_mut().insert(i, back(text)?);
+        }
+        (Some(v), None, None) => {
             let ord = PROPS.iter().position(|p| *p == key);
             let i = n.entries().iter().rposition(|e| {
                 e.name()
@@ -158,7 +185,7 @@ fn prop(n: &mut KdlNode, key: &str, value: Option<&str>) -> Option<String> {
             format(n, &mut e, v);
             n.entries_mut().insert(i.map_or(0, |i| i + 1), e);
         }
-        (None, _) => n.entries_mut().retain(|e| !is_key(e)),
+        (None, _, _) => n.entries_mut().retain(|e| !is_key(e)),
     }
-    old
+    Ok((old, was.into_iter().collect()))
 }
