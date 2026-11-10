@@ -19,6 +19,13 @@ pub const SKILLS: &[Skill] = &[
         name: "view",
         body: include_str!("../assets/skills/view.md"),
     },
+    Skill {
+        name: "draw",
+        body: concat!(
+            include_str!("../assets/skills/draw.md"),
+            include_str!("../assets/ig-map.md")
+        ),
+    },
 ];
 
 const MCP_JSON: &str =
@@ -251,6 +258,8 @@ mod tests {
                 .unwrap()
                 .contains("name: ig-view")
         );
+        let draw = std::fs::read_to_string(dir.join(".agents/skills/ig-draw/SKILL.md")).unwrap();
+        assert!(draw.starts_with("---\nname: ig-draw\n") && draw.contains("## ARROWS"));
         let explore =
             std::fs::read_to_string(dir.join(".claude/skills/ig/skills/explore/SKILL.md")).unwrap();
         assert!(explore.contains("`ig_show`") && explore.contains("`.ig/show.json`"));

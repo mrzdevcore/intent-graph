@@ -7,8 +7,13 @@ viewer:
 build: viewer
 	cargo build --release -p intent-graph
 
+# man finds the page through PATH: <prefix>/bin on the PATH means <prefix>/share/man is searched.
+CARGO_HOME ?= $(HOME)/.cargo
+
 install: viewer
 	cargo install --path crates/ig --locked
+	install -d "$(CARGO_HOME)/share/man/man5"
+	install -m 644 crates/ig/assets/ig-map.5 "$(CARGO_HOME)/share/man/man5/ig-map.5"
 
 test: viewer
 	cd viewer && pnpm run test

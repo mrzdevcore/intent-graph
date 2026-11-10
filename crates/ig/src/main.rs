@@ -6,6 +6,8 @@ mod cli;
 mod diff;
 mod explore;
 mod init;
+#[cfg(test)]
+mod man;
 mod mcp;
 mod plan;
 mod render;

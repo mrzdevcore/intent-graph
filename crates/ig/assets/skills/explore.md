@@ -7,7 +7,7 @@ description: Explain how part of this codebase fits together and draw it on the 
 
 You read code freely. The only file you write yourself is `.ig/show.json`, through `ig_show`.
 Without an `ig/` (the intended architecture), tell the user to run `ig analyse`; never run it yourself.
-The architecture changes only through `ig_edit` (proposals), below.
+To change the architecture, follow the draw skill (`/ig:draw`, `$ig-draw` in Codex).
 
 Only when the user asks to change the architecture: `ig_plan` prints what is left to build or move
 and the drift; `ig_edit` edits `ig/` (`{"edits": [...]}`: add, remove, move, rename, set, arrow,

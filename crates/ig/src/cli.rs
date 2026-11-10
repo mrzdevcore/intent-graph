@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 const PLUMBING: &str = "Plumbing:
   mcp          Serve ig to an agent over MCP (stdio)
   plugin       Write the agent plugin files
-  completions  Print a shell completion script";
+  completions  Print a shell completion script
+
+The format of ig/: man 5 ig-map";
 
 #[derive(Parser)]
 #[command(name = "ig", version = model::TOOL_VERSION, about = "Keep the map of your code and the code in step", after_help = PLUMBING)]

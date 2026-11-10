@@ -1,0 +1,223 @@
+.TH IG-MAP 5
+.SH NAME
+ig\-map \- the intended architecture in ig/*.kdl
+.SH SYNOPSIS
+.PP
+ig/system.kdl, ig/*.kdl, ig/kinds/*.kdl
+.SH DESCRIPTION
+.PP
+The \fBig/\fR folder holds a project's intended architecture: boxes that nest, and arrows between them. It is KDL (https://kdl.dev), committed with the code and read by every ig command. \fBig analyse\fR writes a first one from the code; after that a person edits it by hand or in the app, and an agent through the \fBig_edit\fR tool. \fBig fmt\fR rewrites the files in ig's own layout, and \fBig plan\fR reports every error with its file and line.
+.SH FILES
+.IP \(bu 2
+\fBig/system.kdl\fR holds the one \fBsystem\fR node of the whole map. Every other box sits inside it.
+.IP \(bu 2
+Every other \fBig/*.kdl\fR holds exactly one top\-level node, which sits directly in the system. ig names the file after the box's id (\fBapi.kdl\fR, a \fB/\fR in the id becoming \fB\-\fR); the name is not read.
+.IP \(bu 2
+\fBig/kinds/<name>.kdl\fR defines a team kind (see TEAM KINDS).
+.SH BOXES
+.PP
+A box is a node: its kind, then its id, then its properties, then a body in braces.
+.PP
+.RS 4
+.nf
+service "api" title="API" tech="Rust · axum" description="Answers the web app" {
+    at "crates/api/**"
+    calls "billing"
+    module "api/auth" title="Auth" { at "crates/api/src/auth/**" }
+}
+.fi
+.RE
+.IP \(bu 2
+The id is a slug (a\-z, 0\-9, \fB\-\fR, at most 64 characters), or \fBparent/slug\fR for a box inside another. Ids are unique across \fBig/\fR.
+.IP \(bu 2
+\fBtitle\fR is required (at most 60 characters). Every property value is a string.
+.IP \(bu 2
+The id is the only value before the properties.
+.SH KINDS
+.PP
+Blocks that run sit in the system, or in a group that is not inside one of them:
+.IP \(bu 2
+\fBapp\fR: what people open: a web, mobile or desktop app.
+.IP \(bu 2
+\fBservice\fR: a process that runs and answers: an API, a server, a worker.
+.IP \(bu 2
+\fBjob\fR: work that runs, then stops: a cron task, a batch, a migration.
+.IP \(bu 2
+\fBstore\fR: where data is kept: a database, a bucket, a cache.
+.IP \(bu 2
+\fBqueue\fR: where messages wait: a queue, a topic, a stream.
+.IP \(bu 2
+\fBmodel\fR: an AI model the system calls, hosted or local.
+.IP \(bu 2
+\fBexternal\fR: a system outside this one, run by someone else. Not code: it takes no \fBat\fR.
+.IP \(bu 2
+\fBperson\fR: someone who uses the system. Not code: it takes no \fBat\fR.
+.PP
+The design of a block sits inside a block that runs, inside another design box, or in a group there:
+.IP \(bu 2
+\fBmodule\fR: a part of a block's code with one purpose. A module may also sit where blocks that run sit: a library package.
+.IP \(bu 2
+\fBentry\fR: a way in: a route, a command, a schedule, a message handler.
+.IP \(bu 2
+\fBusecase\fR: one thing the block does for someone.
+.IP \(bu 2
+\fBdomain\fR: the core: the rules and the words of the business.
+.IP \(bu 2
+\fBport\fR: what the core needs from outside, as an interface.
+.IP \(bu 2
+\fBadapter\fR: what fills a port: the code that talks to the outside.
+.IP \(bu 2
+\fBagent\fR: an AI agent: a prompt, a model and the tools it may use.
+.PP
+And:
+.IP \(bu 2
+\fBsystem\fR: the whole system this map draws; exactly one, in \fBig/system.kdl\fR.
+.IP \(bu 2
+\fBgroup\fR: boxes kept together, with nothing of its own. It sits anywhere. Not code: it takes no \fBat\fR.
+.PP
+A box in a place its kind does not sit in is a warning, not an error.
+.SH PROPERTIES
+.PP
+Every kind takes:
+.IP \(bu 2
+\fBtitle\fR: its name on the map (required, at most 60 characters).
+.IP \(bu 2
+\fBdescription\fR: one or two sentences (at most 200 characters).
+.IP \(bu 2
+\fBtech\fR: what it is built with, like \fBRust · axum\fR (at most 60 characters).
+.IP \(bu 2
+\fBlogo\fR: a Simple Icons slug, like \fBpostgresql\fR.
+.IP \(bu 2
+\fBowner\fR: who owns it.
+.IP \(bu 2
+\fBslot\fR: where it sits in its parent's \fBpattern\fR (see BODY).
+.IP \(bu 2
+\fBruns\fR: what it runs as, for the connectors: \fB<connector>:<remote>/<name>\fR, separated by spaces, like \fBincus:homelab/web\fR.
+.PP
+Some kinds take more:
+.IP \(bu 2
+\fBmodel\fR: \fBprovider\fR (anthropic, openai, ollama…), \fBmodel\fR (its name), \fBhosted\fR (\fBlocal\fR or \fBhosted\fR).
+.IP \(bu 2
+\fBentry\fR: \fBkind\fR (\fBroute\fR, \fBcommand\fR, \fBschedule\fR or \fBmessage\fR).
+.IP \(bu 2
+\fBagent\fR: \fBprompt\fR (its instructions, or the file that holds them).
+.PP
+Any other property is an error.
+.SH BODY
+.PP
+The body of a box holds, in any order:
+.IP \(bu 2
+\fBat "<glob>"…\fR: the code the box is made of, globs relative to the repository root, without \fB..\fR; \fB*\fR stays within a folder, \fB**\fR crosses folders. A box without \fBat\fR is drawn but tied to no code.
+.IP \(bu 2
+\fBbadges "<text>"…\fR: at most 8 short labels (at most 40 characters each).
+.IP \(bu 2
+\fBpattern "<name>"\fR: how the box's inside is drawn: \fBonion\fR (slots \fBdomain\fR, \fBapplication\fR, \fBinfrastructure\fR), \fBhexagonal\fR (slots \fBcore\fR, \fBports\fR, \fBadapters\fR), \fBlayered "<band>"…\fR (one slot per band, top first) or \fBnone\fR. A box inside it puts itself in a slot with \fBslot=\fR.
+.IP \(bu 2
+Arrows, from this box (see ARROWS).
+.IP \(bu 2
+The boxes inside it.
+.PP
+\fBat\fR, \fBbadges\fR and \fBpattern\fR are each written once.
+.SH ARROWS
+.PP
+An arrow is written in the box it leaves: its kind, the id it points to, and an optional \fBlabel\fR:
+.PP
+.RS 4
+.nf
+calls "billing" label="charges the card"
+.fi
+.RE
+.IP \(bu 2
+\fBcalls\fR: asks it something and waits for the answer.
+.IP \(bu 2
+\fBsends\fR: puts a message on a queue. It goes to a \fBqueue\fR.
+.IP \(bu 2
+\fBreads\fR: reads data from it. It goes to a \fBstore\fR or a \fBqueue\fR.
+.IP \(bu 2
+\fBwrites\fR: changes data in it. It goes to a \fBstore\fR.
+.IP \(bu 2
+\fBtriggers\fR: starts it. It goes to a \fBjob\fR or an \fBentry\fR.
+.IP \(bu 2
+\fBimplements\fR: fills a port. It goes from an \fBadapter\fR to a \fBport\fR.
+.IP \(bu 2
+\fBuses\fR: depends on its code.
+.IP \(bu 2
+One arrow per pair of boxes. When several kinds hold, write the first that does in the order above (calls, sends, reads, writes, triggers, implements, uses), and say the rest in \fBlabel\fR, like \fBwrites "db" label="reads and writes"\fR.
+.IP \(bu 2
+The target exists somewhere in \fBig/\fR; an arrow never points at its own box.
+.IP \(bu 2
+An arrow whose ends break the rules above is a warning, not an error.
+.IP \(bu 2
+\fBbundle\fR is what the map draws for several kinds of dependency at once; it is never written.
+.SH TEAM KINDS
+.PP
+A team adds a kind in \fBig/kinds/<name>.kdl\fR, extending a built\-in one, and uses it like any other:
+.PP
+.RS 4
+.nf
+kind "gateway" is="service" title="Gateway" means="Where outside traffic comes in" icon="shield" {
+    property "vendor" means="Who makes it" one\-of="traefik" "nginx"
+    property "zone" means="The network it faces" required=#true
+}
+.fi
+.RE
+.PP
+It takes its base kind's place, properties and icon, and adds its own properties. \fBrequired=#true\fR makes one required; \fBone\-of=\fR lists the values it may take. It cannot use the name of a built\-in kind or of an arrow kind, nor \fBat\fR, \fBbadges\fR or \fBpattern\fR.
+.SH OLD NAMES
+.PP
+These are still read, and \fBig fmt\fR rewrites them: \fBfolder\fR (group), \fBcomponent\fR (module), \fBapi\fR and \fBworker\fR (service), \fBlibrary\fR (module); arrows \fBnetwork\fR (calls), \fBevent\fR (sends), \fBdata\fR (reads), \fBdepends\fR (uses).
+.SH EXAMPLE
+.PP
+\fBig/system.kdl\fR:
+.PP
+.RS 4
+.nf
+system "shop" title="Shop" description="Sells books online"
+.fi
+.RE
+.PP
+\fBig/web.kdl\fR:
+.PP
+.RS 4
+.nf
+app "web" title="Web shop" tech="TypeScript · Vue" {
+    at "apps/web/**"
+    calls "api"
+}
+.fi
+.RE
+.PP
+\fBig/api.kdl\fR:
+.PP
+.RS 4
+.nf
+service "api" title="API" tech="Rust · axum" {
+    at "crates/api/**"
+    pattern "hexagonal"
+    domain "api/orders" title="Orders" slot="core" { at "crates/api/src/orders/**" }
+    port "api/payments" title="Payments" slot="ports" { at "crates/api/src/payments.rs" }
+    adapter "api/stripe" title="Stripe client" slot="adapters" {
+        at "crates/api/src/stripe/**"
+        implements "api/payments"
+        calls "stripe"
+    }
+    writes "db" label="reads and writes"
+    sends "events"
+}
+.fi
+.RE
+.PP
+\fBig/db.kdl\fR, \fBig/events.kdl\fR and \fBig/stripe.kdl\fR:
+.PP
+.RS 4
+.nf
+store "db" title="Database" tech="PostgreSQL" logo="postgresql"
+queue "events" title="Order events" tech="NATS"
+external "stripe" title="Stripe" logo="stripe"
+.fi
+.RE
+.PP
+That last block is three files of one line each: one top\-level node per file.
+.SH SEE ALSO
+.PP
+ig(1): \fBig analyse\fR writes a first \fBig/\fR, \fBig plan\fR checks it, \fBig fmt\fR lays it out, \fBig view\fR draws it.
