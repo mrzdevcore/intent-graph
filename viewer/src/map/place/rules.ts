@@ -9,9 +9,7 @@ export const overlaps = (a: Place, b: Place, gap = 0) =>
 const centre = (p: Place) => ({ x: p.x + p.w / 2, y: p.y + p.h / 2 });
 const snap = (v: number) => Math.round(v / GRID) * GRID;
 
-/** The nearest spot on the grid to `box`'s arrow partners (else to its siblings' centre of mass,
- *  else to the middle of the parent's inside) where it overlaps none of them. `placed` holds the
- *  parent's children, `box` (for its size) and, if known, the parent's inside. */
+// `placed`: the parent's children, `box` (for its size) and the parent's inside when known
 export function freeSpot(parent: string, box: string, placed: Record<string, Place>, arrows: Pick<MapArrow, "from" | "to">[]): Place {
   const me = placed[box], room = placed[inside(parent)];
   const others = Object.entries(placed).filter(([id]) => id !== box && !isInside(id));
@@ -37,20 +35,22 @@ export function freeSpot(parent: string, box: string, placed: Record<string, Pla
   return best ?? { x: x0, y: y0, w: me.w, h: me.h };
 }
 
-/** `b` moved off `a` the shortest way, `gap` apart; a way that lands on a settled box is the last resort. */
-function away(b: Place, a: Place, gap: number, settled: Place[]): Place {
-  const ways = [
-    { x: a.x + a.w + gap - b.x, y: 0 },
-    { x: 0, y: a.y + a.h + gap - b.y },
-    { x: a.x - gap - (b.x + b.w), y: 0 },
-    { x: 0, y: a.y - gap - (b.y + b.h) },
-  ].sort((m, n) => Math.hypot(m.x, m.y) - Math.hypot(n.x, n.y));
-  const moved = ways.map((m) => ({ ...b, x: b.x + m.x, y: b.y + m.y }));
-  return moved.find((c) => !settled.some((s) => overlaps(c, s))) ?? moved[0];
+const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const;
+const past = (b: Place, a: Place, [dx, dy]: readonly [number, number], gap: number): Place =>
+  dx > 0 ? { ...b, x: a.x + a.w + gap } : dx < 0 ? { ...b, x: a.x - gap - b.w } : dy > 0 ? { ...b, y: a.y + a.h + gap } : { ...b, y: a.y - gap - b.h };
+
+// each way slides on past whatever it lands on, so the result is clear of every box in `avoid`
+function away(b: Place, a: Place, gap: number, avoid: Place[]): Place {
+  let best = b, bestD = Infinity;
+  for (const dir of DIRS) {
+    let c = past(b, a, dir, gap);
+    for (let hit = avoid.find((s) => overlaps(c, s)); hit; hit = avoid.find((s) => overlaps(c, s))) c = past(c, hit, dir, gap);
+    const d = Math.hypot(c.x - b.x, c.y - b.y);
+    if (d < bestD) [best, bestD] = [c, d];
+  }
+  return best;
 }
 
-/** Siblings overlapping `held` pushed off it, and those they then overlap pushed on, outward;
- *  `held` never moves. */
 export function nudge(placed: Record<string, Place>, held: string, gap: number): Record<string, Place> {
   const out = { ...placed };
   if (!out[held]) return out;
@@ -64,6 +64,10 @@ export function nudge(placed: Record<string, Place>, held: string, gap: number):
       fixed.add(id);
       queue.push(id);
     }
+  }
+  for (const id of ids) {
+    const others = [held, ...ids].filter((o) => o !== id), hit = others.find((o) => overlaps(out[o], out[id]));
+    if (hit) out[id] = away(out[id], out[hit], gap, others.map((o) => out[o]));
   }
   return out;
 }
@@ -84,14 +88,12 @@ function tree(view: View): Tree {
   return { root, parentOf, kidsOf };
 }
 
-/** The boxes whose parent is not the one they had: their old place means nothing in the new one. */
 export function reparented(prev: View, next: View): string[] {
   const was = new Map(prev.boxes.map((b) => [b.id, b.parent]));
   return next.boxes.filter((b) => was.has(b.id) && was.get(b.id) !== b.parent).map((b) => b.id);
 }
 
-/** Grows `p`'s inside around its children, and its frame with it at the same scale, so nothing
- *  inside moves on screen. Whether its frame grew. */
+// the frame grows at the inside's scale, so nothing inside moves on screen
 function grow(out: Record<string, Place>, t: Tree, p: string, gap: number): boolean {
   const room = out[inside(p)], kids = (t.kidsOf.get(p) ?? []).filter((id) => out[id]);
   if (!room || !kids.length) return false;
@@ -108,13 +110,32 @@ function grow(out: Record<string, Place>, t: Tree, p: string, gap: number): bool
   return true;
 }
 
+// a child whose id starts with the old one follows only when the view renamed it too
+export function rekey(places: Record<string, Place>, renames: [string, string][], has: (id: string) => boolean): Record<string, Place> {
+  let out = places;
+  for (const [from, to] of renames) {
+    if (from === to) continue;
+    const next: Record<string, Place> = {};
+    for (const [k, p] of Object.entries(out)) {
+      let key = k;
+      if (k === from || k === inside(from)) key = to + k.slice(from.length);
+      else if (k.startsWith(inside(from))) {
+        const moved = to + k.slice(from.length), bare = (id: string) => (isInside(id) ? id.slice(0, -1) : id);
+        if (!has(bare(k)) && has(bare(moved))) key = moved;
+      }
+      next[key] = p;
+    }
+    out = next;
+  }
+  return out;
+}
+
 function nudgeIn(out: Record<string, Place>, t: Tree, parent: string, held: string) {
   const sib: Record<string, Place> = {};
   for (const id of t.kidsOf.get(parent) ?? []) if (out[id]) sib[id] = out[id];
   Object.assign(out, nudge(sib, held, GRID));
 }
 
-/** Each parent grown to hold its children, its own neighbours nudged one level up, and so on. */
 function growUp(out: Record<string, Place>, t: Tree, p: string) {
   for (let q: string | undefined = p, n = 0; q !== undefined && n < 64; n++) {
     if (!grow(out, t, q, GRID)) return;
@@ -125,12 +146,6 @@ function growUp(out: Record<string, Place>, t: Tree, p: string) {
   }
 }
 
-/**
- * The places for view `next`: every box with a place in `prev` keeps it (and its stored size), a
- * box given in `frames` lands there and nudges its neighbours, a new box in a parent already laid
- * out takes a free spot, and the rest (a first open, a new group's children) take ig's layout.
- * Parents grow to hold what moved; a removed box leaves its gap.
- */
 export function settle(prev: Record<string, Place>, next: View, frames: Record<string, Place>, held: string | null): Record<string, Place> {
   const t = tree(next), out: Record<string, Place> = {}, known = new Set<string>();
   for (const p of new Set([...t.kidsOf.keys(), ...Object.keys(next.placed.inner)])) {
@@ -163,8 +178,7 @@ export function settle(prev: Record<string, Place>, next: View, frames: Record<s
   return out;
 }
 
-/** `view` as drawn from `places`: each box at its place, each inside at its own extent (its origin
- *  moved to 0, so a box grown left or up keeps its children where they were). */
+// an inside's origin moves to 0, so a box grown left or up keeps its children where they were
 export function shownView(view: View, places: Record<string, Place>): View {
   const t = tree(view), origin = (p: string) => (p === t.root ? undefined : places[inside(p)]);
   const frames = { ...view.placed.frames }, inner = { ...view.placed.inner };

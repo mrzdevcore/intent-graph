@@ -6,6 +6,8 @@
   let { start, edit, size }: { start: View; edit: EditApi; size: { w: number; h: number } } = $props();
   // svelte-ignore state_referenced_locally
   let view = $state.raw(start);
+  let map: Map | undefined = $state();
+  export const tick = (now: number) => map?.tick(now);
 </script>
 
-<Map {view} {edit} {size} onview={(v) => (view = v)} />
+<Map bind:this={map} {view} {edit} {size} onview={(v) => (view = v)} />

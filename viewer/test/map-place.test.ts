@@ -2,8 +2,8 @@
 import { expect, test, vi } from "vitest";
 import { flushSync, mount } from "svelte";
 import { Places, inside, type Place } from "../src/map/place/places";
-import { freeSpot, nudge, overlaps, reparented, settle, shownView } from "../src/map/place/rules";
-import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, undoNext } from "../src/map/place/history";
+import { freeSpot, nudge, overlaps, rekey, reparented, settle, shownView } from "../src/map/place/rules";
+import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, renamesOf, undoNext } from "../src/map/place/history";
 import { tween } from "../src/map/glide";
 import { worldFrame } from "../src/map/camera";
 import { GRID } from "../src/map/nav";
@@ -77,6 +77,16 @@ test("an overlap nudges the other the fewest pixels, and repeats outward", () =>
   for (const a of vals) for (const b of vals) if (a !== b) expect(overlaps(a, b)).toBe(false);
 });
 
+test("a dense grid nudges until nothing overlaps, the held box still", () => {
+  const placed: Record<string, Place> = {};
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) placed[`k${i}${j}`] = box(i * 124, j * 124, 100, 100);
+  const held = box(150, 150, 250, 250);
+  const out = nudge({ ...placed, h: held }, "h", GRID);
+  expect(out.h).toEqual(held);
+  const ids = Object.keys(out);
+  for (const a of ids) for (const b of ids) if (a < b) expect(overlaps(out[a], out[b]), `${a} ${b}`).toBe(false);
+});
+
 test("the held box never moves", () => {
   const held = box(50, 50, 300, 300);
   const out = nudge({ h: held, a: box(0, 0), b: box(100, 200), c: box(250, 250) }, "h", GRID);
@@ -135,6 +145,21 @@ test("a box moved to another parent is placed anew there", () => {
   expect(reparented(v1, v2)).toEqual(["b"]);
 });
 
+test("a rename carries the place over, its inside and its renamed children with it", () => {
+  const places = { api: box(1, 1), "api/": box(0, 0, 900, 600), "api/order": box(2, 2), "api/order/": box(0, 0, 50, 50), "api/kept": box(3, 3), web: box(4, 4) };
+  const has = (id: string) => ["svc", "svc/order", "api/kept", "web"].includes(id);
+  expect(rekey(places, [["api", "svc"]], has)).toEqual({
+    svc: box(1, 1), "svc/": box(0, 0, 900, 600), "svc/order": box(2, 2), "svc/order/": box(0, 0, 50, 50), "api/kept": box(3, 3), web: box(4, 4),
+  });
+  expect(renamesOf([{ op: "rename", id: "a", to: "b" }, { op: "batch", edits: [{ op: "remove", id: "x" }, { op: "rename", id: "c", to: "d" }] }])).toEqual([["a", "b"], ["c", "d"]]);
+  const log = new EditLog(new Clock());
+  log.push([["a", "b"], ["b", "c"]]);
+  expect(log.undo()).toEqual([["c", "b"], ["b", "a"]]);
+  expect(log.redo()).toEqual([["a", "b"], ["b", "c"]]);
+  const v = mapOf({ svc: box(500, 500) });
+  expect(settle(rekey({ ...settle({}, mapOf({ api: box(96, 96) }), {}, null) }, [["api", "svc"]], () => true), v, {}, null).svc).toEqual(box(96, 96));
+});
+
 test("old ig-moves: offsets are read once and become places", () => {
   const kept: Record<string, string> = { "ig-moves:S": JSON.stringify({ a: { x: 10, y: -5 }, gone: { x: 1, y: 1 } }) };
   const store = { getItem: (k: string) => kept[k] ?? null, setItem: (k: string, v: string) => void (kept[k] = v), removeItem: (k: string) => void delete kept[k] };
@@ -186,38 +211,61 @@ const press = (key: string, init: KeyboardEventInit = {}) => {
   window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...init }));
   flushSync();
 };
-function mountMap(apply: () => Promise<View>) {
+function mountMap(over: Partial<EditApi> = {}, start: View = structuredClone(shop) as unknown as View) {
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
   const calls: string[] = [];
-  const v = structuredClone(shop) as unknown as View;
-  const edit = { apply, keep: apply, drop: apply, dropAll: apply, undo: async () => (calls.push("undo"), v), redo: async () => (calls.push("redo"), apply()) } as unknown as EditApi;
+  const same = async () => start;
+  const edit = { apply: same, keep: same, drop: same, dropAll: same, undo: async () => (calls.push("undo"), start), redo: async () => (calls.push("redo"), start), ...over } as EditApi;
   const target = document.createElement("div");
   document.body.append(target);
-  const m = mount(MapHarness, { target, props: { start: v, edit, size } });
+  const m = mount(MapHarness, { target, props: { start, edit, size } });
   flushSync();
-  return { target, calls, m };
+  const glide = () => {
+    m.tick(performance.now() + 10_000);
+    flushSync();
+  };
+  return { target, calls, glide };
 }
 const later = () => new Promise((r) => setTimeout(r, 0));
-const glideDone = () => new Promise((r) => setTimeout(r, 500));
+const pick = (t: HTMLElement, id: string) => {
+  slot(t, id).querySelector("button")!.click();
+  flushSync();
+};
 
-test("arrow keys move the selected box a grid step; Cmd+Z undoes that before the edit before it", async () => {
-  const { target, calls } = mountMap(async () => structuredClone(shop) as unknown as View);
+test("arrow keys move the selected box a grid step, steps in a row undo as one, before the edit before them", async () => {
+  const { target, calls, glide } = mountMap();
   const was = rect(target, "stripe");
-  slot(target, "stripe").querySelector("button")!.click();
-  flushSync();
+  pick(target, "stripe");
   press("ArrowRight");
-  await glideDone();
-  flushSync();
-  expect(rect(target, "stripe").x).toBeCloseTo(was.x + GRID);
+  press("ArrowRight");
+  glide();
+  expect(rect(target, "stripe").x).toBeCloseTo(was.x + 2 * GRID);
   press("z", { metaKey: true });
-  await later();
-  await glideDone();
-  flushSync();
+  glide();
   expect(rect(target, "stripe").x).toBeCloseTo(was.x);
   expect(calls).toEqual([]);
   press("z", { metaKey: true });
   await later();
   expect(calls).toEqual(["undo"]);
+  vi.unstubAllGlobals();
+});
+
+test("Keep is not an edit Cmd+Z undoes: the place change before it is undone first", async () => {
+  const start = structuredClone(shop) as unknown as View;
+  start.proposals = [{ n: 1, by: "claude", summary: "Adds a cache", ids: [], marks: [] }];
+  const kept = structuredClone(shop) as unknown as View;
+  const { target, calls, glide } = mountMap({ keep: async () => kept }, start);
+  const was = rect(target, "stripe");
+  pick(target, "stripe");
+  press("ArrowDown");
+  ([...target.querySelectorAll("button")].find((b) => b.textContent === "Keep all") as HTMLButtonElement).click();
+  await later();
+  flushSync();
+  press("z", { metaKey: true });
+  await later();
+  glide();
+  expect(calls).toEqual([]);
+  expect(rect(target, "stripe")).toEqual(was);
   vi.unstubAllGlobals();
 });
 
@@ -228,13 +276,39 @@ test("a box an edit adds finds room; the boxes already drawn stay", async () => 
   // ig's new layout would put it on top of api and shift the others
   added.placed.frames.mailer = { ...added.placed.frames.api };
   added.placed.frames.web = { ...added.placed.frames.web, x: added.placed.frames.web.x + 300 };
-  const { target } = mountMap(async () => added);
+  const { target } = mountMap({ redo: async () => added });
   const before = Object.fromEntries(["api", "web", "stripe", "postgres", "api-client"].map((id) => [id, rect(target, id)]));
-  (target.querySelector('[aria-label="Redo"]') as HTMLElement | null)?.click();
+  press("z", { metaKey: true, shiftKey: true });
   await later();
   flushSync();
   for (const [id, r] of Object.entries(before)) expect(rect(target, id)).toEqual(r);
   const m = rect(target, "mailer");
   for (const r of Object.values(before)) expect(overlaps(m, r)).toBe(false);
+  vi.unstubAllGlobals();
+});
+
+test("an undone delete puts the box back where it was, and what moved there makes room", async () => {
+  const start = structuredClone(shop) as unknown as View;
+  const without = structuredClone(shop) as unknown as View;
+  without.boxes = without.boxes.filter((b) => b.id !== "stripe");
+  delete without.placed.frames.stripe;
+  without.arrows = without.arrows.filter((a) => a.from !== "stripe" && a.to !== "stripe");
+  const { target, glide } = mountMap({ apply: async () => without, redo: async () => start }, start);
+  const stripe = rect(target, "stripe");
+  pick(target, "stripe");
+  press("Delete");
+  await later();
+  flushSync();
+  expect(slot(target, "stripe")).toBeNull();
+  pick(target, "postgres");
+  for (let i = 0; i < 11; i++) press("ArrowDown");
+  glide();
+  expect(overlaps(rect(target, "postgres"), stripe)).toBe(true);
+  press("Escape");
+  press("z", { metaKey: true, shiftKey: true });
+  await later();
+  glide();
+  expect(rect(target, "stripe")).toEqual(stripe);
+  expect(overlaps(rect(target, "postgres"), stripe)).toBe(false);
   vi.unstubAllGlobals();
 });

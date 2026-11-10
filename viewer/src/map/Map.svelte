@@ -4,7 +4,7 @@
      in localStorage; others make room, the parent grows); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
+  import type { Edit, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, PLACE_MS, tween, wheelFactor } from "./glide";
@@ -39,8 +39,8 @@
   import Folders from "./Folders.svelte";
   import { proposed } from "./edit/proposals";
   import { Places, inside as innerKey, type Place } from "./place/places";
-  import { reparented, settle as settlePlaces, shownView } from "./place/rules";
-  import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, undoNext } from "./place/history";
+  import { rekey, reparented, settle as settlePlaces, shownView } from "./place/rules";
+  import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, renamesOf, undoNext, type Rename } from "./place/history";
 
   let { view: given, camera = new Camera(), size, edit, onview, show, diff }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -69,11 +69,24 @@
   // one edit call at a time: the journal is read-modify-write, so a call made while one is in flight is dropped
   let busy = false;
   const clock = new Clock(), edits = new EditLog(clock), history = new PlaceHistory(clock);
+  // the ig/ edits a run applies: only those are on the server's undo
+  let applied: Edit[] = [];
+  let renaming: Rename[] = [];
+  const api = $derived.by((): EditApi | undefined => {
+    const e = edit;
+    return e && {
+      apply: (x) => (applied.push(x), e.apply(x)), keep: (n) => e.keep(n), drop: (n) => e.drop(n), dropAll: () => e.dropAll(), undo: () => e.undo(), redo: () => e.redo(),
+    };
+  });
   const run = (call: () => Promise<View>, as: "do" | "undo" | "redo" = "do") => {
     if (busy) return;
     busy = true;
+    applied = [];
     call().then((v) => {
-      edits[as === "do" ? "push" : as]();
+      const made = applied;
+      if (as === "undo") renaming = edits.undo();
+      else if (as === "redo") renaming = edits.redo();
+      else if (made.length) edits.push((renaming = renamesOf(made)));
       onview?.(v);
     }, toast).finally(() => (busy = false));
   };
@@ -108,13 +121,13 @@
     anim = { from: f, start: performance.now(), t: 0 };
     if (!placeRaf) placeRaf = requestAnimationFrame(placeFrame);
   }
-  function placeAll(next: Record<string, Place>, instant: string[] = [], record = true) {
+  function placeAll(next: Record<string, Place>, instant: string[] = [], record: "push" | "merge" | false = "push", keep = true) {
     const c = changes(truth, next);
     if (!c) return;
-    if (record) history.push(c.before, c.after);
+    if (record) history[record](c.before, c.after);
     const from = showing;
     truth = next;
-    store.replace(next);
+    store.replace(keep ? next : {});
     stored = store.size > 0;
     glidePlaces(from, instant);
   }
@@ -123,6 +136,8 @@
     const v = view, t = title;
     untrack(() => {
       if (v === lastView) return;
+      const renames = renaming;
+      renaming = [];
       if (t !== store.system) {
         store = new Places(t, v.placed.frames);
         truth = settlePlaces(store.snapshot(), v, {}, null);
@@ -131,27 +146,25 @@
         lastView = v;
         return;
       }
-      const prev = { ...gone, ...truth };
+      const ids = new Set(v.boxes.map((b) => b.id));
+      const prev = rekey({ ...gone, ...truth }, renames, (id) => ids.has(id));
       for (const id of reparented(lastView, v)) delete prev[id];
+      const back: Record<string, Place> = {};
+      for (const b of v.boxes) if (!truth[b.id] && gone[b.id] && prev[b.id]) back[b.id] = prev[b.id];
       lastView = v;
-      const next = settlePlaces(prev, v, {}, null);
+      const next = settlePlaces(prev, v, back, null);
       for (const [id, p] of Object.entries(truth)) if (!(id in next)) gone[id] = p;
       placeAll(next, [], false);
     });
   });
-  /** Box `id` put at `at` (its parent's inner units as drawn): others make room. */
-  function putBox(id: string, at: { x: number; y: number }) {
+  let lastStep: { id: string; at: number } | null = null;
+  function putBox(id: string, at: { x: number; y: number }, step = false): boolean {
     const p = byId.get(id)?.parent ?? ROOT, o = (p !== ROOT && truth[innerKey(p)]) || { x: 0, y: 0 }, f = truth[id];
-    if (f) placeAll(settlePlaces(truth, view, { [id]: { ...f, x: at.x + o.x, y: at.y + o.y } }, id), [id]);
-  }
-  function resetPlaces() {
-    const next = settlePlaces({}, view, {}, null), c = changes(truth, next);
-    if (c) history.push(c.before, c.after);
-    const from = showing;
-    truth = next;
-    store.replace({});
-    stored = false;
-    glidePlaces(from);
+    if (!f || id === ROOT) return false;
+    const now = performance.now(), merge = step && lastStep?.id === id && now - lastStep.at < 1000;
+    lastStep = step ? { id, at: now } : null;
+    placeAll(settlePlaces(truth, view, { [id]: { ...f, x: at.x + o.x, y: at.y + o.y } }, id), [id], merge ? "merge" : "push");
+    return true;
   }
   function undo() {
     if (undoNext(edits, history) === "place") {
@@ -426,8 +439,7 @@
       e.preventDefault();
       if (selected) {
         const f = shown.placed.frames[selected];
-        if (f) putBox(selected, { x: f.x - dir[0] * GRID, y: f.y - dir[1] * GRID });
-        return true;
+        if (f && putBox(selected, { x: f.x - dir[0] * GRID, y: f.y - dir[1] * GRID }, true)) return true;
       }
       const c = camera.cam;
       glideTo({ k: c.k, x: c.x + dir[0] * PAN_STEP, y: c.y + dir[1] * PAN_STEP }, KEY_MS);
@@ -616,7 +628,7 @@
     drag = null;
   }
   const sess = new EditSession({
-    edit: () => edit, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
+    edit: () => api, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
     selected: () => selected, select: (id) => (selected = id), tool: (t) => (tool.current = t), run,
   });
   const addParent = $derived(sess.adding ? byId.get(sess.adding.parent) : undefined);
@@ -656,7 +668,7 @@
     sess.adding = null;
     tool.current = "select";
     const props = Object.keys(a.props).length ? { props: a.props } : {};
-    run(() => edit!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null, ...props }));
+    run(() => api!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null, ...props }));
   }
 
   /** The deepest box holding the view's centre and filling >= 60% of the view's width or height;
@@ -826,7 +838,7 @@
   <Controls {crumbs} {layers} {on} oncrumb={fly}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
-    onreset={stored ? resetPlaces : undefined} {wheelPref} onwheel={setPref}>
+    onreset={stored ? () => placeAll(settlePlaces({}, view, {}, null), [], "push", false) : undefined} {wheelPref} onwheel={setPref}>
     {#snippet bar()}
       {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={undo} onredo={redo} {note} />{/if}
     {/snippet}
@@ -836,7 +848,7 @@
     <AddBox parentTitle={addParent?.title.value ?? view.boxes.find((b) => b.id === ROOT)?.title.value ?? ROOT} within={inside(sess.adding.parent, byId, view.kinds)}
       kinds={view.kinds} globs={addParent?.madeOf ?? []} x={sess.adding.x} y={sess.adding.y} onadd={add} onclose={() => sess.cancel()} />
   {/if}
-  <Proposals {view} {edit} {run} onlight={glow} />
+  <Proposals {view} edit={api} {run} onlight={glow} />
   <Warnings warnings={view.warnings} />
   {#if answer}
     <AnswerCard {answer} {step} {away} onstep={goStep} onback={backToAnswer} onclear={clearAnswer}
@@ -866,7 +878,7 @@
     <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig analyse</code> to let an AI agent read them.</p>
   {/if}
   {#if selected && byId.get(selected)}
-    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} {edit} {run} />
+    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} edit={api} {run} />
   {/if}
 </div>
 

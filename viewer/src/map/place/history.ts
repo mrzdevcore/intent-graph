@@ -1,12 +1,12 @@
+import type { Edit } from "../types";
 import type { Place } from "./places";
 
-/** Places by key; null where there was none. */
 export type Change = Record<string, Place | null>;
+export type Rename = [from: string, to: string];
 
 const same = (a: Place | undefined, b: Place | undefined) =>
   a === b || (!!a && !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h);
 
-/** What differs from `a` to `b`, both ways; null when nothing does. */
 export function changes(a: Record<string, Place>, b: Record<string, Place>): { before: Change; after: Change } | null {
   const before: Change = {}, after: Change = {};
   let any = false;
@@ -28,48 +28,65 @@ export function apply(places: Record<string, Place>, c: Change): Record<string, 
   return out;
 }
 
-/** One count for place changes and ig/ edits, so undo knows which came last. */
+export const renamesOf = (edits: Edit[]): Rename[] =>
+  edits.flatMap((e): Rename[] => (e.op === "rename" ? [[e.id, e.to]] : e.op === "batch" ? renamesOf(e.edits) : []));
+
 export class Clock {
   private n = 0;
   next(): number {
     return ++this.n;
   }
+  get now(): number {
+    return this.n;
+  }
 }
 
-/** The ig/ edits made here, by stamp; the edits themselves are undone on the server. */
+type Done = { stamp: number; renames: Rename[] };
+
+// only edits applied here are stamped: keep and drop are not on the server's undo
 export class EditLog {
-  private done: number[] = [];
-  private undone: number[] = [];
+  private done: Done[] = [];
+  private undone: Done[] = [];
   constructor(private clock: Clock) {}
-  push(): void {
-    this.done.push(this.clock.next());
+  push(renames: Rename[] = []): void {
+    this.done.push({ stamp: this.clock.next(), renames });
     this.undone = [];
   }
-  undo(): void {
-    const s = this.done.pop();
-    if (s !== undefined) this.undone.push(s);
+  undo(): Rename[] {
+    const d = this.done.pop();
+    if (!d) return [];
+    this.undone.push(d);
+    return d.renames.map(([a, b]): Rename => [b, a]).reverse();
   }
-  redo(): void {
-    const s = this.undone.pop();
-    if (s !== undefined) this.done.push(s);
+  redo(): Rename[] {
+    const d = this.undone.pop();
+    if (!d) return [];
+    this.done.push(d);
+    return d.renames;
   }
   get last(): number | undefined {
-    return this.done.at(-1);
+    return this.done.at(-1)?.stamp;
   }
   get next(): number | undefined {
-    return this.undone.at(-1);
+    return this.undone.at(-1)?.stamp;
   }
 }
 
 type Step = { stamp: number; before: Change; after: Change };
 
-/** Place changes live only in the browser: their undo is kept here. */
 export class PlaceHistory {
   private done: Step[] = [];
   private undone: Step[] = [];
   constructor(private clock: Clock) {}
   push(before: Change, after: Change): void {
     this.done.push({ stamp: this.clock.next(), before, after });
+    this.undone = [];
+  }
+  merge(before: Change, after: Change): void {
+    const top = this.done.at(-1);
+    if (!top || top.stamp !== this.clock.now) return this.push(before, after);
+    top.before = { ...before, ...top.before };
+    top.after = { ...top.after, ...after };
     this.undone = [];
   }
   undo(): Change | null {
@@ -92,14 +109,13 @@ export class PlaceHistory {
   }
 }
 
-/** What ⌘Z undoes: the later of the last place change and the last edit; an edit (the server's
- *  journal may hold older ones) when there is no place change. */
+/** An edit when there is no place change: the server's journal may hold edits from before this page. */
 export function undoNext(edits: EditLog, places: PlaceHistory): "edit" | "place" {
   const e = edits.last, p = places.last;
   return p !== undefined && (e === undefined || p > e) ? "place" : "edit";
 }
 
-/** What ⌘⇧Z redoes: the one undone last, which is the earlier of the two. */
+// the one undone last has the earlier stamp
 export function redoNext(edits: EditLog, places: PlaceHistory): "edit" | "place" {
   const e = edits.next, p = places.next;
   return p !== undefined && (e === undefined || p < e) ? "place" : "edit";
