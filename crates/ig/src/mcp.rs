@@ -75,6 +75,14 @@ fn handle(root: &Path, msg: &Value) -> Option<Value> {
     })
 }
 
+fn restores(e: &Edit) -> bool {
+    match e {
+        Edit::Restore { .. } => true,
+        Edit::Batch { edits } => edits.iter().any(restores),
+        _ => false,
+    }
+}
+
 fn head_graph(root: &Path) -> anyhow::Result<Graph> {
     let w = Wired::new(root);
     let env = w.env();
@@ -155,13 +163,6 @@ fn call(root: &Path, name: &str, args: &Value) -> anyhow::Result<(String, Option
                 };
                 let e: Edit = serde_json::from_value(raw.clone())
                     .map_err(|e| anyhow::anyhow!("edit {}: {e}{kept}", i + 1))?;
-                fn restores(e: &Edit) -> bool {
-                    match e {
-                        Edit::Restore { .. } => true,
-                        Edit::Batch { edits } => edits.iter().any(restores),
-                        _ => false,
-                    }
-                }
                 if restores(&e) {
                     anyhow::bail!("edit {}: restore is not an edit you can make{kept}", i + 1);
                 }

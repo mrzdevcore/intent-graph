@@ -120,7 +120,6 @@ fn split_tail(n: &mut KdlNode) -> String {
     tail
 }
 
-/// Length of the comment a first child's `leading` carries from the `{` line.
 fn head_len(leading: &str) -> usize {
     match leading.find('\n') {
         Some(k) if !leading[..k].trim().is_empty() => k,
@@ -128,8 +127,7 @@ fn head_len(leading: &str) -> usize {
     }
 }
 
-/// `n`'s leading without the line break that ends the `{` line (a first child has it); returns
-/// the comment that was on the `{` line.
+/// `n`'s leading without the line break that ends the `{` line (a first child has it).
 fn unfirst(n: &mut KdlNode) -> String {
     let Some(f) = n.format_mut() else {
         return String::new();

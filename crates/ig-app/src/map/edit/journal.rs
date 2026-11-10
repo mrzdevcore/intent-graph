@@ -4,6 +4,7 @@
 use super::{Edit, Spec, apply, apply_as, arrow};
 use ig_core::ports::Files;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub const JOURNAL: &str = ".ig/journal.json";
 
@@ -168,13 +169,38 @@ pub fn redo(files: &dyn Files) -> Result<Option<Entry>, Vec<String>> {
 /// way would otherwise undo a later edit.
 fn still(files: &dyn Files, x: &Entry, undone: bool) -> Result<(), Vec<String>> {
     let s = Spec::load(files)?;
-    match s.holds(if undone { &x.inverse } else { &x.edit }) {
+    let (a, b) = if undone {
+        (&x.inverse, &x.edit)
+    } else {
+        (&x.edit, &x.inverse)
+    };
+    let holds = match a {
+        Edit::Batch { .. } => s.round_trips(files, a, b)?,
+        _ => s.holds(a),
+    };
+    match holds {
         true => Ok(()),
         false => Err(vec![format!("entry {} changed since; nothing done", x.n)]),
     }
 }
 
 impl Spec {
+    // a batch's steps depend on each other, so it holds when undo then redo changes nothing
+    fn round_trips(&self, files: &dyn Files, a: &Edit, b: &Edit) -> Result<bool, Vec<String>> {
+        let mut t = Spec::load(files)?;
+        t.undoing = true;
+        Ok(t.edit(b).is_ok() && t.edit(a).is_ok() && t.same_as(self))
+    }
+
+    fn same_as(&self, o: &Spec) -> bool {
+        let text = |s: &Spec| -> BTreeMap<String, String> {
+            (s.docs.iter())
+                .map(|(p, d)| (p.clone(), d.to_string()))
+                .collect()
+        };
+        text(self) == text(o)
+    }
+
     fn holds(&self, e: &Edit) -> bool {
         let has = |id: &str| self.find(id).is_some();
         let has_arrow = |from: &str, to: &str, kind| {
@@ -218,7 +244,7 @@ impl Spec {
                     _ => n.get(k).and_then(|x| x.as_string()) == v.as_deref(),
                 }),
             },
-            Edit::Batch { edits } => edits.iter().all(|e| self.holds(e)),
+            Edit::Batch { .. } => true,
             Edit::Restore { .. } => true,
         }
     }

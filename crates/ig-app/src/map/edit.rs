@@ -85,7 +85,6 @@ pub enum Edit {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         restore: Vec<(usize, String)>,
     },
-    /// Edits applied in order as one: all or nothing, one undo; only the end state has to read.
     Batch {
         edits: Vec<Edit>,
     },

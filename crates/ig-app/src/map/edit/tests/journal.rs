@@ -252,3 +252,63 @@ fn a_batch_is_one_journal_entry_and_undoes_in_one_step() {
     undo(&f).unwrap();
     assert_eq!(ig(&f), before);
 }
+
+fn arrow_edit(from: &str, to: &str) -> Edit {
+    Edit::Arrow {
+        from: from.into(),
+        to: to.into(),
+        kind: ArrowKind::Reads,
+        label: None,
+    }
+}
+
+#[test]
+fn a_batch_of_two_sets_of_one_key_undoes() {
+    let f = spec();
+    let before = ig(&f);
+    let e = Edit::Batch {
+        edits: vec![set("db", "A"), set("db", "B")],
+    };
+    record(&f, By::Person, &e).unwrap();
+    undo(&f).unwrap();
+    assert_eq!(ig(&f), before);
+    redo(&f).unwrap();
+    undo(&f).unwrap();
+    assert_eq!(ig(&f), before);
+}
+
+#[test]
+fn a_batch_that_adds_and_removes_undoes() {
+    let f = spec();
+    let before = ig(&f);
+    let e = Edit::Batch {
+        edits: vec![
+            add("x"),
+            arrow_edit("web", "x"),
+            Edit::Unarrow {
+                from: "web".into(),
+                to: "x".into(),
+                kind: ArrowKind::Reads,
+            },
+            Edit::Remove { id: "x".into() },
+        ],
+    };
+    record(&f, By::Person, &e).unwrap();
+    assert_eq!(ig(&f), before);
+    undo(&f).unwrap();
+    assert_eq!(ig(&f), before);
+}
+
+#[test]
+fn a_batch_is_not_undone_after_a_touched_box_changed() {
+    let f = spec();
+    let e = Edit::Batch {
+        edits: vec![set("db", "A"), set("db", "B")],
+    };
+    record(&f, By::Person, &e).unwrap();
+    apply(&f, &set("db", "C")).unwrap();
+    let now = ig(&f);
+    let errs = undo(&f).unwrap_err();
+    assert!(errs.iter().any(|m| m.contains("changed since")), "{errs:?}");
+    assert_eq!(ig(&f), now);
+}

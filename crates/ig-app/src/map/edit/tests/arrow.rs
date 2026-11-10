@@ -280,3 +280,26 @@ fn an_arrow_from_a_box_whose_brace_line_has_a_comment() {
     let f = MemFiles::with(&[("ig/system.kdl", &sys), ("ig/api.kdl", API)]);
     check_on(f, arrow_from("web"), &[("ig/system.kdl", &want)]);
 }
+
+#[test]
+fn a_first_child_goes_before_the_first_child_of_a_brace_line_with_a_comment() {
+    let api = API.replace(
+        "{\n        at \"apps/api/src/checkout/**\"\n        uses \"api/orders\"\n",
+        "{ // steps\n        usecase \"api/step\" title=\"Step\"\n",
+    );
+    let want = api.replace(
+        "{ // steps\n",
+        "{ // steps\n        usecase \"api/first\" title=\"First\"\n",
+    );
+    let f = MemFiles::with(&[("ig/system.kdl", SYS), ("ig/api.kdl", &api)]);
+    let e = Edit::Add {
+        parent: "api/checkout".into(),
+        kind: "usecase".into(),
+        id: "api/first".into(),
+        title: "First".into(),
+        at: vec![],
+        before: Some("api/step".into()),
+        props: Default::default(),
+    };
+    check_on(f, e, &[("ig/api.kdl", &want)]);
+}
