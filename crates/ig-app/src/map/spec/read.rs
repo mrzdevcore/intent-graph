@@ -122,6 +122,10 @@ pub fn parse(texts: Vec<(String, Option<String>)>) -> Result<MapFile, Vec<String
     r.finish()
 }
 
+const BOX_WORDS: [&str; 4] = ["at", "badges", "pattern", "context"];
+const ARROW_PROPS: [&str; 3] = ["label", "note", "context"];
+const NOTE_MAX: usize = 80;
+
 #[derive(Clone, Copy)]
 struct Src<'a> {
     path: &'a str,
@@ -149,6 +153,35 @@ pub(crate) fn doc(p: &str, text: &str) -> Result<KdlDocument, Vec<String>> {
             })
             .collect()
     })
+}
+
+/// "path:line: message" for each property an arrow does not take, in the files given as
+/// (path, text): the reader skips them so that older maps keep reading.
+pub fn arrow_warnings(texts: &[(String, Option<String>)]) -> Vec<String> {
+    fn walk(p: &str, text: &str, d: &KdlDocument, out: &mut Vec<String>) {
+        for n in d.nodes() {
+            if named::<ArrowKind>(n.name().value()).is_some() {
+                for e in n.entries().iter().filter_map(|e| e.name()) {
+                    if !ARROW_PROPS.contains(&e.value()) {
+                        let l = line(text, n.span().offset());
+                        out.push(format!("{p}:{l}: an arrow takes no `{}`", e.value()));
+                    }
+                }
+            }
+            if let Some(c) = n.children() {
+                walk(p, text, c, out);
+            }
+        }
+    }
+    let mut out = vec![];
+    for (p, t) in texts.iter().filter(|(p, _)| !is_kind_file(p)) {
+        if let Some(t) = t
+            && let Ok(d) = t.parse::<KdlDocument>()
+        {
+            walk(p, t, &d, &mut out);
+        }
+    }
+    out
 }
 
 pub(crate) fn line(text: &str, offset: usize) -> usize {
@@ -216,6 +249,7 @@ impl Reader {
             .get(custom.as_deref().unwrap_or(&base_name(kind)))
             .cloned();
         let mut b = MapBox {
+            context: None,
             id: id.into(),
             parent: parent.map(String::from),
             level,
@@ -250,7 +284,7 @@ impl Reader {
         let kids = n.children().map(|c| c.nodes()).unwrap_or_default();
         for k in kids {
             let kn = k.name().value();
-            if !body.insert(kn) && ["at", "badges", "pattern"].contains(&kn) {
+            if !body.insert(kn) && BOX_WORDS.contains(&kn) {
                 self.err(at, k, format!("`{kn}` is written twice"));
             }
             match (kn, strings(k)) {
@@ -267,6 +301,10 @@ impl Reader {
                     Ok(p) => b.pattern = Some(Field::person(p)),
                     Err(e) => self.err(at, k, e),
                 },
+                ("context", Some(v)) if v.len() == 1 => {
+                    b.context = Some(Field::person(v.into_iter().next().unwrap_or_default()))
+                }
+                ("context", _) => self.err(at, k, "`context` takes one string".into()),
                 ("at" | "badges" | "pattern", None) => {
                     self.err(at, k, format!("`{kn}` takes strings"))
                 }
@@ -278,7 +316,7 @@ impl Reader {
             let kn = k.name().value();
             if let Some(kind) = named::<ArrowKind>(kn) {
                 self.arrow(at, k, &id, kind);
-            } else if !["at", "badges", "pattern"].contains(&kn) {
+            } else if !BOX_WORDS.contains(&kn) {
                 // a module where run blocks sit stands for one (a library package)
                 let run = run_above || kind.role() == Role::Run || kind == BoxKind::Module;
                 self.node(at, k, Some(&id), run);
@@ -343,6 +381,29 @@ impl Reader {
             return self.err(at, n, format!("arrow `{from}->{to}` points at its own box"));
         }
         let label = n.get("label").and_then(|v| v.as_string()).map(String::from);
+        let text = |r: &mut Self, key: &str| match n.get(key) {
+            None => None,
+            Some(v) => match v.as_string() {
+                Some(s) => Some(s.to_string()),
+                None => {
+                    r.err(at, n, format!("`{key}` must be a string"));
+                    None
+                }
+            },
+        };
+        let note = text(self, "note");
+        if let Some(note) = &note {
+            if note.contains(['\n', '\r']) {
+                self.err(
+                    at,
+                    n,
+                    "`note` is one line: put the rest in `context`".into(),
+                );
+            } else if note.chars().count() > NOTE_MAX {
+                self.err(at, n, format!("`note` is at most {NOTE_MAX} characters"));
+            }
+        }
+        let context = text(self, "context");
         let id = format!("{from}->{to}");
         if self.arrows.iter().any(|(a, _)| a.id == id) {
             self.err(at, n, format!("arrow `{id}` is written twice"));
@@ -356,6 +417,8 @@ impl Reader {
                 to: to.into(),
                 kind,
                 label,
+                note,
+                context,
                 count: 0,
                 kinds: vec![kind],
                 in_loop: false,

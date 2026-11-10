@@ -424,6 +424,8 @@ fn every_drift_fixture_is_a_valid_map() {
 
 fn spec_arrow(from: &str, kind: ArrowKind, to: &str) -> MapArrow {
     MapArrow {
+        note: None,
+        context: None,
         id: format!("{from}->{to}"),
         parent: "system".into(),
         from: from.into(),

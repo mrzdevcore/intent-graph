@@ -76,6 +76,8 @@ fn three_network_hops_is_risk() {
     }
     m.boxes.iter_mut().find(|b| b.id == "web").unwrap().kind = Field::ig(BoxKind::App);
     let net = |from: &str, to: &str| MapArrow {
+        note: None,
+        context: None,
         id: format!("{from}->{to}"),
         parent: "system".into(),
         from: from.into(),

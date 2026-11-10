@@ -47,6 +47,7 @@ pub struct Landscape {
 
 fn plain(id: &str, parent: Option<&str>, kind: BoxKind, title: &str) -> MapBox {
     MapBox {
+        context: None,
         id: id.into(),
         parent: parent.map(Into::into),
         level: Level::System,
@@ -247,6 +248,8 @@ pub fn combine(title: &str, projects: Vec<Project>, mut info: Landscape) -> View
         view.boxes.push(own);
     }
     view.arrows.extend(info.links.iter().map(|l| MapArrow {
+        note: None,
+        context: None,
         id: format!("{}->{}", l.from, l.to),
         parent: ROOT.into(),
         from: l.from.clone(),
@@ -283,6 +286,8 @@ mod tests {
         api.made_of = vec!["api/**".into()];
         let db = plain("api/db", Some("api"), BoxKind::Store, "DB");
         let arrow = |from: &str, to: &str, parts: Vec<MapArrow>| MapArrow {
+            note: None,
+            context: None,
             id: format!("{from}->{to}"),
             parent: ROOT.into(),
             from: from.into(),

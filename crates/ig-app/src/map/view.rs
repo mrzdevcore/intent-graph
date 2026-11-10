@@ -393,7 +393,11 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
     let judged = (!broken).then(|| {
         // a team kind file that does not read is already reported by the read
         let kinds = Kinds::load(env.files).unwrap_or_else(|_| Kinds::builtin().clone());
-        warnings(&m, &kinds)
+        let mut w = warnings(&m, &kinds);
+        if let Ok((_, spec)) = spec::read::texts(env.files) {
+            w.extend(spec::read::arrow_warnings(&spec));
+        }
+        w
     });
     let reads = read_all(config, connectors, env.files, env.progress);
     let live = apply(&mut m, &reads);

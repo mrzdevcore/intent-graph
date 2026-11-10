@@ -135,6 +135,7 @@ pub(crate) fn fit_slots(
 /// ig's own box for a fact.
 pub(crate) fn fresh(f: &FactBox) -> MapBox {
     MapBox {
+        context: None,
         id: f.id.clone(),
         parent: f.parent.clone(),
         level: f.level,
@@ -213,6 +214,7 @@ fn drawn_components(
     } else if !rest.is_empty() {
         let container = facts.iter().find(|f| f.id == c);
         out.push(MapBox {
+            context: None,
             id: unread,
             parent: Some(c.into()),
             level: Level::Component,

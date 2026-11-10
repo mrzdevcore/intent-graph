@@ -46,6 +46,10 @@ pub struct MapArrow {
     pub kind: ArrowKind,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub context: Option<String>,
     /// Graph edges lifted into this arrow.
     pub count: u32,
     pub kinds: Vec<ArrowKind>,
@@ -213,6 +217,8 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
                 _ => None,
             };
             MapArrow {
+                note: None,
+                context: None,
                 id: format!("{from}->{to}"),
                 parent: parent.into(),
                 from: from.into(),
@@ -389,6 +395,8 @@ mod tests {
 
     fn arrow(from: &str, to: &str, parent: &str, kind: ArrowKind) -> MapArrow {
         MapArrow {
+            note: None,
+            context: None,
             id: format!("{from}->{to}"),
             parent: parent.into(),
             from: from.into(),

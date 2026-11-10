@@ -25,6 +25,7 @@ export type MapBox = {
   badges?: Field<string[]>;
   pattern?: Field<Pattern>;
   slot?: Field<string>;
+  context?: Field<string>;
   serviceName?: string;
   pinned?: string[];
   needsReading?: boolean;
@@ -58,6 +59,8 @@ export type MapArrow = {
   to: string;
   kind: ArrowKind;
   label?: string;
+  note?: string;
+  context?: string;
   count: number;
   kinds: ArrowKind[];
   inLoop?: boolean;

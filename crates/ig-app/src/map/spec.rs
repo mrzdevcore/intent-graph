@@ -129,7 +129,7 @@ pub(crate) fn repr(s: &str) -> String {
 }
 
 /// Code points KDL forbids in a document (bidi controls, the BOM) or reads as a newline.
-fn disallowed(c: char) -> bool {
+pub(crate) fn disallowed(c: char) -> bool {
     matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' | '\u{2028}' | '\u{2029}')
 }
 
@@ -168,6 +168,11 @@ fn node(
     if let Some(f) = &b.pattern {
         body.nodes_mut().push(pattern(&f.value));
     }
+    if let Some(f) = &b.context {
+        let mut c = KdlNode::new("context");
+        c.push(KdlEntry::new(f.value.as_str()));
+        body.nodes_mut().push(c);
+    }
     let mut out: Vec<&MapArrow> = (m.arrows.iter())
         .filter(|a| a.from == b.id && !left_out.contains(a.to.as_str()))
         .collect();
@@ -180,6 +185,11 @@ fn node(
         // A bundle's label is a derived count, not intent.
         if let Some(l) = a.label.as_ref().filter(|_| a.kind != ArrowKind::Bundle) {
             an.push(KdlEntry::new_prop("label", l.as_str()));
+        }
+        for (key, v) in [("note", &a.note), ("context", &a.context)] {
+            if let Some(v) = v {
+                an.push(KdlEntry::new_prop(key, v.as_str()));
+            }
         }
         body.nodes_mut().push(an);
     }

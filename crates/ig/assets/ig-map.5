@@ -115,20 +115,30 @@ The body of a box holds, in any order:
 .IP \(bu 2
 \fBpattern "<name>"\fR: how the box's inside is drawn: \fBonion\fR (slots \fBdomain\fR, \fBapplication\fR, \fBinfrastructure\fR), \fBhexagonal\fR (slots \fBcore\fR, \fBports\fR, \fBadapters\fR), \fBlayered "<band>"…\fR (one slot per band, top first) or \fBnone\fR. A box inside it puts itself in a slot with \fBslot=\fR.
 .IP \(bu 2
+\fBcontext "<text>"\fR: free text of any length for whoever builds the box; \fBdescription\fR stays the one line shown on hover. With line breaks, write a raw multi\-line string: \fBcontext #"""\fR, the text indented, then \fB"""#\fR on its own line, as deep as the text.
+.IP \(bu 2
 Arrows, from this box (see ARROWS).
 .IP \(bu 2
 The boxes inside it.
 .PP
-\fBat\fR, \fBbadges\fR and \fBpattern\fR are each written once.
+\fBat\fR, \fBbadges\fR, \fBpattern\fR and \fBcontext\fR are each written once.
 .SH ARROWS
 .PP
-An arrow is written in the box it leaves: its kind, the id it points to, and an optional \fBlabel\fR:
+An arrow is written in the box it leaves: its kind, the id it points to, and the optional \fBlabel\fR, \fBnote\fR and \fBcontext\fR:
 .PP
 .RS 4
 .nf
-calls "billing" label="charges the card"
+calls "billing" label="charges the card" note="once per checkout"
 .fi
 .RE
+.IP \(bu 2
+\fBlabel\fR: what it carries or does, a few words.
+.IP \(bu 2
+\fBnote\fR: one short line shown on the map under the label, at most 80 characters, no line break (more is an error).
+.IP \(bu 2
+\fBcontext\fR: free text of any length for whoever builds it.
+.IP \(bu 2
+Any other property on an arrow is a warning; the arrow is still read.
 .IP \(bu 2
 \fBcalls\fR: asks it something and waits for the answer.
 .IP \(bu 2
@@ -164,7 +174,7 @@ kind "gateway" is="service" title="Gateway" means="Where outside traffic comes i
 .fi
 .RE
 .PP
-It takes its base kind's place, properties and icon, and adds its own properties. \fBrequired=#true\fR makes one required; \fBone\-of=\fR lists the values it may take. It cannot use the name of a built\-in kind or of an arrow kind, nor \fBat\fR, \fBbadges\fR or \fBpattern\fR.
+It takes its base kind's place, properties and icon, and adds its own properties. \fBrequired=#true\fR makes one required; \fBone\-of=\fR lists the values it may take. It cannot use the name of a built\-in kind or of an arrow kind, nor \fBat\fR, \fBbadges\fR, \fBpattern\fR or \fBcontext\fR.
 .SH OLD NAMES
 .PP
 These are still read, and \fBig fmt\fR rewrites them: \fBfolder\fR (group), \fBcomponent\fR (module), \fBapi\fR and \fBworker\fR (service), \fBlibrary\fR (module); arrows \fBnetwork\fR (calls), \fBevent\fR (sends), \fBdata\fR (reads), \fBdepends\fR (uses).

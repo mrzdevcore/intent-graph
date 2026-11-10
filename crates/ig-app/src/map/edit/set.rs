@@ -7,7 +7,7 @@ use crate::map::file::{MapBox, MapFile};
 use crate::map::kinds::Kinds;
 use crate::map::spec::{self, DIR};
 use crate::map::{BoxKind, warn};
-use kdl::KdlEntry;
+use kdl::{KdlDocument, KdlEntry, KdlEntryFormat, KdlNode};
 use std::collections::{BTreeMap, HashMap};
 
 /// What every kind takes besides `PROPS`.
@@ -33,6 +33,7 @@ impl Spec {
         match key {
             "kind" => self.set_kind(id, value, restore),
             "at" => self.set_at(id, value),
+            "context" => self.set_context(id, value, restore),
             _ => self.set_prop(id, key, value, restore),
         }
     }
@@ -89,6 +90,106 @@ impl Spec {
             value: old,
             restore: was.filter(|_| value.is_none()).into_iter().collect(),
         })
+    }
+
+    fn set_context(
+        &mut self,
+        id: &str,
+        value: Option<&str>,
+        restore: &[(usize, String)],
+    ) -> Result<Edit, String> {
+        let loc = self.must(id)?;
+        let nodes = (self.node(&loc).children())
+            .map(|c| c.nodes())
+            .unwrap_or_default();
+        let at = nodes.iter().position(|n| n.name().value() == "context");
+        let old = at.and_then(|i| nodes[i].entries().first()?.value().as_string());
+        let old = old.map(String::from);
+        let was = at.map(|i| (i, nodes[i].to_string()));
+        let entry_was = at.and_then(|i| Some((0, nodes[i].entries().first()?.to_string())));
+        let child = |i: usize| {
+            let (p, mut path) = loc.clone();
+            path.push(i);
+            (p, path)
+        };
+        match (value, at) {
+            (Some(v), Some(i)) => {
+                let cl = child(i);
+                let n = self.node_mut(&cl);
+                let e = match restore.first() {
+                    Some((_, text)) => (text.parse::<KdlEntry>())
+                        .map_err(|_| format!("cannot read `{text}` back"))?,
+                    None => {
+                        let mut e = n.entries()[0].clone();
+                        e.set_value(v);
+                        e.set_format(context_format(v, &super::tidy::indent_of(n)));
+                        e
+                    }
+                };
+                n.entries_mut()[0] = e;
+                Ok(Edit::Set {
+                    id: id.into(),
+                    key: "context".into(),
+                    value: old,
+                    restore: entry_was.into_iter().collect(),
+                })
+            }
+            (Some(v), None) => {
+                let nodes = (self.node(&loc).children())
+                    .map(|c| c.nodes())
+                    .unwrap_or_default();
+                let (i, n) = match restore.first() {
+                    Some((i, text)) => {
+                        let mut d: KdlDocument =
+                            (text.parse()).map_err(|_| format!("cannot read `{text}` back"))?;
+                        if d.nodes().len() != 1 {
+                            return Err("restore takes exactly one node".into());
+                        }
+                        ((*i).min(nodes.len()), Some(d.nodes_mut().remove(0)))
+                    }
+                    None => {
+                        let words = ["at", "badges", "pattern"];
+                        let i = nodes
+                            .iter()
+                            .position(|n| !words.contains(&n.name().value()));
+                        (i.unwrap_or(nodes.len()), None)
+                    }
+                };
+                let fresh = n.is_none();
+                let n = n.unwrap_or_else(|| {
+                    let mut n = KdlNode::new("context");
+                    n.push(KdlEntry::new(v));
+                    n
+                });
+                self.put(&loc, i, n);
+                if fresh {
+                    let n = self.node_mut(&child(i));
+                    let f = context_format(v, &super::tidy::indent_of(n));
+                    n.entries_mut()[0].set_format(f);
+                }
+                Ok(Edit::Set {
+                    id: id.into(),
+                    key: "context".into(),
+                    value: None,
+                    restore: vec![],
+                })
+            }
+            (None, Some(i)) => {
+                self.take(&child(i));
+                Ok(Edit::Set {
+                    id: id.into(),
+                    key: "context".into(),
+                    value: old,
+                    restore: was.into_iter().collect(),
+                })
+            }
+            (None, None) => Ok(Edit::Set {
+                id: id.into(),
+                key: "context".into(),
+                value: None,
+                restore: vec![],
+            }),
+        }
     }
 
     fn set_at(&mut self, id: &str, value: Option<&str>) -> Result<Edit, String> {
@@ -183,6 +284,43 @@ impl Spec {
             value: Some(old),
             restore: dropped,
         })
+    }
+}
+
+/// A string value as written for the node at `indent`: a raw multi-line string when it has line
+/// breaks that one can write that way, else a quoted one.
+fn context_format(v: &str, indent: &str) -> KdlEntryFormat {
+    let plain = |c: char| (!c.is_control() || c == '\n' || c == '\t') && !spec::disallowed(c);
+    let multi = v.contains('\n')
+        && v.chars().all(plain)
+        && v.split('\n').all(|l| l.is_empty() || !l.trim().is_empty());
+    let value_repr = if multi {
+        let hashes = "#".repeat(
+            1 + v
+                .split('"')
+                .skip(1)
+                .map(|r| r.chars().take_while(|c| *c == '#').count())
+                .max()
+                .unwrap_or(0),
+        );
+        let pad = format!("{indent}    ");
+        let body: Vec<String> = (v.split('\n'))
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("{pad}{l}")
+                }
+            })
+            .collect();
+        format!("{hashes}\"\"\"\n{}\n{pad}\"\"\"{hashes}", body.join("\n"))
+    } else {
+        spec::repr(v)
+    };
+    KdlEntryFormat {
+        value_repr,
+        leading: " ".into(),
+        ..Default::default()
     }
 }
 

@@ -133,7 +133,7 @@ fn first(n: &KdlNode) -> Option<&str> {
 /// (a team kind's among them).
 fn box_id(n: &KdlNode) -> Option<&str> {
     let k = n.name().value();
-    if named::<ArrowKind>(k).is_some() || ["at", "badges", "pattern"].contains(&k) {
+    if named::<ArrowKind>(k).is_some() || ["at", "badges", "pattern", "context"].contains(&k) {
         return None;
     }
     first(n)

@@ -122,6 +122,8 @@ pub struct MapBox {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub slot: Option<Field<String>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub context: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub service_name: Option<String>,
     /// Field names (`PINNABLE`) a person fixed; ig and agents leave them alone.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -354,6 +356,7 @@ fn regroup(m: &mut MapFile, notes: &[Annotation], errs: &mut Vec<String>) -> usi
         let mut kids: Vec<(MapBox, Option<GlobSet>)> = vec![];
         for a in group {
             let mut b = old.remove(&a.id).unwrap_or_else(|| MapBox {
+                context: None,
                 id: a.id.clone(),
                 parent: Some(parent.into()),
                 level: Level::Component,

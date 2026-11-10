@@ -209,3 +209,101 @@ fn a_box_holds_run_and_design_blocks() {
         Vec::<String>::new()
     );
 }
+
+fn box_of<'a>(m: &'a MapFile, id: &str) -> &'a crate::map::file::MapBox {
+    m.boxes.iter().find(|b| b.id == id).unwrap()
+}
+
+#[test]
+fn reads_box_context_multiline() {
+    let m = parse(&sys(
+        "  service \"api\" title=\"Api\" {\n    context #\"\"\"\n      Build it \"\"\" like\n      this\n\n        indented\n      \"\"\"#\n  }",
+    ))
+    .unwrap();
+    let c = box_of(&m, "api").context.as_ref().unwrap();
+    assert_eq!(c.value, "Build it \"\"\" like\nthis\n\n  indented");
+    assert_eq!(c.source, crate::map::file::Source::Person);
+    let one = parse(&sys(
+        "  service \"api\" title=\"Api\" {\n    context \"short\"\n  }",
+    ))
+    .unwrap();
+    assert_eq!(box_of(&one, "api").context.as_ref().unwrap().value, "short");
+}
+
+#[test]
+fn a_box_context_is_written_once_and_as_a_string() {
+    for body in ["context \"a\"\n    context \"b\"", "context", "context 1"] {
+        let s = sys(&format!(
+            "  service \"api\" title=\"Api\" {{\n    {body}\n  }}"
+        ));
+        assert!(parse(&s).is_err(), "{body}");
+    }
+}
+
+#[test]
+fn reads_arrow_note_and_context() {
+    let m = parse(&sys(
+        "  service \"api\" title=\"Api\" {\n    calls \"web\" label=\"orders\" note=\"every minute\" context=#\"\"\"\n      why\n      and how\n      \"\"\"#\n  }\n  app \"web\" title=\"Web\"",
+    ))
+    .unwrap();
+    let a = &m.arrows[0];
+    assert_eq!(a.label.as_deref(), Some("orders"));
+    assert_eq!(a.note.as_deref(), Some("every minute"));
+    assert_eq!(a.context.as_deref(), Some("why\nand how"));
+}
+
+#[test]
+fn rejects_a_note_over_80_or_with_a_newline() {
+    let arrow = |note: &str| {
+        parse(&sys(&format!(
+            "  service \"api\" title=\"Api\" {{\n    calls \"web\" note=\"{note}\"\n  }}\n  app \"web\" title=\"Web\""
+        )))
+    };
+    assert!(arrow(&"x".repeat(80)).is_ok());
+    let long = arrow(&"x".repeat(81)).unwrap_err();
+    assert!(
+        long.iter().any(|e| e.contains("note") && e.contains("80")),
+        "{long:?}"
+    );
+    let nl = arrow("a\\nb").unwrap_err();
+    assert!(
+        nl.iter()
+            .any(|e| e.contains("note") && e.contains("one line")),
+        "{nl:?}"
+    );
+}
+
+#[test]
+fn unknown_arrow_property_is_a_warning() {
+    let s = sys(
+        "  service \"api\" title=\"Api\" {\n    calls \"web\" colour=\"red\"\n  }\n  app \"web\" title=\"Web\"",
+    );
+    let texts = vec![("ig/system.kdl".to_string(), Some(s))];
+    assert_eq!(
+        crate::map::spec::parse(texts.clone()).unwrap().arrows.len(),
+        1
+    );
+    let w = crate::map::spec::read::arrow_warnings(&texts);
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(
+        w[0].contains("colour") && w[0].starts_with("ig/system.kdl:"),
+        "{w:?}"
+    );
+}
+
+#[test]
+fn context_and_notes_survive_a_write_and_a_read() {
+    let m = parse(&sys(
+        "  service \"api\" title=\"Api\" {\n    context \"for the builder\"\n    calls \"web\" note=\"hourly\" context=\"why\"\n  }\n  app \"web\" title=\"Web\"",
+    ))
+    .unwrap();
+    let again = crate::map::spec::parse(
+        crate::map::spec::write(&m)
+            .into_iter()
+            .map(|(p, t)| (p, Some(t)))
+            .collect(),
+    )
+    .unwrap();
+    assert_eq!(again.boxes, m.boxes);
+    assert_eq!(again.arrows, m.arrows);
+}

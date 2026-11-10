@@ -423,6 +423,8 @@ fn draw_links(
             Some(to) => {
                 let ends = above(to);
                 m.arrows.push(MapArrow {
+                    note: None,
+                    context: None,
                     id: format!("{from}->{to}"),
                     parent: (above(from).into_iter())
                         .find(|p| ends.contains(p))

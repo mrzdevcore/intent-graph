@@ -90,6 +90,8 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
 
 fn arrow(parent: &str, from: &str, to: &str, kind: ArrowKind, label: Option<String>) -> MapArrow {
     MapArrow {
+        note: None,
+        context: None,
         id: format!("{from}->{to}"),
         parent: parent.into(),
         from: from.into(),

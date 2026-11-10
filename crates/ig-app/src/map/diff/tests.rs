@@ -4,6 +4,7 @@ use crate::map::{ArrowKind, BoxKind, Level, MapArrow, Mark, MarkState};
 
 fn bx(id: &str, parent: Option<&str>, level: Level, at: &[&str]) -> MapBox {
     MapBox {
+        context: None,
         id: id.into(),
         parent: parent.map(Into::into),
         level,
@@ -40,6 +41,8 @@ fn title(id: &str) -> String {
 
 fn arrow(from: &str, to: &str) -> MapArrow {
     MapArrow {
+        note: None,
+        context: None,
         id: format!("{from}->{to}"),
         parent: "system".into(),
         from: from.into(),
