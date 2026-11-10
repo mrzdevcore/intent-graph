@@ -4,7 +4,7 @@ use super::agent::{Ask, Evidence, NOTHING_TO_PROPOSE, consent, offer, refusal};
 use super::code::{as_fact, code_boxes};
 use super::diff::{Side, SpecSide};
 use super::file::{self, Field, MapBox, MapFile, refresh};
-use super::kinds::{KindView, Kinds};
+use super::kinds::{ArrowKindView, KindView, Kinds};
 use super::layers::{Mark, file_layers, risks, rules, sort_marks};
 use super::layout::layout_with;
 pub use super::layout::{Frame, Placed, Region, RegionKind};
@@ -44,6 +44,9 @@ pub struct View {
     pub warnings: Vec<String>,
     /// Every kind a box in `ig/` may be, the team's among them.
     pub kinds: Vec<KindView>,
+    /// Every arrow kind and the kinds its rules join.
+    #[serde(rename = "arrowKinds")]
+    pub arrow_kinds: Vec<ArrowKindView>,
     /// The journal's entries nobody kept yet.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub proposals: Vec<Proposal>,
@@ -179,6 +182,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy], db: &Sche
     let rows = (tables.tables.iter())
         .map(|(id, t)| (id.clone(), t.columns.len() as u32))
         .collect();
+    let kinds = Kinds::load(files).unwrap_or_else(|_| Kinds::builtin().clone());
     let (placed, mut unrouted) = layout_with(&boxes, &arrows, &rows);
     notices.append(&mut unrouted);
     View {
@@ -193,9 +197,8 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy], db: &Sche
         notices,
         warnings: vec![],
         // a team kind file that does not read is reported by the spec's read
-        kinds: Kinds::load(files)
-            .unwrap_or_else(|_| Kinds::builtin().clone())
-            .views(),
+        kinds: kinds.views(),
+        arrow_kinds: kinds.arrow_views(),
         proposals: vec![],
         read: (g.nodes.iter().filter(|n| n.is_module()))
             .map(|n| n.file.clone())

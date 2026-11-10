@@ -2,10 +2,11 @@
      label. Enter draws, Esc cancels. Text only. -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { ArrowKind } from "../types";
-  import { ARROW_KINDS, last } from "./arrows";
+  import type { ArrowKind, ArrowKindView } from "../types";
+  import { arrowKindNames, last } from "./arrows";
 
-  let { line, pick, onpick, onclose }: {
+  let { line, pick, kinds, onpick, onclose }: {
+    kinds?: ArrowKindView[];
     line?: { x1: number; y1: number; x2: number; y2: number };
     pick?: { from: string; to: string; x: number; y: number };
     onpick: (kind: ArrowKind, label: string | null) => void; onclose: () => void;
@@ -32,7 +33,7 @@
   <form data-popover aria-label="Arrow {pick.from} to {pick.to}" style:left="{pick.x}px" style:top="{pick.y}px" onsubmit={submit} onkeydown={keydown}>
     <b>{pick.from} → {pick.to}</b>
     <div class="chips" role="radiogroup" aria-label="Kind">
-      {#each ARROW_KINDS as k (k)}
+      {#each arrowKindNames(kinds) as k (k)}
         <button type="button" role="radio" aria-checked={kind === k} class:on={kind === k} onclick={() => (kind = k)}>{k}</button>
       {/each}
     </div>

@@ -619,7 +619,7 @@
       <button type="button" onclick={() => (waiting = null)}>Later</button>
     </div>
   {/if}
-  {#if edit}<EditLayer s={sess} boxes={view.boxes} kinds={view.kinds} root={ROOT} />{/if}
+  {#if edit}<EditLayer s={sess} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
   {#if view.landscape}
     <Folders landscape={view.landscape} />
   {/if}

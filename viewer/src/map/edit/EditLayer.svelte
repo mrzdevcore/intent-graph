@@ -1,6 +1,6 @@
 <!-- The open popover of an EditSession: the arrow's rubber band and kind chips, the box menu, rename, move picker. -->
 <script lang="ts">
-  import type { KindView, MapBox } from "../types";
+  import type { ArrowKindView, KindView, MapBox } from "../types";
   import ArrowDraw from "./ArrowDraw.svelte";
   import BoxMenu from "./BoxMenu.svelte";
   import MovePicker from "./MovePicker.svelte";
@@ -8,12 +8,12 @@
   import { parentsFor } from "./menu";
   import type { EditSession } from "./session.svelte";
 
-  let { s, boxes, kinds, root }: { s: EditSession; boxes: MapBox[]; kinds: KindView[]; root: string } = $props();
+  let { s, boxes, kinds, arrowKinds, root }: { s: EditSession; boxes: MapBox[]; kinds: KindView[]; arrowKinds?: ArrowKindView[]; root: string } = $props();
   const ui = $derived(s.ui);
 </script>
 
 {#if s.link || ui?.t === "arrow"}
-  <ArrowDraw line={s.band} pick={ui?.t === "arrow" ? { from: s.titleOf(ui.from), to: s.titleOf(ui.to), x: ui.x, y: ui.y } : undefined}
+  <ArrowDraw kinds={arrowKinds} line={s.band} pick={ui?.t === "arrow" ? { from: s.titleOf(ui.from), to: s.titleOf(ui.to), x: ui.x, y: ui.y } : undefined}
     onpick={(kind, label) => s.draw(kind, label)} onclose={() => s.shut()} />
 {/if}
 {#if ui && ui.t !== "arrow"}

@@ -377,3 +377,19 @@ fn architecture_never_writes_and_reports_the_spec() {
     assert!(!s.arch.boxes.is_empty());
     assert_eq!(*files.files.lock().unwrap(), before);
 }
+
+#[test]
+fn view_sends_arrow_kinds_and_rules() {
+    let files = MemFiles::with(&[("src/a.ts", "export function f() {}\n")]);
+    analyse(&env(&files, None, &Fake), None).unwrap();
+    let v = run(&env(&files, None, &Fake)).unwrap();
+    assert_eq!(v.arrow_kinds.len(), 7);
+    assert!(v.arrow_kinds.iter().all(|k| k.name != "bundle"));
+    let writes = v.arrow_kinds.iter().find(|k| k.name == "writes").unwrap();
+    assert_eq!(
+        (writes.to.as_slice(), writes.from.is_empty()),
+        (&["store".to_string()][..], true)
+    );
+    let json = serde_json::to_value(&v).unwrap();
+    assert_eq!(json["arrowKinds"][3]["name"], "writes");
+}

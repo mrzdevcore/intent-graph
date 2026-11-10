@@ -51,6 +51,8 @@ export type KindView = {
   role: "root" | "run" | "design" | "group";
   props: { name: string; means: string; required: boolean; oneOf: string[] }[];
 };
+/** One of `View.arrowKinds`: an arrow kind and the kinds its rules join (empty = any). */
+export type ArrowKindView = { name: ArrowKind; from: string[]; to: string[] };
 export type ArrowKind = "calls" | "sends" | "reads" | "writes" | "uses" | "implements" | "triggers" | "bundle";
 export type MapArrow = {
   id: string;
@@ -109,6 +111,7 @@ export type View = {
   /** What reads but looks wrong in ig/ (crowded boxes, arrows the kinds do not expect…). */
   warnings: string[];
   kinds: KindView[];
+  arrowKinds?: ArrowKindView[];
   /** The journal's entries nobody kept yet. */
   proposals?: Proposal[];
   landscape?: Landscape;

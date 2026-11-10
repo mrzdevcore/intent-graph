@@ -2,6 +2,7 @@
 //! team's own kinds in `ig/kinds/*.kdl`, each extending a built-in one. Where a kind may sit is
 //! not written here: it follows its base's `role()`.
 
+use crate::map::arrows::TELLING;
 use crate::map::facts::Role;
 use crate::map::spec::DIR;
 use crate::map::spec::read::{doc, line, named};
@@ -51,6 +52,14 @@ pub struct KindView {
     /// `root`, `run`, `design` or `group`.
     pub role: &'static str,
     pub props: Vec<PropDef>,
+}
+
+/// An arrow kind as the viewer takes it (`View.arrowKinds`): the kinds it joins, empty = any.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ArrowKindView {
+    pub name: String,
+    pub from: Vec<String>,
+    pub to: Vec<String>,
 }
 
 /// An arrow of `kind` joins these kinds (by name, a team kind also by its base's); empty = any.
@@ -140,6 +149,25 @@ impl Kinds {
                 code: k.code,
                 role: role(k.base),
                 props: k.props.clone(),
+            })
+            .collect()
+    }
+
+    /// Every arrow kind written (not `bundle`) with the kinds its rules join.
+    pub fn arrow_views(&self) -> Vec<ArrowKindView> {
+        TELLING
+            .iter()
+            .map(|&k| {
+                let mut v = ArrowKindView {
+                    name: format!("{k:?}").to_lowercase(),
+                    from: vec![],
+                    to: vec![],
+                };
+                for r in self.rules(k) {
+                    v.from.extend(r.from.iter().cloned());
+                    v.to.extend(r.to.iter().cloned());
+                }
+                v
             })
             .collect()
     }
