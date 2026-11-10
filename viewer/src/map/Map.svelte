@@ -1,13 +1,13 @@
 <!-- The walkable map. One world <div> under the camera; each box whose screen width reaches
      showsInside mounts its inside (children, regions, wires in its inner units), recursively.
      Only mounted levels are in the DOM. Dragging a box moves it inside its parent (kept per map
-     in localStorage); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
+     in localStorage; others make room, the parent grows); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import type { Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
-  import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
+  import { detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
-  import { Camera, wheelFactor } from "./glide";
+  import { Camera, PLACE_MS, tween, wheelFactor } from "./glide";
   import { GRID, edgePan, gridLevel, momentum, softK, wheelIntent, type WheelPref } from "./nav";
   import { wires, type Mode } from "./wires";
   import MapBox from "./MapBox.svelte";
@@ -38,6 +38,9 @@
   import Warnings from "./Warnings.svelte";
   import Folders from "./Folders.svelte";
   import { proposed } from "./edit/proposals";
+  import { Places, inside as innerKey, type Place } from "./place/places";
+  import { reparented, settle as settlePlaces, shownView } from "./place/rules";
+  import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, undoNext } from "./place/history";
 
   let { view: given, camera = new Camera(), size, edit, onview, show, diff }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -65,10 +68,14 @@
   }
   // one edit call at a time: the journal is read-modify-write, so a call made while one is in flight is dropped
   let busy = false;
-  const run = (call: () => Promise<View>) => {
+  const clock = new Clock(), edits = new EditLog(clock), history = new PlaceHistory(clock);
+  const run = (call: () => Promise<View>, as: "do" | "undo" | "redo" = "do") => {
     if (busy) return;
     busy = true;
-    call().then((v) => onview?.(v), toast).finally(() => (busy = false));
+    call().then((v) => {
+      edits[as === "do" ? "push" : as]();
+      onview?.(v);
+    }, toast).finally(() => (busy = false));
   };
   const typing = (t: EventTarget | null) => {
     const el = t as HTMLElement | null;
@@ -76,34 +83,89 @@
   };
 
   const ROOT = "system";
-  // the boxes moved by hand: their shift from where ig placed them, in their parent's inner units
-  type Moves = Record<string, { x: number; y: number }>;
-  const store = $derived(`ig-moves:${view.boxes.find((b) => b.id === ROOT)?.title.value ?? ""}`);
-  function load(key: string): Moves {
-    try {
-      const m = JSON.parse(globalThis.window?.localStorage?.getItem(key) ?? "{}");
-      return m && typeof m === "object" ? m : {};
-    } catch {
-      return {};
-    }
+  // each box's place in its parent's inner units, kept per map: once drawn, a box stays where it is
+  const title = $derived(view.boxes.find((b) => b.id === ROOT)?.title.value ?? "");
+  let store = untrack(() => new Places(title, view.placed.frames));
+  let truth = $state.raw<Record<string, Place>>(untrack(() => settlePlaces(store.snapshot(), view, {}, null)));
+  let stored = $state(untrack(() => store.size > 0));
+  let lastView = untrack(() => view);
+  // the places of boxes since removed: an undone delete puts them back
+  const gone: Record<string, Place> = {};
+  let anim = $state.raw<{ from: Record<string, Place>; start: number; t: number } | null>(null);
+  const showing = $derived(anim ? tween(anim.from, truth, anim.t) : truth);
+  let placeRaf = 0;
+  function stepPlaces(now: number) {
+    if (anim) anim = now - anim.start >= PLACE_MS ? null : { ...anim, t: now - anim.start };
   }
-  let moves = $state<Moves>(untrack(() => load(store)));
-  function keep(m: Moves) {
-    moves = m;
-    try {
-      if (Object.keys(m).length) globalThis.window?.localStorage?.setItem(store, JSON.stringify(m));
-      else globalThis.window?.localStorage?.removeItem(store);
-    } catch { /* private mode: moves last the page */ }
+  function placeFrame(now: number) {
+    placeRaf = 0;
+    stepPlaces(now);
+    if (anim) placeRaf = requestAnimationFrame(placeFrame);
   }
-  // the view as drawn: ig's frames with the hand moves applied
-  const shown = $derived.by((): View => {
-    const frames = { ...view.placed.frames };
-    for (const [id, d] of Object.entries(moves)) {
-      const f = frames[id];
-      if (f && Number.isFinite(d?.x) && Number.isFinite(d?.y)) frames[id] = { ...f, x: f.x + d.x, y: f.y + d.y };
-    }
-    return { ...view, placed: { ...view.placed, frames } };
+  function glidePlaces(from: Record<string, Place>, instant: string[] = []) {
+    const f = { ...from };
+    for (const id of instant) if (truth[id]) f[id] = truth[id];
+    anim = { from: f, start: performance.now(), t: 0 };
+    if (!placeRaf) placeRaf = requestAnimationFrame(placeFrame);
+  }
+  function placeAll(next: Record<string, Place>, instant: string[] = [], record = true) {
+    const c = changes(truth, next);
+    if (!c) return;
+    if (record) history.push(c.before, c.after);
+    const from = showing;
+    truth = next;
+    store.replace(next);
+    stored = store.size > 0;
+    glidePlaces(from, instant);
+  }
+  // a new view keeps what was drawn; settle finds room for what is new before it is drawn
+  $effect.pre(() => {
+    const v = view, t = title;
+    untrack(() => {
+      if (v === lastView) return;
+      if (t !== store.system) {
+        store = new Places(t, v.placed.frames);
+        truth = settlePlaces(store.snapshot(), v, {}, null);
+        stored = store.size > 0;
+        anim = null;
+        lastView = v;
+        return;
+      }
+      const prev = { ...gone, ...truth };
+      for (const id of reparented(lastView, v)) delete prev[id];
+      lastView = v;
+      const next = settlePlaces(prev, v, {}, null);
+      for (const [id, p] of Object.entries(truth)) if (!(id in next)) gone[id] = p;
+      placeAll(next, [], false);
+    });
   });
+  /** Box `id` put at `at` (its parent's inner units as drawn): others make room. */
+  function putBox(id: string, at: { x: number; y: number }) {
+    const p = byId.get(id)?.parent ?? ROOT, o = (p !== ROOT && truth[innerKey(p)]) || { x: 0, y: 0 }, f = truth[id];
+    if (f) placeAll(settlePlaces(truth, view, { [id]: { ...f, x: at.x + o.x, y: at.y + o.y } }, id), [id]);
+  }
+  function resetPlaces() {
+    const next = settlePlaces({}, view, {}, null), c = changes(truth, next);
+    if (c) history.push(c.before, c.after);
+    const from = showing;
+    truth = next;
+    store.replace({});
+    stored = false;
+    glidePlaces(from);
+  }
+  function undo() {
+    if (undoNext(edits, history) === "place") {
+      const c = history.undo();
+      if (c) placeAll(apply(truth, c), [], false);
+    } else if (edit) run(() => edit.undo(), "undo");
+  }
+  function redo() {
+    if (redoNext(edits, history) === "place") {
+      const c = history.redo();
+      if (c) placeAll(apply(truth, c), [], false);
+    } else if (edit) run(() => edit.redo(), "redo");
+  }
+  const shown = $derived(shownView(view, showing));
   const group = <T,>(xs: T[], key: (x: T) => string) => {
     const m = new Map<string, T[]>();
     for (const x of xs) m.set(key(x), [...(m.get(key(x)) ?? []), x]);
@@ -130,15 +192,11 @@
   const arrows = $derived(group([...view.arrows, ...ghosts].filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));
   // the box being dragged and its shift so far: only it and its parent's arrows follow the pointer
   let live = $state<{ id: string; x: number; y: number } | null>(null);
-  const shifted = (id: string, d: { x: number; y: number }) => {
-    const f = view.placed.frames[id];
-    return { ...f, x: f.x + d.x, y: f.y + d.y };
-  };
-  const drawn = (id: string) => (live?.id === id ? shifted(id, live) : shown.placed.frames[id]);
+  const drawn = (id: string) => (live?.id === id ? { ...shown.placed.frames[id], x: live.x, y: live.y } : shown.placed.frames[id]);
   const liveWiring = $derived.by(() => {
     if (!live) return null;
     const p = byId.get(live.id)?.parent ?? ROOT, frames = siblings(p);
-    frames[live.id] = shifted(live.id, live);
+    frames[live.id] = drawn(live.id);
     return { p, ...wired(arrows.get(p) ?? [], frames) };
   });
   const wiringOf = (p: string) => (liveWiring?.p === p ? liveWiring : wiring.get(p));
@@ -272,9 +330,11 @@
   /** Advance the camera to `now` (tests; the rAF loop does this in the page). */
   export function tick(now: number) {
     cam = lod = camera.tick(now);
+    stepPlaces(now);
   }
   onDestroy(() => {
     cancelAnimationFrame(raf);
+    cancelAnimationFrame(placeRaf);
     cancelAnimationFrame(edgeRaf);
   });
 
@@ -295,7 +355,7 @@
   function target(id: string): Cam {
     const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on);
     if (pads.length) return fitBeside(frameOf(id), to, pads, selected ? cardRem() : 0, rem());
-    const inner = view.placed.inner[id];
+    const inner = shown.placed.inner[id];
     if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
     const t = place.inside(id);
     return fitTo({ x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s }, to);
@@ -363,8 +423,12 @@
     const dir = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
     if (dir && !mod && !e.altKey) {
       if ((e.target as Element | null)?.closest?.("button, summary, a, select, [contenteditable], [role=menu], [role=listbox], [role=slider], [role=tablist]")) return false;
-      if (selected) return false; // moving the selection by a grid step comes with the places store
       e.preventDefault();
+      if (selected) {
+        const f = shown.placed.frames[selected];
+        if (f) putBox(selected, { x: f.x - dir[0] * GRID, y: f.y - dir[1] * GRID });
+        return true;
+      }
       const c = camera.cam;
       glideTo({ k: c.k, x: c.x + dir[0] * PAN_STEP, y: c.y + dir[1] * PAN_STEP }, KEY_MS);
       return true;
@@ -390,15 +454,16 @@
       if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && e.key.toLowerCase() === "h") tool.current = "hand";
       if (navKey(e)) return;
     }
+    // a popover owns the keys while it is open or has focus
+    const owned = e.repeat || sess.ui || !!(e.target as Element | null)?.closest?.("[data-popover]");
+    if (!owned && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+      return;
+    }
     if (edit && e.key !== "Escape") {
-      // a popover owns the keys while it is open or has focus
-      if (e.repeat || sess.ui || (e.target as Element | null)?.closest?.("[data-popover]")) return;
+      if (owned) return;
       const k = e.key.toLowerCase();
-      if ((e.metaKey || e.ctrlKey) && k === "z") {
-        e.preventDefault();
-        run(() => e.shiftKey ? edit.redo() : edit.undo());
-        return;
-      }
       if (!e.metaKey && !e.ctrlKey && !e.altKey && selected && shortcuts[k]) {
         e.preventDefault();
         sess.act(shortcuts[k], selected);
@@ -453,7 +518,7 @@
     return () => stage.removeEventListener("wheel", wheel);
   });
 
-  // Drag pans, or moves the closed box under the pointer (`box`: its id, its shift at the start
+  // Drag pans, or moves the closed box under the pointer (`box`: its id, where it was at the start
   // and screen pixels per unit of its parent); a drag's trailing click must not open a box.
   let drag: { x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; pt?: { x: number; y: number }; track?: { x: number; y: number; t: number }[]; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
   let swallow = false;
@@ -474,27 +539,15 @@
       return;
     }
     const b = id ? byId.get(id) : undefined;
-    if (b) drag.box = { id: b.id, at: moves[b.id] ?? { x: 0, y: 0 }, k: (unit.get(b.parent ?? ROOT) ?? 1) * camera.cam.k };
+    const f = b && shown.placed.frames[b.id];
+    if (b && f) drag.box = { id: b.id, at: { x: f.x, y: f.y }, k: (unit.get(b.parent ?? ROOT) ?? 1) * camera.cam.k };
   }
   const MARQUEE = false; // Task 11: a select-drag on empty ground draws the frame instead of panning
-  /** Shift `d` of box `id`, kept inside its parent's frame (the system has none: anywhere). */
-  function within(id: string, d: { x: number; y: number }) {
-    const f = view.placed.frames[id], p = byId.get(id)?.parent;
-    const pf = p && p !== ROOT ? shown.placed.frames[p] : undefined;
-    const inner = p ? view.placed.inner[p] : undefined;
-    if (!f || !pf || !inner) return d;
-    const t = fitInner(pf, inner[0], inner[1]), head = Math.min(HEAD, pf.h / 4);
-    const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
-    return {
-      x: clamp(f.x + d.x, -t.x / t.s, (pf.w - t.x) / t.s - f.w) - f.x,
-      y: clamp(f.y + d.y, (head - t.y) / t.s, (pf.h - t.y) / t.s - f.h) - f.y,
-    };
-  }
   function placeBox() {
     const b = drag?.box;
     if (!drag || !b || !drag.pt || b.k <= 0) return;
     const dx = drag.pt.x - drag.x - (camera.cam.x - drag.from.x), dy = drag.pt.y - drag.y - (camera.cam.y - drag.from.y);
-    live = { id: b.id, ...within(b.id, { x: b.at.x + dx / b.k, y: b.at.y + dy / b.k }) };
+    live = { id: b.id, x: b.at.x + dx / b.k, y: b.at.y + dy / b.k };
   }
   const EDGE_SPEED = 0.5;
   let edgeRaf = 0;
@@ -545,8 +598,9 @@
       const a = tr[0], b = tr[tr.length - 1], dt = b.t - a.t;
       if (dt > 0 && performance.now() - b.t < 50) startCoast(momentum({ x: (b.x - a.x) / dt, y: (b.y - a.y) / dt }, 0));
     }
-    if (live) keep({ ...moves, [live.id]: { x: live.x, y: live.y } });
+    const held = live;
     live = null;
+    if (held) putBox(held.id, held);
     cancelAnimationFrame(edgeRaf);
     edgeRaf = 0;
     drag = null;
@@ -676,7 +730,7 @@
 
   /** A box's inner space inside its own frame, below its header (as place.inside, locally). */
   function local(id: string) {
-    const f = shown.placed.frames[id], [iw, ih] = view.placed.inner[id] ?? [0, 0];
+    const f = shown.placed.frames[id], [iw, ih] = shown.placed.inner[id] ?? [0, 0];
     return { ...fitInner(f, iw, ih), iw, ih };
   }
 </script>
@@ -772,9 +826,9 @@
   <Controls {crumbs} {layers} {on} oncrumb={fly}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
-    onreset={Object.keys(moves).length ? () => keep({}) : undefined} {wheelPref} onwheel={setPref}>
+    onreset={stored ? resetPlaces : undefined} {wheelPref} onwheel={setPref}>
     {#snippet bar()}
-      {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={() => run(() => edit.undo())} onredo={() => run(() => edit.redo())} {note} />{/if}
+      {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={undo} onredo={redo} {note} />{/if}
     {/snippet}
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>

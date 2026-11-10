@@ -1,0 +1,240 @@
+// @vitest-environment happy-dom
+import { expect, test, vi } from "vitest";
+import { flushSync, mount } from "svelte";
+import { Places, inside, type Place } from "../src/map/place/places";
+import { freeSpot, nudge, overlaps, reparented, settle, shownView } from "../src/map/place/rules";
+import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, undoNext } from "../src/map/place/history";
+import { tween } from "../src/map/glide";
+import { worldFrame } from "../src/map/camera";
+import { GRID } from "../src/map/nav";
+import type { MapArrow, View } from "../src/map/types";
+import type { EditApi } from "../src/api";
+import MapHarness from "./MapHarness.svelte";
+import shop from "./fixtures/shop-view.json";
+
+const f = (v: string) => ({ value: v, source: "ig" as const });
+/** A system holding container `c` (its frame at 100,100, 400×300, inner 1200×800) and `c`'s children. */
+function mapOf(kids: Record<string, Place>, arrows: [string, string][] = [], parents: Record<string, string> = {}): View {
+  const view: View = { version: 1, boxes: [], arrows: [], marks: [], notices: [], warnings: [], kinds: [], placed: { frames: {}, inner: {}, regions: [] } };
+  const add = (id: string, parent: string | undefined) => view.boxes.push({ id, parent, level: "component", madeOf: [], files: 0, kind: f("box") as never, title: f(id) });
+  add("system", undefined);
+  add("c", "system");
+  view.placed.inner.system = [800, 600];
+  view.placed.frames.c = { x: 100, y: 100, w: 400, h: 300 };
+  view.placed.inner.c = [1200, 800];
+  for (const [id, p] of Object.entries(kids)) {
+    add(id, parents[id] ?? "c");
+    view.placed.frames[id] = p;
+  }
+  view.arrows = arrows.map(([from, to]): MapArrow => ({ id: `${from}->${to}`, parent: "c", from, to, kind: "uses", count: 1, kinds: ["uses"] }));
+  return view;
+}
+const box = (x: number, y: number, w = 200, h = 100): Place => ({ x, y, w, h });
+
+test("a new box lands next to its arrow partner, on the grid, and nobody else moves", () => {
+  const v1 = mapOf({ a: box(96, 96), b: box(816, 504) });
+  const prev = settle({}, v1, {}, null);
+  const v2 = mapOf({ a: box(96, 96), b: box(816, 504), n: box(96, 96) }, [["n", "b"]]);
+  const next = settle(prev, v2, {}, null);
+  expect(next.a).toEqual(prev.a);
+  expect(next.b).toEqual(prev.b);
+  const n = next.n, b = next.b;
+  expect(overlaps(n, b, GRID)).toBe(false);
+  expect(n.x % GRID).toBe(0);
+  expect(n.y % GRID).toBe(0);
+  const gap = Math.max(b.x - (n.x + n.w), n.x - (b.x + b.w), b.y - (n.y + n.h), n.y - (b.y + b.h));
+  expect(gap).toBeLessThanOrEqual(2 * GRID);
+  expect([n.w, n.h]).toEqual([200, 100]);
+});
+
+test("a new box with no arrows goes near its siblings' centre of mass", () => {
+  const v1 = mapOf({ a: box(96, 96), b: box(600, 96) });
+  const next = settle(settle({}, v1, {}, null), mapOf({ a: box(96, 96), b: box(600, 96), n: box(0, 0) }), {}, null);
+  const c = next.n.x + next.n.w / 2;
+  expect(c).toBeGreaterThan(296);
+  expect(c).toBeLessThan(600);
+});
+
+test("a free spot never overlaps", () => {
+  const placed: Record<string, Place> = {};
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) placed[`k${i}-${j}`] = box(i * 230 + (j % 2) * 37, j * 130 + (i % 3) * 11, 180 + (i * 7) % 40, 90);
+  for (const [w, h] of [[50, 50], [200, 100], [400, 300], [24, 600]]) {
+    for (const aim of ["k0-0", "k3-2", "k5-4"]) {
+      const spot = freeSpot("c", "n", { ...placed, n: box(0, 0, w, h) }, [{ from: "n", to: aim }]);
+      for (const p of Object.values(placed)) expect(overlaps(spot, p, GRID)).toBe(false);
+    }
+  }
+});
+
+test("an overlap nudges the other the fewest pixels, and repeats outward", () => {
+  const out = nudge({ h: box(0, 0, 100, 100), b: box(90, 20, 100, 100), c: box(200, 20, 100, 100), far: box(0, 400, 100, 100) }, "h", GRID);
+  expect(out.b).toEqual(box(100 + GRID, 20, 100, 100));
+  expect(out.c).toEqual(box(100 + GRID + 100 + GRID, 20, 100, 100));
+  expect(out.far).toEqual(box(0, 400, 100, 100));
+  const down = nudge({ h: box(0, 0, 100, 100), b: box(10, 90, 100, 100) }, "h", GRID);
+  expect(down.b).toEqual(box(10, 100 + GRID, 100, 100));
+  const vals = Object.values(out);
+  for (const a of vals) for (const b of vals) if (a !== b) expect(overlaps(a, b)).toBe(false);
+});
+
+test("the held box never moves", () => {
+  const held = box(50, 50, 300, 300);
+  const out = nudge({ h: held, a: box(0, 0), b: box(100, 200), c: box(250, 250) }, "h", GRID);
+  expect(out.h).toEqual(held);
+  for (const id of ["a", "b", "c"]) expect(overlaps(out[id], held)).toBe(false);
+  const v = mapOf({ a: box(96, 96), b: box(400, 96) });
+  const prev = settle({}, v, {}, null);
+  const next = settle(prev, v, { a: box(300, 96) }, "a");
+  expect(next.a).toEqual(box(300, 96));
+  expect(next.b.x).toBeGreaterThanOrEqual(300 + 200 + GRID);
+});
+
+test("a child leaving its parent grows the parent, and nothing inside moves on screen", () => {
+  const v = mapOf({ a: box(96, 96), b: box(600, 400) });
+  const prev = settle({}, v, {}, null);
+  const world = (places: Record<string, Place>, id: string) => worldFrame(id, shownView(v, places));
+  for (const to of [box(1100, 400), box(-150, -80)]) {
+    const next = settle(prev, v, { b: to }, "b");
+    const room = next[inside("c")];
+    expect(room.x).toBeLessThanOrEqual(to.x - GRID);
+    expect(room.x + room.w).toBeGreaterThanOrEqual(to.x + to.w + GRID);
+    expect(room.y).toBeLessThanOrEqual(to.y - GRID);
+    expect(next.c.w).toBeGreaterThan(prev.c.w);
+    const [was, now] = [world(prev, "a"), world(next, "a")];
+    for (const k of ["x", "y", "w", "h"] as const) expect(now[k]).toBeCloseTo(was[k], 6);
+    // halfway through the glide too
+    const mid = world(tween(prev, next, 150) as Record<string, Place>, "a");
+    for (const k of ["x", "y", "w", "h"] as const) expect(mid[k]).toBeCloseTo(was[k], 6);
+  }
+});
+
+test("a parent that grows nudges its own neighbours one level up", () => {
+  const v = mapOf({ a: box(96, 96), d: box(520, 100, 100, 100) }, [], { d: "system" });
+  const prev = settle({}, v, {}, null);
+  const next = settle(prev, v, { a: box(1400, 96) }, "a");
+  expect(next.c.w).toBeGreaterThan(prev.c.w);
+  expect(overlaps(next.c, next.d)).toBe(false);
+  expect(next.d).not.toEqual(prev.d);
+  expect(next.a).toEqual(box(1400, 96));
+});
+
+test("delete leaves the gap; a stored size is kept", () => {
+  const v1 = mapOf({ a: box(96, 96), b: box(400, 96), c2: box(700, 96) });
+  const prev: Record<string, Place> = { ...settle({}, v1, {}, null), b: box(400, 96, 260, 140) };
+  const v2 = mapOf({ a: box(96, 96), c2: box(400, 96) });
+  const next = settle(prev, v2, {}, null);
+  expect(next.c2).toEqual(prev.c2);
+  expect(next.a).toEqual(prev.a);
+  expect(next.b).toBeUndefined();
+  expect(settle(prev, v1, {}, null).b).toEqual(box(400, 96, 260, 140));
+});
+
+test("a box moved to another parent is placed anew there", () => {
+  const v1 = mapOf({ a: box(96, 96), b: box(400, 96) });
+  const v2 = mapOf({ a: box(96, 96), b: box(30, 30, 50, 50) }, [], { b: "system" });
+  expect(reparented(v1, v2)).toEqual(["b"]);
+});
+
+test("old ig-moves: offsets are read once and become places", () => {
+  const kept: Record<string, string> = { "ig-moves:S": JSON.stringify({ a: { x: 10, y: -5 }, gone: { x: 1, y: 1 } }) };
+  const store = { getItem: (k: string) => kept[k] ?? null, setItem: (k: string, v: string) => void (kept[k] = v), removeItem: (k: string) => void delete kept[k] };
+  const p = new Places("S", { a: box(100, 100) }, store);
+  expect(p.get("a")).toEqual(box(110, 95));
+  expect(p.get("gone")).toBeUndefined();
+  expect(kept["ig-moves:S"]).toBeUndefined();
+  expect(JSON.parse(kept["ig-places:S"])).toEqual({ a: box(110, 95) });
+  kept["ig-moves:S"] = JSON.stringify({ a: { x: 500, y: 500 } });
+  expect(new Places("S", { a: box(100, 100) }, store).get("a")).toEqual(box(110, 95));
+  p.set("b", box(1, 2, 3, 4));
+  p.forget(["a", "b"]);
+  expect(kept["ig-places:S"]).toBeUndefined();
+  const broken = { getItem: () => { throw new Error("denied"); }, setItem: () => { throw new Error("denied"); }, removeItem: () => {} };
+  const q = new Places("S", {}, broken);
+  q.set("a", box(0, 0));
+  expect(q.snapshot()).toEqual({ a: box(0, 0) });
+});
+
+test("undo takes the later of a place change and an edit; redo the one undone last", () => {
+  const clock = new Clock(), edits = new EditLog(clock), places = new PlaceHistory(clock);
+  expect(undoNext(edits, places)).toBe("edit");
+  edits.push();
+  const a = { x: box(0, 0) }, b = { x: box(24, 0) };
+  const c = changes(a, b)!;
+  places.push(c.before, c.after);
+  expect(undoNext(edits, places)).toBe("place");
+  expect(apply(b, places.undo()!)).toEqual(a);
+  expect(undoNext(edits, places)).toBe("edit");
+  edits.undo();
+  expect(redoNext(edits, places)).toBe("edit");
+  edits.redo();
+  expect(redoNext(edits, places)).toBe("place");
+  expect(apply(a, places.redo()!)).toEqual(b);
+  edits.push();
+  expect(undoNext(edits, places)).toBe("edit");
+  expect(changes(a, a)).toBeNull();
+  expect(apply({ x: box(0, 0) }, { x: null })).toEqual({});
+});
+
+// --- in the map
+const size = { w: 1000, h: 800 };
+const slot = (t: HTMLElement, id: string) => t.querySelector(`[data-box="${CSS.escape(id)}"]`) as HTMLElement;
+const rect = (t: HTMLElement, id: string) => {
+  const s = slot(t, id).style;
+  return { x: parseFloat(s.left), y: parseFloat(s.top), w: parseFloat(s.width), h: parseFloat(s.height) };
+};
+const press = (key: string, init: KeyboardEventInit = {}) => {
+  window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...init }));
+  flushSync();
+};
+function mountMap(apply: () => Promise<View>) {
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  const calls: string[] = [];
+  const v = structuredClone(shop) as unknown as View;
+  const edit = { apply, keep: apply, drop: apply, dropAll: apply, undo: async () => (calls.push("undo"), v), redo: async () => (calls.push("redo"), apply()) } as unknown as EditApi;
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(MapHarness, { target, props: { start: v, edit, size } });
+  flushSync();
+  return { target, calls, m };
+}
+const later = () => new Promise((r) => setTimeout(r, 0));
+const glideDone = () => new Promise((r) => setTimeout(r, 500));
+
+test("arrow keys move the selected box a grid step; Cmd+Z undoes that before the edit before it", async () => {
+  const { target, calls } = mountMap(async () => structuredClone(shop) as unknown as View);
+  const was = rect(target, "stripe");
+  slot(target, "stripe").querySelector("button")!.click();
+  flushSync();
+  press("ArrowRight");
+  await glideDone();
+  flushSync();
+  expect(rect(target, "stripe").x).toBeCloseTo(was.x + GRID);
+  press("z", { metaKey: true });
+  await later();
+  await glideDone();
+  flushSync();
+  expect(rect(target, "stripe").x).toBeCloseTo(was.x);
+  expect(calls).toEqual([]);
+  press("z", { metaKey: true });
+  await later();
+  expect(calls).toEqual(["undo"]);
+  vi.unstubAllGlobals();
+});
+
+test("a box an edit adds finds room; the boxes already drawn stay", async () => {
+  const added = structuredClone(shop) as unknown as View;
+  added.boxes.push({ id: "mailer", parent: "system", level: "container", madeOf: [], files: 0, kind: f("service") as never, title: f("Mailer") });
+  added.arrows.push({ id: "mailer->stripe", parent: "system", from: "mailer", to: "stripe", kind: "calls", count: 1, kinds: ["calls"] });
+  // ig's new layout would put it on top of api and shift the others
+  added.placed.frames.mailer = { ...added.placed.frames.api };
+  added.placed.frames.web = { ...added.placed.frames.web, x: added.placed.frames.web.x + 300 };
+  const { target } = mountMap(async () => added);
+  const before = Object.fromEntries(["api", "web", "stripe", "postgres", "api-client"].map((id) => [id, rect(target, id)]));
+  (target.querySelector('[aria-label="Redo"]') as HTMLElement | null)?.click();
+  await later();
+  flushSync();
+  for (const [id, r] of Object.entries(before)) expect(rect(target, id)).toEqual(r);
+  const m = rect(target, "mailer");
+  for (const r of Object.values(before)) expect(overlaps(m, r)).toBe(false);
+  vi.unstubAllGlobals();
+});

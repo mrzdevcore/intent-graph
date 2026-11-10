@@ -1,4 +1,5 @@
 import type { Cam } from "./camera";
+import type { Frame } from "./types";
 
 export const GLIDE_MS = 800;
 
@@ -28,6 +29,22 @@ export function glide(from: Cam, to: Cam, t: number, ms = GLIDE_MS): Cam {
   if (Math.abs(dk) < 1e-9 * Math.max(from.k, to.k)) return { x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, k };
   const wx = (from.x - to.x) / dk, wy = (from.y - to.y) / dk;
   return { x: from.x + (from.k - k) * wx, y: from.y + (from.k - k) * wy, k };
+}
+
+export const PLACE_MS = 400;
+
+/** The boxes t ms into a glide from `from` to `to`, on the camera's curve; a box new in `to` is
+ *  already there. */
+export function tween(from: Record<string, Frame>, to: Record<string, Frame>, t: number, ms = PLACE_MS): Record<string, Frame> {
+  const p = t / ms;
+  if (p >= 1) return to;
+  const e = p > 0 ? ease(p) : 0, out = { ...to };
+  for (const [id, b] of Object.entries(to)) {
+    const a = from[id];
+    if (!a || (a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h)) continue;
+    out[id] = { x: a.x + (b.x - a.x) * e, y: a.y + (b.y - a.y) * e, w: a.w + (b.w - a.w) * e, h: a.h + (b.h - a.h) * e };
+  }
+  return out;
 }
 
 /** A wheel event as a zoom factor: lines and pages become pixels; a pinch (ctrlKey) zooms faster. */

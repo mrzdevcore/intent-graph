@@ -235,8 +235,10 @@ test("dragging a closed box moves it and its arrows, keeps it, and Reset layout 
   btn.click();
   flushSync();
   expect(target.querySelector(".details")).toBeNull();
-  expect(Object.keys(JSON.parse(kept["ig-moves:" + view.boxes.find((b) => b.id === "system")!.title.value]))).toEqual([id]);
+  const places = JSON.parse(kept["ig-places:" + view.boxes.find((b) => b.id === "system")!.title.value]);
+  expect(places[id].x).toBeCloseTo(view.placed.frames[id].x - 20);
   (([...target.querySelectorAll(".tools button")].find((b) => b.textContent === "Reset layout")) as HTMLButtonElement).click();
+  m.tick(performance.now() + 1000);
   flushSync();
   expect(slot().style.left).toBe(left);
   expect(kept).toEqual({});
