@@ -1,7 +1,7 @@
 // Which boxes can hold a box that is being moved: the add form's rules (role and `inside`). Rust's reader stays the final judge.
 import type { KindView, MapBox } from "../types";
 /** What the box menu offers. */
-export type Act = "rename" | "move" | "add" | "arrow" | "delete";
+export type Act = "rename" | "move" | "add" | "arrow" | "arrange" | "delete";
 import { inside, kindOf } from "./add";
 
 /** A run block goes to the root or a group outside any running block; a design block inside a running block (a run block, a

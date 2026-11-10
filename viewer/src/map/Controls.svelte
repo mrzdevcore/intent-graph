@@ -1,12 +1,12 @@
-<!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles, zoom −,
-     Fit, + and, once boxes were moved by hand, Reset layout (top right). -->
+<!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles, More (scroll wheel,
+     Arrange the map), zoom −, Fit, + and, once boxes were moved by hand, Reset layout (top right). -->
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset, wheelPref, onwheel, bar, children }: {
+  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset, wheelPref, onwheel, onarrange, bar, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void; onzoom: (f: number) => void; onfit: () => void;
-    onreset?: () => void; wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void; bar?: Snippet; children?: Snippet;
+    onreset?: () => void; wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void; onarrange?: () => void; bar?: Snippet; children?: Snippet;
   } = $props();
 </script>
 
@@ -36,6 +36,7 @@
         <option value="auto">Automatic</option><option value="zoom">Zoom</option><option value="pan">Pan</option>
       </select>
     </label>
+    {#if onarrange}<button type="button" class="item" onclick={onarrange}>Arrange the map <kbd>⌥⇧F</kbd></button>{/if}
   </details>
   <div class="zoom">
     <button type="button" aria-label="Zoom out" onclick={() => onzoom(1 / 1.6)}>−</button>
@@ -57,6 +58,9 @@
   .layers[open] summary { border: 0; }
   .layers summary { list-style: none; }
   .layers label { display: flex; gap: var(--space-1-5); align-items: center; padding: var(--space-0-5) var(--space-2-5); font-size: var(--text-md); white-space: nowrap; }
+  .layers .item { display: flex; justify-content: space-between; gap: var(--space-3); width: 100%; border: 0; background: none; text-align: left; white-space: nowrap; }
+  .layers .item:hover { background: var(--map-sunken); }
+  .layers kbd { font: inherit; font-size: var(--text-sm); color: var(--map-faint); }
   .zoom { display: flex; gap: var(--space-0-5); }
   @media (max-width: 47.5rem) { .head { right: var(--space-4); top: 3.25rem; } }
 </style>

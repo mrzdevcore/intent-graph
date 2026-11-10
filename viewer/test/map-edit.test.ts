@@ -223,10 +223,23 @@ test("right-click opens the menu, Esc closes it", () => {
   boxEl(target, "web").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
   flushSync();
   expect([...menuOf(target)!.querySelectorAll('[role="menuitem"]')].map((b) => b.firstElementChild!.textContent))
-    .toEqual(["Rename", "Move to…", "Add box inside", "Arrow from here", "Delete"]);
+    .toEqual(["Rename", "Move to…", "Add box inside", "Arrow from here", "Arrange inside", "Delete"]);
   press("ArrowDown", {}, document.activeElement!);
   press("Escape", {}, document.activeElement!);
   expect(menuOf(target)).toBeNull();
+  boxEl(target, "stripe").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  flushSync();
+  expect(menuOf(target)!.textContent).not.toContain("Arrange inside");
+});
+
+test("Arrange inside lays out the box's inside and says how many boxes moved", () => {
+  const { target } = setup(recorder().api);
+  boxEl(target, "api").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  flushSync();
+  ([...menuOf(target)!.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.startsWith("Arrange inside")) as HTMLButtonElement).click();
+  flushSync();
+  expect(menuOf(target)).toBeNull();
+  expect(target.querySelector(".arranged")?.textContent).toMatch(/Arranged \d+ boxes/);
 });
 
 test("F2, typing and Enter sets the title", async () => {

@@ -38,7 +38,8 @@
   import Warnings from "./Warnings.svelte";
   import Folders from "./Folders.svelte";
   import { proposed } from "./edit/proposals";
-  import { Places, inside as innerKey, type Place } from "./place/places";
+  import { Places, inside as innerKey, isInside, type Place } from "./place/places";
+  import { arrange } from "./place/arrange";
   import { rekey, reparented, settle as settlePlaces, shownView } from "./place/rules";
   import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, renamesOf, undoNext, type Rename } from "./place/history";
 
@@ -177,6 +178,22 @@
       const c = history.redo();
       if (c) placeAll(apply(truth, c), [], false);
     } else if (edit) run(() => edit.redo(), "redo");
+  }
+  let tidied = $state<{ n: number; stamp?: number } | null>(null);
+  let tidyTimer: ReturnType<typeof setTimeout> | undefined;
+  onDestroy(() => clearTimeout(tidyTimer));
+  function arrangeIn(scope: string[]) {
+    const next = arrange(scope, view, truth, GRID), c = changes(truth, next);
+    placeAll(next);
+    tidied = { n: c ? Object.keys(c.after).filter((k) => !isInside(k)).length : 0, stamp: c ? history.last : undefined };
+    clearTimeout(tidyTimer);
+    tidyTimer = setTimeout(() => (tidied = null), 6000);
+  }
+  // what is open on screen: the deepest box of the breadcrumb that holds boxes
+  const arrangeMap = () => arrangeIn([[...trail].reverse().find((id) => kids.get(id)?.length) ?? ROOT]);
+  function undoArrange() {
+    if (tidied?.stamp !== undefined && history.last === tidied.stamp) undo();
+    tidied = null;
   }
   const shown = $derived(shownView(view, showing));
   const group = <T,>(xs: T[], key: (x: T) => string) => {
@@ -473,6 +490,11 @@
       if (e.shiftKey) redo(); else undo();
       return;
     }
+    if (!owned && e.altKey && e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === "KeyF") {
+      e.preventDefault();
+      arrangeMap();
+      return;
+    }
     if (edit && e.key !== "Escape") {
       if (owned) return;
       const k = e.key.toLowerCase();
@@ -629,7 +651,7 @@
   }
   const sess = new EditSession({
     edit: () => api, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
-    selected: () => selected, select: (id) => (selected = id), tool: (t) => (tool.current = t), run,
+    selected: () => selected, select: (id) => (selected = id), tool: (t) => (tool.current = t), run, arrange: arrangeIn,
   });
   const addParent = $derived(sess.adding ? byId.get(sess.adding.parent) : undefined);
   let landed: Show | null | undefined;
@@ -838,9 +860,9 @@
   <Controls {crumbs} {layers} {on} oncrumb={fly}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
-    onreset={stored ? () => placeAll(settlePlaces({}, view, {}, null), [], "push", false) : undefined} {wheelPref} onwheel={setPref}>
+    onreset={stored ? () => placeAll(settlePlaces({}, view, {}, null), [], "push", false) : undefined} {wheelPref} onwheel={setPref} onarrange={arrangeMap}>
     {#snippet bar()}
-      {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={undo} onredo={redo} {note} />{/if}
+      {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={undo} onredo={redo} onarrange={arrangeMap} {note} />{/if}
     {/snippet}
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
@@ -868,6 +890,12 @@
       <span class="words"><span class="muted">New answer</span><b>{waiting.title}</b></span>
       <button type="button" class="go" onclick={() => land(waiting!)}>Show</button>
       <button type="button" onclick={() => (waiting = null)}>Later</button>
+    </div>
+  {/if}
+  {#if tidied}
+    <div class="arranged" role="status">
+      {tidied.n ? `Arranged ${tidied.n} ${tidied.n === 1 ? "box" : "boxes"}` : "Already arranged"}
+      {#if tidied.stamp !== undefined}<button type="button" onclick={undoArrange}>Undo</button>{/if}
     </div>
   {/if}
   {#if edit}<EditLayer s={sess} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
@@ -935,6 +963,10 @@
   .map :global(.row) { padding: 0; background: none; cursor: inherit; }
   .reading { position: absolute; left: 50%; bottom: var(--space-4); transform: translateX(-50%); margin: 0; padding: var(--space-1-5) var(--space-3-5);
     border: 1px dotted var(--map-gold); border-radius: var(--radius-pill); background: var(--map-surface); font-size: var(--text-md); color: var(--map-fg-2); max-width: calc(100% - 2rem); }
+  .arranged { position: absolute; z-index: 3; left: var(--space-4); bottom: var(--space-4); display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1-5) var(--space-2) var(--space-1-5) var(--space-3);
+    background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-lg); box-shadow: 0 0.375rem 1.25rem var(--map-shadow); font-size: var(--text-md); color: var(--map-fg); }
+  .arranged button { font: inherit; color: var(--map-fg); background: var(--map-sunken); border: 1px solid var(--map-line); border-radius: var(--radius-md); padding: var(--space-0-5) var(--space-2-5); cursor: pointer; }
+  .arranged button:focus-visible { outline: 2px solid var(--map-trace); outline-offset: 2px; }
   .reading.lifted { bottom: 4.5rem; }
   .reading code { background: var(--map-sunken); }
 </style>

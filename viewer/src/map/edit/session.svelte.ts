@@ -10,6 +10,7 @@ export type Ctx = {
   edit: () => EditApi | undefined; box: (id: string) => MapBox | undefined; frame: (id: string) => Frame;
   cam: () => { x: number; y: number; k: number }; stage: () => HTMLElement;
   selected: () => string | null; select: (id: string | null) => void; tool: (t: Tool) => void; run: (p: () => Promise<View>) => void;
+  arrange: (scope: string[]) => void;
 };
 
 export class EditSession {
@@ -115,7 +116,8 @@ export class EditSession {
     else if (a === "arrow") {
       this.c.select(id);
       this.c.tool("arrow");
-    } else this.c.run(() => this.c.edit()!.apply({ op: "remove", id }));
+    } else if (a === "arrange") this.c.arrange([id]);
+    else this.c.run(() => this.c.edit()!.apply({ op: "remove", id }));
   }
   /** Close the rename or move popover and send the edit it makes for its box (read before ui is cleared). */
   settle(make: (id: string) => Edit | null) {

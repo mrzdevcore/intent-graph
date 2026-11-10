@@ -1,10 +1,13 @@
-<!-- The box menu (right-click, or the card's ⋯): Rename, Move to…, Add box inside, Arrow from here, Delete.
+<!-- The box menu (right-click, or the card's ⋯): Rename, Move to…, Add box inside, Arrow from here, Arrange inside (a box with children), Delete.
      Arrow keys move between items; Esc closes (handled here: the map ignores keys while focus is in a field). -->
 <script lang="ts">
   import { onMount } from "svelte";
   import type { Act } from "./menu";
-  let { x, y, title, onpick, onclose }: { x: number; y: number; title: string; onpick: (a: Act) => void; onclose: () => void } = $props();
-  const items: [Act, string, string][] = [["rename", "Rename", "F2"], ["move", "Move to…", "M"], ["add", "Add box inside", "B"], ["arrow", "Arrow from here", "A"], ["delete", "Delete", "⌫"]];
+  let { x, y, title, group = false, onpick, onclose }: { x: number; y: number; title: string; group?: boolean; onpick: (a: Act) => void; onclose: () => void } = $props();
+  const items: [Act, string, string][] = $derived([
+    ["rename", "Rename", "F2"], ["move", "Move to…", "M"], ["add", "Add box inside", "B"], ["arrow", "Arrow from here", "A"],
+    ...(group ? [["arrange", "Arrange inside", ""] as [Act, string, string]] : []), ["delete", "Delete", "⌫"],
+  ]);
   let menu: HTMLDivElement;
   const buttons = () => [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
   onMount(() => buttons()[0]?.focus());

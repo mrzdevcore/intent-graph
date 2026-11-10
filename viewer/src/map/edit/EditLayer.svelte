@@ -19,7 +19,7 @@
 {#if ui && ui.t !== "arrow"}
   {@const id = ui.id}
   {#if ui.t === "menu"}
-    <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} onpick={(a) => s.act(a, id, { x: ui.x, y: ui.y })} onclose={() => s.shut()} />
+    <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} group={boxes.some((b) => b.parent === id)} onpick={(a) => s.act(a, id, { x: ui.x, y: ui.y })} onclose={() => s.shut()} />
   {:else if ui.t === "rename"}
     <RenameBox value={s.titleOf(id)} x={ui.x} y={ui.y} w={s.width(id)} onclose={() => s.shut()} onleave={() => s.shut(false)}
       onsubmit={(v) => s.settle((id) => v && v !== s.titleOf(id) ? { op: "set", id, key: "title", value: v } : null)} />
