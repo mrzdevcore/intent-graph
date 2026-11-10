@@ -15,14 +15,25 @@ export function wheelIntent(
 }
 
 export const GRID = 24;
-const LO = 32, HI = 64;
+const LO = 8, HI = 64;
 
+// step: the main dots' spacing in grid units (a power of 4); fade: how visible the dots a quarter of that apart are
 export function gridLevel(k: number, unit: number): { step: number; fade: number } {
   const s = unit * k;
   if (!(s > 0) || !Number.isFinite(s)) return { step: 1, fade: 0 };
-  const n = Math.ceil(Math.log2(LO / s) - 1e-9);
-  const step = 2 ** n, b = s * step;
-  return { step, fade: Math.min(1, Math.max(0, (b - LO) / (HI - LO))) };
+  const n = Math.ceil(Math.log2((2 * LO) / s) / 2 - 1e-9);
+  const step = 4 ** n, b = s * step;
+  return { step, fade: Math.min(1, Math.max(0, (b / 4 - LO) / (HI / 4 - LO))) };
+}
+
+export function edgePan(pt: { x: number; y: number }, size: { w: number; h: number }, margin: number): { x: number; y: number } {
+  const axis = (v: number, len: number) => {
+    if (!(margin > 0)) return 0;
+    if (v < margin) return Math.min(1, (margin - v) / margin);
+    if (v > len - margin) return -Math.min(1, (v - (len - margin)) / margin);
+    return 0;
+  };
+  return { x: axis(pt.x, size.w), y: axis(pt.y, size.h) };
 }
 
 const DECAY = 0.92, FRAME = 16, REST = 0.05;

@@ -8,7 +8,7 @@
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, wheelFactor } from "./glide";
-  import { GRID, gridLevel, momentum, softK, wheelIntent, type WheelPref } from "./nav";
+  import { GRID, edgePan, gridLevel, momentum, softK, wheelIntent, type WheelPref } from "./nav";
   import { wires, type Mode } from "./wires";
   import MapBox from "./MapBox.svelte";
   import { shapeOf } from "./shapes";
@@ -72,7 +72,7 @@
   };
   const typing = (t: EventTarget | null) => {
     const el = t as HTMLElement | null;
-    return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
+    return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable || !!el.closest?.("[contenteditable]"));
   };
 
   const ROOT = "system";
@@ -159,7 +159,7 @@
   let cw = $state(0), ch = $state(0);
   const vw = $derived(size?.w ?? cw), vh = $derived(size?.h ?? ch);
   let cam = $state<Cam>(untrack(() => camera.cam));
-  // the camera detail and wires are worked out from: it trails `cam` while a wheel or drag gesture runs
+  // detail and wires are worked out from this camera; it trails `cam` while a wheel or drag gesture runs
   let lod = $state<Cam>(untrack(() => camera.cam));
   let selected = $state<string | null>(null);
   // the path the search lit: its boxes and arrows drawn in full, the rest of that level faded
@@ -233,18 +233,16 @@
   }
   function settle() {
     lod = cam;
-    const [lo, hi] = limits();
+    const [lo, hi] = bounds;
     if (cam.k < lo || cam.k > hi) zoomAt(anchorPt.x, anchorPt.y, clampTo(cam.k, lo, hi) / cam.k, true);
   }
   const clampTo = (k: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, k));
-  // zoom stays between the whole map filling a quarter of the view and the smallest box filling it
-  function limits(): [number, number] {
+  const bounds = $derived.by((): [number, number] => {
     const lo = home().k / 4;
     let w = Infinity;
     for (const f of world.values()) if (f.w > 0) w = Math.min(w, f.w);
-    const hi = Number.isFinite(w) && vw > 0 ? Math.max(lo, vw / w) : 1e9;
-    return [lo, Math.min(1e9, hi)];
-  }
+    return [lo, Math.min(1e9, Number.isFinite(w) && vw > 0 ? Math.max(lo, vw / w) : 1e9)];
+  });
   let coast: { x: number; y: number } | null = null;
   let coastRaf = 0;
   function stopCoast() {
@@ -275,7 +273,10 @@
   export function tick(now: number) {
     cam = lod = camera.tick(now);
   }
-  onDestroy(() => cancelAnimationFrame(raf));
+  onDestroy(() => {
+    cancelAnimationFrame(raf);
+    cancelAnimationFrame(edgeRaf);
+  });
 
   let fitted = false;
   $effect(() => {
@@ -335,7 +336,7 @@
     selected = null;
     if (id) sess.focusBox(id);
   }
-  const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow", h: "hand" };
+  const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow" };
   let space = $state(false);
   const KEY_MS = 150, PAN_STEP = 96;
   function navKey(e: KeyboardEvent): boolean {
@@ -361,6 +362,7 @@
     }
     const dir = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
     if (dir && !mod && !e.altKey) {
+      if ((e.target as Element | null)?.closest?.("button, summary, a, select, [contenteditable], [role=menu], [role=listbox], [role=slider], [role=tablist]")) return false;
       if (selected) return false; // moving the selection by a grid step comes with the places store
       e.preventDefault();
       const c = camera.cam;
@@ -384,7 +386,10 @@
       space = true;
       return;
     }
-    if (!sess.ui && !(e.target as Element | null)?.closest?.("[data-popover]") && navKey(e)) return;
+    if (!sess.ui && !(e.target as Element | null)?.closest?.("[data-popover]")) {
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && e.key.toLowerCase() === "h") tool.current = "hand";
+      if (navKey(e)) return;
+    }
     if (edit && e.key !== "Escape") {
       // a popover owns the keys while it is open or has focus
       if (e.repeat || sess.ui || (e.target as Element | null)?.closest?.("[data-popover]")) return;
@@ -411,7 +416,7 @@
   // deep enough for the smallest code box of a deep tree
   const clampK = (k: number) => Math.min(1e9, Math.max(1e-3, k));
   function zoomAt(px: number, py: number, f: number, smooth = false) {
-    const c = camera.cam, [lo, hi] = limits(), k = clampK(smooth ? clampTo(c.k * f, lo, hi) : softK(c.k * f, lo, hi)), r = k / c.k;
+    const c = camera.cam, [lo, hi] = bounds, k = clampK(smooth ? clampTo(c.k * f, lo, hi) : softK(c.k * f, lo, hi)), r = k / c.k;
     const next = { k, x: px - (px - c.x) * r, y: py - (py - c.y) * r };
     anchorPt = { x: px, y: py };
     if (smooth) glideTo(next, KEY_MS); else gesture(next);
@@ -450,7 +455,7 @@
 
   // Drag pans, or moves the closed box under the pointer (`box`: its id, its shift at the start
   // and screen pixels per unit of its parent); a drag's trailing click must not open a box.
-  let drag: { x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; track?: { x: number; y: number; t: number }[]; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
+  let drag: { x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; pt?: { x: number; y: number }; track?: { x: number; y: number; t: number }[]; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
   let swallow = false;
   function down(e: PointerEvent) {
     swallow = false;
@@ -463,20 +468,15 @@
     drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     const id = el && !el.hasAttribute("data-open") ? el.dataset.box : undefined;
-    if (panning || (!id && e.pointerType === "touch")) {
+    if (panning || (!id && !(edit && MARQUEE))) {
       drag.pan = true;
       drag.track = [];
-      return;
-    }
-    if (!id) {
-      marquee(e);
-      drag = null;
       return;
     }
     const b = id ? byId.get(id) : undefined;
     if (b) drag.box = { id: b.id, at: moves[b.id] ?? { x: 0, y: 0 }, k: (unit.get(b.parent ?? ROOT) ?? 1) * camera.cam.k };
   }
-  function marquee(_e: PointerEvent) {}
+  const MARQUEE = false; // Task 11: a select-drag on empty ground draws the frame instead of panning
   /** Shift `d` of box `id`, kept inside its parent's frame (the system has none: anywhere). */
   function within(id: string, d: { x: number; y: number }) {
     const f = view.placed.frames[id], p = byId.get(id)?.parent;
@@ -490,6 +490,32 @@
       y: clamp(f.y + d.y, (head - t.y) / t.s, (pf.h - t.y) / t.s - f.h) - f.y,
     };
   }
+  function placeBox() {
+    const b = drag?.box;
+    if (!drag || !b || !drag.pt || b.k <= 0) return;
+    const dx = drag.pt.x - drag.x - (camera.cam.x - drag.from.x), dy = drag.pt.y - drag.y - (camera.cam.y - drag.from.y);
+    live = { id: b.id, ...within(b.id, { x: b.at.x + dx / b.k, y: b.at.y + dy / b.k }) };
+  }
+  const EDGE_SPEED = 0.5;
+  let edgeRaf = 0;
+  function edgeLoop() {
+    if (edgeRaf) return;
+    let last = performance.now();
+    const step = (now: number) => {
+      edgeRaf = 0;
+      const pt = drag?.pt, r = stage?.getBoundingClientRect();
+      if (!drag?.box || !pt || !r) return;
+      const v = edgePan({ x: pt.x - r.left, y: pt.y - r.top }, { w: vw, h: vh }, 3 * rem()), dt = Math.min(64, now - last);
+      last = now;
+      if (v.x || v.y) {
+        const c = camera.cam;
+        gesture({ k: c.k, x: c.x + v.x * EDGE_SPEED * dt, y: c.y + v.y * EDGE_SPEED * dt });
+        placeBox();
+      }
+      edgeRaf = requestAnimationFrame(step);
+    };
+    edgeRaf = requestAnimationFrame(step);
+  }
   function move(e: PointerEvent) {
     if (sess.moveLink(e) || !drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
@@ -497,8 +523,11 @@
     if (!drag.moved) sess.grab(drag.pointer);
     drag.moved = true;
     const b = drag.box;
-    if (b && b.k > 0) live = { id: b.id, ...within(b.id, { x: b.at.x + dx / b.k, y: b.at.y + dy / b.k }) };
-    else if (drag.pan) {
+    if (b && b.k > 0) {
+      drag.pt = { x: e.clientX, y: e.clientY };
+      placeBox();
+      edgeLoop();
+    } else if (drag.pan) {
       const now = performance.now();
       drag.track = [...(drag.track ?? []).filter((p) => now - p.t < 80), { x: e.clientX, y: e.clientY, t: now }];
       gesture({ k: drag.from.k, x: drag.from.x + dx, y: drag.from.y + dy });
@@ -518,12 +547,16 @@
     }
     if (live) keep({ ...moves, [live.id]: { x: live.x, y: live.y } });
     live = null;
+    cancelAnimationFrame(edgeRaf);
+    edgeRaf = 0;
     drag = null;
   }
   // a cancelled pointer, or the window losing focus mid-gesture, leaves nothing half done
   function abort() {
     space = false;
     stopCoast();
+    cancelAnimationFrame(edgeRaf);
+    edgeRaf = 0;
     sess.dropLink();
     live = null;
     drag = null;
@@ -637,7 +670,7 @@
   const dots = $derived.by(() => {
     const { step, fade } = gridLevel(cam.k, GRID), sp = GRID * step * cam.k;
     const at = (sp: number, opacity: number) => ({ sp, opacity, x: (((cam.x - sp / 2) % sp) + sp) % sp, y: (((cam.y - sp / 2) % sp) + sp) % sp });
-    return sp > 0 && Number.isFinite(sp) ? [at(sp, 1), ...(fade > 0 ? [at(sp / 2, fade)] : [])] : [];
+    return sp > 0 && Number.isFinite(sp) ? [at(sp, 1), ...(fade > 0 ? [at(sp / 4, fade)] : [])] : [];
   });
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
 
