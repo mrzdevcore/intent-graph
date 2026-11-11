@@ -5,8 +5,9 @@ use ig_app::map::file::MapBox;
 use ig_app::map::origin::{self, Origin};
 use ig_app::map::{MapArrow, view};
 use ig_wire::Wired;
-use std::io::{BufRead, Write};
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::io::{BufRead, IsTerminal, Write};
+use std::path::{Path, PathBuf};
 use std::slice::from_ref;
 use std::time::Duration;
 
@@ -22,6 +23,12 @@ const KEEP_OUT: &[&str] = &[
     "Write(ig.yaml)",
     "mcp__ig__ig_edit",
     "mcp__ig__ig_show",
+];
+const KEEP_OUT_OF_BASH: &[&str] = &[
+    "Bash(git push:*)",
+    "Bash(git commit:*)",
+    "Bash(ig accept:*)",
+    "Bash(ig fmt:*)",
 ];
 
 enum What<'a> {
@@ -61,7 +68,7 @@ pub fn run(root: &Path, args: &ApplyArgs, quiet: bool) -> Result<u8> {
         return Ok(2);
     }
     if !args.yes {
-        if !agent::interactive() {
+        if !(std::io::stdin().is_terminal() && std::io::stderr().is_terminal()) {
             eprintln!("ig: the agent writes code: answer in a terminal, or pass --yes");
             return Ok(2);
         }
@@ -75,26 +82,61 @@ pub fn run(root: &Path, args: &ApplyArgs, quiet: bool) -> Result<u8> {
     let mcp = explore::mcp_config(&std::env::current_exe()?, root);
     let argv = argv(&mcp, args.allow_bash);
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let answer = match agent::run_argv(root, "claude", &argv, &prompt, TIMEOUT) {
-        Ok(a) => a,
+    let before = spec_files(root);
+    say(
+        quiet,
+        &format!(
+            "ig: claude is writing code (up to {} min)…",
+            TIMEOUT.as_secs() / 60
+        ),
+    );
+    let ran = match agent::run_argv(root, "claude", &argv, &prompt, TIMEOUT) {
+        Ok(a) => {
+            println!("{}", a.trim_end());
+            true
+        }
         Err(e) => {
             eprintln!("ig: {e}");
-            return Ok(2);
+            false
         }
     };
-    println!("{}", answer.trim_end());
+    let touched = spec_files(root) != before;
     let v = view::run(&w.env())?;
     say_all(quiet, &v);
-    if v.broken {
+    if !v.broken {
+        let unread = view::unread(&w.env(), &v, &ig_fs::BUILD_DIRS)?;
+        println!(
+            "\n{}",
+            origin::plan_of(&v.boxes, &v.arrows, &unread).text("plan")
+        );
+    }
+    if touched {
+        eprintln!("ig: the agent changed ig/: review with `git diff ig/ ig.yaml`");
+    }
+    if touched || !ran || v.broken {
         return Ok(2);
     }
-    let unread = view::unread(&w.env(), &v, &ig_fs::BUILD_DIRS)?;
-    println!(
-        "\n{}",
-        origin::plan_of(&v.boxes, &v.arrows, &unread).text("plan")
-    );
     let left = items(&v).iter().any(|i| ids.iter().any(|x| x == i.id));
     Ok(u8::from(left))
+}
+
+fn spec_files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    let mut out = BTreeMap::new();
+    let mut todo = vec![root.join("ig"), root.join("ig.yaml")];
+    while let Some(p) = todo.pop() {
+        if p.is_dir() {
+            todo.extend(
+                std::fs::read_dir(&p)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|e| e.path()),
+            );
+        } else if let Ok(b) = std::fs::read(&p) {
+            out.insert(p, b);
+        }
+    }
+    out
 }
 
 fn items(v: &view::View) -> Vec<Item<'_>> {
@@ -229,6 +271,9 @@ fn argv(mcp: &str, bash: bool) -> Vec<String> {
         "--disallowed-tools".into(),
     ]);
     argv.extend(KEEP_OUT.iter().map(|r| r.to_string()));
+    if bash {
+        argv.extend(KEEP_OUT_OF_BASH.iter().map(|r| r.to_string()));
+    }
     argv.extend(explore::secret_rules().map(String::from));
     argv
 }
@@ -352,5 +397,8 @@ mod tests {
         let b = argv("{}", true);
         let at = |flag: &str| b[b.iter().position(|x| x == flag).unwrap() + 1].as_str();
         assert!(at("--allowed-tools").ends_with(",Bash") && at("--tools").ends_with(",Bash"));
+        for r in KEEP_OUT_OF_BASH {
+            assert!(b.contains(&r.to_string()), "{b:?}");
+        }
     }
 }

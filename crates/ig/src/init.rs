@@ -10,12 +10,21 @@ use std::path::Path;
 
 const AGENTS_MARKER: &str = "<!-- ig:agents -->";
 
+const APPLY_LINE: &str = "- Use /ig:apply ($ig-apply in Codex) to build what `ig plan` lists.\n";
+
 const AGENTS_SNIPPET: &str = "<!-- ig:agents -->
 ## ig (intent-graph)
 
 - Use /ig:explore ($ig-explore in Codex) to answer questions about the code with the ig graph.
 - Use /ig:draw ($ig-draw in Codex) to change the intended architecture in ig/.
 - Use /ig:apply ($ig-apply in Codex) to build what `ig plan` lists.
+";
+
+const BEFORE_APPLY: &str = "<!-- ig:agents -->
+## ig (intent-graph)
+
+- Use /ig:explore ($ig-explore in Codex) to answer questions about the code with the ig graph.
+- Use /ig:draw ($ig-draw in Codex) to change the intended architecture in ig/.
 ";
 
 fn layer_name(s: &str) -> String {
@@ -169,9 +178,9 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent], quiet: bool) -> Result
 
     let agents_md = root.join("AGENTS.md");
     let existing = std::fs::read_to_string(&agents_md).unwrap_or_default();
-    if let Some(new) = renew_agents_block(&existing) {
+    if let Some((new, what)) = renew_agents_block(&existing) {
         std::fs::write(&agents_md, new)?;
-        created.push("AGENTS.md (snippet updated)".into());
+        created.push(format!("AGENTS.md ({what})"));
     } else if !existing.contains(AGENTS_MARKER) {
         let sep = if existing.is_empty() || existing.ends_with("\n\n") {
             ""
@@ -216,11 +225,12 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent], quiet: bool) -> Result
     Ok(())
 }
 
-/// `text` with an earlier version's `<!-- ig:agents -->` block (one naming /ig:setup, or not yet
-/// /ig:apply) replaced by today's; None when there is none.
-fn renew_agents_block(text: &str) -> Option<String> {
+/// `text` with an earlier version's `<!-- ig:agents -->` block (one naming /ig:setup, or the
+/// snippet before /ig:apply) replaced by today's; a block edited since only gets the /ig:apply
+/// line after its last bullet. None when there is nothing to do.
+fn renew_agents_block(text: &str) -> Option<(String, &'static str)> {
     let start = text.find(AGENTS_MARKER)?;
-    let mut end = start;
+    let (mut end, mut last) = (start, None);
     let mut bullets = false;
     for (i, line) in text[start..].split_inclusive('\n').enumerate() {
         let l = line.trim_end();
@@ -235,13 +245,24 @@ fn renew_agents_block(text: &str) -> Option<String> {
         if bullets && l.is_empty() {
             break; // the blank line after the bullets is the block's
         }
+        if l.starts_with("- ") || (bullets && l.starts_with(' ')) {
+            last = Some(end);
+        }
         bullets |= l.starts_with("- ");
     }
     let (block, rest) = (&text[start..end], &text[end..]);
-    (block.contains("/ig:setup") || !block.contains("/ig:apply")).then(|| {
+    if block.contains("/ig:setup") || block.trim_end() == BEFORE_APPLY.trim_end() {
         let sep = if rest.is_empty() { "" } else { "\n" };
-        format!("{}{AGENTS_SNIPPET}{sep}{rest}", &text[..start])
-    })
+        let new = format!("{}{AGENTS_SNIPPET}{sep}{rest}", &text[..start]);
+        return Some((new, "snippet updated"));
+    }
+    if block.contains("/ig:apply") {
+        return None;
+    }
+    let at = last?;
+    let nl = if text[..at].ends_with('\n') { "" } else { "\n" };
+    let new = format!("{}{nl}{APPLY_LINE}{}", &text[..at], &text[at..]);
+    Some((new, "added the /ig:apply line to your ig block"))
 }
 
 /// `.claude/settings.json` without the Stop hook earlier versions installed (`ig hook claude`);
@@ -317,24 +338,35 @@ mod tests {
 
     #[test]
     fn old_agents_block_is_renewed() {
+        let renew = |t: &str| renew_agents_block(t).map(|(n, _)| n);
         let old = "# Repo\n\n<!-- ig:agents -->\n## ig (intent-graph)\n\n\
                    - Run `ig check --agent` before finishing.\n\
                    - Use /ig:setup ($ig-setup in Codex) to set up ig.yaml.\n\n## Mine\n\nkeep\n";
-        let new = renew_agents_block(old).unwrap();
+        let new = renew(old).unwrap();
         assert_eq!(
             new,
             format!("# Repo\n\n{AGENTS_SNIPPET}\n## Mine\n\nkeep\n")
         );
-        assert_eq!(renew_agents_block(&new), None);
+        assert_eq!(renew(&new), None);
         let at_end = "<!-- ig:agents -->\n## ig (intent-graph)\n\n- Use /ig:setup.\n";
-        assert_eq!(renew_agents_block(at_end).unwrap(), AGENTS_SNIPPET);
-        let before_apply = AGENTS_SNIPPET.replace(
-            "- Use /ig:apply ($ig-apply in Codex) to build what `ig plan` lists.\n",
-            "",
-        );
+        assert_eq!(renew(at_end).unwrap(), AGENTS_SNIPPET);
         assert_eq!(
-            renew_agents_block(&format!("{before_apply}\n# Mine\n")).unwrap(),
+            renew(&format!("{BEFORE_APPLY}\n# Mine\n")).unwrap(),
             format!("{AGENTS_SNIPPET}\n# Mine\n")
+        );
+    }
+
+    #[test]
+    fn an_edited_block_keeps_its_bullets_and_gets_the_apply_line() {
+        let mine = BEFORE_APPLY.replace("ig/.\n", "ig/.\n- Ask Ana before editing ig/.\n");
+        let (new, what) = renew_agents_block(&format!("{mine}\n# Mine\n")).unwrap();
+        assert_eq!(new, format!("{mine}{APPLY_LINE}\n# Mine\n"), "{new}");
+        assert!(what.contains("added"), "{what}");
+        assert_eq!(renew_agents_block(&new), None);
+        let no_newline = mine.trim_end();
+        assert_eq!(
+            renew_agents_block(no_newline).unwrap().0,
+            format!("{no_newline}\n{APPLY_LINE}")
         );
     }
 

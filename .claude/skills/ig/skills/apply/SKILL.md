@@ -18,9 +18,9 @@ Without an `ig/`, tell the user to run `ig analyse`; never run it yourself.
    start, `implements`: the port filled, `uses`: an import), following its `label`, `note` and
    `context`.
 4. For each move, move the code into the box's new `at`, keeping its behaviour.
-5. Build and run the tests the way the repo does, then call `ig_plan` again: an item is done when it
-   leaves "to build" or "move". Repeat until every item is done or you are stuck, then say what is
-   left and why.
+5. When you can run commands, build and run the tests the way the repo does. Then call `ig_plan`
+   again: an item is done when it leaves "to build" or "move". Repeat until every item is done or
+   you are stuck, then say what is left and why.
 6. Never edit `ig/`: that is the draw skill (`/ig:draw`, `$ig-draw` in Codex), and only when the
    user asks. Drift your code brings stays in the plan for the user to `ig accept` or fix; never
    accept it, commit or push yourself.

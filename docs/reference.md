@@ -76,11 +76,11 @@ Asks Claude a question about the code. Claude gets `Read`, `Grep`, `Glob`, `ig_s
 ig apply [--yes] [--allow-bash] [--agent claude] [-C <dir>] [-q] [<id>...]
 ```
 
-Builds what `ig plan` lists, as `terraform apply` follows `terraform plan`. The items are the plan's "to build" boxes and arrows and its moves, or only the ids named: a box by its id, an arrow as `from->to` (quote it: `ig apply 'web->api'`), the ids `ig accept` takes. An id the plan does not hold is an error that lists the plan's ids. With nothing to build it says so and starts no agent.
+Builds what `ig plan` lists, as `terraform apply` follows `terraform plan`. The items are the plan's "to build" boxes and arrows and its moves, or only the ids named: a box by its id, an arrow as `from->to` (quote it: `ig apply 'web->api'`; it picks every arrow between that pair), the ids `ig accept` takes. An id the plan does not hold is an error that lists the plan's ids. With nothing to build it says so and starts no agent.
 
-It prints the items and asks before going on, because the agent writes code: `--yes` skips the question, and with no terminal and no `--yes` it stops (exit 2). Claude then gets the apply skill's instructions and, for each item, what `ig/` says about it (title, tech, description, `context`; an arrow's `label`, `note`, `context`). Its tools are `Read`, `Grep`, `Glob`, `Edit`, `Write`, `ig_plan` and `ig_state`; `Bash` only with `--allow-bash`, to build and run the tests. `ig/` and `ig.yaml` are denied to `Edit` and `Write`, `ig_edit` is denied, and `Read` is denied the secret files as in `ig analyse` (a command run with `--allow-bash` is not). The repo's own settings and hooks do not load.
+It prints the items and asks before going on, because the agent writes code: `--yes` skips the question, and when stdin is not a terminal and there is no `--yes` it stops (exit 2). Claude then gets the apply skill's instructions and, for each item, the text `ig/` gives it (title, tech, description, `context`; an arrow's `label`, `note`, `context`). Run it only on an `ig/` you trust: its text reaches the agent as instructions. Its tools are `Read`, `Grep`, `Glob`, `Edit`, `Write`, `ig_plan` and `ig_state`; `Bash` only with `--allow-bash`, to build and run the tests. `ig/` and `ig.yaml` are denied to `Edit` and `Write`, `ig_edit` and `ig_show` are denied, and `Read` is denied the secret files as in `ig analyse`. `--allow-bash` gives an otherwise unrestricted shell: only `git push`, `git commit`, `ig accept` and `ig fmt` are denied, and a command can still write `ig/` or read a secret file. The repo's own settings and hooks do not load.
 
-Afterwards ig prints Claude's summary and the new plan: what is still to build and the drift the change brought, for you to `ig accept` or fix. Exit 0 when every chosen item was built, 1 when some are left (or you said no), 2 on error. ig never commits. Claude is the only agent for now; the skill (`/ig:apply`, `$ig-apply` in Codex) works in either.
+Afterwards ig prints Claude's summary and the new plan, also when Claude failed or timed out (after 30 minutes): what is still to build and the drift the change brought, for you to `ig accept` or fix. When `ig/` or `ig.yaml` changed during the run, ig says so and exits 2, leaving the change for you to review with `git diff ig/ ig.yaml`. Exit 0 when every chosen item was built, 1 when some are left (or you said no), 2 on error. ig never commits. Claude is the only agent for now; the skill (`/ig:apply`, `$ig-apply` in Codex) works in either.
 
 ## `ig diff`
 
@@ -249,13 +249,13 @@ Plumbing:
 
 | Command | Reads and writes |
 |---|---|
-| `ig init [claude\|codex\|all]` | `ig.yaml`, the explore, view, draw and apply skills for the chosen agents (default all), an `AGENTS.md` snippet, `.gitignore` entries. Never overwrites your edits, never writes `ig/`. |
+| `ig init [claude\|codex\|all]` | `ig.yaml`, the explore, view, draw and apply skills for the chosen agents (default all), an `AGENTS.md` snippet (an ig block you edited only gets a missing `/ig:apply` line), `.gitignore` entries. Never overwrites your edits, never writes `ig/`. |
 | `ig analyse [--agent <name>] [--no-agent]` | Writes `ig/` (above). |
 | `ig view [--no-open] [--json]` | Writes `.ig/view.html`. `--json` prints the map instead. |
 | `ig explore [--agent claude] [--no-open] <question>` | Writes `.ig/show.json` and `.ig/view.html`; prints the answer. |
 | `ig diff [<base> [<head>]] [--json] [--no-open]` | Prints what a change does to the map and writes `.ig/diff.html` with the change drawn on it; `--json` prints it as JSON, no page. Exit 2 outside git. |
 | `ig plan [--json]` | Read-only. Prints the plan: boxes and arrows still to build, boxes to move (their `at` changed since the last commit), drift (code in no box, arrows `ig/` does not have) and code ig does not read (outside every package). Exit 2 without `ig/`. |
-| `ig apply [--yes] [--allow-bash] [--agent claude] [<id>...]` | Claude writes the code for the plan's boxes and arrows to build and its moves (all, or the ids named), after you say yes; never `ig/` or `ig.yaml`. Prints its summary and the new plan. Exit 0 when every chosen item was built, 1 when some are left, 2 on error. |
+| `ig apply [--yes] [--allow-bash] [--agent claude] [<id>...]` | Claude writes the code for the plan's boxes and arrows to build and its moves (all, or the ids named), after you say yes; never `ig/` or `ig.yaml`. Prints its summary and the new plan. Exit 0 when every chosen item was built, 1 when some are left, 2 on error or when `ig/` changed. Run it only on an `ig/` you trust. |
 | `ig check [--json]` | The plan, read-only: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. |
 | `ig accept [--all \| <id>...]` | Takes drift into `ig/`: each box or arrow id from `ig plan` (quote arrow ids: `ig accept 'web->api'`), written one by one. |
 | `ig fmt [--check]` | Re-indents `ig/*.kdl` (four spaces a level, at most one blank line between nodes); comments and order stay. `--check` writes nothing and exits 1 when a file would change. |

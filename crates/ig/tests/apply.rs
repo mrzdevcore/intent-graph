@@ -166,3 +166,35 @@ fn apply_refuses_other_agents_and_a_repo_without_ig() {
     assert!(!bin.join("argv").exists());
     let _ = std::fs::remove_dir_all(root.parent().unwrap());
 }
+
+#[test]
+fn an_agent_that_changes_ig_is_an_error_and_its_change_stays() {
+    let (root, bin) = repo("edits-ig", BILLING);
+    fake_claude(&bin, "printf '\\n' >> ig/billing.kdl");
+    let (code, out, err) = ig(&root, &bin, &["apply", "--yes"]);
+    assert_eq!(code, 2, "{out}{err}");
+    assert!(out.contains("Built it.\n\nig plan: 2 to build"), "{out}");
+    assert!(
+        err.contains("the agent changed ig/: review with `git diff ig/ ig.yaml`"),
+        "{err}"
+    );
+    assert!(
+        err.contains("claude is writing code (up to 30 min)"),
+        "{err}"
+    );
+    let kdl = std::fs::read_to_string(root.join("ig/billing.kdl")).unwrap();
+    assert_eq!(kdl, format!("{BILLING}\n"));
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
+
+#[test]
+fn a_failed_agent_still_shows_the_plan() {
+    let (root, bin) = repo("fails", BILLING);
+    fake_claude(&bin, "exit 3");
+    let (code, out, err) = ig(&root, &bin, &["apply", "--yes", "-q"]);
+    assert_eq!(code, 2, "{out}{err}");
+    assert!(out.contains("\nig plan: 2 to build"), "{out}");
+    assert!(err.contains("claude failed"), "{err}");
+    assert!(!err.contains("writing code"), "{err}");
+    let _ = std::fs::remove_dir_all(root.parent().unwrap());
+}
