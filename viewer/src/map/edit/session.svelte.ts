@@ -1,15 +1,16 @@
-// The state of one editing gesture on the map: the arrow being drawn, and the one popover (box menu, rename,
-// move picker, arrow kind) or add form that is open. Map.svelte hands it what it knows through `Ctx`.
+// The state of one editing gesture on the map: the arrow being drawn, the box being drawn (its place in its parent's
+// inner units, kept as places are), and the one popover (box menu, rename, move picker, arrow kind) or add form that is open. Map.svelte hands it what it knows through `Ctx`.
 import type { EditApi } from "../../api";
 import type { ArrowKind, Edit, Frame, MapBox, View } from "../types";
 import type { Act } from "./menu";
 import type { Tool } from "./tool.svelte";
 
+export type Draft = { parent: string; x: number; y: number; w: number; h: number; title: string; drawing: boolean };
 export type Ui = { t: "menu" | "rename" | "move"; id: string; x: number; y: number } | { t: "arrow"; from: string; to: string; x: number; y: number };
 export type Ctx = {
   edit: () => EditApi | undefined; box: (id: string) => MapBox | undefined; frame: (id: string) => Frame;
   cam: () => { x: number; y: number; k: number }; stage: () => HTMLElement;
-  selected: () => string | null; select: (id: string | null) => void; tool: (t: Tool) => void; run: (p: () => Promise<View>) => void;
+  selected: () => string | null; select: (id: string | null) => void; tool: (t: Tool) => void; used: () => void; run: (p: () => Promise<View>) => void;
   arrange: (scope: string[]) => void;
 };
 
@@ -17,6 +18,9 @@ export class EditSession {
   link = $state<{ from: string; to: string | null; x: number; y: number } | null>(null);
   ui = $state<Ui | null>(null);
   adding = $state<{ parent: string; x: number; y: number } | null>(null);
+  draft = $state<Draft | null>(null);
+  // the box whose kind list a Tab out of a draft asked for (Task 11 opens it)
+  kinds = $state<string | null>(null);
   private c: Ctx;
   private pid = -1;
   constructor(c: Ctx) { this.c = c; }
@@ -51,7 +55,7 @@ export class EditSession {
   }
   /** Drop everything in flight (Esc, a cancelled pointer, the window losing focus). */
   cancel() {
-    this.link = this.ui = this.adding = null;
+    this.link = this.ui = this.adding = this.draft = null;
     this.release();
   }
   /** A lost pointer drops the arrow in flight; open forms keep what was typed. */
@@ -105,7 +109,7 @@ export class EditSession {
     const u = this.ui;
     if (u?.t !== "arrow") return;
     this.shut();
-    this.c.tool("select");
+    this.c.used();
     this.c.run(() => this.c.edit()!.apply({ op: "arrow", from: u.from, to: u.to, kind, label }));
   }
 

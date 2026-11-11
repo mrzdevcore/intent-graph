@@ -23,10 +23,9 @@ function setup(view: View, got: unknown[] = []) {
   return target;
 }
 function clickBox(t: HTMLElement, id: string | null) {
-  window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", bubbles: true }));
-  flushSync();
   const el = id ? t.querySelector(`[data-box="${id}"] > button`)! : t.querySelector(".stage")!;
-  el.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 40, clientY: 50 }));
+  el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, clientX: 40, clientY: 50 }));
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true }));
   flushSync();
 }
 const form = (t: HTMLElement) => t.querySelector('form[aria-label^="New box"]') as HTMLFormElement;

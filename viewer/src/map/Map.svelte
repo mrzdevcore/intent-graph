@@ -27,7 +27,9 @@
   import Search from "./Search.svelte";
   import type { Trace } from "./search";
   import type { EditApi } from "../api";
-  import Toolbar from "./edit/Toolbar.svelte";
+  import Island from "./edit/Island.svelte";
+  import Corner from "./edit/Corner.svelte";
+  import Draft from "./edit/Draft.svelte";
   import { ToolState, type Tool } from "./edit/tool.svelte";
   import AddBox from "./edit/AddBox.svelte";
   import { freeId, inside } from "./edit/add";
@@ -80,7 +82,7 @@
     };
   });
   const run = (call: () => Promise<View>, as: "do" | "undo" | "redo" = "do") => {
-    if (busy) return;
+    if (busy) return toast("Still saving the last change; try again");
     busy = true;
     applied = [];
     call().then((v) => {
@@ -132,6 +134,8 @@
     stored = store.size > 0;
     glidePlaces(from, instant);
   }
+  // a confirmed draft: its box lands where and as big as it was drawn once the view holds it
+  let landing: { id: string; place: Place; kinds: boolean } | null = null;
   // a new view keeps what was drawn; settle finds room for what is new before it is drawn
   $effect.pre(() => {
     const v = view, t = title;
@@ -153,18 +157,26 @@
       const back: Record<string, Place> = {};
       for (const b of v.boxes) if (!truth[b.id] && gone[b.id] && prev[b.id]) back[b.id] = prev[b.id];
       lastView = v;
-      const next = settlePlaces(prev, v, back, null);
+      const made = landing && ids.has(landing.id) ? landing : null;
+      landing = null;
+      const next = settlePlaces(prev, v, made ? { ...back, [made.id]: made.place } : back, made?.id ?? null);
       for (const [id, p] of Object.entries(truth)) if (!(id in next)) gone[id] = p;
-      placeAll(next, [], false);
+      placeAll(next, made ? [made.id] : [], false);
+      if (made?.kinds) {
+        selected = made.id;
+        sess.kinds = made.id;
+      }
     });
   });
   let lastStep: { id: string; at: number } | null = null;
-  function putBox(id: string, at: { x: number; y: number }, step = false): boolean {
-    const p = byId.get(id)?.parent ?? ROOT, o = (p !== ROOT && truth[innerKey(p)]) || { x: 0, y: 0 }, f = truth[id];
+  // a parent's inner origin: places are kept from it, its children are drawn from 0
+  const origin = (p: string) => (p !== ROOT && truth[innerKey(p)]) || { x: 0, y: 0 };
+  function putBox(id: string, at: { x: number; y: number; w?: number; h?: number }, step = false): boolean {
+    const o = origin(byId.get(id)?.parent ?? ROOT), f = truth[id];
     if (!f || id === ROOT) return false;
     const now = performance.now(), merge = step && lastStep?.id === id && now - lastStep.at < 1000;
     lastStep = step ? { id, at: now } : null;
-    placeAll(settlePlaces(truth, view, { [id]: { ...f, x: at.x + o.x, y: at.y + o.y } }, id), [id], merge ? "merge" : "push");
+    placeAll(settlePlaces(truth, view, { [id]: { x: at.x + o.x, y: at.y + o.y, w: at.w ?? f.w, h: at.h ?? f.h } }, id), [id], merge ? "merge" : "push");
     return true;
   }
   function undo() {
@@ -223,8 +235,11 @@
   const wiring = $derived(new Map([...group([...view.arrows, ...ghosts], (a: Arrow) => a.parent)].map(([p, as]) => [p, wired(as, siblings(p))])));
   const arrows = $derived(group([...view.arrows, ...ghosts].filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));
   // the box being dragged and its shift so far: only it and its parent's arrows follow the pointer
-  let live = $state<{ id: string; x: number; y: number } | null>(null);
-  const drawn = (id: string) => (live?.id === id ? { ...shown.placed.frames[id], x: live.x, y: live.y } : shown.placed.frames[id]);
+  let live = $state<{ id: string; x: number; y: number; w?: number; h?: number } | null>(null);
+  const drawn = (id: string) => {
+    const f = shown.placed.frames[id];
+    return live?.id === id ? { x: live.x, y: live.y, w: live.w ?? f.w, h: live.h ?? f.h } : f;
+  };
   const liveWiring = $derived.by(() => {
     if (!live) return null;
     const p = byId.get(live.id)?.parent ?? ROOT, frames = siblings(p);
@@ -284,9 +299,11 @@
   let hot = $state<string | null>(null);
   let hotArrow = $state<string | null>(null);
   const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && linksOf([a], id).length > 0);
+  let pointer = { x: 0, y: 0 };
   function over(e: PointerEvent) {
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     hot = el?.dataset.box ?? null;
+    pointer = { x: e.clientX, y: e.clientY };
   }
   let stage: HTMLDivElement;
 
@@ -428,7 +445,7 @@
     selected = null;
     if (id) sess.focusBox(id);
   }
-  const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow" };
+  const tools: Record<string, Tool> = { v: "select", b: "box", a: "arrow", f: "frame" };
   let space = $state(false);
   const KEY_MS = 150, PAN_STEP = 96;
   function navKey(e: KeyboardEvent): boolean {
@@ -482,7 +499,7 @@
       return;
     }
     if (!sess.ui && !(e.target as Element | null)?.closest?.("[data-popover]")) {
-      if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && e.key.toLowerCase() === "h") tool.current = "hand";
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && e.key.toLowerCase() === "h") tool.pick("hand");
       if (navKey(e)) return;
     }
     // a popover owns the keys while it is open or has focus
@@ -505,10 +522,12 @@
         sess.act(shortcuts[k], selected);
         return;
       }
-      if (!e.metaKey && !e.ctrlKey && !e.altKey && tools[k]) tool.current = tools[k];
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && tools[k]) tool.pick(tools[k]);
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && k === "k") kindFirst(pointer.x, pointer.y, hot && byId.has(hot) ? hot : anchor);
     }
     if (e.key !== "Escape") return;
-    tool.current = "select";
+    tool.pick("select");
+    if (drag?.draw) drag = null;
     sess.cancel();
     if (selected) close();
     else if (traced) traced = null;
@@ -556,17 +575,46 @@
 
   // Drag pans, or moves the closed box under the pointer (`box`: its id, where it was at the start
   // and screen pixels per unit of its parent); a drag's trailing click must not open a box.
-  let drag: { x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; pt?: { x: number; y: number }; track?: { x: number; y: number; t: number }[]; box?: { id: string; at: { x: number; y: number }; k: number } } | null = null;
+  let drag: {
+    x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; pt?: { x: number; y: number }; track?: { x: number; y: number; t: number }[];
+    box?: { id: string; at: { x: number; y: number }; k: number }; resize?: { id: string; corner: string; f: Frame; k: number }; draw?: { parent: string; x: number; y: number };
+  } | null = null;
   let swallow = false;
+  const BOX = { w: 10 * GRID, h: 6 * GRID }, MIN = { w: 4 * GRID, h: 2 * GRID };
+  const snap = (v: number) => Math.round(v / GRID) * GRID;
+  function groundAt(e: { clientX: number; clientY: number; target: EventTarget | null }, parent?: string) {
+    const el = (e.target as Element | null)?.closest?.("[data-box][data-open]") as HTMLElement | null;
+    const p = parent ?? (el?.dataset.box && byId.has(el.dataset.box) ? el.dataset.box : anchor);
+    const r = stage.getBoundingClientRect(), c = camera.cam, t = p === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(p), o = origin(p);
+    return { parent: p, x: ((e.clientX - r.left - c.x) / c.k - t.x) / t.s + o.x, y: ((e.clientY - r.top - c.y) / c.k - t.y) / t.s + o.y };
+  }
+  const draftAt = (g: { parent: string; x: number; y: number }) =>
+    (sess.draft = { parent: g.parent, x: snap(g.x - BOX.w / 2), y: snap(g.y - BOX.h / 2), ...BOX, title: "", drawing: false });
+  function spanned(d: { parent: string; x: number; y: number }, e: PointerEvent) {
+    const g = groundAt(e, d.parent), x = snap(Math.min(d.x, g.x)), y = snap(Math.min(d.y, g.y));
+    return { parent: d.parent, x, y, w: Math.max(MIN.w, snap(Math.max(d.x, g.x)) - x), h: Math.max(MIN.h, snap(Math.max(d.y, g.y)) - y), title: "" };
+  }
   function down(e: PointerEvent) {
     swallow = false;
     stopCoast();
     if (e.button === 1) e.preventDefault();
     // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
-    if ((e.button !== 0 && e.button !== 1) || (e.target as Element | null)?.closest?.("[data-pad]")) return;
+    if ((e.button !== 0 && e.button !== 1) || (e.target as Element | null)?.closest?.("[data-pad], [data-draft]")) return;
     const panning = e.button === 1 || space || tool.current === "hand";
+    const grip = !panning && edit ? (e.target as Element | null)?.closest?.("[data-resize]") as HTMLElement | null : null;
+    const gripped = grip && (grip.closest("[data-box]") as HTMLElement | null)?.dataset.box;
+    if (gripped && shown.placed.frames[gripped]) {
+      sess.grab(e.pointerId);
+      drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId,
+        resize: { id: gripped, corner: grip!.dataset.resize!, f: shown.placed.frames[gripped], k: (unit.get(byId.get(gripped)?.parent ?? ROOT) ?? 1) * camera.cam.k } };
+      return;
+    }
     if (!panning && sess.startLink(e, tool.current === "arrow")) return;
     drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
+    if (!panning && edit && tool.current === "box") {
+      drag.draw = groundAt(e);
+      return;
+    }
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     const id = el && !el.hasAttribute("data-open") ? el.dataset.box : undefined;
     if (panning || (!id && !(edit && MARQUEE))) {
@@ -605,14 +653,22 @@
     };
     edgeRaf = requestAnimationFrame(step);
   }
+  function resized(r: { corner: string; f: Frame; k: number }, dx: number, dy: number) {
+    const { f, corner } = r;
+    const w = Math.max(MIN.w, snap(f.w + (corner.includes("e") ? dx : -dx) / r.k)), h = Math.max(MIN.h, snap(f.h + (corner.includes("s") ? dy : -dy) / r.k));
+    return { x: corner.includes("w") ? f.x + f.w - w : f.x, y: corner.includes("n") ? f.y + f.h - h : f.y, w, h };
+  }
   function move(e: PointerEvent) {
+    pointer = { x: e.clientX, y: e.clientY };
     if (sess.moveLink(e) || !drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 4) return;
     if (!drag.moved) sess.grab(drag.pointer);
     drag.moved = true;
     const b = drag.box;
-    if (b && b.k > 0) {
+    if (drag.resize && drag.resize.k > 0) live = { id: drag.resize.id, ...resized(drag.resize, dx, dy) };
+    else if (drag.draw) sess.draft = { ...spanned(drag.draw, e), drawing: true };
+    else if (b && b.k > 0) {
       drag.pt = { x: e.clientX, y: e.clientY };
       placeBox();
       edgeLoop();
@@ -622,13 +678,22 @@
       gesture({ k: drag.from.k, x: drag.from.x + dx, y: drag.from.y + dy });
     }
   }
-  function up() {
+  function up(e: PointerEvent) {
     if (sess.endLink()) {
       swallow = true;
       return;
     }
     sess.release();
     swallow = !!drag?.moved;
+    const d = drag?.draw;
+    if (d) {
+      if (drag!.moved) sess.draft = { ...spanned(d, e), drawing: false };
+      else draftAt(d);
+      tool.used(e.shiftKey);
+      swallow = true;
+      drag = null;
+      return;
+    }
     const tr = drag?.pan ? drag.track : undefined;
     if (tr && tr.length > 1) {
       const a = tr[0], b = tr[tr.length - 1], dt = b.t - a.t;
@@ -653,7 +718,7 @@
   }
   const sess = new EditSession({
     edit: () => api, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
-    selected: () => selected, select: (id) => (selected = id), tool: (t) => (tool.current = t), run, arrange: arrangeIn,
+    selected: () => selected, select: (id) => (selected = id), tool: (t) => tool.pick(t), used: () => tool.used(), run, arrange: arrangeIn,
   });
   const addParent = $derived(sess.adding ? byId.get(sess.adding.parent) : undefined);
   let landed: Show | null | undefined;
@@ -662,7 +727,7 @@
     if (!s || s === landed || diff || !(vw > 0 && vh > 0)) return;
     untrack(() => {
       landed = s;
-      if (sess.ui || sess.adding || tool.current !== "select" || live) waiting = s;
+      if (sess.ui || sess.adding || sess.draft || tool.current !== "select" || live) waiting = s;
       else land(s);
     });
   });
@@ -677,20 +742,39 @@
     });
   });
   function clickCapture(e: MouseEvent) {
-    if (swallow) {
-      swallow = false;
-    } else if (edit && tool.current === "box") {
-      const id = ((e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;
-      const r = stage.getBoundingClientRect();
-      sess.adding = { parent: id && byId.has(id) ? id : ROOT, x: e.clientX - r.left, y: e.clientY - r.top };
-    } else return;
+    if (swallow) swallow = false;
+    else if (!(edit && tool.current === "box")) return;
     e.stopPropagation();
     e.preventDefault();
+  }
+  function dblclick(e: MouseEvent) {
+    const t = e.target as Element | null, b = t?.closest?.("[data-box]");
+    if (!edit || tool.current !== "select" || space || t?.closest?.("[data-draft], [data-pad]") || (b && !b.hasAttribute("data-open"))) return;
+    e.preventDefault();
+    draftAt(groundAt(e));
+  }
+  function pressAway(e: PointerEvent) {
+    sess.outside(e);
+    if (sess.draft && !sess.draft.drawing && !(e.target as Element | null)?.closest?.("[data-draft]")) finishDraft(null);
+  }
+  function finishDraft(then: "kinds" | null) {
+    const d = sess.draft, title = d?.title.trim();
+    if (!d || d.drawing) return;
+    sess.draft = null;
+    if (!title || !api) return;
+    const id = freeId(title, new Set(view.boxes.map((b) => b.id)));
+    landing = { id, place: { x: d.x, y: d.y, w: d.w, h: d.h }, kinds: then === "kinds" };
+    run(() => api.apply({ op: "add", parent: d.parent, kind: "box", id, title, at: [], before: null }));
+  }
+  function kindFirst(x: number, y: number, parent: string) {
+    if (!edit) return;
+    const r = stage.getBoundingClientRect();
+    sess.ui = null;
+    sess.adding = { parent, x: x - r.left, y: y - r.top };
   }
   function add(a: { kind: string; name: string; at: string[]; props: Record<string, string> }) {
     const parent = sess.adding!.parent;
     sess.adding = null;
-    tool.current = "select";
     const props = Object.keys(a.props).length ? { props: a.props } : {};
     run(() => api!.apply({ op: "add", parent, kind: a.kind, id: freeId(a.name, new Set(view.boxes.map((b) => b.id))), title: a.name, at: a.at, before: null, ...props }));
   }
@@ -755,7 +839,7 @@
     // an open popover or form on a box that is gone has nothing to act on
     const gone = (id: string) => id !== ROOT && !byId.has(id);
     const u = sess.ui;
-    if ((u && (gone(u.t === "arrow" ? u.from : u.id) || (u.t === "arrow" && gone(u.to)))) || (sess.adding && gone(sess.adding.parent))) sess.cancel();
+    if ((u && (gone(u.t === "arrow" ? u.from : u.id) || (u.t === "arrow" && gone(u.to)))) || (sess.adding && gone(sess.adding.parent)) || (sess.draft && gone(sess.draft.parent))) sess.cancel();
   });
   const dots = $derived.by(() => {
     const { step, fade } = gridLevel(cam.k, GRID), sp = GRID * step * cam.k;
@@ -822,6 +906,7 @@
         kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} />
       {#if edit && selected === b.id && !open}
         {#each ["l", "r", "t", "b"] as h (h)}<span class="handle {h}" data-handle aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
+        {#each ["nw", "ne", "sw", "se"] as c (c)}<span class="grip {c}" data-resize={c} aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
       {/if}
       {#if open}
         {@const t = local(b.id)}
@@ -839,6 +924,12 @@
       {#if goneHere}<span class="gone-here" style:scale={f.w / sw}>−{goneHere} removed here</span>{/if}
     </div>
   {/each}
+  {#if sess.draft?.parent === pid}
+    {@const d = sess.draft}
+    {@const o = origin(pid)}
+    <Draft x={d.x - o.x} y={d.y - o.y} w={d.w} h={d.h} editing={!d.drawing} title={d.title}
+      ontitle={(v) => sess.draft && (sess.draft.title = v)} onfinish={finishDraft} />
+  {/if}
   <!-- the focused arrows' labels, above the boxes -->
   {#each lit as a (a.id)}
     {@const c = pathOf(a, mode)}
@@ -848,26 +939,38 @@
   {/each}
 {/snippet}
 
-<svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={(e) => sess.outside(e)} onkeydown={key} onkeyup={keyup} />
+<svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={pressAway} onkeydown={key} onkeyup={keyup} />
 
 <!-- the dot grid sits on the map's own grid and moves and scales with it; a dot keeps its size on screen -->
 <div class="map" bind:clientWidth={cw} bind:clientHeight={ch}>
   {#each dots as d, i (i)}
     <div class="dots" aria-hidden="true" style:opacity={d.opacity} style:background-size="{d.sp}px {d.sp}px" style:background-position="{d.x}px {d.y}px"></div>
   {/each}
-  <div class="stage" class:hand={tool.current === "hand" || space} bind:this={stage} role="presentation" onpointerdown={down} onclickcapture={clickCapture} oncontextmenu={(e) => sess.menuAt(e)}
+  <div class="stage" class:hand={tool.current === "hand" || space} class:draw={!!edit && (tool.current === "box" || tool.current === "frame") && !space} bind:this={stage} role="presentation"
+    onpointerdown={down} onclickcapture={clickCapture} ondblclick={dblclick} oncontextmenu={(e) => sess.menuAt(e)}
     onpointerover={over} onpointerleave={() => (hot = hotArrow = null)}>
     <div class="world" style:transform="translate({base.x}px, {base.y}px) scale({base.k})">{@render level(anchor)}</div>
   </div>
-  <Controls {crumbs} {layers} {on} oncrumb={fly}
+  <Controls {crumbs} {layers} {on} oncrumb={fly} low={!!edit}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
-    onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
     onreset={stored ? () => placeAll(settlePlaces({}, view, {}, null), [], "push", false) : undefined} {wheelPref} onwheel={setPref} onarrange={arrangeMap}>
-    {#snippet bar()}
-      {#if edit}<Toolbar tool={tool.current} onpick={(t) => (tool.current = t)} onundo={undo} onredo={redo} onarrange={arrangeMap} {note} />{/if}
-    {/snippet}
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
+  {#if edit}
+    <Island tool={tool.current} locked={tool.locked} onpick={(t, lock) => tool.pick(t, lock)} onarrange={arrangeMap}
+      onkind={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); kindFirst(r.left, r.bottom + 8, anchor); }} />
+  {/if}
+  <Corner k={cam.k} onzoom={(f) => zoomAt(vw / 2, vh / 2, f, true)} onfit={() => glideTo(home())}
+    onundo={edit ? undo : undefined} onredo={edit ? redo : undefined} />
+  <div class="notes" class:low={!!edit}>
+    {#if edit}<div class="toast" role="status" aria-live="polite">{note}</div>{/if}
+    {#if tidied}
+      <div class="arranged" role="status">
+        {tidied.n ? `Arranged ${tidied.n} ${tidied.n === 1 ? "box" : "boxes"}` : "Already arranged"}
+        {#if tidied.stamp !== undefined}<button type="button" onclick={undoArrange}>Undo</button>{/if}
+      </div>
+    {/if}
+  </div>
   {#if edit && sess.adding}
     <AddBox parentTitle={addParent?.title.value ?? view.boxes.find((b) => b.id === ROOT)?.title.value ?? ROOT} within={inside(sess.adding.parent, byId, view.kinds)}
       kinds={view.kinds} globs={addParent?.madeOf ?? []} x={sess.adding.x} y={sess.adding.y} onadd={add} onclose={() => sess.cancel()} />
@@ -894,12 +997,6 @@
       <button type="button" onclick={() => (waiting = null)}>Later</button>
     </div>
   {/if}
-  {#if tidied}
-    <div class="arranged" role="status">
-      {tidied.n ? `Arranged ${tidied.n} ${tidied.n === 1 ? "box" : "boxes"}` : "Already arranged"}
-      {#if tidied.stamp !== undefined}<button type="button" onclick={undoArrange}>Undo</button>{/if}
-    </div>
-  {/if}
   {#if edit}<EditLayer s={sess} {arrangeable} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
   {#if view.landscape}
     <Folders landscape={view.landscape} />
@@ -913,7 +1010,7 @@
 </div>
 
 <style>
-  .map { position: absolute; inset: 0; overflow: hidden;
+  .map { position: absolute; inset: 0; overflow: hidden; container: map / inline-size;
     background: var(--map-ground); color: var(--map-fg); }
   .dots { position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(var(--map-dots) 1.2px, transparent 1.4px); }
   .stage { position: absolute; inset: 0; touch-action: none; }
@@ -937,6 +1034,10 @@
   .waiting button.go { background: var(--map-trace); border-color: var(--map-trace); color: var(--color-on-accent); font-weight: 600; }
   .slot.target { outline: 3px solid var(--map-green); outline-offset: 3px; border-radius: 16px; }
   .handle { position: absolute; width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--map-blue); border: 2px solid var(--map-ground); translate: -50% -50%; cursor: crosshair; }
+  .grip { position: absolute; z-index: 1; width: 0.625rem; height: 0.625rem; box-sizing: border-box; border-radius: 2px; background: var(--map-surface); border: 1.5px solid var(--map-trace); translate: -50% -50%; }
+  .grip.nw { left: 0; top: 0; cursor: nwse-resize; } .grip.se { left: 100%; top: 100%; cursor: nwse-resize; }
+  .grip.ne { left: 100%; top: 0; cursor: nesw-resize; } .grip.sw { left: 0; top: 100%; cursor: nesw-resize; }
+  .stage.draw { cursor: crosshair; }
   .handle.l { left: 0; top: 50%; } .handle.r { left: 100%; top: 50%; } .handle.t { left: 50%; top: 0; } .handle.b { left: 50%; top: 100%; }
   .slot.faded { opacity: 0.35; transition: opacity 150ms; }
   .slot.diff-changed { outline: 0.125rem solid var(--color-changed); outline-offset: 0.125rem; border-radius: 1rem; }
@@ -965,7 +1066,16 @@
   .map :global(.row) { padding: 0; background: none; cursor: inherit; }
   .reading { position: absolute; left: 50%; bottom: var(--space-4); transform: translateX(-50%); margin: 0; padding: var(--space-1-5) var(--space-3-5);
     border: 1px dotted var(--map-gold); border-radius: var(--radius-pill); background: var(--map-surface); font-size: var(--text-md); color: var(--map-fg-2); max-width: calc(100% - 2rem); }
-  .arranged { position: absolute; z-index: 3; left: var(--space-4); bottom: var(--space-4); display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1-5) var(--space-2) var(--space-1-5) var(--space-3);
+  .notes { position: absolute; z-index: 4; left: 50%; top: var(--space-3); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: var(--space-1-5);
+    max-width: calc(100% - 2rem); pointer-events: none; }
+  .notes.low { top: 4.25rem; }
+  /* the island drops below the search when the two would meet */
+  @container map (max-width: 80rem) { .notes.low { top: 6.5rem; } }
+  @media (max-width: 47.5rem) { .notes.low { top: 8.75rem; } }
+  .notes > * { pointer-events: auto; }
+  .toast { max-width: 28rem; background: var(--map-bad-bg); color: var(--map-bad-text); border-radius: var(--radius-lg); font-size: var(--text-md); }
+  .toast:not(:empty) { padding: var(--space-1-5) var(--space-2-5); }
+  .arranged { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1-5) var(--space-2) var(--space-1-5) var(--space-3);
     background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-lg); box-shadow: 0 0.375rem 1.25rem var(--map-shadow); font-size: var(--text-md); color: var(--map-fg); }
   .arranged button { font: inherit; color: var(--map-fg); background: var(--map-sunken); border: 1px solid var(--map-line); border-radius: var(--radius-md); padding: var(--space-0-5) var(--space-2-5); cursor: pointer; }
   .arranged button:focus-visible { outline: 2px solid var(--map-trace); outline-offset: 2px; }

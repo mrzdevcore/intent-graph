@@ -1,23 +1,22 @@
 <!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles, More (scroll wheel,
-     Arrange the map), zoom −, Fit, + and, once boxes were moved by hand, Reset layout (top right). -->
+     Arrange the map) and, once boxes were moved by hand, Reset layout (top right). Zoom sits in the bottom-left corner. -->
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  let { crumbs, layers, on, oncrumb, ontoggle, onzoom, onfit, onreset, wheelPref, onwheel, onarrange, bar, children }: {
+  let { crumbs, layers, on, oncrumb, ontoggle, onreset, wheelPref, onwheel, onarrange, low = false, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
-    oncrumb: (id: string) => void; ontoggle: (layer: string) => void; onzoom: (f: number) => void; onfit: () => void;
-    onreset?: () => void; wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void; onarrange?: () => void; bar?: Snippet; children?: Snippet;
+    oncrumb: (id: string) => void; ontoggle: (layer: string) => void;
+    onreset?: () => void; wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void; onarrange?: () => void; low?: boolean; children?: Snippet;
   } = $props();
 </script>
 
-<div class="head">
+<div class="head" class:low>
 <nav class="crumbs" aria-label="Where you are">
   {#each crumbs as c, i (c.id)}
     {#if i}<span aria-hidden="true">›</span>{/if}
     <button type="button" aria-current={i === crumbs.length - 1 ? "location" : undefined} onclick={() => oncrumb(c.id)}>{c.title}</button>
   {/each}
 </nav>
-{@render bar?.()}
 </div>
 
 <div class="tools">
@@ -38,11 +37,6 @@
     </label>
     {#if onarrange}<button type="button" class="item" onclick={onarrange}>Arrange the map <kbd>⌥⇧F</kbd></button>{/if}
   </details>
-  <div class="zoom">
-    <button type="button" aria-label="Zoom out" onclick={() => onzoom(1 / 1.6)}>−</button>
-    <button type="button" onclick={onfit}>Fit</button>
-    <button type="button" aria-label="Zoom in" onclick={() => onzoom(1.6)}>+</button>
-  </div>
 </div>
 
 <style>
@@ -61,6 +55,5 @@
   .layers .item { display: flex; justify-content: space-between; gap: var(--space-3); width: 100%; border: 0; background: none; text-align: left; white-space: nowrap; }
   .layers .item:hover { background: var(--map-sunken); }
   .layers kbd { font: inherit; font-size: var(--text-sm); color: var(--map-faint); }
-  .zoom { display: flex; gap: var(--space-0-5); }
-  @media (max-width: 47.5rem) { .head { right: var(--space-4); top: 3.25rem; } }
+  @media (max-width: 47.5rem) { .head { right: var(--space-4); top: 3.25rem; } .head.low { top: 6.25rem; } }
 </style>

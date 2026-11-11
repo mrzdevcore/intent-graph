@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { expect, test } from "vitest";
-import { flushSync, mount } from "svelte";
+import { afterEach, expect, test, vi } from "vitest";
+import { flushSync, mount as mountIt, unmount } from "svelte";
 import Map from "../src/map/Map.svelte";
 import type { EditApi } from "../src/api";
 import type { View } from "../src/map/types";
@@ -11,8 +11,21 @@ import { arrowLook, look } from "../src/map/looks";
 import MapHarness from "./MapHarness.svelte";
 import MovePicker from "../src/map/edit/MovePicker.svelte";
 import { parentsFor } from "../src/map/edit/menu";
+import { Camera } from "../src/map/glide";
+import { fitTo, worldFrame } from "../src/map/camera";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+// a map left mounted still hears the window's keys
+const mounted: ReturnType<typeof mountIt>[] = [];
+const mount = ((c: never, o: never) => {
+  const m = mountIt(c, o);
+  mounted.push(m);
+  return m;
+}) as typeof mountIt;
+afterEach(() => {
+  for (const m of mounted.splice(0)) unmount(m);
+  document.body.innerHTML = "";
+});
 const fresh = () => structuredClone(shop) as unknown as View;
 const size = { w: 1000, h: 800 };
 
@@ -35,7 +48,7 @@ const press = (key: string, init: KeyboardEventInit = {}, on: EventTarget = wind
   on.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...init }));
   flushSync();
 };
-const pressed = (t: HTMLElement) => t.querySelector('[role="toolbar"] [aria-pressed="true"]')!.textContent;
+const pressed = (t: HTMLElement) => t.querySelector('[role="toolbar"] [aria-pressed="true"]')!.getAttribute("aria-label");
 
 test("no edit api: no toolbar", () => {
   const { target } = setup();
@@ -46,7 +59,7 @@ test("B, A, V switch tools; Esc returns to select", () => {
   const { target } = setup(fake().api);
   expect(pressed(target)).toContain("Select");
   press("b");
-  expect(pressed(target)).toContain("+ Box");
+  expect(pressed(target)).toBe("Box");
   press("a");
   expect(pressed(target)).toContain("Arrow");
   press("Escape");
@@ -112,10 +125,9 @@ const input = (f: HTMLElement, label: string) =>
   [...f.querySelectorAll("label")].find((l) => l.textContent!.startsWith(label))!.querySelector("input,select") as HTMLInputElement;
 const type = (el: HTMLInputElement, v: string) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); flushSync(); };
 function clickBox(t: HTMLElement, id: string | null) {
-  press("b");
   const el = id ? t.querySelector(`[data-box="${id}"] > button`)! : t.querySelector(".stage")!;
-  el.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 40, clientY: 50 }));
-  flushSync();
+  el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, clientX: 40, clientY: 50 }));
+  press("k");
 }
 const adds = () => {
   const got: unknown[] = [];
@@ -125,7 +137,7 @@ const adds = () => {
 
 const pick = (f: HTMLElement, kind: string) => { f.querySelector<HTMLButtonElement>(`button[data-kind="${kind}"]`)!.click(); flushSync(); };
 
-test("Box tool click in a container: its kinds, then Title focused and the code prefilled from its glob", async () => {
+test("K over a container: its kinds, then Title focused and the code prefilled from its glob", async () => {
   const { target } = setup(adds().api);
   clickBox(target, "api");
   const f = form(target)!;
@@ -592,4 +604,176 @@ test("a popover on a box the new view lacks is cancelled", async () => {
 test("a move proposal marks only the moved box, hover still lights both", () => {
   const p = { n: 1, by: "claude" as const, summary: "move web → api", ids: ["web", "api"], marks: ["web"] };
   expect([...proposed([p]).keys()]).toEqual(["web"]);
+});
+
+// --- draw a box
+const stageOf = (t: HTMLElement) => t.querySelector(".stage") as HTMLElement;
+const draftOf = (t: HTMLElement) => t.querySelector("[data-draft]") as HTMLElement | null;
+const nameField = (t: HTMLElement) => t.querySelector('input[aria-label="Name the box"]') as HTMLInputElement;
+const px = (el: HTMLElement, k: "left" | "top" | "width" | "height") => parseFloat(el.style[k]);
+const scaleOf = (t: HTMLElement) => parseFloat((t.querySelector(".world") as HTMLElement).style.transform.match(/scale\(([^)]+)\)/)![1]);
+function drawBox(from: Element, a: { x: number; y: number }, b = a, init: PointerEventInit = {}) {
+  ptr(from, "pointerdown", { clientX: a.x, clientY: a.y, ...init });
+  if (b !== a) ptr(window, "pointermove", { clientX: b.x, clientY: b.y, ...init });
+  ptr(window, "pointerup", { clientX: b.x, clientY: b.y, ...init });
+}
+const GRID = 24;
+const withBox = (id: string, title: string, parent = "system") => {
+  const v = fresh();
+  v.boxes.push({ ...structuredClone(v.boxes.find((b) => b.id === "postgres")!), id, parent, kind: { value: "box" } as never, title: { value: title } as never, madeOf: [] });
+  v.placed.frames[id] = { x: 96, y: 600, w: 248, h: 152 };
+  return v;
+};
+
+test("Box tool: a drag draws a draft at that size, its name in edit mode; a click places the default", () => {
+  const { target } = setup(recorder().api);
+  press("b");
+  const k = scaleOf(target);
+  drawBox(stageOf(target), { x: 100, y: 100 }, { x: 100 + 16 * GRID * k, y: 100 + 4 * GRID * k });
+  const d = draftOf(target)!;
+  expect(Math.abs(px(d, "width") - 16 * GRID)).toBeLessThanOrEqual(GRID);
+  expect(Math.abs(px(d, "height") - 4 * GRID)).toBeLessThanOrEqual(GRID);
+  expect(px(d, "left") % GRID).toBe(0);
+  expect(d.textContent).toContain("no kind yet");
+  expect(document.activeElement).toBe(nameField(target));
+  press("Escape", {}, nameField(target));
+  expect(draftOf(target)).toBeNull();
+  press("b");
+  drawBox(stageOf(target), { x: 300, y: 300 });
+  expect([px(draftOf(target)!, "width"), px(draftOf(target)!, "height")]).toEqual([10 * GRID, 6 * GRID]);
+});
+
+test("double-click on empty ground in select makes a draft there; on a box it does not", () => {
+  const { target } = setup(recorder().api);
+  boxEl(target, "postgres").dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 300, clientY: 300 }));
+  flushSync();
+  expect(draftOf(target)).toBeNull();
+  stageOf(target).dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 300, clientY: 300 }));
+  flushSync();
+  expect(document.activeElement).toBe(nameField(target));
+  expect(px(draftOf(target)!, "width")).toBe(10 * GRID);
+});
+
+test("Enter sends add with kind box and the title, inside the open box under it", async () => {
+  const { api, got } = recorder();
+  const target = document.createElement("div");
+  document.body.append(target);
+  const v = fresh(), camera = new Camera();
+  const m = mount(Map, { target, props: { view: v, size, edit: api, camera } });
+  flushSync();
+  camera.to(fitTo(worldFrame("api", v), size), 0);
+  m.tick(800);
+  flushSync();
+  const open = target.querySelector('[data-box="api"][data-open]') as HTMLElement;
+  press("b");
+  drawBox(open.querySelector("button")!, { x: 400, y: 400 });
+  expect(open.querySelector("[data-draft]")).not.toBeNull();
+  type(nameField(target), "Billing");
+  press("Enter", {}, nameField(target));
+  await tick();
+  expect(got).toEqual([{ op: "add", parent: open.dataset.box, kind: "box", id: "billing", title: "Billing", at: [], before: null }]);
+  expect(draftOf(target)).toBeNull();
+});
+
+test("the confirmed box lands where and as big as it was drawn", async () => {
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  const target = harness(fake({ apply: async () => withBox("billing", "Billing") }).api);
+  press("b");
+  const k = scaleOf(target);
+  drawBox(stageOf(target), { x: 40, y: 600 }, { x: 40 + 12 * GRID * k, y: 600 + 5 * GRID * k });
+  const d = draftOf(target)!, drawn = (["left", "top", "width", "height"] as const).map((p) => px(d, p));
+  type(nameField(target), "Billing");
+  press("Enter", {}, nameField(target));
+  await tick();
+  flushSync();
+  const slot = target.querySelector('[data-box="billing"]') as HTMLElement;
+  expect((["left", "top", "width", "height"] as const).map((p) => px(slot, p))).toEqual(drawn);
+  vi.unstubAllGlobals();
+});
+
+test("Tab confirms and opens the new box for its kind", async () => {
+  const got: unknown[] = [];
+  const target = harness(fake({ apply: async (e) => (got.push(e), withBox("billing", "Billing")) }).api);
+  stageOf(target).dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 40, clientY: 600 }));
+  flushSync();
+  type(nameField(target), "Billing");
+  press("Tab", {}, nameField(target));
+  await tick();
+  flushSync();
+  expect(got).toHaveLength(1);
+  expect(target.querySelector("section.details")!.textContent).toContain("Billing");
+});
+
+test("Esc or a click away on an empty draft sends nothing; a click away with a name confirms", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  const dbl = () => {
+    stageOf(target).dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 300, clientY: 300 }));
+    flushSync();
+  };
+  dbl();
+  press("Escape", {}, nameField(target));
+  dbl();
+  ptr(stageOf(target), "pointerdown", { clientX: 900, clientY: 700 });
+  ptr(window, "pointerup", { clientX: 900, clientY: 700 });
+  await tick();
+  expect(draftOf(target)).toBeNull();
+  expect(got).toEqual([]);
+  dbl();
+  type(nameField(target), "Ledger");
+  ptr(stageOf(target), "pointerdown", { clientX: 900, clientY: 700 });
+  ptr(window, "pointerup", { clientX: 900, clientY: 700 });
+  await tick();
+  expect(got).toMatchObject([{ op: "add", kind: "box", title: "Ledger", id: "ledger" }]);
+});
+
+test("box goes back to select after one shape unless locked by Shift or a double-click", () => {
+  const { target } = setup(recorder().api);
+  const tool = (name: string) => target.querySelector(`[role="toolbar"] button[aria-label="${name}"]`) as HTMLElement;
+  const once = (init: PointerEventInit = {}) => {
+    drawBox(stageOf(target), { x: 300, y: 300 }, { x: 300, y: 300 }, init);
+    press("Escape", {}, nameField(target));
+  };
+  press("b");
+  once();
+  expect(pressed(target)).toBe("Select");
+  press("b");
+  once({ shiftKey: true });
+  expect(pressed(target)).toBe("Box");
+  once();
+  expect(pressed(target)).toBe("Box");
+  tool("Select").click();
+  flushSync();
+  tool("Box").click();
+  tool("Box").click();
+  tool("Box").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  flushSync();
+  expect(tool("Box").hasAttribute("data-locked")).toBe(true);
+  once();
+  expect(pressed(target)).toBe("Box");
+  press("f");
+  expect(pressed(target)).toBe("Frame");
+  expect(tool("Frame").hasAttribute("data-locked")).toBe(false);
+});
+
+test("a corner handle resizes the box, nudges its neighbour, and one undo puts both back", () => {
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(MapHarness, { target, props: { start: fresh(), edit: fake().api, size } });
+  flushSync();
+  const glide = () => (m.tick(performance.now() + 10_000), flushSync());
+  const slot = (id: string) => target.querySelector(`[data-box="${id}"]`) as HTMLElement;
+  const k = scaleOf(target);
+  const [h, top] = [px(slot("postgres"), "height"), px(slot("stripe"), "top")];
+  select(target, "postgres");
+  drawBox(slot("postgres").querySelector('[data-resize="se"]')!, { x: 500, y: 300 }, { x: 500, y: 300 + 150 * k });
+  glide();
+  expect(px(slot("postgres"), "height")).toBe(Math.round((h + 150) / GRID) * GRID);
+  expect(px(slot("stripe"), "top")).toBeGreaterThan(top);
+  press("z", { metaKey: true });
+  glide();
+  expect(px(slot("postgres"), "height")).toBe(h);
+  expect(px(slot("stripe"), "top")).toBe(top);
+  vi.unstubAllGlobals();
 });
