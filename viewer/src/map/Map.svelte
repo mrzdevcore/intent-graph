@@ -56,6 +56,7 @@
   import { arrange } from "./place/arrange";
   import { rekey, reparented, settle as settlePlaces, shownView } from "./place/rules";
   import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, renamesOf, undoNext, type Rename } from "./place/history";
+  import { cardFacts } from "./db/card";
 
   let { view: given, camera = new Camera(), size, edit, onview, show, diff }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -338,6 +339,7 @@
   let off = $state(new Set<string>());
   const on = $derived(new Set(layers.filter((l) => !off.has(l))));
   const counts = $derived(insideCounts(view, view.marks, on));
+  const cards = $derived(cardFacts(view));
   const reading = $derived(view.boxes.some((b) => b.needsReading));
 
   let cw = $state(0), ch = $state(0);
@@ -1307,7 +1309,7 @@
       <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
-        kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} />
+        kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} facts={cards.get(b.id)} picked={many.includes(b.id)} />
       {#if edit && (selected === b.id || hot === b.id) && !open}
         {#each ["l", "r", "t", "b"] as h (h)}<span class="handle {h}" data-handle aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
       {/if}

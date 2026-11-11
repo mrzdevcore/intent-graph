@@ -5,7 +5,8 @@ import MapBox from "../src/map/MapBox.svelte";
 import { look } from "../src/map/looks";
 import { diffAnswer, type TableMark } from "../src/map/diff";
 import type { Diff } from "../src/model/diff";
-import type { Column, MapBox as Box, Table, View } from "../src/map/types";
+import type { Column, MapArrow, MapBox as Box, Table, View } from "../src/map/types";
+import { cardFacts, distance, type CardFacts } from "../src/map/db/card";
 
 const f = <T,>(value: T) => ({ value, source: "ig" as const });
 const col = (name: string, type: string, o: Partial<Column> = {}): Column => ({ name, type, line: 1, ...o });
@@ -19,9 +20,10 @@ const notes: Table = {
 };
 const box: Box = { id: "postgres#batches_notes", parent: "postgres", level: "code", madeOf: [], files: 1, kind: f("table"), title: f("batches_notes") };
 
-const render = (rows?: TableMark, table = notes) => {
+type Opts = { zoom?: number; facts?: CardFacts; picked?: boolean; h?: number };
+const render = (rows?: TableMark, table = notes, { zoom = 2, facts, picked, h = 600 }: Opts = {}) => {
   const t = document.createElement("div");
-  mount(MapBox, { target: t, props: { box, look: look(box.id, [], new Set(), box), detail: "near", onopen: () => {}, table, rows } });
+  mount(MapBox, { target: t, props: { box, look: look(box.id, [], new Set(), box), detail: "near", onopen: () => {}, table, rows, zoom, w: 320, h, facts, picked } });
   flushSync();
   return t;
 };
@@ -111,4 +113,116 @@ test("dropped tables are marked on the store when the tables sit in its domain g
 test("two columns of one name, as a bad schema can give, are both drawn", () => {
   const t = render(undefined, { ...notes, columns: [col("old_location", "uuid"), col("old_location", "uuid")] });
   expect(t.querySelectorAll(".col")).toHaveLength(2);
+});
+
+const FAR = 0.3, MID = 0.8;
+const big: Table = {
+  ...notes, name: "batches", translations: ["name", "description"],
+  columns: [
+    col("id_batch", "uuid", { pk: true }),
+    col("company", "uuid", { references: { table: "companies" } }),
+    col("cycle", "uuid", { references: { table: "batch_cycles" }, nullable: true }),
+    col("label", "text"),
+    col("starts_on", "date", { nullable: true }),
+    col("deleted", "bool"), col("created_at", "timestamptz"), col("updated_at", "timestamptz"), col("deleted_at", "timestamptz", { nullable: true }),
+  ],
+};
+const names = (t: HTMLElement) => [...t.querySelectorAll(".cname")].map((c) => c.textContent);
+
+test("the distance follows the zoom: chips for a store at fit, keys for a domain, all for one table", () => {
+  expect([0.2, 0.44, 0.45, 1, 1.39, 1.4, 3].map(distance)).toEqual(["far", "far", "mid", "mid", "mid", "near", "near"]);
+});
+
+test("far, a table is a chip: its name, its column count and its tags, no row per column", () => {
+  const facts = { hub: 12, pinned: new Map() };
+  const rows: TableMark = { added: false, columns: new Map([["label", "added"], ["cycle", "changed"], ["starts_on", "added"]]), removed: [] };
+  const t = render(rows, big, { zoom: FAR, facts });
+  expect(t.querySelector(".table")!.className).toContain("far");
+  expect(t.querySelector(".name")!.textContent).toBe("batches");
+  expect(t.querySelector(".count")!.textContent).toBe("9 columns");
+  expect([...t.querySelectorAll(".tag")].map((x) => x.textContent)).toEqual(["i18n", "←12", "+2 ~1"]);
+  expect(t.querySelectorAll(".col, .cname, .keys")).toHaveLength(0);
+});
+
+test("far, a plain table has no tags", () => {
+  const t = render(undefined, notes, { zoom: FAR });
+  expect(t.querySelector(".tags")).toBeNull();
+});
+
+test("far on a 95-table store, the chips draw no column", () => {
+  const t = document.createElement("div");
+  for (let i = 0; i < 95; i++)
+    mount(MapBox, { target: t, props: { box: { ...box, id: `postgres#t${i}` }, look: look(box.id, [], new Set(), box), detail: "far", onopen: () => {}, table: { ...big, name: `t${i}` }, zoom: FAR, w: 320, h: 300 } });
+  flushSync();
+  expect(t.querySelectorAll(".chip")).toHaveLength(95);
+  expect(t.querySelectorAll(".col")).toHaveLength(0);
+});
+
+test("mid, a table shows its keys and counts the rest", () => {
+  const t = render(undefined, big, { zoom: MID });
+  expect(t.querySelector(".table")!.className).toContain("mid");
+  expect(names(t)).toEqual(["id_batch", "company", "cycle"]);
+  expect(t.querySelector(".fold")!.textContent).toBe("+2 columns · +4 bookkeeping");
+  expect(t.querySelector(".i18n")).toBeNull();
+});
+
+test("mid, the keys are scaled up to read, within the near card's frame", () => {
+  const t = render(undefined, big, { zoom: 0.5, h: 400 });
+  const card = t.querySelector(".card") as HTMLElement;
+  expect(card.style.transform).toBe("scale(1.8)");
+  expect(render(undefined, big, { zoom: 0.5, h: 252 }).querySelector<HTMLElement>(".card")!.style.transform).toBe("scale(1.5)");
+  expect(render(undefined, big, { zoom: 0.5, h: 150 }).querySelector<HTMLElement>(".card")!.style.transform).toBe("");
+});
+
+test("near, every column with its type, nullable marked, the bookkeeping folded into one line", () => {
+  const t = render(undefined, big);
+  expect(t.querySelector(".table")!.className).toContain("near");
+  expect(names(t)).toEqual(["id_batch", "company", "cycle", "label", "starts_on"]);
+  expect(row(t, "starts_on").querySelector(".type")!.textContent).toBe("date?");
+  expect(row(t, "label").querySelector(".type")!.textContent).toBe("text");
+  expect(row(t, "id_batch").querySelector(".pk")!.textContent).toBe("PK");
+  expect(row(t, "company").querySelector(".fk")!.textContent).toBe("FK");
+  const fold = t.querySelector(".fold.bookkeeping")!;
+  expect(fold.textContent).toBe("+4 deleted, created_at, updated_at, deleted_at");
+});
+
+test("near, the translated columns sit in an i18n strip", () => {
+  const t = render(undefined, big);
+  expect(t.querySelector(".i18n .names")!.textContent).toBe("name, description");
+  expect(render().querySelector(".i18n")).toBeNull();
+});
+
+test("a bookkeeping column changed in a diff is not folded", () => {
+  const t = render({ added: false, columns: new Map([["updated_at", "changed"]]), removed: [] }, big);
+  expect(names(t)).toContain("~updated_at");
+  expect(t.querySelector(".fold.bookkeeping")!.textContent).toBe("+3 deleted, created_at, deleted_at");
+});
+
+test("near, a foreign key pinned to a hub names its target instead of a wire", () => {
+  const facts = { hub: 0, pinned: new Map([["companies", "companies"]]) };
+  const t = render(undefined, big, { facts });
+  expect(row(t, "company").className).toContain("pinned");
+  expect(row(t, "company").querySelector(".type")!.textContent).toBe("→ companies");
+  expect(row(t, "cycle").querySelector(".type")!.textContent).toBe("uuid?");
+});
+
+test("the header is neutral, the picked table's gold", () => {
+  expect(render().querySelector(".table")!.className).not.toContain("picked");
+  expect(render(undefined, notes, { picked: true }).querySelector(".table")!.className).toContain("picked");
+});
+
+test("cardFacts counts the tables pointing at a hub and its pinned keys", () => {
+  const arrow = (from: string, to: string, o: Partial<MapArrow> = {}) => ({ id: `${from}->${to}`, from, to, kind: "uses", count: 1, kinds: ["uses"], ...o }) as MapArrow;
+  const tables: Record<string, Table> = { "p#companies": { ...notes, name: "companies" }, "p#a": notes, "p#b": notes, "p#c": notes };
+  const view = {
+    arrows: [
+      arrow("p#a", "p#companies", { pinned: true }), arrow("p#b", "p#companies", { pinned: true }),
+      arrow("p#c", "p#companies", { pinned: true, via: "p#a" }), arrow("p#c", "p#a"),
+    ],
+    tables,
+  } as unknown as View;
+  const facts = cardFacts(view);
+  expect(facts.get("p#companies")!.hub).toBe(2);
+  expect([...facts.get("p#a")!.pinned]).toEqual([["companies", "companies"]]);
+  expect(facts.get("p#c")).toBeUndefined();
 });
