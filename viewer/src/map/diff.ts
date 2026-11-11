@@ -144,7 +144,9 @@ function tableSteps(view: View, d: Diff, marks: Marks, step: (group: string, kin
   const t = d.tables;
   if (!t || (!t.added.length && !t.removed.length && !t.changed.length)) return;
   const ids = new Map(Object.entries(view.tables ?? {}).map(([id, tb]) => [tb.name.toLowerCase(), id]));
-  const store = view.boxes.find((b) => ids.has((view.tables?.[b.id]?.name ?? "").toLowerCase()))?.parent;
+  const byId = new Map(view.boxes.map((b) => [b.id, b]));
+  let store = view.boxes.find((b) => ids.has((view.tables?.[b.id]?.name ?? "").toLowerCase()))?.parent;
+  while (store && view.tableGroups?.[store]) store = byId.get(store)?.parent;
   const word = (k: string) => (k === "view" ? "view" : "table");
   for (const a of t.added) {
     const id = ids.get(a.name.toLowerCase());

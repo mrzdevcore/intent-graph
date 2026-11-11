@@ -41,22 +41,15 @@ fn title(id: &str) -> String {
 
 fn arrow(from: &str, to: &str) -> MapArrow {
     MapArrow {
-        note: None,
-        context: None,
-        shape: None,
-        written: Default::default(),
-        seen: vec![],
         id: format!("{from}->{to}"),
         parent: "system".into(),
         from: from.into(),
         to: to.into(),
         kind: ArrowKind::Uses,
-        label: None,
         count: 1,
         kinds: vec![ArrowKind::Uses],
-        in_loop: false,
         origin: Origin::Built,
-        parts: vec![],
+        ..Default::default()
     }
 }
 

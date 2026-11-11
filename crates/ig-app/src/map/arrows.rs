@@ -5,7 +5,9 @@ use ig_core::model::{Edge, Graph};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum ArrowKind {
     #[serde(alias = "network")]
@@ -16,6 +18,7 @@ pub enum ArrowKind {
     Reads,
     Writes,
     #[serde(alias = "depends")]
+    #[default]
     Uses,
     Implements,
     Triggers,
@@ -47,7 +50,7 @@ impl Shape {
     pub const NAMES: [&'static str; 4] = ["circuit", "elbow", "curved", "straight"];
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MapArrow {
     /// `"{from}->{to}"`.
@@ -80,6 +83,31 @@ pub struct MapArrow {
     /// The arrows as written, when this one is drawn between boxes above their ends.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub parts: Vec<MapArrow>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_column: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub to_column: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ends: Option<Ends>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub via: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub pinned: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum End {
+    One,
+    ZeroOne,
+    Many0,
+    Many1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ends {
+    pub from: End,
+    pub to: End,
 }
 
 impl MapArrow {
@@ -285,6 +313,7 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
                 in_loop: edges.iter().any(|(e, _)| e.in_loop),
                 origin: Default::default(),
                 parts: vec![],
+                ..Default::default()
             }
         })
         .collect();
@@ -327,6 +356,7 @@ pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArro
             );
             a.parts = vec![a.clone()];
             (a.from, a.to) = (from, to);
+            (a.from_column, a.to_column, a.ends, a.via, a.pinned) = (None, None, None, None, false);
             pairs.entry(key).or_default().push(a);
         }
     }
@@ -365,6 +395,11 @@ pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArro
             kinds,
             in_loop,
             parts,
+            from_column: None,
+            to_column: None,
+            ends: None,
+            via: None,
+            pinned: false,
             ..first
         }
     }));
@@ -475,6 +510,7 @@ mod tests {
             in_loop: false,
             origin: Default::default(),
             parts: vec![],
+            ..Default::default()
         }
     }
 

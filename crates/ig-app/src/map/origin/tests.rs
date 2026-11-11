@@ -441,6 +441,7 @@ fn spec_arrow(from: &str, kind: ArrowKind, to: &str) -> MapArrow {
         in_loop: false,
         origin: Origin::Built,
         parts: vec![],
+        ..Default::default()
     }
 }
 

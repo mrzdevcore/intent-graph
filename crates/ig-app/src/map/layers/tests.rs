@@ -92,6 +92,7 @@ fn three_network_hops_is_risk() {
         in_loop: false,
         origin: Default::default(),
         parts: vec![],
+        ..Default::default()
     };
     // web -> api (already there) -> b -> c, and a cycle back that must not loop forever
     m.arrows

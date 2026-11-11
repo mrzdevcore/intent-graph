@@ -73,7 +73,14 @@ export type MapArrow = {
   /** The arrows as written, when this one is drawn between boxes above their ends. */
   parts?: MapArrow[];
   ghost?: boolean;
+  fromColumn?: string;
+  toColumn?: string;
+  ends?: { from: End; to: End };
+  via?: string;
+  pinned?: boolean;
 };
+export type End = "one" | "zeroOne" | "many0" | "many1";
+export type TableGroup = "domain" | "other" | "views" | "leftovers" | "translations";
 export type MarkState = "ok" | "warn" | "bad" | "down";
 export type Mark = { layer: string; target: string; state: MarkState; badge?: string; value?: string; note?: string };
 /** A box's place, in its parent's own inner units. */
@@ -94,7 +101,7 @@ export type Column = {
 /** A table or view a table box draws: `reads` are a view's tables. */
 export type Table = {
   name: string; kind: "table" | "view"; source: string; file: string; range: { startLine: number; endLine: number };
-  columns: Column[]; reads?: string[];
+  columns: Column[]; reads?: string[]; translations?: string[];
 };
 /** A piece of a file: `text` from line `line` on, `cut` lines left out at its end. */
 export type Snippet = { file: string; line: number; text: string; cut?: number; complexity: number };
@@ -110,6 +117,7 @@ export type View = {
   parts?: Record<string, Part[]>;
   /** The table or view each table box draws, by box id. */
   tables?: Record<string, Table>;
+  tableGroups?: Record<string, TableGroup>;
   notices: string[];
   /** What reads but looks wrong in ig/ (crowded boxes, arrows the kinds do not expect…). */
   warnings: string[];

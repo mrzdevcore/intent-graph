@@ -10,12 +10,13 @@ use super::layout::layout_with;
 pub use super::layout::{Frame, Placed, Region, RegionKind};
 use super::live::{apply, read_all};
 use super::origin::{compare, not_read};
+use super::tables::{TableGroup, TableView};
 use super::warn::warnings;
 use super::{FactBox, MapArrow, Pattern, arrows, facts, spec};
 use crate::Env;
 use globset::GlobSet;
 use ig_core::config::Config;
-use ig_core::model::{Anatomy, Finding, Graph, Part, Range, Schema, Table};
+use ig_core::model::{Anatomy, Finding, Graph, Part, Range, Schema};
 use ig_core::ports::{Connector, Files, LanguageFrontend};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -38,7 +39,9 @@ pub struct View {
     pub parts: BTreeMap<String, Vec<Part>>,
     /// The table or view each table box draws, by box id.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub tables: BTreeMap<String, Table>,
+    pub tables: BTreeMap<String, TableView>,
+    #[serde(rename = "tableGroups", skip_serializing_if = "BTreeMap::is_empty")]
+    pub table_groups: BTreeMap<String, TableGroup>,
     pub notices: Vec<String>,
     /// What reads but looks wrong in `ig/` (`warn::warnings`); never a reason to fail.
     pub warnings: Vec<String>,
@@ -179,7 +182,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy], db: &Sche
     }
     sort_marks(&mut marks);
     let rows = (tables.tables.iter())
-        .map(|(id, t)| (id.clone(), t.columns.len() as u32))
+        .map(|(id, t)| (id.clone(), t.table.columns.len() as u32))
         .collect();
     let kinds = Kinds::load(files).unwrap_or_else(|_| Kinds::builtin().clone());
     let (placed, mut unrouted) = layout_with(&boxes, &arrows, &rows);
@@ -193,6 +196,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy], db: &Sche
         sources,
         parts,
         tables: tables.tables,
+        table_groups: tables.groups,
         notices,
         warnings: vec![],
         // a team kind file that does not read is reported by the spec's read

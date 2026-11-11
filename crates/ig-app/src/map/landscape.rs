@@ -175,6 +175,7 @@ pub fn combine(title: &str, projects: Vec<Project>, mut info: Landscape) -> View
         sources: Default::default(),
         parts: Default::default(),
         tables: Default::default(),
+        table_groups: Default::default(),
         notices: vec![],
         warnings: vec![],
         kinds: Kinds::builtin().views(),
@@ -269,6 +270,7 @@ pub fn combine(title: &str, projects: Vec<Project>, mut info: Landscape) -> View
         in_loop: false,
         origin: Origin::Build,
         parts: vec![],
+        ..Default::default()
     }));
     view.landscape = Some(info);
     view
@@ -306,6 +308,7 @@ mod tests {
             in_loop: false,
             origin: Origin::Built,
             parts,
+            ..Default::default()
         };
         let mut placed = Placed::default();
         placed.frames.insert(
@@ -345,6 +348,7 @@ mod tests {
             sources: Default::default(),
             parts: Default::default(),
             tables: Default::default(),
+            table_groups: Default::default(),
             notices: vec!["hello".into()],
             warnings: vec![],
             kinds: vec![],

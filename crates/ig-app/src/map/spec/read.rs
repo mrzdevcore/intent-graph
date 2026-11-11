@@ -435,6 +435,7 @@ impl Reader {
                 in_loop: false,
                 origin: Default::default(),
                 parts: vec![],
+                ..Default::default()
             },
             place,
         ));

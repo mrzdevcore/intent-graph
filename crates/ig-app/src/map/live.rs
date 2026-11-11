@@ -441,6 +441,7 @@ fn draw_links(
                     in_loop: false,
                     origin: Origin::Built,
                     parts: vec![],
+                    ..Default::default()
                 });
             }
             None if !pause => m.marks.push(word(

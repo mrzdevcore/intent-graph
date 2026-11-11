@@ -90,6 +90,24 @@ test("diffAnswer marks a changed table's columns, a new table, and dropped ones 
   ]);
 });
 
+test("dropped tables are marked on the store when the tables sit in its domain groups", () => {
+  const store = { id: "postgres", parent: "system", level: "container", madeOf: [], files: 0, kind: f("store"), title: f("PostgreSQL") };
+  const group = { ...store, id: "postgres#batches_*", parent: "postgres", level: "component", kind: f("group"), title: f("batches") };
+  const view = {
+    version: 1, boxes: [store, group, { ...box, parent: group.id }],
+    arrows: [], marks: [], placed: { frames: {}, inner: {}, regions: [] }, notices: [], warnings: [], kinds: [],
+    tables: { [box.id]: notes }, tableGroups: { [group.id]: "domain" },
+  } as unknown as View;
+  const d: Diff = {
+    base: "a".repeat(40), head: null, source: "code", summary: "",
+    boxes: { added: [], removed: [], changed: [] }, arrows: { added: [], removed: [] },
+    tables: { added: [], removed: [{ name: "old_notes", kind: "table" }], changed: [] },
+    intent: { status: "same", added: [], removed: [], moved: [], changed: [], arrowsAdded: [], arrowsRemoved: [] },
+    problems: { new: [], fixed: [] },
+  };
+  expect(diffAnswer(view, d).marks.removedHere.get("postgres")!.map((b) => b.id)).toEqual(["postgres#old_notes"]);
+});
+
 test("two columns of one name, as a bad schema can give, are both drawn", () => {
   const t = render(undefined, { ...notes, columns: [col("old_location", "uuid"), col("old_location", "uuid")] });
   expect(t.querySelectorAll(".col")).toHaveLength(2);
