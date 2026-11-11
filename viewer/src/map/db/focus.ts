@@ -17,6 +17,7 @@ export type Line = { id: string; from: string; to: string; a: Tip; b: Tip; d: st
 export type Focus = { cards: Card[]; lines: Line[]; w: number; h: number };
 
 export const SIZE = { centre: 300, side: 240, head: 44, row: 26, pad: 8, gapX: 150, gapY: 24, margin: 32, loop: 56 };
+// Rust's TELLS_NULLABLE (crates/ig-app/src/map/tables.rs)
 const STATES = ["sql", "prisma", "django", "sqlalchemy", "drizzle", "typeorm"];
 
 const flat = (a: MapArrow): MapArrow[] => (a.parts?.length ? a.parts.flatMap(flat) : [a]);
@@ -30,18 +31,53 @@ export function relations(view: View): Rel[] {
   return [...seen.values()];
 }
 
+type Index = { boxes: Map<string, MapBox>; kids: Map<string, MapBox[]>; store: Map<string, string | undefined>; byName: Map<string, Map<string, string>> };
+const indexes = new WeakMap<View, Index>();
+
+function indexOf(view: View): Index {
+  const had = indexes.get(view);
+  if (had) return had;
+  const boxes = new Map(view.boxes.map((b) => [b.id, b]));
+  const kids = new Map<string, MapBox[]>();
+  for (const b of view.boxes) if (b.parent) (kids.get(b.parent) ?? kids.set(b.parent, []).get(b.parent)!).push(b);
+  const store = new Map<string, string | undefined>();
+  const up = (id: string): string | undefined => {
+    if (store.has(id)) return store.get(id);
+    store.set(id, undefined);
+    const b = boxes.get(id);
+    const s = !b ? undefined : b.kind.value === "store" ? b.id : b.parent ? up(b.parent) : undefined;
+    store.set(id, s);
+    return s;
+  };
+  for (const id of boxes.keys()) up(id);
+  const byName = new Map<string, Map<string, string>>();
+  for (const [id, t] of Object.entries(view.tables ?? {})) {
+    const s = up(id) ?? "";
+    (byName.get(s) ?? byName.set(s, new Map()).get(s)!).set(t.name.toLowerCase(), id);
+  }
+  const ix = { boxes, kids, store, byName };
+  indexes.set(view, ix);
+  return ix;
+}
+
+export const storeOf = (view: View, id: string) => indexOf(view).store.get(id);
+export const hasTables = (view: View, store: string) => !!store && indexOf(view).byName.has(store);
+export const groupOf = (view: View, id: string) => indexOf(view).boxes.get(id)?.parent;
+const tableIn = (view: View, store: string | undefined, name: string) => indexOf(view).byName.get(store ?? "")?.get(name.toLowerCase());
+
 const groupKind = (view: View, id: string): TableGroup | undefined => {
-  const p = view.boxes.find((b) => b.id === id)?.parent;
+  const p = groupOf(view, id);
   return p ? view.tableGroups?.[p] : undefined;
 };
 
 function hidden(view: View, rels: Rel[], folds: Folds, centre: string): Set<string> {
   const out = new Set<string>();
   if (folds.translations) for (const id of Object.keys(view.tables ?? {})) if (groupKind(view, id) === "translations") out.add(id);
-  if (folds.joins) {
-    const byName = new Map(Object.entries(view.tables ?? {}).map(([id, t]) => [t.name.toLowerCase(), id]));
-    for (const r of rels) if (r.via && byName.has(r.via.toLowerCase())) out.add(byName.get(r.via.toLowerCase())!);
-  }
+  if (folds.joins)
+    for (const r of rels) {
+      const join = r.via ? tableIn(view, storeOf(view, r.from), r.via) : undefined;
+      if (join) out.add(join);
+    }
   out.delete(centre);
   return out;
 }
@@ -75,6 +111,15 @@ export function anchor(card: Card, column?: string): number {
 
 const pkOf = (t: Table) => t.columns.find((c) => c.pk)?.name;
 
+export function columnEnds(t: Table, c: Column): { from: End; to: End } | undefined {
+  if (!STATES.includes(t.source)) return undefined;
+  const pk = t.columns.filter((k) => k.pk);
+  return {
+    from: c.unique || (pk.length === 1 && pk[0].name === c.name) ? "zeroOne" : "many0",
+    to: c.nullable ? "zeroOne" : "one",
+  };
+}
+
 export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: Folds = FOLDS): Focus | null {
   const me = view.tables?.[centre];
   if (!me) return null;
@@ -100,11 +145,22 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: F
     for (const id of right) for (const o of around(id, 1)) put(o, 2);
   }
 
+  const store = storeOf(view, centre);
+  const adjacent = (a: string, b: string) => col.has(a) && col.has(b) && Math.abs(col.get(a)! - col.get(b)!) === 1;
+  const specs: Rel[] = rels.filter((r) => r.via && adjacent(r.from, r.to));
+  for (const from of col.keys()) {
+    const t = view.tables![from];
+    for (const c of t.columns) {
+      const to = c.references ? tableIn(view, store, c.references.table) : undefined;
+      if (!to || to === from || !adjacent(from, to)) continue;
+      specs.push({ id: `${from}.${c.name}->${to}`, from, to, fromColumn: c.name, toColumn: c.references!.column ?? pkOf(view.tables![to]), ends: columnEnds(t, c) });
+    }
+  }
   const need = new Map<string, Set<string>>();
   const needs = (id: string, c?: string) => c && (need.get(id) ?? need.set(id, new Set()).get(id)!).add(c.toLowerCase());
-  for (const r of rels) {
+  for (const r of specs) {
     needs(r.from, r.fromColumn);
-    needs(r.to, r.toColumn ?? pkOf(view.tables![r.to]));
+    needs(r.to, r.toColumn);
   }
 
   const columns = [...new Set(col.values())].sort((a, b) => a - b);
@@ -131,31 +187,29 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: F
   for (const k of cards) k.y += SIZE.margin + (H - colH(k.col)) / 2;
 
   const at = new Map(cards.map((k) => [k.id, k]));
-  const lines: Line[] = [];
-  for (const r of rels) {
-    const a = at.get(r.from), b = at.get(r.to);
-    if (!a || !b || Math.abs(a.col - b.col) !== 1) continue;
-    const ay = anchor(a, r.fromColumn), by = anchor(b, r.toColumn ?? pkOf(b.table));
-    const aRight = a.col < b.col;
-    const ax = aRight ? a.x + a.w : a.x, bx = aRight ? b.x : b.x + b.w;
-    const mx = (ax + bx) / 2;
-    lines.push({
-      id: r.id, from: r.from, to: r.to, via: r.via, mid: [mx, (ay + by) / 2],
-      a: { x: ax, y: ay, out: [aRight ? 1 : -1, 0], end: r.ends?.from },
-      b: { x: bx, y: by, out: [aRight ? -1 : 1, 0], end: r.ends?.to },
-      d: `M${ax} ${ay}C${mx} ${ay} ${mx} ${by} ${bx} ${by}`,
-    });
+  const lines: Line[] = specs.map((r) => {
+    const a = at.get(r.from)!, b = at.get(r.to)!, aRight = a.col < b.col;
+    return {
+      id: r.id, from: r.from, to: r.to, via: r.via, mid: [0, 0], d: "",
+      a: { x: aRight ? a.x + a.w : a.x, y: anchor(a, r.fromColumn), out: [aRight ? 1 : -1, 0], end: r.ends?.from },
+      b: { x: aRight ? b.x : b.x + b.w, y: anchor(b, r.toColumn ?? pkOf(b.table)), out: [aRight ? -1 : 1, 0], end: r.ends?.to },
+    };
+  });
+  spread(lines);
+  for (const l of lines) {
+    const mx = (l.a.x + l.b.x) / 2;
+    l.mid = [mx, (l.a.y + l.b.y) / 2];
+    l.d = `M${l.a.x} ${l.a.y}C${mx} ${l.a.y} ${mx} ${l.b.y} ${l.b.x} ${l.b.y}`;
   }
   const self = at.get(centre)!;
-  const known = STATES.includes(me.source);
   for (const c of me.columns) {
-    if (c.references?.table.toLowerCase() !== me.name.toLowerCase()) continue;
+    if (!c.references || tableIn(view, store, c.references.table) !== centre) continue;
     const ay = anchor(self, c.name), by = anchor(self, c.references.column ?? pkOf(me));
-    const ex = self.x + self.w, lx = ex + SIZE.loop;
+    const ex = self.x + self.w, lx = ex + SIZE.loop, ends = columnEnds(me, c);
     lines.push({
       id: `${centre}:self:${c.name}`, from: centre, to: centre, mid: [lx, (ay + by) / 2],
-      a: { x: ex, y: ay, out: [1, 0], end: known ? (c.unique || c.pk ? "zeroOne" : "many0") : undefined },
-      b: { x: ex, y: by, out: [1, 0], end: known ? (c.nullable ? "zeroOne" : "one") : undefined },
+      a: { x: ex, y: ay, out: [1, 0], end: ends?.from },
+      b: { x: ex, y: by, out: [1, 0], end: ends?.to },
       d: `M${ex} ${ay}C${lx} ${ay} ${lx} ${by} ${ex} ${by}`,
     });
   }
@@ -163,11 +217,20 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: F
   return { cards, lines, w: x - SIZE.gapX + SIZE.margin + (columns.at(-1) === 0 ? loops : 0), h: H + 2 * SIZE.margin };
 }
 
-export function storeOf(view: View, id: string): string | undefined {
-  const byId = new Map(view.boxes.map((b) => [b.id, b]));
-  for (let b: MapBox | undefined = byId.get(id), n = 0; b && n < 64; b = b.parent ? byId.get(b.parent) : undefined, n++)
-    if (b.kind.value === "store") return b.id;
-  return undefined;
+function spread(lines: Line[]) {
+  const at = new Map<string, { tip: Tip; other: Tip }[]>();
+  for (const l of lines)
+    for (const [tip, other] of [[l.a, l.b], [l.b, l.a]] as const) {
+      const k = `${tip.x}:${tip.y}`;
+      (at.get(k) ?? at.set(k, []).get(k)!).push({ tip, other });
+    }
+  const half = SIZE.row / 2 - 3;
+  for (const list of at.values()) {
+    if (list.length < 2) continue;
+    list.sort((p, q) => p.other.y - q.other.y);
+    const y = list[0].tip.y;
+    list.forEach((p, i) => (p.tip.y = y - half + (2 * half * i) / (list.length - 1)));
+  }
 }
 
 export type TreeTable = { id: string; name: string; kind: Table["kind"]; matched: string[] };
@@ -178,9 +241,9 @@ const ORDER: Record<string, number> = { domain: 0, other: 1, views: 2, store: 3,
 
 export function treeOf(view: View, store: string, query = ""): Tree {
   const q = query.trim().toLowerCase();
-  const boxes = view.boxes, tables = view.tables ?? {};
+  const ix = indexOf(view), tables = view.tables ?? {};
   const groups: TreeGroup[] = [];
-  const of = (parent: string) => boxes.filter((b) => b.parent === parent && tables[b.id]).map((b) => ({ id: b.id, t: tables[b.id] }));
+  const of = (parent: string) => (ix.kids.get(parent) ?? []).filter((b) => tables[b.id]).map((b) => ({ id: b.id, t: tables[b.id] }));
   const group = (id: string, title: string, kind: TreeGroup["kind"]) => {
     const all = of(id);
     const list = all.flatMap(({ id, t }): TreeTable[] => {
@@ -190,18 +253,16 @@ export function treeOf(view: View, store: string, query = ""): Tree {
     }).sort((a, b) => a.name.localeCompare(b.name));
     if (all.length && (!q || list.length)) groups.push({ id, title, kind, count: all.length, tables: list });
   };
-  for (const b of boxes) if (b.parent === store && view.tableGroups?.[b.id]) group(b.id, b.title.value, view.tableGroups[b.id]);
+  for (const b of ix.kids.get(store) ?? []) if (view.tableGroups?.[b.id]) group(b.id, b.title.value, view.tableGroups[b.id]);
   group(store, "tables", "store");
   groups.sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || a.title.localeCompare(b.title));
   const aside = (g: TreeGroup) => g.kind === "translations" || g.kind === "leftovers";
-  const counted = Object.entries(tables).filter(([id]) => storeOf(view, id) === store && !["translations", "leftovers"].includes(groupKind(view, id) ?? ""));
+  const counted = [...(ix.byName.get(store)?.values() ?? [])].filter((id) => !["translations", "leftovers"].includes(groupKind(view, id) ?? ""));
   return {
-    title: boxes.find((b) => b.id === store)?.title.value ?? store,
-    tables: counted.filter(([, t]) => t.kind === "table").length,
-    views: counted.filter(([, t]) => t.kind === "view").length,
+    title: ix.boxes.get(store)?.title.value ?? store,
+    tables: counted.filter((id) => tables[id].kind === "table").length,
+    views: counted.filter((id) => tables[id].kind === "view").length,
     groups: groups.filter((g) => !aside(g)),
     aside: groups.filter(aside),
   };
 }
-
-export const groupOf = (view: View, id: string) => view.boxes.find((b) => b.id === id)?.parent;

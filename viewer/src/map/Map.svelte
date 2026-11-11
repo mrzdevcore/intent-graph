@@ -60,7 +60,7 @@
   import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, renamesOf, undoNext, type Rename } from "./place/history";
   import { cardFacts } from "./db/card";
   import Focus from "./db/Focus.svelte";
-  import { storeOf } from "./db/focus";
+  import { hasTables as storeHasTables, storeOf } from "./db/focus";
 
   let { view: given, camera = new Camera(), size, edit, onview, show, diff }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -538,7 +538,7 @@
     const store = storeOf(view, id);
     if (store && view.tables?.[id]) focusing = { store, table: id };
   }
-  const hasTables = (id: string) => Object.keys(view.tables ?? {}).some((t) => storeOf(view, t) === id);
+  const hasTables = (id: string) => storeHasTables(view, id);
   function openTables(id: string) {
     if (hasTables(id)) focusing = { store: id, table: null };
   }

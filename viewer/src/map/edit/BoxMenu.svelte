@@ -13,7 +13,7 @@
     ["rename", "Rename", "F2"], ["kinds", "Kind", "▸"], ["details", "Edit details", "E"], ["arrow", "Arrow from here", "A"], ["add", "Add a box inside", "B"],
     ["move", "Move to a group…", "M"], ...(group ? [["arrange", "Arrange inside", ""] as [Act, string, string]] : []),
     ...(code ? [["code", "Open the code", "O"] as [Act, string, string]] : []),
-    ...(db ? [[db, db === "focus" ? "Focus" : "Tables…", db === "focus" ? "↵" : ""] as [Act, string, string]] : []),
+    ...(db ? [[db, db === "focus" ? "Focus" : "Tables…", ""] as [Act, string, string]] : []),
     ["copy", "Copy", "⌘C"], ["copyAll", "Copy with what's inside", "⌘⇧C"], ...(paste ? [["paste", "Paste", "⌘V"] as [Act, string, string]] : []), ["duplicate", "Duplicate", "⌘D"],
     ["delete", "Delete", "⌫"],
   ]);

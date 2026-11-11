@@ -31,7 +31,7 @@ function schema(store: string, loose = false) {
   };
   const link = (from: string, to: string, fromColumn: string, ends?: { from: End; to: End }, via?: string): MapArrow => ({
     id: `${store}#${from}->${store}#${to}${via ? ` via ${via}` : ""}`, parent: store, from: `${store}#${from}`, to: `${store}#${to}`, kind: "uses", count: 1, kinds: ["uses"],
-    fromColumn, toColumn: via ? "id" : "id", ends, via,
+    fromColumn, toColumn: "id", ends, via,
   });
   add(table("batches", [
     col("id", { pk: true }), col("code"),
@@ -42,7 +42,8 @@ function schema(store: string, loose = false) {
   for (const p of PARENTS) add(table(p, [col("id", { pk: true }), col("name"), col("code"), ...(p === "plants_sites" ? [col("company_id", ref("companies"))] : [])]));
   add(table("companies", [col("id", { pk: true }), col("name")]));
   for (const c of CHILDREN)
-    add(table(c, [col("id", { pk: true }), col("batch_id", ref("batches", { nullable: c === "manual_entries" })), col("value"), ...(c === "batches_notes" ? [col("impacts")] : [])]));
+    add(table(c, [col("id", { pk: true }), col("batch_id", ref("batches", { nullable: c === "manual_entries" })), col("value"), ...(c === "batches_notes" ? [col("impacts")] : []),
+      ...(c === "batches_events" ? [col("previous_batch_id", ref("batches", { nullable: true }))] : [])]));
   add(table("batches_steps_values", [col("id", { pk: true }), col("step_id", ref("batches_steps")), col("value")]));
   add(table("batches_translations", [col("id", { pk: true }), col("batch_id", ref("batches")), col("locale"), col("label")]), loose ? store : `${store}#(translations)`);
   add(table("users_roles", [col("user_id", { pk: true, ...ref("users") }), col("role_id", { pk: true, ...ref("roles") })]));
@@ -107,15 +108,27 @@ test("each line joins the foreign-key row to the primary-key row, with the ends 
     expect(x.b).toMatchObject({ x: card.x, y: anchor(card, "id"), out: [-1, 0], end: p === "parameters_batch_cycles" ? "zeroOne" : "one" });
   }
   const pkRow = anchor(centre, "id");
+  expect(pkRow).toBe(centre.y + 44 + 13);
   for (const c of CHILDREN) {
     const x = line(c, "batches");
-    expect(x.b).toMatchObject({ x: centre.x, y: pkRow, out: [-1, 0], end: c === "manual_entries" ? "zeroOne" : "one" });
+    expect(x.b).toMatchObject({ x: centre.x, out: [-1, 0], end: c === "manual_entries" ? "zeroOne" : "one" });
+    expect(Math.abs(x.b.y - pkRow)).toBeLessThanOrEqual(10);
     expect(x.a.end).toBe("many0");
   }
-  expect(pkRow).toBe(centre.y + 44 + 13);
+  const arriving = l.lines.filter((x) => x.to === id("batches") && x.from !== x.to).map((x) => x.b.y);
+  expect(arriving).toHaveLength(9);
+  expect(new Set(arriving).size).toBe(9);
   const self = l.lines.find((x) => x.from === x.to)!;
   expect(self.a).toMatchObject({ y: anchor(centre, "parent_batch"), end: "many0" });
   expect(self.b).toMatchObject({ y: pkRow, end: "zeroOne" });
+});
+
+test("a child with two foreign keys to the centre draws a line from each row", () => {
+  const l = focusLayout(dbView(), id("batches"))!;
+  const events = l.cards.find((k) => k.id === id("batches_events"))!;
+  const two = l.lines.filter((x) => x.from === id("batches_events"));
+  expect(two.map((x) => x.a.y)).toEqual([anchor(events, "batch_id"), anchor(events, "previous_batch_id")]);
+  expect(two.map((x) => x.b.end)).toEqual(["one", "zeroOne"]);
 });
 
 test("2 hops: the neighbours' neighbours in the outer columns", () => {
@@ -165,7 +178,7 @@ test("the tree opens the focused table's domain only, and picking a table focuse
   const open = [...target.querySelectorAll(".domain[aria-expanded=true]")].map((b) => b.querySelector(".title")!.textContent);
   expect(open).toEqual(["batches"]);
   expect(target.querySelector(`[data-table="${id("batches")}"]`)!.getAttribute("aria-current")).toBe("true");
-  (target.querySelector(`[data-table="${id("manual_entries")}"]`) as HTMLButtonElement | null)?.click();
+  expect(target.querySelector(`[data-table="${id("manual_entries")}"]`)).toBeNull();
   expect(target.querySelector(`[data-table="${id("users")}"]`)).toBeNull();
   (target.querySelector(`[data-table="${id("batches_notes")}"]`) as HTMLButtonElement).click();
   expect(picked).toEqual([id("batches_notes")]);
@@ -209,7 +222,7 @@ test("ends drawn as the notation says: crow's foot, labels or both", () => {
   expect(crow.querySelectorAll("text.label").length).toBe(0);
   const labels = focus("labels").target;
   expect(labels.querySelectorAll(".end").length).toBe(0);
-  const texts = [...labels.querySelectorAll(`[data-line="${CSS.escape(`pg#manual_entries->pg#batches`)}"] text.label`)].map((t) => t.textContent);
+  const texts = [...labels.querySelectorAll(`[data-line="${CSS.escape("pg#manual_entries.batch_id->pg#batches")}"] text.label`)].map((t) => t.textContent);
   expect(texts).toEqual(["0..n", "0..1"]);
   const both = focus("both").target;
   expect(both.querySelectorAll(".end").length).toBeGreaterThan(0);
@@ -219,6 +232,8 @@ test("ends drawn as the notation says: crow's foot, labels or both", () => {
 test("the focus view: a neighbour click picks it, 2 hops adds the outer columns, the Ends buttons and Esc", () => {
   const { target, calls } = focus();
   expect(target.querySelector("section.card")!.getAttribute("aria-label")).toBe("batches");
+  expect(target.querySelector("[role=dialog]")!.getAttribute("aria-modal")).toBe("true");
+  expect(document.activeElement).toBe(target.querySelector(".tree input"));
   expect(target.querySelector(".crumbs")!.textContent).toContain("batches");
   expect(target.querySelectorAll("button.card")).toHaveLength(14);
   (target.querySelector(`button[data-card="${id("plants_sites")}"]`) as HTMLButtonElement).click();

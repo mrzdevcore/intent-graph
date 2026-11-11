@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { Column, View } from "../types";
   import Tree from "./Tree.svelte";
   import { endLabel, endMarks, type Notation } from "./ends";
@@ -19,7 +20,19 @@
   const labels = $derived(ends !== "crowsfoot");
   const NOTATIONS: [Notation, string][] = [["crowsfoot", "Crow's foot"], ["labels", "Labels"], ["both", "Both"]];
 
+  let root: HTMLDivElement;
+  onMount(() => (root.querySelector<HTMLElement>("input") ?? root).focus());
+  function trap(e: KeyboardEvent) {
+    const all = [...root.querySelectorAll<HTMLElement>("button, input, [tabindex]:not([tabindex='-1'])")];
+    const i = all.indexOf(document.activeElement as HTMLElement);
+    if (!all.length || (i > 0 && i < all.length - 1)) return;
+    const to = i < 0 ? all[0] : e.shiftKey && i === 0 ? all.at(-1)! : !e.shiftKey && i === all.length - 1 ? all[0] : null;
+    if (!to) return;
+    e.preventDefault();
+    to.focus();
+  }
   function keydown(e: KeyboardEvent) {
+    if (e.key === "Tab") return trap(e);
     if (e.key !== "Escape" || e.defaultPrevented) return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -73,7 +86,7 @@
   {/if}
 {/snippet}
 
-<div class="focus" role="dialog" aria-label="Focus on a table">
+<div class="focus" role="dialog" aria-modal="true" aria-label="Focus on a table" tabindex="-1" bind:this={root}>
   <header>
     <button type="button" class="back" onclick={onclose}>Back to the map</button>
     <ol class="crumbs" aria-label="Where">
