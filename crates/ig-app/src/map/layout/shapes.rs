@@ -3,7 +3,7 @@
 use super::{CHIP, Frame, GUTTER, Lay, PAD, RegionKind};
 use crate::map::file::MapBox;
 
-impl<'a> Lay<'a> {
+impl<'a> Lay<'a, '_> {
     /// `items` around `inner`, `gap` away: the first `side` (in order) in a column on its left,
     /// the last `side` on its right, the rest split alternately into rows of `cols` above and
     /// below. Returns the bounds of `inner` and them all.

@@ -162,7 +162,7 @@ pub fn layout_with(
         let mut l = Lay {
             near: &near,
             rows,
-            sized: std::rc::Rc::new(sized.clone()),
+            sized: &sized,
             cx: BTreeMap::new(),
             frames: vec![],
             regions: vec![],
@@ -179,12 +179,6 @@ pub fn layout_with(
         l.untangle();
         let (w, h) = l.normalize();
         placed.inner.insert(parent.to_string(), (w, h));
-        if let Some(b) = by_id
-            .get(parent)
-            .filter(|_| kids.iter().all(|k| rows.contains_key(&k.id)))
-        {
-            sized.insert(parent.to_string(), shaped(size(b), (w, h)));
-        }
         for (id, f) in l.frames {
             placed.frames.insert(id.to_string(), f);
         }
@@ -196,6 +190,12 @@ pub fn layout_with(
                 label,
                 frame,
             }));
+        if let Some(b) = by_id
+            .get(parent)
+            .filter(|_| kids.iter().all(|k| rows.contains_key(&k.id)))
+        {
+            sized.insert(parent.to_string(), shaped(size(b), (w, h)));
+        }
     }
     let notices = arrows
         .iter()
@@ -236,11 +236,11 @@ fn cuts(p: (f32, f32), q: (f32, f32), f: &Frame) -> bool {
 
 /// One parent's layout, centered on x = 0 until `normalize`.
 #[derive(Clone)]
-struct Lay<'a> {
+struct Lay<'a, 's> {
     near: &'a BTreeMap<&'a str, Vec<&'a str>>,
     /// See `layout_with`.
     rows: &'a BTreeMap<String, u32>,
-    sized: std::rc::Rc<BTreeMap<String, (f32, f32)>>,
+    sized: &'s BTreeMap<String, (f32, f32)>,
     /// Centers of the boxes placed so far, for the barycenter order.
     cx: BTreeMap<&'a str, f32>,
     frames: Vec<(&'a str, Frame)>,
@@ -250,7 +250,7 @@ struct Lay<'a> {
     groups: Vec<(usize, usize, bool)>,
 }
 
-impl<'a> Lay<'a> {
+impl<'a> Lay<'a, '_> {
     /// `b`'s size at "near" detail (`size`), a table's from its rows.
     fn size(&self, b: &MapBox) -> (f32, f32) {
         match self.rows.get(&b.id) {

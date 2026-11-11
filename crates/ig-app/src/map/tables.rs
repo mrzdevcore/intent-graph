@@ -273,10 +273,10 @@ fn place(
     db: &Schema,
     by_name: &HashMap<String, &Table>,
 ) -> HashMap<String, (String, TableGroup, String)> {
-    let set_aside = |name: &str, kind: &str| -> Option<TableGroup> {
-        if kind == "view" {
+    let set_aside = |name: &str, t: &Table| -> Option<TableGroup> {
+        if t.kind == "view" {
             Some(TableGroup::Views)
-        } else if leftover(name, by_name) {
+        } else if leftover(name, t, by_name) {
             Some(TableGroup::Leftovers)
         } else if translated(name, by_name).is_some() {
             Some(TableGroup::Translations)
@@ -288,7 +288,7 @@ fn place(
     let mut count: HashMap<String, usize> = HashMap::new();
     for t in &db.tables {
         let name = t.name.to_lowercase();
-        if set_aside(&name, &t.kind).is_none() {
+        if set_aside(&name, t).is_none() {
             *count.entry(prefix(&name)).or_default() += 1;
         }
     }
@@ -300,7 +300,7 @@ fn place(
         .map(|t| {
             let name = t.name.to_lowercase();
             let p = prefix(&name);
-            let g = match set_aside(&name, &t.kind) {
+            let g = match set_aside(&name, t) {
                 Some(g) => aside(g),
                 None if !p.is_empty() && count.get(&p).copied().unwrap_or(0) >= DOMAIN => {
                     (format!("{p}_*"), TableGroup::Domain, p)
@@ -312,9 +312,9 @@ fn place(
         .collect()
 }
 
-// `orders_backup`, `orders_backup_2023_01_01`, `orders_backup_old` (of `orders`), `orders_temp`;
-// not `user_backup_codes`
-fn leftover(name: &str, by_name: &HashMap<String, &Table>) -> bool {
+// `orders_backup`, `orders_backup_2023_01_01`, `orders_temp`, and `orders_backup_old` when it
+// copies at least half of `orders`' columns; not `user_backup_codes` of `user`
+fn leftover(name: &str, t: &Table, by_name: &HashMap<String, &Table>) -> bool {
     if name.ends_with("_temp") {
         return true;
     }
@@ -325,8 +325,16 @@ fn leftover(name: &str, by_name: &HashMap<String, &Table>) -> bool {
         let dated = rest
             .chars()
             .all(|c| c.is_ascii_digit() || c == '_' || c == '-');
-        !rest.is_empty() && (dated || by_name.contains_key(&name[..i]))
+        !rest.is_empty() && (dated || by_name.get(&name[..i]).is_some_and(|of| copies(t, of)))
     })
+}
+
+fn copies(t: &Table, of: &Table) -> bool {
+    let mine: BTreeSet<String> = t.columns.iter().map(|c| c.name.to_lowercase()).collect();
+    let same = (of.columns.iter())
+        .filter(|c| mine.contains(&c.name.to_lowercase()))
+        .count();
+    !of.columns.is_empty() && 2 * same >= of.columns.len()
 }
 
 // `products_translations` of `products`, `product_type_translations` of `product_types`
