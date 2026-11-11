@@ -1,7 +1,9 @@
-<!-- The open popover of an EditSession: the arrow's rubber band and kind chips, the box menu, rename, move picker. -->
+<!-- What an EditSession has open: the arrow's rubber band, the new arrow's kind chip, the box menu, rename, move picker. -->
 <script lang="ts">
   import type { ArrowKindView, KindView, MapBox } from "../types";
+  import ArrowChip from "./ArrowChip.svelte";
   import ArrowDraw from "./ArrowDraw.svelte";
+  import { arrowKindNames } from "./arrows";
   import BoxMenu from "./BoxMenu.svelte";
   import MovePicker from "./MovePicker.svelte";
   import RenameBox from "./RenameBox.svelte";
@@ -10,13 +12,15 @@
 
   let { s, arrangeable, boxes, kinds, arrowKinds, root }: { s: EditSession; arrangeable: Set<string>; boxes: MapBox[]; kinds: KindView[]; arrowKinds?: ArrowKindView[]; root: string } = $props();
   const ui = $derived(s.ui);
+  const band = $derived(s.band);
+  const chip = $derived(s.chip);
 </script>
 
-{#if s.link || ui?.t === "arrow"}
-  <ArrowDraw kinds={arrowKinds} line={s.band} pick={ui?.t === "arrow" ? { from: s.titleOf(ui.from), to: s.titleOf(ui.to), x: ui.x, y: ui.y } : undefined}
-    onpick={(kind, label) => s.draw(kind, label)} onclose={() => s.shut()} />
+{#if band}<ArrowDraw line={band} />{/if}
+{#if chip && s.made}
+  <ArrowChip kind={s.made.kind} kinds={arrowKindNames(arrowKinds)} x={chip.x} y={chip.y} onpick={(k) => s.rekind(k)} />
 {/if}
-{#if ui && ui.t !== "arrow"}
+{#if ui}
   {@const id = ui.id}
   {#if ui.t === "menu"}
     <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} group={arrangeable.has(id)} onpick={(a) => s.act(a, id, { x: ui.x, y: ui.y })} onclose={() => s.shut()} />

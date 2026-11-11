@@ -1,7 +1,6 @@
-// Arrow kinds the draw popover offers, and the last one used this session (module state, not stored).
+// Arrow kinds the kind chip offers.
 import type { ArrowKind, ArrowKindView } from "../types";
 
 export const ARROW_KINDS: ArrowKind[] = ["calls", "sends", "reads", "writes", "uses", "implements", "triggers"];
-export const last = { kind: "calls" as ArrowKind };
 
 export const arrowKindNames = (kinds?: ArrowKindView[]): ArrowKind[] => (kinds?.length ? kinds.map((k) => k.name) : ARROW_KINDS);

@@ -9,7 +9,6 @@ export class ToolState {
     this.locked = lock;
   }
   used(shift = false) {
-    if (shift) this.locked = true;
-    if (!this.locked && this.current !== "hand") this.current = "select";
+    if (!shift && !this.locked && this.current !== "hand") this.current = "select";
   }
 }

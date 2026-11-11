@@ -34,7 +34,7 @@
   import AddBox from "./edit/AddBox.svelte";
   import { freeId, inside } from "./edit/add";
   import EditLayer from "./edit/EditLayer.svelte";
-  import { EditSession } from "./edit/session.svelte";
+  import { EditSession, type Draft as DraftBox } from "./edit/session.svelte";
   import type { Act } from "./edit/menu";
   import Proposals from "./edit/Proposals.svelte";
   import Warnings from "./Warnings.svelte";
@@ -81,8 +81,8 @@
       apply: (x) => (applied.push(x), e.apply(x)), keep: (n) => e.keep(n), drop: (n) => e.drop(n), dropAll: () => e.dropAll(), undo: () => e.undo(), redo: () => e.redo(),
     };
   });
-  const run = (call: () => Promise<View>, as: "do" | "undo" | "redo" = "do") => {
-    if (busy) return toast("Still saving the last change; try again");
+  const run = (call: () => Promise<View>, as: "do" | "undo" | "redo" = "do"): boolean => {
+    if (busy) return (toast("Still saving the last change; try again"), false);
     busy = true;
     applied = [];
     call().then((v) => {
@@ -92,6 +92,7 @@
       else if (made.length) edits.push((renaming = renamesOf(made)));
       onview?.(v);
     }, toast).finally(() => (busy = false));
+    return true;
   };
   const typing = (t: EventTarget | null) => {
     const el = t as HTMLElement | null;
@@ -306,6 +307,7 @@
     pointer = { x: e.clientX, y: e.clientY };
   }
   let stage: HTMLDivElement;
+  let root = $state<HTMLDivElement>();
 
   const home = () => fitTo(place.frame(ROOT), { w: vw, h: vh });
   const frameOf = (id: string) => world.get(id) ?? place.frame(id);
@@ -527,7 +529,11 @@
     }
     if (e.key !== "Escape") return;
     tool.pick("select");
-    if (drag?.draw) drag = null;
+    if (drag?.draw || drag?.resize) {
+      sess.release();
+      live = null;
+      drag = null;
+    }
     sess.cancel();
     if (selected) close();
     else if (traced) traced = null;
@@ -588,8 +594,8 @@
     const r = stage.getBoundingClientRect(), c = camera.cam, t = p === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(p), o = origin(p);
     return { parent: p, x: ((e.clientX - r.left - c.x) / c.k - t.x) / t.s + o.x, y: ((e.clientY - r.top - c.y) / c.k - t.y) / t.s + o.y };
   }
-  const draftAt = (g: { parent: string; x: number; y: number }) =>
-    (sess.draft = { parent: g.parent, x: snap(g.x - BOX.w / 2), y: snap(g.y - BOX.h / 2), ...BOX, title: "", drawing: false });
+  const draftAt = (g: { parent: string; x: number; y: number }, from?: string) =>
+    (sess.draft = { parent: g.parent, x: snap(g.x - BOX.w / 2), y: snap(g.y - BOX.h / 2), ...BOX, title: "", drawing: false, ...(from ? { from } : {}) });
   function spanned(d: { parent: string; x: number; y: number }, e: PointerEvent) {
     const g = groundAt(e, d.parent), x = snap(Math.min(d.x, g.x)), y = snap(Math.min(d.y, g.y));
     return { parent: d.parent, x, y, w: Math.max(MIN.w, snap(Math.max(d.x, g.x)) - x), h: Math.max(MIN.h, snap(Math.max(d.y, g.y)) - y), title: "" };
@@ -600,6 +606,7 @@
     if (e.button === 1) e.preventDefault();
     // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
     if ((e.button !== 0 && e.button !== 1) || (e.target as Element | null)?.closest?.("[data-pad], [data-draft]")) return;
+    if (e.button === 0 && !space && sess.startLink(e, tool.current === "arrow")) return;
     const panning = e.button === 1 || space || tool.current === "hand";
     const grip = !panning && edit ? (e.target as Element | null)?.closest?.("[data-resize]") as HTMLElement | null : null;
     const gripped = grip && (grip.closest("[data-box]") as HTMLElement | null)?.dataset.box;
@@ -609,7 +616,6 @@
         resize: { id: gripped, corner: grip!.dataset.resize!, f: shown.placed.frames[gripped], k: (unit.get(byId.get(gripped)?.parent ?? ROOT) ?? 1) * camera.cam.k } };
       return;
     }
-    if (!panning && sess.startLink(e, tool.current === "arrow")) return;
     drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
     if (!panning && edit && tool.current === "box") {
       drag.draw = groundAt(e);
@@ -679,7 +685,7 @@
     }
   }
   function up(e: PointerEvent) {
-    if (sess.endLink()) {
+    if (sess.endLink(e)) {
       swallow = true;
       return;
     }
@@ -718,7 +724,18 @@
   }
   const sess = new EditSession({
     edit: () => api, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
-    selected: () => selected, select: (id) => (selected = id), tool: (t) => tool.pick(t), used: () => tool.used(), run, arrange: arrangeIn,
+    kinds: () => view.kinds, arrowKinds: () => view.arrowKinds,
+    selected: () => selected, select: (id) => (selected = id), tool: (t) => tool.pick(t), used: (shift) => tool.used(shift), run, arrange: arrangeIn,
+    drop: (e, from) => {
+      const hit = document.elementFromPoint?.(e.clientX, e.clientY);
+      draftAt(groundAt({ clientX: e.clientX, clientY: e.clientY, target: hit && stage.contains(hit) ? hit : e.target }), from);
+    },
+    draftFrame: (): Frame | undefined => {
+      const d: DraftBox | null = sess.draft;
+      if (!d) return undefined;
+      const t = d.parent === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(d.parent), o = origin(d.parent);
+      return { x: (d.x - o.x) * t.s + t.x, y: (d.y - o.y) * t.s + t.y, w: d.w * t.s, h: d.h * t.s };
+    },
   });
   const addParent = $derived(sess.adding ? byId.get(sess.adding.parent) : undefined);
   let landed: Show | null | undefined;
@@ -749,22 +766,30 @@
   }
   function dblclick(e: MouseEvent) {
     const t = e.target as Element | null, b = t?.closest?.("[data-box]");
-    if (!edit || tool.current !== "select" || space || t?.closest?.("[data-draft], [data-pad]") || (b && !b.hasAttribute("data-open"))) return;
+    if (!edit || tool.current !== "select" || space || t?.closest?.("[data-draft], [data-pad], [data-arrow], [data-label], [data-popover]") || (b && !b.hasAttribute("data-open"))) return;
     e.preventDefault();
     draftAt(groundAt(e));
   }
   function pressAway(e: PointerEvent) {
     sess.outside(e);
-    if (sess.draft && !sess.draft.drawing && !(e.target as Element | null)?.closest?.("[data-draft]")) finishDraft(null);
+    const t = e.target as Element | null;
+    if (sess.draft && !sess.draft.drawing && t && root?.contains(t) && !t.closest?.("[data-draft]")) finishDraft(null);
   }
   function finishDraft(then: "kinds" | null) {
     const d = sess.draft, title = d?.title.trim();
     if (!d || d.drawing) return;
-    sess.draft = null;
-    if (!title || !api) return;
+    if (!title || !api) return void (sess.draft = null);
     const id = freeId(title, new Set(view.boxes.map((b) => b.id)));
+    const was = landing, change = sess.confirm(d, id, title);
     landing = { id, place: { x: d.x, y: d.y, w: d.w, h: d.h }, kinds: then === "kinds" };
-    run(() => api.apply({ op: "add", parent: d.parent, kind: "box", id, title, at: [], before: null }));
+    const sent = run(() => api.apply(change).catch((err) => {
+      if (landing?.id === id) landing = null;
+      sess.draft ??= d;
+      throw err;
+    }));
+    if (!sent) return void (landing = was);
+    sess.draft = null;
+    if (change.op === "batch" && d.from) sess.made = { from: d.from, to: id, kind: sess.guess(d.from, null) };
   }
   function kindFirst(x: number, y: number, parent: string) {
     if (!edit) return;
@@ -839,7 +864,7 @@
     // an open popover or form on a box that is gone has nothing to act on
     const gone = (id: string) => id !== ROOT && !byId.has(id);
     const u = sess.ui;
-    if ((u && (gone(u.t === "arrow" ? u.from : u.id) || (u.t === "arrow" && gone(u.to)))) || (sess.adding && gone(sess.adding.parent)) || (sess.draft && gone(sess.draft.parent))) sess.cancel();
+    if ((u && gone(u.id)) || (sess.adding && gone(sess.adding.parent)) || (sess.draft && gone(sess.draft.parent))) sess.cancel();
   });
   const dots = $derived.by(() => {
     const { step, fade } = gridLevel(cam.k, GRID), sp = GRID * step * cam.k;
@@ -904,8 +929,10 @@
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
         kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} />
-      {#if edit && selected === b.id && !open}
+      {#if edit && (selected === b.id || hot === b.id) && !open}
         {#each ["l", "r", "t", "b"] as h (h)}<span class="handle {h}" data-handle aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
+      {/if}
+      {#if edit && selected === b.id && !open}
         {#each ["nw", "ne", "sw", "se"] as c (c)}<span class="grip {c}" data-resize={c} aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
       {/if}
       {#if open}
@@ -942,7 +969,7 @@
 <svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={pressAway} onkeydown={key} onkeyup={keyup} />
 
 <!-- the dot grid sits on the map's own grid and moves and scales with it; a dot keeps its size on screen -->
-<div class="map" bind:clientWidth={cw} bind:clientHeight={ch}>
+<div class="map" bind:this={root} bind:clientWidth={cw} bind:clientHeight={ch}>
   {#each dots as d, i (i)}
     <div class="dots" aria-hidden="true" style:opacity={d.opacity} style:background-size="{d.sp}px {d.sp}px" style:background-position="{d.x}px {d.y}px"></div>
   {/each}
@@ -1032,7 +1059,7 @@
   .waiting .muted { font-size: var(--text-sm); color: var(--map-muted); }
   .waiting button { font: inherit; color: var(--map-fg); background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-md); padding: var(--space-1) var(--space-2-5); cursor: pointer; }
   .waiting button.go { background: var(--map-trace); border-color: var(--map-trace); color: var(--color-on-accent); font-weight: 600; }
-  .slot.target { outline: 3px solid var(--map-green); outline-offset: 3px; border-radius: 16px; }
+  .slot.target { outline: 3px solid var(--map-trace); outline-offset: 3px; border-radius: 16px; }
   .handle { position: absolute; width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--map-blue); border: 2px solid var(--map-ground); translate: -50% -50%; cursor: crosshair; }
   .grip { position: absolute; z-index: 1; width: 0.625rem; height: 0.625rem; box-sizing: border-box; border-radius: 2px; background: var(--map-surface); border: 1.5px solid var(--map-trace); translate: -50% -50%; }
   .grip.nw { left: 0; top: 0; cursor: nwse-resize; } .grip.se { left: 100%; top: 100%; cursor: nwse-resize; }

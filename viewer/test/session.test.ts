@@ -2,6 +2,8 @@
 import { expect, test } from "vitest";
 import type { AgentApi, TrustState } from "../src/api";
 import { ChatSession } from "../src/components/chat/session.svelte";
+import { EditSession, type Ctx } from "../src/map/edit/session.svelte";
+import type { Edit, MapBox, View } from "../src/map/types";
 
 /** A fake agent: records starts, loads and prompts; a prompt resolves at once. */
 function fake(opts: { trusted?: boolean; failStart?: string; setup?: boolean } = {}) {
@@ -131,4 +133,44 @@ test("opening the board loads the feature's session when the chat has nothing go
   c.dispatch({ type: "TurnEnded", stopReason: "end_turn" });
   await c.adopt("g"); // a conversation is going: left alone
   expect(f.calls.length).toBe(2);
+});
+
+// --- the map's edit session
+
+function editing(boxes: Record<string, string>, opts: { busy?: boolean; arrowKinds?: View["arrowKinds"] } = {}) {
+  const sent: Edit[] = [];
+  const box = (id: string) => (boxes[id] ? ({ id, kind: { value: boxes[id] }, title: { value: id } } as unknown as MapBox) : undefined);
+  const ctx: Ctx = {
+    edit: () => ({ apply: async (e: Edit) => (sent.push(e), {} as View) }) as never, box, frame: () => ({ x: 0, y: 0, w: 10, h: 10 }),
+    kinds: () => [{ name: "ledger", base: "store", custom: true } as never], arrowKinds: () => opts.arrowKinds,
+    cam: () => ({ x: 0, y: 0, k: 1 }), stage: () => document.body, selected: () => null, select: () => {}, tool: () => {}, used: () => {},
+    run: (p) => (opts.busy ? false : (p(), true)), arrange: () => {}, drop: () => {}, draftFrame: () => undefined,
+  };
+  return { s: new EditSession(ctx), sent };
+}
+
+test("connect draws the first box to the second with the kind guessed from both ends' bases", async () => {
+  const { s, sent } = editing({ api: "service", books: "ledger", web: "app" });
+  s.connect("api", "books");
+  await tick();
+  expect(sent).toEqual([{ op: "arrow", from: "api", to: "books", kind: "writes", label: null }]);
+  expect(s.made).toEqual({ from: "api", to: "books", kind: "writes" });
+  s.connect("web", "api");
+  s.connect("web", "web");
+  s.connect("web", "nope");
+  await tick();
+  expect(sent.slice(1)).toEqual([{ op: "arrow", from: "web", to: "api", kind: "calls", label: null }]);
+});
+
+test("connect while an edit is saving shows no chip; a draft at an arrow's end confirms as add and a uses arrow", () => {
+  const busy = editing({ api: "service", web: "app" }, { busy: true });
+  busy.s.connect("web", "api");
+  expect(busy.s.made).toBeNull();
+  const { s } = editing({ web: "app" });
+  const d = { parent: "system", x: 0, y: 0, w: 240, h: 144, title: "Ledger", drawing: false };
+  expect(s.confirm(d, "ledger", "Ledger")).toEqual({ op: "add", parent: "system", kind: "box", id: "ledger", title: "Ledger", at: [], before: null });
+  expect(s.confirm({ ...d, from: "web" }, "ledger", "Ledger")).toEqual({ op: "batch", edits: [
+    { op: "add", parent: "system", kind: "box", id: "ledger", title: "Ledger", at: [], before: null },
+    { op: "arrow", from: "web", to: "ledger", kind: "uses", label: null },
+  ] });
 });

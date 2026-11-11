@@ -196,38 +196,90 @@ const boxEl = (t: HTMLElement, id: string) => t.querySelector(`[data-box="${id}"
 const menuOf = (t: HTMLElement) => t.querySelector('[role="menu"]') as HTMLElement | null;
 const item = (t: HTMLElement, name: string) => [...menuOf(t)!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => b.textContent!.startsWith(name))!;
 
-test("Arrow tool: drag A to B lights B, Enter draws; the last kind is preselected next time", async () => {
+const far = { clientX: 300, clientY: 300 };
+const chipOf = (t: HTMLElement) => t.querySelector<HTMLElement>("[data-chip] button.kind");
+
+test("Arrow tool: drag A to B lights B in gold and sends the guessed kind at once; the chip changes it", async () => {
   const { api, got } = recorder();
   const { target } = setup(api);
   press("a");
   ptr(boxEl(target, "web"), "pointerdown");
-  ptr(boxEl(target, "api"), "pointermove");
-  expect(target.querySelector('[data-box="api"]')!.classList.contains("target")).toBe(true);
-  ptr(boxEl(target, "api"), "pointerup");
-  const f = target.querySelector('form[aria-label^="Arrow"]') as HTMLFormElement;
-  expect(f).not.toBeNull();
-  expect(f.querySelector('[aria-checked="true"]')!.textContent).toBe("calls");
-  (f.querySelectorAll<HTMLElement>('[role="radio"]')[2]).click();
-  flushSync();
-  f.requestSubmit();
+  ptr(boxEl(target, "postgres"), "pointermove", far);
+  expect(target.querySelector('[data-box="postgres"]')!.classList.contains("target")).toBe(true);
+  expect(target.querySelector("[data-band]")).not.toBeNull();
+  ptr(boxEl(target, "postgres"), "pointerup", far);
   await tick();
-  expect(got).toEqual([{ op: "arrow", from: "web", to: "api", kind: "reads", label: null }]);
-  press("a");
-  ptr(boxEl(target, "web"), "pointerdown");
-  ptr(boxEl(target, "api"), "pointermove");
-  ptr(boxEl(target, "api"), "pointerup");
-  expect(target.querySelector('form[aria-label^="Arrow"] [aria-checked="true"]')!.textContent).toBe("reads");
+  flushSync();
+  expect(got).toEqual([{ op: "arrow", from: "web", to: "postgres", kind: "writes", label: null }]);
+  expect(target.querySelector("form")).toBeNull();
+  expect(pressed(target)).toBe("Select");
+  chipOf(target)!.click();
+  flushSync();
+  const items = [...target.querySelectorAll<HTMLElement>('[data-chip] [role="menuitemradio"]')];
+  expect(items.find((b) => b.getAttribute("aria-checked") === "true")!.textContent).toBe("writes");
+  items.find((b) => b.textContent === "reads")!.click();
+  await tick();
+  flushSync();
+  expect(got[1]).toEqual({ op: "arrowset", from: "web", to: "postgres", key: "kind", value: "reads" });
+  expect(chipOf(target)!.textContent).toBe("reads");
 });
 
-test("Arrow released on the same box or empty ground cancels", () => {
-  const { target } = setup(recorder().api);
+test("side dots show on a hovered box under any tool; a drag from one connects without the arrow tool", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  const dots = (id: string) => target.querySelectorAll(`[data-box="${id}"] [data-handle]`).length;
+  expect(dots("web")).toBe(0);
+  boxEl(target, "web").dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+  flushSync();
+  expect(dots("web")).toBe(4);
+  press("b");
+  expect(dots("web")).toBe(4);
+  ptr(target.querySelector('[data-box="web"] [data-handle]')!, "pointerdown");
+  ptr(boxEl(target, "api"), "pointermove", far);
+  ptr(boxEl(target, "api"), "pointerup", far);
+  await tick();
+  expect(got).toEqual([{ op: "arrow", from: "web", to: "api", kind: "calls", label: null }]);
+  expect(draftOf(target)).toBeNull();
+  expect(pressed(target)).toBe("Box");
+});
+
+test("Arrow released on its own box cancels; on empty ground a draft there, confirmed as one batch of add and arrow", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
   press("a");
   ptr(boxEl(target, "web"), "pointerdown");
   ptr(boxEl(target, "web"), "pointerup");
   ptr(boxEl(target, "web"), "pointerdown");
-  ptr(target.querySelector(".stage")!, "pointermove");
-  ptr(target.querySelector(".stage")!, "pointerup");
-  expect(target.querySelector('form[aria-label^="Arrow"]')).toBeNull();
+  ptr(boxEl(target, "web"), "pointerup", far);
+  expect(draftOf(target)).toBeNull();
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(stageOf(target), "pointermove", far);
+  ptr(stageOf(target), "pointerup", far);
+  expect(draftOf(target)).not.toBeNull();
+  expect(target.querySelector("[data-band]")).not.toBeNull();
+  expect(document.activeElement).toBe(nameField(target));
+  type(nameField(target), "Ledger");
+  press("Enter", {}, nameField(target));
+  await tick();
+  expect(got).toEqual([{ op: "batch", edits: [
+    { op: "add", parent: "system", kind: "box", id: "ledger", title: "Ledger", at: [], before: null },
+    { op: "arrow", from: "web", to: "ledger", kind: "uses", label: null },
+  ] }]);
+  expect(target.querySelector("[data-band]")).toBeNull();
+});
+
+test("Esc on the empty draft at an arrow's end leaves nothing", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(stageOf(target), "pointerup", far);
+  press("Escape", {}, nameField(target));
+  await tick();
+  expect(draftOf(target)).toBeNull();
+  expect(target.querySelector("[data-band]")).toBeNull();
+  expect(got).toEqual([]);
 });
 
 test("right-click opens the menu, Esc closes it", () => {
@@ -388,23 +440,23 @@ test("Backspace inside the rename input sends nothing", async () => {
   expect(got).toEqual([]);
 });
 
-test("Backspace with an arrow chip focused sends nothing; so does a held key", async () => {
+test("Backspace with the arrow's chip focused sends nothing more; so does a held key", async () => {
   const { api, got } = recorder();
   const { target } = setup(api);
   select(target, "web");
   press("a");
   ptr(boxEl(target, "web"), "pointerdown");
-  ptr(boxEl(target, "api"), "pointermove");
-  ptr(boxEl(target, "api"), "pointerup");
-  const chip = target.querySelector<HTMLElement>('form[aria-label^="Arrow"] [role="radio"]')!;
+  ptr(boxEl(target, "api"), "pointermove", far);
+  ptr(boxEl(target, "api"), "pointerup", far);
+  await tick();
+  flushSync();
+  const chip = chipOf(target)!;
   chip.focus();
   press("Backspace", {}, chip);
-  press("Backspace");
-  expect(got).toEqual([]);
   press("Escape", {}, chip);
   press("Delete", { repeat: true });
   await tick();
-  expect(got).toEqual([]);
+  expect(got).toEqual([{ op: "arrow", from: "web", to: "api", kind: "calls", label: null }]);
 });
 
 test("pointercancel drops an arrow in flight", () => {
@@ -727,7 +779,7 @@ test("Esc or a click away on an empty draft sends nothing; a click away with a n
   expect(got).toMatchObject([{ op: "add", kind: "box", title: "Ledger", id: "ledger" }]);
 });
 
-test("box goes back to select after one shape unless locked by Shift or a double-click", () => {
+test("box goes back to select after one shape; Shift keeps it for that one, a double-click locks it", () => {
   const { target } = setup(recorder().api);
   const tool = (name: string) => target.querySelector(`[role="toolbar"] button[aria-label="${name}"]`) as HTMLElement;
   const once = (init: PointerEventInit = {}) => {
@@ -740,8 +792,9 @@ test("box goes back to select after one shape unless locked by Shift or a double
   press("b");
   once({ shiftKey: true });
   expect(pressed(target)).toBe("Box");
+  expect(tool("Box").hasAttribute("data-locked")).toBe(false);
   once();
-  expect(pressed(target)).toBe("Box");
+  expect(pressed(target)).toBe("Select");
   tool("Select").click();
   flushSync();
   tool("Box").click();
@@ -776,4 +829,73 @@ test("a corner handle resizes the box, nudges its neighbour, and one undo puts b
   expect(px(slot("postgres"), "height")).toBe(h);
   expect(px(slot("stripe"), "top")).toBe(top);
   vi.unstubAllGlobals();
+});
+
+test("Shift keeps the arrow tool for one more arrow without locking it", async () => {
+  const { target } = setup(recorder().api);
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(boxEl(target, "api"), "pointerup", { ...far, shiftKey: true });
+  await tick();
+  expect(pressed(target)).toBe("Arrow");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(boxEl(target, "postgres"), "pointerup", far);
+  expect(pressed(target)).toBe("Select");
+});
+
+test("Esc during a corner resize cancels it and commits nothing", () => {
+  const target = harness(fake().api);
+  const slot = (id: string) => target.querySelector(`[data-box="${id}"]`) as HTMLElement;
+  const h = px(slot("postgres"), "height");
+  select(target, "postgres");
+  ptr(slot("postgres").querySelector('[data-resize="se"]')!, "pointerdown", { clientX: 500, clientY: 300 });
+  ptr(window, "pointermove", { clientX: 500, clientY: 500 });
+  expect(px(slot("postgres"), "height")).not.toBe(h);
+  press("Escape");
+  expect(px(slot("postgres"), "height")).toBe(h);
+  ptr(window, "pointerup", { clientX: 500, clientY: 500 });
+  expect(px(slot("postgres"), "height")).toBe(h);
+});
+
+test("confirming a draft while another edit is saving keeps it open with its name", async () => {
+  let done!: (v: View) => void;
+  const got: unknown[] = [];
+  const api = fake({ apply: (e) => (got.push(e), got.length === 1 ? new Promise<View>((r) => (done = r)) : Promise.resolve(fresh())) }).api;
+  const { target } = setup(api);
+  select(target, "web");
+  press("Delete");
+  stageOf(target).dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 300, clientY: 300 }));
+  flushSync();
+  type(nameField(target), "Ledger");
+  press("Enter", {}, nameField(target));
+  expect(nameField(target).value).toBe("Ledger");
+  done(fresh());
+  await tick();
+  press("Enter", {}, nameField(target));
+  await tick();
+  expect(got).toHaveLength(2);
+  expect(draftOf(target)).toBeNull();
+});
+
+test("the window losing focus leaves a draft open", () => {
+  const { target } = setup(recorder().api);
+  stageOf(target).dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 300, clientY: 300 }));
+  flushSync();
+  type(nameField(target), "Ledger");
+  nameField(target).dispatchEvent(new FocusEvent("blur"));
+  window.dispatchEvent(new Event("blur"));
+  flushSync();
+  expect(nameField(target).value).toBe("Ledger");
+});
+
+test("double-clicking an arrow or its label makes no draft", () => {
+  const { target } = setup(recorder().api);
+  select(target, "web");
+  const label = target.querySelector("[data-label]");
+  for (const el of [target.querySelector("[data-arrow]"), label]) {
+    expect(el).not.toBeNull();
+    el!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 300, clientY: 300 }));
+    flushSync();
+  }
+  expect(draftOf(target)).toBeNull();
 });
