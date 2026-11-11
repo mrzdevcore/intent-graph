@@ -9,7 +9,8 @@
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, PLACE_MS, tween, wheelFactor } from "./glide";
   import { GRID, edgePan, gridLevel, momentum, softK, wheelIntent, type WheelPref } from "./nav";
-  import { wires, type Mode } from "./wires";
+  import { wires, type Mode, type Wire } from "./wires";
+  import { lineOf, mapShape, type MapShape } from "./shapes/auto";
   import MapBox from "./MapBox.svelte";
   import { shapeOf } from "./shapes";
   import MapArrow from "./MapArrow.svelte";
@@ -268,9 +269,22 @@
   const regions = $derived(group([...view.placed.regions].sort((a, b) => area(b.frame) - area(a.frame)), (r: R) => r.parent));
   /** Each parent's wires both ways, from its children's frames as drawn. */
   const kindById = $derived(Object.fromEntries(view.boxes.map((b) => [b.id, b.kind.value])));
-  const wired = (as: Arrow[], frames: Record<string, Frame>) => ({ routed: wires(as, frames, "routed", kindById), ribbon: wires(as, frames, "ribbon") });
+  const wired = (as: Arrow[], frames: Record<string, Frame>, p: string) => {
+    const map = shapeAt.get(p) ?? "circuit";
+    return { routed: wires(as, frames, "routed", kindById, (a) => lineOf(a, map)), ribbon: wires(as, frames, "ribbon") };
+  };
   const siblings = (p: string) => Object.fromEntries((kids.get(p) ?? []).map((b) => [b.id, shown.placed.frames[b.id]]));
-  const wiring = $derived(new Map([...group([...view.arrows, ...ghosts], (a: Arrow) => a.parent)].map(([p, as]) => [p, wired(as, siblings(p))])));
+  const byParent = $derived(group([...view.arrows, ...ghosts], (a: Arrow) => a.parent));
+  // the map's arrow shape at each level, from what is drawn there: Auto by its boxes and arrows
+  const shapeAt = $derived.by(() => {
+    const out = new Map<string, ReturnType<typeof mapShape>>();
+    for (const [p, bs] of kids) {
+      const at = new Set(bs.map((b) => b.id)), n = (byParent.get(p) ?? []).filter((a) => a.from !== a.to && at.has(a.from) && at.has(a.to)).length;
+      out.set(p, mapShape(arrowPref, bs.length, n));
+    }
+    return out;
+  });
+  const wiring = $derived(new Map([...byParent].map(([p, as]) => [p, wired(as, siblings(p), p)])));
   const arrows = $derived(group([...view.arrows, ...ghosts].filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));
   // the box being dragged and its shift so far: only it and its parent's arrows follow the pointer
   // `with`: the other selected boxes of its parent, moved along
@@ -283,10 +297,37 @@
     if (!live) return null;
     const p = byId.get(live.id)?.parent ?? ROOT, frames = siblings(p);
     for (const id of [live.id, ...Object.keys(live.with ?? {})]) frames[id] = drawn(id);
-    return { p, ...wired(arrows.get(p) ?? [], frames) };
+    return { p, ...wired(arrows.get(p) ?? [], frames, p) };
   });
   const wiringOf = (p: string) => (liveWiring?.p === p ? liveWiring : wiring.get(p));
   const pathOf = (a: Arrow, mode: Mode) => wiringOf(a.parent)![mode].wires.get(a.id)!;
+  const lineAt = (a: Arrow) => lineOf(a, shapeAt.get(a.parent) ?? "circuit");
+  // a shape that changes cross-fades: the old line fades out over the new one fading in
+  const FADE = 240;
+  let fading = $state.raw<{ a: Arrow; w: Wire }[]>([]);
+  let fresh = $state.raw(new Set<string>());
+  let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastLines: { lines: Map<string, string>; wiring: typeof wiring } | null = null;
+  onDestroy(() => clearTimeout(fadeTimer));
+  $effect(() => {
+    const now = new Map([...arrows.values()].flat().map((a) => [a.id, lineAt(a)])), w = wiring;
+    untrack(() => {
+      const was = lastLines;
+      lastLines = { lines: now, wiring: w };
+      if (!was) return;
+      const out: { a: Arrow; w: Wire }[] = [];
+      for (const as of arrows.values())
+        for (const a of as) {
+          const old = was.lines.get(a.id), line = old && old !== now.get(a.id) ? was.wiring.get(a.parent)?.routed.wires.get(a.id) : undefined;
+          if (line) out.push({ a, w: line });
+        }
+      if (!out.length) return;
+      fading = out;
+      fresh = new Set(out.map((f) => f.a.id));
+      clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(() => ((fading = []), (fresh = new Set())), FADE);
+    });
+  });
   // under this many screen pixels per unit, a level's wires gather into ribbons
   const RIBBON = 0.5;
   // each parent's inner unit, in world units
@@ -631,6 +672,22 @@
     } catch {
       return "auto";
     }
+  }
+  let arrowPref = $state<MapShape>(untrack(() => loadArrows()));
+  function loadArrows(): MapShape {
+    try {
+      const v = globalThis.window?.localStorage?.getItem("ig-arrows");
+      return v === "circuit" || v === "elbow" || v === "curved" || v === "straight" ? v : "auto";
+    } catch {
+      return "auto";
+    }
+  }
+  function setArrows(p: MapShape) {
+    arrowPref = p;
+    try {
+      if (p === "auto") globalThis.window?.localStorage?.removeItem("ig-arrows");
+      else globalThis.window?.localStorage?.setItem("ig-arrows", p);
+    } catch { /* private mode: the setting lasts the page */ }
   }
   function setPref(p: WheelPref) {
     wheelPref = p;
@@ -1148,6 +1205,7 @@
     return sp > 0 && Number.isFinite(sp) ? [at(sp, 1), ...(fade > 0 ? [at(sp / 4, fade)] : [])] : [];
   });
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
+  const shapeHere = $derived(shapeAt.get([...trail].reverse().find((id) => shapeAt.has(id) && (id === ROOT || !!view.placed.inner[id])) ?? ROOT) ?? "circuit");
   const picked = $derived(many.length > 1 ? many : selected && byId.get(selected)?.level !== "code" && byId.has(selected) ? [selected] : []);
   const barTop = 3 * rem();
   const bar = $derived.by(() => {
@@ -1209,12 +1267,17 @@
       {#each wiringOf(pid)?.ribbon.sleeves ?? [] as s, i (i)}<path d={s.d} stroke-width={s.w} />{/each}
     </svg>
   {/if}
-  {#each all as a (a.id)}
+  {#if mode === "routed"}
+    {#each fading.filter((f) => f.a.parent === pid) as f (f.a.id)}
+      <div class="arrow fade-out" aria-hidden="true"><MapArrow d={f.w.d} mid={f.w.mid} arrowLook={arrowLook(f.a, view.marks, on)} {zoom} /></div>
+    {/each}
+  {/if}
+  {#each all as a (`${a.id} ${lineAt(a)}`)}
     {@const c = pathOf(a, mode)}
     {@const asked = ans && arrowLit(ans, a)}
     {@const drawnLook = arrowLook(a, view.marks, on, by.get(a.id))}
     {@const changeLook = !marks ? null : a.ghost ? "ghost" : marks.addedArrows.has(arrowKey(a.from, a.to)) ? "added" : null}
-    <div class="arrow" data-arrow={a.id}>
+    <div class="arrow" class:fresh={mode === "routed" && fresh.has(a.id)} data-arrow={a.id} data-line={mode === "routed" ? lineAt(a) : "ribbon"}>
       <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(drawnLook, changeLook) : asked ? { ...drawnLook, color: "var(--map-trace)" } : drawnLook} {zoom}
         lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)} picked={sess.arrow?.id === a.id}
         onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
@@ -1301,7 +1364,7 @@
   {/if}
   <Controls {crumbs} {layers} {on} oncrumb={fly} low={!!edit}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
-    {wheelPref} onwheel={setPref} onarrange={arrangeMap}>
+    {wheelPref} onwheel={setPref} {arrowPref} arrowHere={shapeHere} onarrows={setArrows} onarrange={arrangeMap}>
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
   {#if edit}
@@ -1361,7 +1424,7 @@
         onsubmit={(v) => sess.arrowSet(sess.writing!, v)} onclose={() => (sess.writing = null)} />
     {:else}
       <ArrowBar x={ab.x} y={ab.y} how={ab.how} title={ab.title} kind={specKind(ab.a)} kinds={arrowKindNames(view.arrowKinds)} picking={sess.arrowKinds}
-        note={!!ab.a.note} context={!!ab.a.context} parts={ab.parts}
+        note={!!ab.a.note} context={!!ab.a.context} shape={ab.a.shape ?? null} parts={ab.parts} onshape={(v) => sess.arrowSet("shape", v)}
         onkinds={(o) => (sess.arrowKinds = o)} onpick={(k) => sess.arrowSet("kind", k)} onnote={() => (sess.writing = "note")} oncontext={() => sess.openPanel("context")}
         onflip={() => sess.flip()} ondetails={() => sess.openPanel(null)} ondelete={() => sess.unarrow()} onkeep={() => sess.keepArrow()} onpart={(i) => pickPart(ab.bundle, i)} />
     {/if}
@@ -1449,6 +1512,11 @@
   .legend .w-added { stroke: var(--color-added); stroke-width: 2; }
   .legend .w-ghost { stroke: var(--color-removed); stroke-width: 1.5; stroke-dasharray: 5 4; }
   .arrow { display: contents; }
+  .fresh > :global(svg) { animation: line-in 240ms ease both; }
+  .fade-out > :global(svg) { animation: line-out 240ms ease both; }
+  @keyframes line-in { from { opacity: 0; } }
+  @keyframes line-out { to { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .fresh > :global(svg), .fade-out > :global(svg) { animation: none; } .fade-out { display: none; } }
   .sleeves { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; fill: none; stroke: var(--map-line-soft); stroke-linecap: round; }
   .inside { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
   .inside > .slot { pointer-events: auto; }

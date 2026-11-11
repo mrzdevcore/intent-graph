@@ -1,13 +1,14 @@
 <script lang="ts">
-  import type { ArrowKind } from "../types";
+  import type { ArrowKind, ArrowShape } from "../types";
+  import { SHAPES } from "../shapes/auto";
   import ArrowChip from "./ArrowChip.svelte";
   import type { Editing } from "./arrows";
 
-  let { x, y, how, title, kind, kinds, picking, note = false, context = false, parts = [],
-    onkinds, onpick, onnote, oncontext, onflip, ondetails, ondelete, onkeep, onpart }: {
-    x: number; y: number; how: Editing; title: string; kind: ArrowKind; kinds: ArrowKind[]; picking: boolean; note?: boolean; context?: boolean;
+  let { x, y, how, title, kind, kinds, picking, note = false, context = false, shape = null, parts = [],
+    onkinds, onpick, onnote, oncontext, onflip, onshape, ondetails, ondelete, onkeep, onpart }: {
+    x: number; y: number; how: Editing; title: string; kind: ArrowKind; kinds: ArrowKind[]; picking: boolean; note?: boolean; context?: boolean; shape?: ArrowShape | null;
     parts?: { title: string; kind: ArrowKind }[];
-    onkinds: (open: boolean) => void; onpick: (k: ArrowKind) => void; onnote: () => void; oncontext: () => void; onflip: () => void;
+    onkinds: (open: boolean) => void; onpick: (k: ArrowKind) => void; onnote: () => void; oncontext: () => void; onflip: () => void; onshape: (s: ArrowShape | null) => void;
     ondetails: () => void; ondelete: () => void; onkeep: () => void; onpart: (i: number) => void;
   } = $props();
   const can = $derived(how === "edit" || how === "drift");
@@ -26,6 +27,11 @@
       <button type="button" class:set={note} onclick={onnote} title="A short line on the arrow">Note</button>
       <button type="button" onclick={oncontext} title="Context for whoever builds it" aria-label={context ? "Context (set)" : "Context"}>Context{#if context}<i class="dot" data-dot aria-hidden="true"></i>{/if}</button>
       <button type="button" onclick={onflip} title="Turn it the other way">Flip</button>
+      <label class="line" title="How the arrow is drawn">Line
+        <select data-line value={shape ?? ""} onchange={(e) => onshape((e.currentTarget.value || null) as ArrowShape | null)}>
+          <option value="">Like the map</option>{#each SHAPES as s (s)}<option value={s}>{s[0].toUpperCase() + s.slice(1)}</option>{/each}
+        </select>
+      </label>
     {:else}
       <span class="title">{title}</span>
     {/if}
@@ -42,6 +48,9 @@
     border-radius: var(--radius-lg); padding: var(--space-1) var(--space-2); min-height: 1.75rem; cursor: pointer; }
   button:hover { background: var(--map-sunken); }
   button:focus-visible { outline: 2px solid var(--map-trace); outline-offset: 1px; }
+  .line { display: inline-flex; align-items: center; gap: var(--space-1); padding: 0 var(--space-1) 0 var(--space-2); color: var(--map-fg-2); }
+  select { font: inherit; color: var(--map-fg); background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-md); padding: var(--space-0-5) var(--space-1); }
+  select:focus-visible { outline: 2px solid var(--map-trace); outline-offset: 1px; }
   .title { padding: 0 var(--space-2); color: var(--map-muted); }
   .keep { color: var(--map-fg); border-color: var(--map-trace); }
   .set { color: var(--map-fg); }

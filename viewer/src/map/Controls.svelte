@@ -1,12 +1,15 @@
 <!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles and More (scroll wheel,
-     Arrange the map) top right. Zoom sits in the bottom-left corner. -->
+     arrows, Arrange the map) top right. Zoom sits in the bottom-left corner. -->
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import type { ArrowShape } from "./types";
+  import { SHAPES, type MapShape } from "./shapes/auto";
 
-  let { crumbs, layers, on, oncrumb, ontoggle, wheelPref, onwheel, onarrange, low = false, children }: {
+  let { crumbs, layers, on, oncrumb, ontoggle, wheelPref, onwheel, arrowPref = "auto", arrowHere = "circuit", onarrows, onarrange, low = false, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void;
-    wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void; onarrange?: () => void; low?: boolean; children?: Snippet;
+    wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void;
+    arrowPref?: MapShape; arrowHere?: ArrowShape; onarrows?: (p: MapShape) => void; onarrange?: () => void; low?: boolean; children?: Snippet;
   } = $props();
 </script>
 
@@ -34,6 +37,14 @@
         <option value="auto">Automatic</option><option value="zoom">Zoom</option><option value="pan">Pan</option>
       </select>
     </label>
+    {#if onarrows}
+      <label>Arrows
+        <select value={arrowPref} onchange={(e) => onarrows(e.currentTarget.value as MapShape)}>
+          <option value="auto">Auto</option>{#each SHAPES as s (s)}<option value={s}>{s[0].toUpperCase() + s.slice(1)}</option>{/each}
+        </select>
+        {#if arrowPref === "auto"}<span class="here" data-here>· {arrowHere} here</span>{/if}
+      </label>
+    {/if}
     {#if onarrange}<button type="button" class="item" onclick={onarrange}>Arrange the map <kbd>⌥⇧F</kbd></button>{/if}
   </details>
 </div>
@@ -53,6 +64,7 @@
   .layers label { display: flex; gap: var(--space-1-5); align-items: center; padding: var(--space-0-5) var(--space-2-5); font-size: var(--text-md); white-space: nowrap; }
   .layers .item { display: flex; justify-content: space-between; gap: var(--space-3); width: 100%; border: 0; background: none; text-align: left; white-space: nowrap; }
   .layers .item:hover { background: var(--map-sunken); }
+  .here { color: var(--map-faint); }
   .layers kbd { font: inherit; font-size: var(--text-sm); color: var(--map-faint); }
   @media (max-width: 47.5rem) { .head { right: var(--space-4); top: 3.25rem; } .head.low { top: 6.25rem; } }
 </style>

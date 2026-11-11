@@ -1,8 +1,9 @@
 import type { Frame, MapArrow } from "./types";
-import { BEND, SPREAD, across, halfway, length, pins, pt, r2, straight, type End, type P, type Side } from "./shapes/path";
+import type { ArrowShape } from "./types";
+import { BEND, SPREAD, across, halfway, length, path, pins, pt, r2, straight, type End, type P, type Side } from "./shapes/path";
 
 /** An arrow drawn as a wire: its SVG path and the point halfway along it. */
-export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]] };
+export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]]; head?: [P, P] };
 /** "routed": each wire on its own track, spread over the gaps; "ribbon": wires gathered into as
  *  few trunks as they can share, packed close, a sleeve behind each trunk. */
 export type Mode = "routed" | "ribbon";
@@ -21,17 +22,19 @@ const OUTSIDE = 48;
 type Run = { id: string; span: () => P; set: (v: number) => void };
 type Grid = ReturnType<typeof grid>;
 type Kinds = Record<string, string | undefined>;
+type ShapeOf = (a: MapArrow) => ArrowShape;
 
 /**
  * The wires of `arrows` between sibling boxes `frames` (in their parent's inner units), laid like a
  * circuit board, bends cut at 45°. "routed": from the facing sides' pins (`pins`), straight when they
  * line up, else one bend on a track of its own between the rows or columns, a drop down a gap only
- * when a box is in the way. "ribbon": the upper box's bottom to the lower's top, on shared trunks.
+ * when a box is in the way; an arrow whose `shape` is not circuit is drawn by `path` from the same
+ * pins. "ribbon": the upper box's bottom to the lower's top, on shared trunks, whatever the shape.
  * An arrow from a box to itself, or to a box with no frame, has none.
  */
-export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode, kinds: Kinds = {}): Wiring {
+export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode, kinds: Kinds = {}, shape: ShapeOf = () => "circuit"): Wiring {
   const g = grid(frames, mode);
-  return { wires: mode === "routed" ? routed(arrows, frames, kinds, g) : ribbon(arrows, frames, g), sleeves: g.sleeves };
+  return { wires: mode === "routed" ? routed(arrows, frames, kinds, shape, g) : ribbon(arrows, frames, g), sleeves: g.sleeves };
 }
 
 function grid(frames: Record<string, Frame>, mode: Mode) {
@@ -84,7 +87,7 @@ const span = (x: number, y: number): P => [Math.min(x, y), Math.max(x, y)];
 const orient = (p: P[], flip: boolean) => (flip ? [...p].reverse() : p);
 const wire = (p: P[], bend: number): Wire => ({ d: chamfer(p, bend), mid: halfway(p), len: r2(length(p)), ends: [p[0], p[p.length - 1]] });
 
-function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, g: Grid): Map<string, Wire> {
+function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, shape: ShapeOf, g: Grid): Map<string, Wire> {
   const { pitch, bend, load } = LOOK.routed;
   const live = arrows.filter((a) => a.from !== a.to && frames[a.from] && frames[a.to]).sort((x, y) => x.id.localeCompare(y.id));
   const row = (id: string) => g.rowOf.get(id)!;
@@ -150,7 +153,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     let more = false;
     for (const a of live) {
       const e = ends.get(a.id)!, [rf, rt] = [row(a.from), row(a.to)];
-      if (chosen[a.id] || (across(e.sides[0]) ? sideways(a, e) : rf !== rt || stacked(a, e))) continue;
+      if (chosen[a.id] || shape(a) !== "circuit" || (across(e.sides[0]) ? sideways(a, e) : rf !== rt || stacked(a, e))) continue;
       chosen[a.id] = rf < rt ? ["b", "t"] : rf > rt ? ["t", "b"] : ["b", "b"];
       more = true;
     }
@@ -175,9 +178,11 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
   const down = (mid: number, room: number, id: string, sp: () => P) => slot(key(mid), mid, room, true, id, sp);
 
   const draws: [string, () => P[]][] = [];
+  const drawn = new Map<string, Wire>(), walls = Object.values(frames);
   for (const a of live) {
-    const e = ends.get(a.id)!, [sa, sz] = e.sides;
-    if (across(sa)) {
+    const e = ends.get(a.id)!, [sa, sz] = e.sides, form = shape(a);
+    if (form !== "circuit") drawn.set(a.id, path(form, e, walls));
+    else if (across(sa)) {
       const { p, q, flip } = facing(a, e), plan = sideways(a, e)!;
       if ("y" in plan) draws.push([a.id, () => orient([[p[0], plan.y], [q[0], plan.y]], flip)]);
       else {
@@ -238,7 +243,8 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
   }
   for (const t of lanes.values()) if (!t.vertical) g.lay(t.runs, t.mid, t.room, false);
   for (const t of lanes.values()) if (t.vertical) g.lay(t.runs, t.mid, t.room, true);
-  return new Map(draws.map(([id, draw]) => [id, wire(straight(draw()), bend)]));
+  for (const [id, draw] of draws) drawn.set(id, wire(straight(draw()), bend));
+  return new Map(live.filter((a) => drawn.has(a.id)).map((a) => [a.id, drawn.get(a.id)!]));
 }
 
 function ribbon(arrows: MapArrow[], frames: Record<string, Frame>, g: Grid): Map<string, Wire> {

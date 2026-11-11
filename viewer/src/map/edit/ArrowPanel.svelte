@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ArrowKind, MapArrow } from "../types";
   import { arrowKdl, specKind, type Editing } from "./arrows";
+  import { SHAPES } from "../shapes/auto";
   import Field from "./Field.svelte";
   import Panel from "./Panel.svelte";
   import type { EditSession } from "./session.svelte";
@@ -20,6 +21,10 @@
   <div class="group" role="group" aria-label="Kind">
     <span class="lab">Kind</span>
     <span class="chips">{#each kinds as k}<button type="button" data-arrow-kind={k} aria-pressed={k === kind} disabled={!can} onclick={() => s.arrowSet("kind", k)}>{k}</button>{/each}</span>
+  </div>
+  <div class="group" role="group" aria-label="Line">
+    <span class="lab">Line</span>
+    <span class="chips">{#each [null, ...SHAPES] as l (l)}<button type="button" data-arrow-line={l ?? "map"} aria-pressed={(a.shape ?? null) === l} disabled={!can} onclick={() => s.arrowSet("shape", l)}>{l ? l[0].toUpperCase() + l.slice(1) : "Like the map"}</button>{/each}</span>
   </div>
   <Field name="label" label="Label" value={s.text(a, "label")} disabled={!can} onsave={save("label")} />
   <Field name="note" label="On the arrow" value={a.note ?? null} max={80} disabled={!can} help="One short line, shown under the label." onsave={save("note")} />

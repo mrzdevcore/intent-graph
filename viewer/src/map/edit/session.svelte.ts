@@ -226,11 +226,11 @@ export class EditSession {
     if (next && this.arrow) this.arrow = this.arrow.part ? { id: this.arrow.id, part: next } : { id: `${next.from}->${next.to}` };
     return true;
   }
-  arrowSet(key: "kind" | "label" | "note" | "context", value: string | null, failed?: () => void): boolean {
+  arrowSet(key: "kind" | "label" | "note" | "context" | "shape", value: string | null, failed?: () => void): boolean {
     const a = this.picked;
     this.arrowKinds = false;
     this.writing = null;
-    if (!a || (key === "kind" ? specKind(a) : this.text(a, key)) === value) return false;
+    if (!a || (key === "kind" ? specKind(a) : key === "shape" ? a.shape ?? null : this.text(a, key)) === value) return false;
     return this.change([{ op: "arrowset", from: a.from, to: a.to, key, value }], undefined, failed);
   }
   setBox(id: string, key: string, value: string | null, failed?: () => void): boolean {

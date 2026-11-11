@@ -1992,3 +1992,118 @@ test("Space held on a box Esc focused pans instead of pressing the box", async (
   btn.dispatchEvent(up);
   expect(up.defaultPrevented).toBe(true);
 });
+
+// --- the arrow's line: the map's default (More), its own shape (the bar, the panel)
+const lineOf = (t: HTMLElement, id: string) => t.querySelector<HTMLElement>(`[data-arrow="${id}"]`)!.dataset.line;
+const choose = (el: HTMLSelectElement, v: string) => {
+  el.value = v;
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  flushSync();
+};
+const arrowsPref = (t: HTMLElement) => [...t.querySelectorAll<HTMLLabelElement>(".more label")].find((l) => l.textContent!.startsWith("Arrows"))!;
+const keptStorage = () => {
+  const kept: Record<string, string> = {};
+  vi.stubGlobal("localStorage", { getItem: (k: string) => kept[k] ?? null, setItem: (k: string, v: string) => (kept[k] = v), removeItem: (k: string) => delete kept[k] });
+  return kept;
+};
+
+test("Auto draws a small level curved and says so in More; a choice there is kept per browser", () => {
+  const kept = keptStorage();
+  const { target } = setup();
+  expect(["web->api", "api->postgres", "api->stripe", "web->api-client"].map((id) => lineOf(target, id))).toEqual(["curved", "curved", "curved", "curved"]);
+  const pref = arrowsPref(target);
+  expect(pref.querySelector("select")!.value).toBe("auto");
+  expect(pref.querySelector("[data-here]")!.textContent).toBe("· curved here");
+  choose(pref.querySelector("select")!, "elbow");
+  expect(kept["ig-arrows"]).toBe("elbow");
+  expect(lineOf(target, "web->api")).toBe("elbow");
+  expect(arrowsPref(target).querySelector("[data-here]")).toBeNull();
+  document.body.innerHTML = "";
+  const again = setup().target;
+  expect(arrowsPref(again).querySelector("select")!.value).toBe("elbow");
+  expect(lineOf(again, "api->stripe")).toBe("elbow");
+  choose(arrowsPref(again).querySelector("select")!, "auto");
+  expect(kept["ig-arrows"]).toBeUndefined();
+  vi.unstubAllGlobals();
+});
+
+test("a level past 12 boxes is circuit under Auto; an arrow's own shape wins whatever the map picks", () => {
+  keptStorage();
+  const v = withArrow("web->api", { shape: "curved" });
+  for (let i = 0; i < 9; i++) {
+    const id = `extra${i}`;
+    v.boxes.push({ ...v.boxes.find((b) => b.id === "postgres")!, id, title: { value: id, source: "ig" } });
+    v.placed.frames[id] = { x: 2000 + i * 300, y: 2000, w: 200, h: 120 };
+  }
+  const { target } = setup(undefined, v);
+  expect(lineOf(target, "web->api")).toBe("curved");
+  expect(lineOf(target, "api->stripe")).toBe("circuit");
+  expect(arrowsPref(target).querySelector("[data-here]")!.textContent).toBe("· circuit here");
+  choose(arrowsPref(target).querySelector("select")!, "straight");
+  expect(lineOf(target, "web->api")).toBe("curved");
+  expect(lineOf(target, "api->stripe")).toBe("straight");
+  vi.unstubAllGlobals();
+});
+
+test("a change of shape cross-fades: the old line fades out over the new one", () => {
+  keptStorage();
+  const { target } = setup();
+  const was = target.querySelector('[data-arrow="web->api"] g[data-state] > path')!.getAttribute("d");
+  choose(arrowsPref(target).querySelector("select")!, "straight");
+  const now = target.querySelector<HTMLElement>('[data-arrow="web->api"]')!;
+  expect(now.classList.contains("fresh")).toBe(true);
+  expect([...target.querySelectorAll(".fade-out g[data-state] > path")].map((p) => p.getAttribute("d"))).toContain(was);
+  vi.unstubAllGlobals();
+});
+
+test("the bar's Line sends arrowset shape, and Like the map clears it; the panel offers the same", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api, withArrow("web->api", { shape: "elbow" }));
+  pickArrow(target, "web->api");
+  const line = arrowBar(target)!.querySelector<HTMLSelectElement>("[data-line]")!;
+  expect(line.value).toBe("elbow");
+  expect([...line.options].map((o) => o.textContent)).toEqual(["Like the map", "Circuit", "Elbow", "Curved", "Straight"]);
+  choose(line, "");
+  await tick();
+  pickArrow(target, "api->stripe");
+  choose(arrowBar(target)!.querySelector<HTMLSelectElement>("[data-line]")!, "curved");
+  await tick();
+  pickArrow(target, "api->postgres");
+  arrowButton(target, "Details")!.click();
+  flushSync();
+  const panel = target.querySelector<HTMLElement>('[data-panel="arrow"]')!;
+  expect(panel.querySelector('[data-arrow-line="map"]')!.getAttribute("aria-pressed")).toBe("true");
+  panel.querySelector<HTMLElement>('[data-arrow-line="straight"]')!.click();
+  await tick();
+  expect(got).toEqual([
+    { op: "arrowset", from: "web", to: "api", key: "shape", value: null },
+    { op: "arrowset", from: "api", to: "stripe", key: "shape", value: "curved" },
+    { op: "arrowset", from: "api", to: "postgres", key: "shape", value: "straight" },
+  ]);
+});
+
+test("a curved arrow is picked by its wide hit path, with a handle on each end of the curve and its label halfway", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api, withArrow("api->postgres", { shape: "curved", note: "per order" }));
+  const d = hitOf(target, "api->postgres").getAttribute("d")!;
+  expect(d).toMatch(/^M[\d.-]+,[\d.-]+ C/);
+  expect(target.querySelector('[data-arrow="api->postgres"] g[data-state] > path')!.getAttribute("d")).toBe(d);
+  expect(Number(hitOf(target, "api->postgres").getAttribute("stroke-width"))).toBeGreaterThan(Number(target.querySelector('[data-arrow="api->postgres"] g[data-state] > path')!.getAttribute("stroke-width")));
+  pickArrow(target, "api->postgres");
+  expect(target.querySelector('[data-arrow="api->postgres"] [data-state]')!.getAttribute("data-state")).toBe("picked");
+  const pts = [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((m) => [m[1], m[2]].map(Number));
+  const ends = [...target.querySelectorAll('[data-label="api->postgres"] [data-end]')].map((e) => [Number(e.getAttribute("cx")), Number(e.getAttribute("cy"))]);
+  expect(ends).toEqual([pts[0], pts[pts.length - 1]]);
+  expect(target.querySelector('[data-label="api->postgres"] [data-note]')!.textContent).toBe("per order");
+  const mid = target.querySelector('[data-label="api->postgres"] g[transform]')!.getAttribute("transform")!;
+  const [mx, my] = mid.match(/translate\(([\d.-]+) ([\d.-]+)\)/)!.slice(1).map(Number);
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  expect(mx > Math.min(...xs) && mx < Math.max(...xs) && my >= Math.min(...ys) && my <= Math.max(...ys)).toBe(true);
+  expect([mx, my]).not.toEqual(pts[0]);
+  expect(arrowBar(target)!.querySelector<HTMLSelectElement>("[data-line]")!.value).toBe("curved");
+  ptr(target.querySelector('[data-end="to"]')!, "pointerdown");
+  ptr(boxEl(target, "stripe"), "pointermove", far);
+  ptr(boxEl(target, "stripe"), "pointerup", far);
+  await tick();
+  expect(got).toEqual([{ op: "arrowset", from: "api", to: "postgres", key: "to", value: "stripe" }]);
+});

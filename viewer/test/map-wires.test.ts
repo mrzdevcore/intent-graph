@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { wires, type Mode } from "../src/map/wires";
+import { autoShape, lineOf, mapShape } from "../src/map/shapes/auto";
 import type { Frame, MapArrow } from "../src/map/types";
 
 const arrow = (from: string, to: string): MapArrow => ({ id: `${from}->${to}`, parent: "p", from, to, kind: "uses", count: 1, kinds: ["uses"] });
@@ -130,4 +131,35 @@ test("a crowded row: every wire past a box in the way goes round, through no box
   const fs = Object.fromEntries(["p", "q", "r", "s", "t"].map((id, i) => [id, box(i * 140, (i % 2) * 20)]));
   const as = ["q", "r", "s", "t"].flatMap((id) => [arrow("p", id), arrow(id, "p")]).concat([arrow("q", "s"), arrow("r", "t"), arrow("t", "q")]);
   check("routed", as, fs);
+});
+
+test("Auto: curved up to 12 boxes and 16 arrows at a level, circuit past either", () => {
+  expect(autoShape(12, 16)).toBe("curved");
+  expect(autoShape(0, 0)).toBe("curved");
+  expect(autoShape(13, 16)).toBe("circuit");
+  expect(autoShape(12, 17)).toBe("circuit");
+  expect(mapShape("auto", 6, 4)).toBe("curved");
+  expect(mapShape("elbow", 6, 4)).toBe("elbow");
+  expect(mapShape("auto", 40, 4)).toBe("circuit");
+});
+
+test("an arrow's own shape wins over the map's", () => {
+  expect(lineOf({ shape: "curved" }, "circuit")).toBe("curved");
+  expect(lineOf({ shape: "circuit" }, "curved")).toBe("circuit");
+  expect(lineOf({}, "elbow")).toBe("elbow");
+});
+
+test("arrows not drawn as circuit take `path` from the same pins: one pin each, the rest still circuit", () => {
+  const curved = new Set(["a->g", "d->e", "a->c"]);
+  const w = wires(all, frames, "routed", {}, (a) => (curved.has(a.id) ? "curved" : "circuit")).wires;
+  expect(w.size).toBe(all.length);
+  for (const a of all) expect(w.get(a.id)!.d.includes(" C"), a.id).toBe(curved.has(a.id));
+  const ends = [...w.values()].flatMap((x) => x.ends.map((e) => e.join()));
+  expect(new Set(ends).size).toBe(ends.length);
+  const de = w.get("d->e")!;
+  expect(de.ends).toEqual([[100, 186], [392, 186]]);
+  expect(de.head![1]).toEqual([392, 186]);
+  expect(de.mid).toEqual([246, 186]);
+  const ribbon = wires(all, frames, "ribbon").wires;
+  expect([...ribbon.values()].some((x) => x.d.includes(" C"))).toBe(false);
 });

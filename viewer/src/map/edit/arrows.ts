@@ -43,5 +43,5 @@ function contextKdl(v: string): string {
 export function arrowKdl(a: MapArrow): string {
   const label = a.kind === "bundle" ? null : a.label;
   return [specKind(a), kdlString(a.to), label != null && `label=${kdlString(label)}`, a.note != null && `note=${kdlString(a.note)}`,
-    a.context != null && `context=${contextKdl(a.context)}`].filter(Boolean).join(" ");
+    a.context != null && `context=${contextKdl(a.context)}`, a.shape != null && `shape=${kdlString(a.shape)}`].filter(Boolean).join(" ");
 }
