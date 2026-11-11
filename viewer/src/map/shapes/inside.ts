@@ -17,7 +17,7 @@ const pinOn = (f: Frame, s: Side, t: number): P =>
 
 const along = (s: Side, p: P) => (s === "l" || s === "r" ? p[1] : p[0]);
 
-export function inside(ports: Port[], box: { w: number; h: number }, kids: Record<string, Frame>): (InWire | null)[] {
+export function inside(ports: Port[], box: { w: number; h: number }, kids: Record<string, Frame>, head = 0): (InWire | null)[] {
   const pinOf = new Map<number, P>();
   const groups = new Map<string, number[]>();
   ports.forEach((p, i) => {
@@ -29,19 +29,25 @@ export function inside(ports: Port[], box: { w: number; h: number }, kids: Recor
     list.sort((a, b) => along(ports[a].edge, ports[a].at) - along(ports[b].edge, ports[b].at));
     list.forEach((i, n) => pinOf.set(i, pinOn(kids[ports[i].child], ports[i].edge, spreadAt(n, list.length))));
   }
-  const g = grid(ports, box, kids, pinOf);
+  const g = grid(ports, box, kids, pinOf, head, CLEAR);
+  let tight: ReturnType<typeof grid> | undefined;
+  const title: Frame = { x: 0, y: 0, w: box.w, h: head };
   const order = ports.map((_, i) => i).filter((i) => kids[ports[i].child]);
   order.sort((a, b) => far(ports[a], pinOf.get(a)!) - far(ports[b], pinOf.get(b)!) || a - b);
   const out: (InWire | null)[] = ports.map(() => null);
   for (const i of order) {
     const p = ports[i], f = kids[p.child], pin = pinOf.get(i)!, shape = p.shape;
     const walls = Object.entries(kids).filter(([id]) => id !== p.child).map(([, w]) => w);
-    const way = g.route(p, f, pin) ?? [p.at, pin];
-    if (shape === "straight" && !walls.some((w) => cuts(p.at, pin, w))) out[i] = { d: `M${pt(p.at)} L${pt(pin)}`, pts: [p.at, pin] };
+    if (head > 0) walls.push(title);
+    const way = g.route(p, f, pin) ?? (tight ??= grid(ports, box, kids, pinOf, head, CLEAR / 4)).route(p, f, pin);
+    const s: P = p.edge === "t" && head > 0 ? [p.at[0], Math.max(head, Math.min(head + CLEAR, pin[1]))] : p.at;
+    const leg: P[] = s === p.at ? [] : [p.at];
+    const lead = leg.length ? `M${pt(p.at)} L` : "M";
+    if (shape === "straight" && !walls.some((w) => cuts(s, pin, w))) out[i] = { d: `${lead}${pt(s)} L${pt(pin)}`, pts: [...leg, s, pin] };
     else if (shape === "curved") {
-      const c = curved({ from: p.at, to: pin, sides: [INTO[p.edge], p.edge] }, walls);
-      out[i] = c ? { d: c.d, pts: c.pts } : { d: rounded(way), pts: way };
-    } else out[i] = { d: shape === "circuit" ? chamfer(way, BEND) : rounded(way), pts: way };
+      const c = curved({ from: s, to: pin, sides: [INTO[p.edge], p.edge] }, walls);
+      out[i] = c ? { d: lead + c.d.slice(1), pts: [...leg, ...c.pts] } : way && { d: rounded(way), pts: way };
+    } else out[i] = way && { d: shape === "circuit" ? chamfer(way, BEND) : rounded(way), pts: way };
   }
   return out;
 }
@@ -65,29 +71,30 @@ export function cuts(a: P, b: P, f: Frame, m = 0): boolean {
   return hi - lo > 1e-9;
 }
 
-function grid(ports: Port[], box: { w: number; h: number }, kids: Record<string, Frame>, pins: Map<number, P>) {
+function grid(ports: Port[], box: { w: number; h: number }, kids: Record<string, Frame>, pins: Map<number, P>, head: number, clear: number) {
   const frames = Object.values(kids);
-  const xs = new Set<number>([CLEAR, box.w - CLEAR]), ys = new Set<number>([CLEAR, box.h - CLEAR]);
+  const xs = new Set<number>([clear, box.w - clear]), ys = new Set<number>([clear, box.h - clear, head + clear]);
+  const entries = new Set(ports.filter((p) => p.edge === "t").map((p) => p.at[0]));
   const lanes = (set: Set<number>, edges: number[], top: number) => {
     const e = [...new Set([0, top, ...edges])].sort((a, b) => a - b);
     for (let i = 1; i < e.length; i++) {
       const [a, b] = [e[i - 1], e[i]], m = (a + b) / 2;
-      for (let k = -2; k <= 2; k++) if (Math.abs(k * PITCH) < (b - a) / 2 - CLEAR / 2) set.add(m + k * PITCH);
+      for (let k = -2; k <= 2; k++) if (Math.abs(k * PITCH) < (b - a) / 2 - clear / 2) set.add(m + k * PITCH);
     }
   };
   for (const f of frames) {
     for (const s of ALL) {
       const q = pinOn(f, s, 0.5), [nx, ny] = STEP[s];
-      xs.add(q[0] + nx * CLEAR);
-      ys.add(q[1] + ny * CLEAR);
+      xs.add(q[0] + nx * clear);
+      ys.add(q[1] + ny * clear);
     }
   }
   lanes(xs, frames.flatMap((f) => [f.x, f.x + f.w]), box.w);
-  lanes(ys, frames.flatMap((f) => [f.y, f.y + f.h]), box.h);
+  lanes(ys, [head, ...frames.flatMap((f) => [f.y, f.y + f.h])], box.h);
   for (const [i, q] of pins) {
     const s = ports[i].edge, [nx, ny] = STEP[s];
-    xs.add(q[0]).add(q[0] + nx * CLEAR);
-    ys.add(q[1]).add(q[1] + ny * CLEAR);
+    xs.add(q[0]).add(q[0] + nx * clear);
+    ys.add(q[1]).add(q[1] + ny * clear);
     xs.add(ports[i].at[0]);
     ys.add(ports[i].at[1]);
   }
@@ -97,10 +104,11 @@ function grid(ports: Port[], box: { w: number; h: number }, kids: Record<string,
   const free = new Uint8Array(n);
   for (let j = 0; j < H; j++)
     for (let i = 0; i < W; i++)
-      free[j * W + i] = frames.every((f) => !(X[i] > f.x - CLEAR / 2 && X[i] < f.x + f.w + CLEAR / 2 && Y[j] > f.y - CLEAR / 2 && Y[j] < f.y + f.h + CLEAR / 2)) ? 1 : 0;
+      free[j * W + i] = (Y[j] >= head || entries.has(X[i])) && frames.every((f) => !(X[i] > f.x - clear / 2 && X[i] < f.x + f.w + clear / 2 && Y[j] > f.y - clear / 2 && Y[j] < f.y + f.h + clear / 2)) ? 1 : 0;
   // moves 0-3: right, left, down, up; a line runs through every child's middle both ways, so a move between free neighbours passes none
   const step = (k: number, d: number) => {
     const i = k % W, j = (k - i) / W;
+    if (d < 2 && Y[j] < head) return -1;
     const t = d === 0 ? (i + 1 < W ? k + 1 : -1) : d === 1 ? (i > 0 ? k - 1 : -1) : d === 2 ? (j + 1 < H ? k + W : -1) : j > 0 ? k - W : -1;
     return t >= 0 && free[t] ? t : -1;
   };
@@ -119,12 +127,12 @@ function grid(ports: Port[], box: { w: number; h: number }, kids: Record<string,
     const x = sx > 0 ? X.find((v) => v > p.at[0]) : sx < 0 ? [...X].reverse().find((v) => v < p.at[0]) : p.at[0];
     const y = sy > 0 ? Y.find((v) => v > p.at[1]) : sy < 0 ? [...Y].reverse().find((v) => v < p.at[1]) : p.at[1];
     const k0 = x === undefined || y === undefined ? -1 : nodeOf([x, y]);
-    const first = k0 >= 0 && free[k0] && !frames.some((w) => cuts(p.at, at(k0), w, CLEAR / 2)) ? k0 : -1;
+    const first = k0 >= 0 && free[k0] && !frames.some((w) => cuts(p.at, at(k0), w, clear / 2)) ? k0 : -1;
     if (first < 0) return null;
     const goals = new Map<number, { side: Side; pin: P }>();
     for (const s of ALL) {
       const q = s === p.edge ? pin : pinOn(f, s, 0.5), [nx, ny] = STEP[s];
-      const k = nodeOf([q[0] + nx * CLEAR, q[1] + ny * CLEAR]);
+      const k = nodeOf([q[0] + nx * clear, q[1] + ny * clear]);
       if (k >= 0 && free[k]) goals.set(k, { side: s, pin: q });
     }
     const cost = new Float64Array(n * 4).fill(Infinity), back = new Int32Array(n * 4).fill(-1);

@@ -117,6 +117,7 @@ export function padsOf(
         p.way = "both";
         if (!p.far) p.edge = "r";
       }
+      p.shape ??= part.shape;
       if (!p.arrows.includes(a.id)) p.arrows.push(a.id);
       if (!p.ends.some((e) => e.from === part.from && e.to === part.to)) p.ends.push({ from: part.from, to: part.to, key: from ? "from" : "to" });
     }
@@ -150,7 +151,7 @@ export function wiresOf(pads: Pad[], frame: { w: number; h: number }, kids: Reco
     ports.push({ at: padPoint(p, frame), edge: p.edge, child: p.child, shape: lineOf(p, shape) });
     at.push(i);
   });
-  const drawn = inside(ports, frame, kids), out: (InWire | null)[] = pads.map(() => null);
+  const drawn = inside(ports, frame, kids, Math.min(HEAD, frame.h / 4)), out: (InWire | null)[] = pads.map(() => null);
   at.forEach((i, k) => (out[i] = drawn[k]));
   return out;
 }

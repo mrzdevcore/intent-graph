@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 import { expect, test, vi } from "vitest";
-import { flushSync, mount } from "svelte";
+import { flushSync, mount, unmount } from "svelte";
 import Pads from "../src/map/Pads.svelte";
 import Map from "../src/map/Map.svelte";
 import { Camera } from "../src/map/glide";
 import { CARD, fillsBeside, fitBeside, inBox, padPoint, padsOf, wiresOf, type Pad } from "../src/map/pads";
 import { cuts } from "../src/map/shapes/inside";
 import type { P } from "../src/map/shapes/path";
-import { OPEN, fitInner, fitTo, showsInside, worldFrame } from "../src/map/camera";
+import { HEAD, OPEN, fitInner, fitTo, showsInside, worldFrame } from "../src/map/camera";
 import type { Frame, MapArrow, MapBox, Mark, View } from "../src/map/types";
 
 const box = (id: string, parent?: string): MapBox => ({
@@ -299,7 +299,6 @@ test("zooming by hand to a box with no pads keeps the 60% rule", () => {
   expect(at(865)).toEqual(["SYSTEM", "ALONE"]);
 });
 
-// the screenshot's open group: six parts in two rows, far boxes above, below, left and right, three of them both ways
 const site = (() => {
   const kids = ["c0", "c1", "c2", "c3", "c4", "c5"];
   const v: View = {
@@ -363,7 +362,6 @@ function crossing([a, b]: [P, P], [c, d]: [P, P]) {
   const o = (p: P, q: P, r: P) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
   const [d1, d2, d3, d4] = [o(c, d, a), o(c, d, b), o(a, b, c), o(a, b, d)];
   if (d1 * d2 < 0 && d3 * d4 < 0) return true;
-  // collinear and overlapping for more than a point
   if (d1 === 0 && d2 === 0) {
     const k = a[0] === b[0] && c[0] === d[0] ? 1 : 0;
     const [lo, hi] = [Math.max(Math.min(a[k], b[k]), Math.min(c[k], d[k])), Math.min(Math.max(a[k], b[k]), Math.max(c[k], d[k]))];
@@ -495,4 +493,63 @@ test("on the map, a pad hovered lights its outside arrow gold, and the outside a
   flushSync();
   expect(pad.classList.contains("lit")).toBe(true);
   expect(line().style.stroke).toBe("var(--map-trace)");
+});
+
+for (const shape of ["circuit", "elbow", "curved", "straight"] as const)
+  test(`${shape}: no inside wire runs across the open box's title, but a top pad's own way in`, () => {
+    const head = Math.min(HEAD, site.frame.h / 4);
+    const ws = wiresOf(site.pads, site.frame, site.kids, shape);
+    site.pads.forEach((p, i) => segs(ws[i]!.pts).forEach(([a, b], k) => {
+      if (Math.min(a[1], b[1]) >= head - 1e-6) return;
+      expect(p.edge === "t" && k === 0 && a[0] === p.at && b[0] === p.at, `${p.other}/${p.child} segment ${k}`).toBe(true);
+    }));
+  });
+
+test("a top pad far from its part runs under the title, not across it", () => {
+  const frame = { w: 400, h: 300 }, kids: Record<string, Frame> = { a: { x: 60, y: 40, w: 80, h: 80 }, b: { x: 300, y: 40, w: 80, h: 80 } };
+  const pads: Pad[] = [{ way: "out", edge: "t", other: "far", title: "", child: "b", down: false, at: 10, arrows: [], ends: [] }];
+  for (const shape of ["circuit", "elbow", "curved", "straight"] as const) {
+    const w = wiresOf(pads, frame, kids, shape)[0]!;
+    segs(w.pts).forEach(([a, b], k) => expect(Math.min(a[1], b[1]) >= 30 - 1e-6 || (k === 0 && a[0] === 10 && b[0] === 10), `${shape} segment ${k}`).toBe(true));
+    for (const [a, b] of segs(w.pts)) expect(cuts(a, b, kids.a)).toBe(false);
+  }
+});
+
+const packedPad = (edge: Pad["edge"], at: number, child: string): Pad => ({ way: "out", edge, other: `${edge}${at}`, title: "", child, down: false, at, arrows: [], ends: [] });
+
+test("children packed closer than the clearance are wired between them or left a stub, and no wire cuts one", () => {
+  const frame = { w: 400, h: 244 }, kids: Record<string, Frame> = {};
+  for (let i = 0; i < 6; i++) kids[`k${i}`] = { x: 2 + (i % 3) * 132, y: 34 + Math.floor(i / 3) * 104, w: 128, h: 100 };
+  const pads = [packedPad("t", 66, "k4"), packedPad("l", 190, "k5"), packedPad("b", 330, "k1"), packedPad("r", 84, "k3")];
+  for (const shape of ["circuit", "elbow", "curved", "straight"] as const) {
+    const ws = wiresOf(pads, frame, kids, shape);
+    expect(ws[0], shape).not.toBeNull();
+    pads.forEach((p, i) => {
+      for (const [id, k] of Object.entries(kids)) if (id !== p.child) for (const [a, b] of segs(ws[i]?.pts ?? [])) expect(cuts(a, b, k), `${shape} ${p.child} through ${id}`).toBe(false);
+    });
+  }
+});
+
+test("a part walled in by touching children gets no inside wire, never a line through them", () => {
+  const frame = { w: 400, h: 300 }, kids: Record<string, Frame> = {};
+  for (let i = 0; i < 9; i++) kids[`k${i}`] = { x: 50 + (i % 3) * 100, y: 50 + Math.floor(i / 3) * 80, w: 100, h: 80 };
+  const ws = wiresOf([packedPad("t", 200, "k4"), packedPad("l", 170, "k4")], frame, kids, "circuit");
+  expect(ws).toEqual([null, null]);
+});
+
+test("a two-way pad takes the first shape its parts set", () => {
+  const v: View = { ...site.v, arrows: site.v.arrows.map((a) => ({ ...a, parts: a.parts?.map((p) => (p.from === "up" && p.to === "c0" ? { ...p, shape: "straight" as const } : p)) })) };
+  expect(padsOf(v, "node3", site.frame, site.child, on).find((p) => p.other === "up" && p.child === "c0")!.shape).toBe("straight");
+});
+
+test("pads closed while one is hovered let go of its outside arrows", () => {
+  const onhot = vi.fn(), target = document.createElement("div");
+  document.body.append(target);
+  const c = mount(Pads, { target, props: { view: site.v, id: "node3", frame: site.frame, childFrame: site.child, on, scale: 1, onopen: () => {}, onhot } });
+  flushSync();
+  target.querySelector('[data-pad="east"]')!.dispatchEvent(new PointerEvent("pointerenter"));
+  flushSync();
+  expect(onhot).toHaveBeenLastCalledWith(["node3->east"]);
+  unmount(c);
+  expect(onhot).toHaveBeenLastCalledWith(null);
 });

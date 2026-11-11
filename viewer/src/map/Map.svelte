@@ -380,7 +380,6 @@
   // under the pointer: the deepest box, and an arrow
   let hot = $state<string | null>(null);
   let hotArrow = $state<string | null>(null);
-  // the arrows behind the pad or inside wire under the pointer: lit gold with it
   let hotPad = $state<string[] | null>(null);
   const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && linksOf([a], id).length > 0);
   let pointer = { x: 0, y: 0 }, onMap = false;
@@ -1293,7 +1292,7 @@
   {#each (kids.get(pid) ?? []).filter((b) => !vw || seen(b.id)) as b (b.id)}
     {@const f = drawn(b.id)}
     {@const sw = world.get(b.id)!.w * lod.k}
-    {@const open = showsInside(sw) && kids.has(b.id) && !!view.placed.inner[b.id]}
+    {@const open = opened(b.id)}
     {@const source = view.sources?.[b.id]}
     {@const list = view.parts?.[b.id]}
     <!-- a part box shows its list once it is near; code waits for more room -->

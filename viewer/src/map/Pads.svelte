@@ -30,17 +30,27 @@
   });
   const wires = $derived(wiresOf(pads, frame, kids, shape));
   const asks = $derived(Object.keys(kids).length > 0);
-  let near = $state<number | null>(null);
-  const lit = (i: number) => near === i || (!!hot && pads[i].arrows.includes(hot));
+  const keyOf = (p: Pad) => `${p.other}\u0000${p.child ?? ""}`;
+  let near = $state<string | null>(null);
+  const lit = (i: number) => near === keyOf(pads[i]) || (!!hot && pads[i].arrows.includes(hot));
   function enter(i: number) {
-    near = i;
+    near = keyOf(pads[i]);
     onhot?.(pads[i].arrows);
   }
   function leave(i: number) {
-    if (near !== i) return;
+    if (near !== keyOf(pads[i])) return;
     near = null;
     onhot?.(null);
   }
+  $effect(() => {
+    if (near && !pads.some((p) => keyOf(p) === near)) {
+      near = null;
+      onhot?.(null);
+    }
+  });
+  $effect(() => () => {
+    if (near) onhot?.(null);
+  });
   const stub = (p: Pad): P => {
     const [x, y] = padPoint(p, frame), [dx, dy] = INWARD[p.edge];
     return [x + dx * STUB * scale, y + dy * STUB * scale];
@@ -94,7 +104,7 @@
               {@const [x, y] = padPoint(p, frame)}
               {@const s = stub(p)}
               <line x1={s[0]} y1={s[1]} x2={x} y2={y} stroke-linecap="round" stroke-dasharray={p.down ? `0 ${4 * scale}` : undefined} />
-              {#if onassign && asks}
+              {#if onassign && asks && !p.child}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <circle class="grab" data-pad={p.other} data-stub={i} cx={s[0]} cy={s[1]} r={5 * scale} onpointerdown={(e) => grab(e, i)} />
               {/if}
