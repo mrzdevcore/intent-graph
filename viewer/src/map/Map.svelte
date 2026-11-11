@@ -942,7 +942,8 @@
     else if (a === "duplicate" || a === "duplicateAll") duplicate(ids, a === "duplicateAll");
     else if (clip) {
       const r = stage.getBoundingClientRect();
-      pasteAtScreen(clip.copy, r.left + p.x, r.top + p.y, byId.get(id)?.parent ?? ROOT);
+      const open = !!stage.querySelector(`[data-box="${CSS.escape(id)}"][data-open]`);
+      pasteAtScreen(clip.copy, r.left + p.x, r.top + p.y, open ? id : byId.get(id)?.parent ?? ROOT);
     }
   }
   function align(dir: "row" | "column") {

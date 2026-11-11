@@ -2,9 +2,11 @@ import { expect, test } from "vitest";
 import type { Edit, View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 import { copy, fromKdl, paste, toKdl } from "../src/map/edit/clipboard";
+import { overlaps, settle } from "../src/map/place/rules";
+import type { Place } from "../src/map/place/places";
 
 const fresh = () => structuredClone(shop) as unknown as View;
-const places = (v: View) => ({ ...v.placed.frames, "web/": { x: 0, y: 0, w: 440, h: 344 }, "api/": { x: 0, y: 0, w: 2304, h: 1232 } });
+const places = (v: View): Record<string, Place> => ({ ...v.placed.frames, "web/": { x: 0, y: 0, w: 440, h: 344 }, "api/": { x: 0, y: 0, w: 2304, h: 1232 } });
 const edits = (e: Edit) => (e.op === "batch" ? e.edits : [e]);
 const adds = (e: Edit) => edits(e).flatMap((x) => (x.op === "add" ? [x] : []));
 
@@ -86,7 +88,7 @@ test("KDL round trip: the copy as ig/ text reads back the same, places aside", (
   expect(text).toMatch(/^app "api" title="Api" tech="Node · express" owner="payments" \{\n    context "Keep it\\nstateless"\n    reads "postgres"\n/);
   expect(text).not.toMatch(/\bat "/);
   const back = fromKdl(text, v.kinds)!;
-  const bare = c.boxes.map(({ place: _p, room: _r, ...b }) => b);
+  const bare = c.boxes.map(({ place: _p, room: _r, from: _f, ...b }) => b);
   expect(back.boxes).toEqual(bare);
   expect(back.arrows).toEqual(expect.arrayContaining(c.arrows));
   expect(back.arrows).toHaveLength(c.arrows.length);
@@ -132,4 +134,23 @@ test("text that is not ig/ boxes reads as nothing", () => {
   expect(fromKdl('service "api" title="API" {', kinds)).toBeNull();
   expect(fromKdl('system "shop" title="Shop"', kinds)).toBeNull();
   expect(fromKdl("Just some words, with a comma.", kinds)).toBeNull();
+});
+
+test("a copy across parents pastes in one row: the first parent's boxes keep their places, the others go beside, nothing overlaps", () => {
+  const v = fresh(), ps = places(v), c = copy(["postgres", "api/routers"], v, false, ps);
+  expect(c.boxes.map((b) => [b.id, b.from])).toEqual([["postgres", "system"], ["api/routers", "api"]]);
+  const { places: at, ids } = paste(c, "system", { x: 600, y: 600 }, v, "system");
+  expect(ids).toEqual(["postgres-2", "routers"]);
+  const a = at["postgres-2"], b = at.routers;
+  expect([a.w, a.h, b.w, b.h]).toEqual([ps.postgres.w, ps.postgres.h, ps["api/routers"].w, ps["api/routers"].h]);
+  expect(b.x).toBe(a.x + a.w + 48);
+  expect(b.y).toBe(a.y);
+  const next = fresh();
+  for (const [of, id] of [["postgres", "postgres-2"], ["api/routers", "routers"]]) {
+    next.boxes.push({ ...structuredClone(next.boxes.find((x) => x.id === of)!), id, parent: "system" });
+    next.placed.frames[id] = { ...next.placed.frames[of], y: 2000 };
+  }
+  const out = settle(settle({}, v, {}, null), next, at, ids[0]);
+  const top = next.boxes.filter((x) => x.parent === "system").map((x) => out[x.id]);
+  for (const x of top) for (const y of top) if (x !== y) expect(overlaps(x, y)).toBe(false);
 });

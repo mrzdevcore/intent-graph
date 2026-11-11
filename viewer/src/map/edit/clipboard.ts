@@ -5,6 +5,7 @@ import { written } from "./menu";
 
 export type CopyBox = {
   id: string; parent: string | null; kind: string; title: string; props: Record<string, string>; context?: string; place?: Place; room?: Place;
+  from?: string;
 };
 export type CopyArrow = { from: string; to: string; kind: ArrowKind; label?: string; note?: string; context?: string };
 export type Copy = { boxes: CopyBox[]; arrows: CopyArrow[]; parent?: string };
@@ -41,7 +42,7 @@ export function copy(ids: string[], view: View, inside: boolean, places: Record<
     for (const [k, f] of [["tech", b.tech], ["description", b.description], ["logo", b.logo]] as const) if (f?.value) props[k] = f.value;
     Object.assign(props, b.props ?? {});
     boxes.push({
-      id: b.id, parent, kind: b.custom ?? b.kind.value, title: b.title.value, props,
+      id: b.id, parent, kind: b.custom ?? b.kind.value, title: b.title.value, props, ...(parent === null && b.parent ? { from: b.parent } : {}),
       ...(b.context?.value ? { context: b.context.value } : {}),
       ...(places[b.id] ? { place: { ...places[b.id] } } : {}), ...(places[innerKey(b.id)] ? { room: { ...places[innerKey(b.id)] } } : {}),
     });
@@ -324,14 +325,16 @@ export function paste(c: Copy, parent: string, at: { x: number; y: number } | nu
     for (const k of ["note", "context"] as const) if (a[k]) edits.push({ op: "arrowset", from, to, key: k, value: a[k]! });
   }
   const top = c.boxes.filter((b) => b.parent === null && ids.has(b.id));
-  const own = top.some((b) => b.place) && (at !== null || c.parent === parent || top.every((b) => !byId.has(b.id)));
+  // places from another parent's inside mean nothing here: those boxes go in a row beside the others
+  const kept = (b: CopyBox) => !!b.place && (b.from === undefined || b.from === c.parent);
+  const own = top.some(kept) && (at !== null || c.parent === parent || top.every((b) => !byId.has(b.id)));
   if (own || at) {
-    const local: Record<string, Place> = {};
-    let x = Math.max(0, ...top.filter((b) => b.place).map((b) => b.place!.x + b.place!.w + 2 * GRID));
-    const y = top.find((b) => b.place)?.place!.y ?? 0;
+    const local: Record<string, Place> = {}, held = own ? top.filter(kept) : [];
+    let x = Math.max(0, ...held.map((b) => b.place!.x + b.place!.w + 2 * GRID));
+    const y = held[0]?.place!.y ?? 0;
     for (const b of top) {
-      const kids = c.boxes.some((k) => k.parent === b.id), size = kids ? { w: 2 * BOX.w, h: 2 * BOX.h } : BOX;
-      if (b.place && own) local[b.id] = b.place;
+      const kids = c.boxes.some((k) => k.parent === b.id), size = b.place ? { w: b.place.w, h: b.place.h } : kids ? { w: 2 * BOX.w, h: 2 * BOX.h } : BOX;
+      if (held.includes(b)) local[b.id] = b.place!;
       else {
         local[b.id] = { x, y, ...size };
         x += size.w + 2 * GRID;

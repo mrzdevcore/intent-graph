@@ -51,10 +51,14 @@ function away(b: Place, a: Place, gap: number, avoid: Place[]): Place {
   return best;
 }
 
-// several held boxes stay where they are, together: only the others make room
+// several held boxes stay where they are, together: only the others make room; held boxes on each other part first, the first staying
 export function nudge(placed: Record<string, Place>, held: string | string[], gap: number): Record<string, Place> {
   const out = { ...placed }, hold = (typeof held === "string" ? [held] : held).filter((id) => out[id]);
   if (!hold.length) return out;
+  for (let i = 1; i < hold.length; i++) {
+    const prior = hold.slice(0, i).map((h) => out[h]), hit = prior.find((p) => overlaps(out[hold[i]], p));
+    if (hit) out[hold[i]] = away(out[hold[i]], hit, gap, prior);
+  }
   const ids = Object.keys(out).filter((id) => !hold.includes(id) && !isInside(id)).sort();
   const fixed = new Set(hold), queue = [...hold];
   while (queue.length) {
@@ -170,7 +174,7 @@ export function settle(prev: Record<string, Place>, next: View, frames: Record<s
     touched.add(p);
   }
   const holds = new Map<string, string[]>();
-  for (const id of new Set([...Object.keys(frames), ...(held ? [held] : [])])) {
+  for (const id of new Set([...(held ? [held] : []), ...Object.keys(frames)])) {
     const p = t.parentOf.get(id);
     if (p !== undefined && out[id]) holds.set(p, [...(holds.get(p) ?? []), id]);
   }

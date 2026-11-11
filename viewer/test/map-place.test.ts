@@ -107,6 +107,19 @@ test("the held box never moves", () => {
   expect(next.b.x).toBeGreaterThanOrEqual(300 + 200 + GRID);
 });
 
+test("held boxes on each other part: the first stays, the next moves the least; restored at once, they end apart", () => {
+  const out = nudge({ a: box(0, 0), b: box(50, 20), c: box(400, 0) }, ["a", "b"], GRID);
+  expect(out.a).toEqual(box(0, 0));
+  expect(overlaps(out.a, out.b)).toBe(false);
+  expect(out.b).toEqual(box(50, 100 + GRID));
+  const vals = Object.values(out);
+  for (const x of vals) for (const y of vals) if (x !== y) expect(overlaps(x, y)).toBe(false);
+  const v = mapOf({ a: box(96, 96), b: box(600, 96), c: box(96, 400) });
+  const next = settle(settle({}, v, {}, null), v, { a: box(300, 300), b: box(320, 310) }, null);
+  const ps = ["a", "b", "c"].map((id) => next[id]);
+  for (const x of ps) for (const y of ps) if (x !== y) expect(overlaps(x, y)).toBe(false);
+});
+
 test("a child leaving its parent grows the parent, and nothing inside moves on screen", () => {
   const v = mapOf({ a: box(96, 96), b: box(600, 400) });
   const prev = settle({}, v, {}, null);

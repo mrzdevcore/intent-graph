@@ -29,6 +29,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   localStorage.clear();
   remember(null);
+  vi.useRealTimers();
 });
 const fresh = () => structuredClone(shop) as unknown as View;
 const size = { w: 1000, h: 800 };
@@ -1878,7 +1879,6 @@ test("Cmd+V with no paste event from the webview pastes the copy in the page; wi
   rightClick(target, "web");
   await vi.advanceTimersByTimeAsync(150);
   expect(got).toHaveLength(2);
-  vi.useRealTimers();
 });
 
 test("plain Copy and Duplicate take no arrows; with what's inside, the arrows between the copied boxes", async () => {
@@ -1933,3 +1933,26 @@ test("several boxes pasted over others: the neighbours make room, nothing overla
   expect(p.web).not.toEqual(f.web);
   vi.restoreAllMocks();
 });
+
+test("box menu Paste on an open box pastes inside it; on a closed box, beside it in its parent", async () => {
+  const { api, got } = recorder();
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(MapHarness, { target, props: { start: fresh(), edit: api, size } });
+  flushSync();
+  select(target, "postgres");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("c", { metaKey: true });
+  select(target, "api");
+  m.tick(performance.now() + 10_000);
+  flushSync();
+  expect(target.querySelector('[data-box="api"][data-open]')).not.toBeNull();
+  expect(target.querySelector('[data-box="stripe"][data-open]')).toBeNull();
+  for (const id of ["api", "stripe"]) {
+    rightClick(target, id);
+    item(target, "Paste").click();
+    await tick();
+  }
+  expect(got.map((e) => e.edits[0].parent)).toEqual(["api", "system"]);
+});
+
