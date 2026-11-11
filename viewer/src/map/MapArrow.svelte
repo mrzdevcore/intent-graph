@@ -93,7 +93,7 @@
 
 <style>
   .tip circle { fill: var(--map-surface); }
-  .tip text { stroke: none; fill: var(--map-muted); font: 11px var(--font-sans); }
+  .tip text { stroke: none; fill: var(--map-muted); font: var(--text-xs) var(--font-sans); }
   .hit { pointer-events: stroke; cursor: pointer; }
   .end { pointer-events: all; cursor: crosshair; fill: var(--map-ground); stroke: var(--map-trace); }
   .note { font-family: var(--font-hand); fill: var(--map-muted); stroke: var(--map-ground); stroke-width: 3px; paint-order: stroke; stroke-linejoin: round; }

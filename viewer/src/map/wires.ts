@@ -1,5 +1,5 @@
 import type { ArrowShape, Frame, MapArrow } from "./types";
-import { BEND, SPREAD, across, halfway, leaving, length, path, pins, pt, r2, straight, type Anchor, type End, type P, type Side } from "./shapes/path";
+import { BEND, OUT, SPREAD, across, halfway, leaving, length, path, pins, pt, r2, straight, type Anchor, type End, type P, type Side } from "./shapes/path";
 
 export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]]; out: [[number, number], [number, number]] };
 export type Mode = "routed" | "ribbon";
@@ -139,6 +139,21 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     return crosses(pts, [a.from, a.to]) ? null : pts;
   }
 
+  function beside(a: MapArrow, e: End): number {
+    const r = e.sides[0] === "r", [lo, hi] = span(e.from[1], e.to[1]), edge = r ? Math.min(e.from[0], e.to[0]) : Math.max(e.from[0], e.to[0]);
+    let x = r ? Math.max(e.from[0], e.to[0]) + OUT : Math.min(e.from[0], e.to[0]) - OUT;
+    for (let moved = true, n = 0; moved && n < 64; n++) {
+      moved = false;
+      for (const [id, f] of Object.entries(frames)) {
+        if (id === a.from || id === a.to || f.y >= hi || f.y + f.h <= lo) continue;
+        if (r ? f.x < x + CLEAR && f.x + f.w > edge : f.x + f.w > x - CLEAR && f.x < edge) {
+          x = r ? f.x + f.w + OUT : f.x - OUT;
+          moved = true;
+        }
+      }
+    }
+    return x;
+  }
   const under = (c: number) => (g.channel(c).top + g.channel(c).bottom) / 2;
   const level = (a: MapArrow, e: End) => (e.sides[0] === "b" ? row(a.from) : row(a.from) - 1);
   const round = (a: MapArrow, e: End): P[] => {
@@ -151,7 +166,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     let more = false;
     for (const a of live) {
       const e = ends.get(a.id)!, [rf, rt] = [row(a.from), row(a.to)];
-      if (chosen[a.id] || shape(a) !== "circuit" || (across(e.sides[0]) ? sideways(a, e) : rf !== rt || stacked(a, e))) continue;
+      if (chosen[a.id] || shape(a) !== "circuit" || (across(e.sides[0]) ? e.sides[0] === e.sides[1] || sideways(a, e) : rf !== rt || stacked(a, e))) continue;
       chosen[a.id] = rf < rt ? ["b", "t"] : rf > rt ? ["t", "b"] : ["b", "b"];
       more = true;
     }
@@ -191,7 +206,10 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
   for (const a of live) {
     const e = ends.get(a.id)!, [sa, sz] = e.sides, form = shape(a);
     if (form !== "circuit") drawn.set(a.id, path(form, e, walls));
-    else if (across(sa)) {
+    else if (across(sa) && sa === sz) {
+      const x = beside(a, e), s = down(x, 2 * OUT, a.id, () => span(e.from[1], e.to[1]));
+      draws.push([a.id, () => [e.from, [s.v, e.from[1]], [s.v, e.to[1]], e.to]]);
+    } else if (across(sa)) {
       const { p, q, flip } = facing(a, e), plan = sideways(a, e)!;
       if ("y" in plan) draws.push([a.id, () => orient([[p[0], plan.y], [q[0], plan.y]], flip)]);
       else {

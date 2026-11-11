@@ -43,7 +43,6 @@ export function cardLayout(t: Table, zoom: number, h: number, fold = true, marke
   return { at, m, folded, shown, keys, foot, rows: at === "far" ? [] : at === "mid" ? keys : shown };
 }
 
-
 export function rowAt(t: Table, column: string | undefined, zoom: number, h: number, fold = true, marked?: (c: Column) => boolean): Band | undefined {
   if (!column) return undefined;
   const l = cardLayout(t, zoom, h, fold, marked), name = column.toLowerCase();
@@ -51,7 +50,6 @@ export function rowAt(t: Table, column: string | undefined, zoom: number, h: num
   if (i < 0 || l.m * (HEAD + ROW * (i + 1)) > h) return undefined;
   return { y: l.m * (HEAD + ROW * (i + 0.5)), h: l.m * ROW };
 }
-
 
 export function anchorsOf(
   arrows: MapArrow[], frames: Record<string, { h: number }>, tables: Record<string, Table> | undefined, zoom: number, fold = true,

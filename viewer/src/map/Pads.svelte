@@ -104,14 +104,14 @@
           <g class:down={p.down} class:lit={lit(i)} stroke-width={(lit(i) ? 2.25 : 1.5) * scale} data-wire={w ? p.other : undefined}>
             {#if w}
               {@const end = w.pts[w.pts.length - 1]}
-              <path d={w.d} stroke-linecap="round" stroke-linejoin="round" stroke-dasharray={p.down ? `0 ${4 * scale}` : undefined} />
+              <path d={w.d} stroke-linecap="round" stroke-linejoin="round" stroke-dasharray={p.down || p.read ? `0 ${4 * scale}` : undefined} />
               <circle cx={end[0]} cy={end[1]} r={3 * scale} />
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <path class="hit" d={w.d} stroke="transparent" stroke-width={12 * scale} onpointerenter={() => enter(i)} onpointerleave={() => leave(i)} />
             {:else}
               {@const [x, y] = padPoint(p, frame)}
               {@const s = stub(p)}
-              <line x1={s[0]} y1={s[1]} x2={x} y2={y} stroke-linecap="round" stroke-dasharray={p.down ? `0 ${4 * scale}` : undefined} />
+              <line x1={s[0]} y1={s[1]} x2={x} y2={y} stroke-linecap="round" stroke-dasharray={p.down || p.read ? `0 ${4 * scale}` : undefined} />
               {#if onassign && asks && !p.child && inIg(p).length}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <circle class="grab" data-pad={p.other} data-stub={i} cx={s[0]} cy={s[1]} r={5 * scale} onpointerdown={(e) => grab(e, p)} />

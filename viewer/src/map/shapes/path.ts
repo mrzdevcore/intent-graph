@@ -13,6 +13,7 @@ const REACH = 0.4;
 const HEAD = 10;
 const SAMPLES = 24;
 const CLEAR = 8;
+export const OUT = 24;
 
 const NORMAL: Record<Side, P> = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
 export const across = (s: Side) => s === "l" || s === "r";
@@ -50,7 +51,7 @@ export function pins(
   for (const a of [...arrows].sort((x, y) => x.id.localeCompare(y.id))) {
     if (a.from === a.to || !frames[a.from] || !frames[a.to]) continue;
     const [fa, fb] = [rect(a.from), rect(a.to)], held = anchors[a.id];
-    const end: End = { from: [0, 0], to: [0, 0], sides: chosen[a.id] ?? (held && apart(fa, fb)) ?? sides(fa, fb) };
+    const end: End = { from: [0, 0], to: [0, 0], sides: chosen[a.id] ?? (held && (apart(fa, fb) ?? (held.from && held.to ? (["r", "r"] as [Side, Side]) : undefined))) ?? sides(fa, fb) };
     out.set(a.id, end);
     for (const [box, side, far, key] of [[a.from, end.sides[0], fb, "from"], [a.to, end.sides[1], fa, "to"]] as const) {
       const c = centre(far), band = held?.[key];
@@ -99,8 +100,10 @@ export const rounded = (p: P[]) => line(p, { from: p[0], to: p[p.length - 1], si
 function elbow(end: End): Path {
   const [[x1, y1], [x2, y2]] = [end.from, end.to];
   const [h1, h2] = [across(end.sides[0]), across(end.sides[1])];
+  const [s1, s2] = end.sides, out = s1 === "r" ? Math.max(x1, x2) + OUT : Math.min(x1, x2) - OUT;
   const pts: P[] =
-    h1 && h2 ? [[x1, y1], [(x1 + x2) / 2, y1], [(x1 + x2) / 2, y2], [x2, y2]]
+    h1 && s1 === s2 ? [[x1, y1], [out, y1], [out, y2], [x2, y2]]
+    : h1 && h2 ? [[x1, y1], [(x1 + x2) / 2, y1], [(x1 + x2) / 2, y2], [x2, y2]]
     : !h1 && !h2 ? [[x1, y1], [x1, (y1 + y2) / 2], [x2, (y1 + y2) / 2], [x2, y2]]
     : h1 ? [[x1, y1], [x2, y1], [x2, y2]]
     : [[x1, y1], [x1, y2], [x2, y2]];

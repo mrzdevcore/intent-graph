@@ -302,14 +302,19 @@
   const isTableLink = (a: Arrow) => !a.parts?.length && !!view.tables?.[a.from] && !!view.tables?.[a.to];
   const readShown = (a: Arrow) => !leaves(a).some(isRead) || leaves(a).some((l) => isRead(l) && (selected === l.from || many.includes(l.from)));
   const byParent = $derived(group([...view.arrows, ...ghosts].filter(readShown), (a: Arrow) => a.parent));
+  const padView = $derived(view.arrows.every(readShown) ? view : { ...view, arrows: view.arrows.filter(readShown) });
+  const readLook = <L extends { dash: string | null }>(a: Arrow, l: L): L => (readsOnly(a) ? { ...l, dash: "1 4" } : l);
+  const tipsOf = (a: Arrow, w: Wire) =>
+    isTableLink(a) && !readsOnly(a) && a.ends ? [{ end: a.ends.from, at: w.ends[0], out: w.out[0] }, { end: a.ends.to, at: w.ends[1], out: w.out[1] }] : [];
+  const counted = $derived(group([...view.arrows, ...ghosts].filter((a) => !leaves(a).some(isRead)), (a: Arrow) => a.parent));
   const anchorsAt = (p: string, as: Arrow[], frames: Record<string, Frame>) =>
-    view.tables
+    view.tables && (p === ROOT || opened(p))
       ? anchorsOf(as, frames, view.tables, (unit.get(p) ?? 1) * lod.k, noise.bookkeeping, marks ? (id, c) => !!marks.tables.get(id)?.columns.get(c.name.toLowerCase()) : undefined)
       : {};
   const shapeAt = $derived.by(() => {
     const out = new Map<string, ArrowShape>();
     for (const [p, bs] of kids) {
-      const at = new Set(bs.map((b) => b.id)), n = (byParent.get(p) ?? []).filter((a) => !a.ghost && a.from !== a.to && at.has(a.from) && at.has(a.to)).length;
+      const at = new Set(bs.map((b) => b.id)), n = (counted.get(p) ?? []).filter((a) => !a.ghost && a.from !== a.to && at.has(a.from) && at.has(a.to)).length;
       out.set(p, mapShape(arrowPref, bs.length, n));
     }
     return out;
@@ -538,7 +543,7 @@
    *  (below it at the phone width, so across the full width) with room for the labels. Otherwise a
    *  box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
   function target(id: string): Cam {
-    const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on, frameOf, outsideOf(id));
+    const to = { w: vw, h: vh }, pads = padsOf(padView, id, frameOf(id), drawn, on, frameOf, outsideOf(id));
     if (pads.length) return fitBeside(frameOf(id), to, pads, selected ? cardRem() : 0, rem());
     const inner = shown.placed.inner[id];
     if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
@@ -548,7 +553,7 @@
   const fly = (id: string) => glideTo(id === ROOT ? home() : target(id));
   function aimAt(aim: Aim | null) {
     if (!aim) return;
-    const pads = aim.id ? padsOf(view, aim.id, aim.frame, drawn, on, frameOf, outsideOf(aim.id)) : [];
+    const pads = aim.id ? padsOf(padView, aim.id, aim.frame, drawn, on, frameOf, outsideOf(aim.id)) : [];
     const beside = globalThis.matchMedia?.("(max-width: 47.5rem)").matches ? 0 : ANSWER_CARD;
     glideTo(fitBeside(aim.frame, { w: vw, h: vh }, pads, 0, rem(), beside));
     away = false;
@@ -1227,7 +1232,7 @@
     const cam = lod;
     const out = [ROOT], card = cardRem(), r = rem();
     // ponytail: padsOf walks every arrow, but only for the box or two a frame's test lets through; memo per view if a huge map shows it
-    const hasPads = (id: string) => padsOf(view, id, frameOf(id), () => undefined, on, frameOf).length > 0;
+    const hasPads = (id: string) => padsOf(padView, id, frameOf(id), () => undefined, on, frameOf).length > 0;
     for (let p = ROOT; ; ) {
       if (out.indexOf(p) !== out.length - 1) return out.slice(0, -1); // a loop: stop before it
       const next = (kids.get(p) ?? []).find((b) => {
@@ -1354,7 +1359,7 @@
   {/if}
   {#if mode === "routed"}
     {#each fading.filter((f) => f.a.parent === pid) as f (f.a.id)}
-      <div class="arrow fade-out" aria-hidden="true"><MapArrow d={f.w.d} mid={f.w.mid} arrowLook={arrowLook(f.a, view.marks, on)} {zoom} head={!isTableLink(f.a)} /></div>
+      <div class="arrow fade-out" aria-hidden="true"><MapArrow d={f.w.d} mid={f.w.mid} arrowLook={readLook(f.a, arrowLook(f.a, view.marks, on))} {zoom} head={!isTableLink(f.a)} notation={endsPref} tips={tipsOf(f.a, f.w)} /></div>
     {/each}
   {/if}
   {#each all as a (`${a.id} ${lineAt(a)}`)}
@@ -1365,10 +1370,10 @@
     {@const gold = !!hotPad?.includes(a.id) || (hotArrow === a.id && (opened(a.from) || opened(a.to)))}
     {@const table = isTableLink(a)}
     {@const read = readsOnly(a)}
-    {@const shownLook = read ? { ...drawnLook, dash: "1 4" } : drawnLook}
+    {@const shownLook = readLook(a, drawnLook)}
     <div class="arrow" class:fresh={mode === "routed" && fresh.has(a.id)} data-arrow={a.id} data-line={mode === "routed" ? lineAt(a) : "ribbon"} data-read={read ? "" : undefined}>
       <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(shownLook, changeLook) : asked || gold ? { ...shownLook, color: "var(--map-trace)" } : shownLook} {zoom}
-        head={!table} notation={endsPref} tips={table && !read && a.ends ? [{ end: a.ends.from, at: c.ends[0], out: c.out[0] }, { end: a.ends.to, at: c.ends[1], out: c.out[1] }] : []}
+        head={!table} notation={endsPref} tips={tipsOf(a, c)}
         lit={gold || lit.includes(a)} dim={!gold && lit.length > 0 && !lit.includes(a)} picked={sess.arrow?.id === a.id}
         onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
       {#if ans && arrowNumber(ans, a)}
@@ -1409,7 +1414,7 @@
           style:transform="translate({t.x}px, {t.y}px) scale({t.s})">{@render level(b.id)}</div>
       {/if}
       {#if showsInside(sw)}
-        <Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} worldOf={frameOf} outside={outsideOf(b.id)} shape={shapeAt.get(b.id) ?? "circuit"}
+        <Pads view={padView} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} worldOf={frameOf} outside={outsideOf(b.id)} shape={shapeAt.get(b.id) ?? "circuit"}
           hot={hotArrow} onhot={(ids) => (hotPad = ids)} onassign={edit ? (e) => sess.send(e) : undefined} />
       {/if}
       {#if inAnswer}

@@ -7,7 +7,7 @@ import type { ArrowShape, Edit, Frame, MapArrow, View } from "./types";
 export type PadEnd = { from: string; to: string; key: "from" | "to" };
 export type Pad = {
   way: "in" | "out" | "both"; edge: Side; other: string; title: string; child?: string; down: boolean; at: number; more?: number;
-  arrows: string[]; ends: PadEnd[]; shape?: ArrowShape;
+  arrows: string[]; ends: PadEnd[]; shape?: ArrowShape; read?: boolean;
 };
 
 // a pad's height where it is smallest on screen, at the box width pads start at (showsInside), and its label's width
@@ -109,6 +109,7 @@ export function padsOf(
     return w ? sideAt(outside!.frame, w.ends[a.from === id ? 0 : 1]) : undefined;
   };
   const byKey = new Map<string, Pad & { far?: Frame; wired?: boolean }>();
+  const isRead = (a: MapArrow) => a.kind === "reads" && view.tables?.[a.from]?.kind === "view";
   for (const a of view.arrows) {
     for (const part of a.parts?.length ? a.parts : [a]) {
       const from = holder(part.from), to = holder(part.to);
@@ -120,7 +121,7 @@ export function padsOf(
         const f = world(other), far = here && f && !overlap(here, f) ? f : undefined;
         p = {
           way, edge: far ? sides(here!, far)[0] : way === "out" ? "r" : "l", other, title: title.get(other) ?? other, child,
-          down: view.marks.some((m) => m.target === other && m.state === "down" && on.has(m.layer)), at: Infinity, arrows: [], ends: [], shape: part.shape, far,
+          down: view.marks.some((m) => m.target === other && m.state === "down" && on.has(m.layer)), at: Infinity, arrows: [], ends: [], shape: part.shape, far, read: true,
         };
         byKey.set(key, p);
       } else if (p.way !== way) {
@@ -132,6 +133,7 @@ export function padsOf(
         if (e) [p.edge, p.wired] = [e, true];
       }
       p.shape ??= part.shape;
+      p.read &&= isRead(part);
       if (!p.arrows.includes(a.id)) p.arrows.push(a.id);
       if (!p.ends.some((e) => e.from === part.from && e.to === part.to)) p.ends.push({ from: part.from, to: part.to, key: from ? "from" : "to" });
     }
