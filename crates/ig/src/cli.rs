@@ -55,6 +55,11 @@ pub enum Cmd {
         #[arg(long, help = "Print the plan as JSON")]
         json: bool,
     },
+    #[command(
+        about = "Let an agent build what the plan lists",
+        after_help = "It lists the items and asks before the agent writes code. Exit 0 when every chosen item was built, 1 when some are left, 2 on error."
+    )]
+    Apply(ApplyArgs),
     #[command(about = "Exit 1 when the code and the map have drifted apart")]
     Check {
         #[arg(long, help = "Print the plan as JSON")]
@@ -156,6 +161,18 @@ pub struct ExploreArgs {
     pub agent: Option<AgentName>,
     #[arg(long, help = "Draw the answer without opening the page")]
     pub no_open: bool,
+}
+
+#[derive(Args)]
+pub struct ApplyArgs {
+    #[arg(help = "Box or arrow ids from `ig plan` (default: all); quote arrows: 'web->api'")]
+    pub ids: Vec<String>,
+    #[arg(short, long, help = "Go on without asking")]
+    pub yes: bool,
+    #[arg(long, help = "Let the agent run commands, to build and test")]
+    pub allow_bash: bool,
+    #[arg(long, value_enum, help = "The agent that builds (claude only for now)")]
+    pub agent: Option<AgentName>,
 }
 
 #[derive(Args)]

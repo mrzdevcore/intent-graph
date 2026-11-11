@@ -55,7 +55,7 @@ pub fn run(root: &Path, args: &ExploreArgs, quiet: bool) -> Result<u8> {
     Ok(0)
 }
 
-fn mcp_config(exe: &Path, root: &Path) -> String {
+pub(crate) fn mcp_config(exe: &Path, root: &Path) -> String {
     serde_json::json!({"mcpServers": {"ig": {
         "command": exe.to_string_lossy(),
         "args": ["mcp", "-C", root.to_string_lossy()],
@@ -85,7 +85,7 @@ fn argv(mcp: &str) -> Vec<&str> {
     argv
 }
 
-fn secret_rules() -> impl Iterator<Item = &'static str> {
+pub(crate) fn secret_rules() -> impl Iterator<Item = &'static str> {
     (Agent::Claude.argv().iter().copied())
         .skip_while(|a| *a != "--disallowed-tools")
         .skip(1)

@@ -72,7 +72,7 @@ Review `ig/` with `git diff ig/` and commit it. From then on it is yours: edit i
 | You have… | You run… | You get… |
 |---|---|---|
 | **A repo you need to understand** | `ig analyse`, `ig view`, `ig explore` | The system on one page, and answers drawn on it |
-| **An architecture in mind** | edit `ig/`, then `ig plan` | What is still to build, what has drifted, what is out of place |
+| **An architecture in mind** | edit `ig/`, then `ig plan` and `ig apply` | What is still to build, what has drifted, what is out of place, and an agent that builds it |
 | **A change to review** | `ig diff <base>` | The change on the map, and the rules it breaks or fixes |
 
 ## Commands
@@ -85,6 +85,7 @@ Review `ig/` with `git diff ig/` and commit it. From then on it is yours: edit i
 | `ig explore "<question>"` | Asks Claude; the answer is drawn on the map |
 | `ig diff [<base> [<head>]]` | Shows what a change does to the architecture |
 | `ig plan` | What to build, move and accept to bring code and map together |
+| `ig apply [<id>…]` | Lets Claude build what the plan lists, after asking |
 | `ig check` | Exits 1 when code and map have drifted (for CI) |
 | `ig accept <id>…` | Takes drift into `ig/` |
 | `ig fmt` | Rewrites `ig/` in canonical form |

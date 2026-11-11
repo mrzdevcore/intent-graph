@@ -15,6 +15,7 @@ const AGENTS_SNIPPET: &str = "<!-- ig:agents -->
 
 - Use /ig:explore ($ig-explore in Codex) to answer questions about the code with the ig graph.
 - Use /ig:draw ($ig-draw in Codex) to change the intended architecture in ig/.
+- Use /ig:apply ($ig-apply in Codex) to build what `ig plan` lists.
 ";
 
 fn layer_name(s: &str) -> String {
@@ -215,8 +216,8 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent], quiet: bool) -> Result
     Ok(())
 }
 
-/// `text` with an earlier version's `<!-- ig:agents -->` block (the one naming /ig:setup)
-/// replaced by today's; None when there is none.
+/// `text` with an earlier version's `<!-- ig:agents -->` block (one naming /ig:setup, or not yet
+/// /ig:apply) replaced by today's; None when there is none.
 fn renew_agents_block(text: &str) -> Option<String> {
     let start = text.find(AGENTS_MARKER)?;
     let mut end = start;
@@ -237,7 +238,7 @@ fn renew_agents_block(text: &str) -> Option<String> {
         bullets |= l.starts_with("- ");
     }
     let (block, rest) = (&text[start..end], &text[end..]);
-    block.contains("/ig:setup").then(|| {
+    (block.contains("/ig:setup") || !block.contains("/ig:apply")).then(|| {
         let sep = if rest.is_empty() { "" } else { "\n" };
         format!("{}{AGENTS_SNIPPET}{sep}{rest}", &text[..start])
     })
@@ -327,6 +328,14 @@ mod tests {
         assert_eq!(renew_agents_block(&new), None);
         let at_end = "<!-- ig:agents -->\n## ig (intent-graph)\n\n- Use /ig:setup.\n";
         assert_eq!(renew_agents_block(at_end).unwrap(), AGENTS_SNIPPET);
+        let before_apply = AGENTS_SNIPPET.replace(
+            "- Use /ig:apply ($ig-apply in Codex) to build what `ig plan` lists.\n",
+            "",
+        );
+        assert_eq!(
+            renew_agents_block(&format!("{before_apply}\n# Mine\n")).unwrap(),
+            format!("{AGENTS_SNIPPET}\n# Mine\n")
+        );
     }
 
     #[test]

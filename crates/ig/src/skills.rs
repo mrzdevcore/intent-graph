@@ -20,6 +20,10 @@ pub const SKILLS: &[Skill] = &[
         body: include_str!("../assets/skills/view.md"),
     },
     Skill {
+        name: "apply",
+        body: include_str!("../assets/skills/apply.md"),
+    },
+    Skill {
         name: "draw",
         body: concat!(
             include_str!("../assets/skills/draw.md"),
@@ -260,6 +264,11 @@ mod tests {
         );
         let draw = std::fs::read_to_string(dir.join(".agents/skills/ig-draw/SKILL.md")).unwrap();
         assert!(draw.starts_with("---\nname: ig-draw\n") && draw.contains("## ARROWS"));
+        let apply = std::fs::read_to_string(dir.join(".agents/skills/ig-apply/SKILL.md")).unwrap();
+        assert!(apply.starts_with("---\nname: ig-apply\n") && apply.contains("`ig_plan`"));
+        let apply =
+            std::fs::read_to_string(dir.join(".claude/skills/ig/skills/apply/SKILL.md")).unwrap();
+        assert!(apply.starts_with("---\nname: apply\n") && apply.contains("Never edit `ig/`"));
         let explore =
             std::fs::read_to_string(dir.join(".claude/skills/ig/skills/explore/SKILL.md")).unwrap();
         assert!(explore.contains("`ig_show`") && explore.contains("`.ig/show.json`"));

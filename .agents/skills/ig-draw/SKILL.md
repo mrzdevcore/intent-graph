@@ -76,6 +76,7 @@ The design of a block sits inside a block that runs, inside another design box, 
 And:
 
 - `system`: the whole system this map draws; exactly one, in `ig/system.kdl`.
+- `box`: a box whose kind is not decided yet. It sits anywhere a block that runs or a design block may, and holds either; it is never warned about as misplaced. Takes `at`; `ig plan` lists it as to build, kind not decided.
 - `group`: boxes kept together, with nothing of its own. It sits anywhere. Not code: it takes no `at`.
 
 A box in a place its kind does not sit in is a warning, not an error.
@@ -107,18 +108,25 @@ The body of a box holds, in any order:
 - `at "<glob>"…`: the code the box is made of, globs relative to the repository root, without `..`; `*` stays within a folder, `**` crosses folders. A box without `at` is drawn but tied to no code.
 - `badges "<text>"…`: at most 8 short labels (at most 40 characters each).
 - `pattern "<name>"`: how the box's inside is drawn: `onion` (slots `domain`, `application`, `infrastructure`), `hexagonal` (slots `core`, `ports`, `adapters`), `layered "<band>"…` (one slot per band, top first) or `none`. A box inside it puts itself in a slot with `slot=`.
+- `context "<text>"`: free text of any length for whoever builds the box; `description` stays the one line shown on hover. With line breaks, write a raw multi-line string: `context #"""`, the text indented, then `"""#` on its own line, as deep as the text.
 - Arrows, from this box (see ARROWS).
 - The boxes inside it.
 
-`at`, `badges` and `pattern` are each written once.
+`at`, `badges`, `pattern` and `context` are each written once.
 
 ## ARROWS
 
-An arrow is written in the box it leaves: its kind, the id it points to, and an optional `label`:
+An arrow is written in the box it leaves: its kind, the id it points to, and the optional `label`, `note`, `context` and `shape`:
 
 ```
-calls "billing" label="charges the card"
+calls "billing" label="charges the card" note="once per checkout"
 ```
+
+- `label`: what it carries or does, a few words.
+- `note`: one short line shown on the map under the label, at most 80 characters, no line break (more is an error).
+- `context`: free text of any length for whoever builds it.
+- `shape`: how the arrow is drawn on the map, one of `circuit`, `elbow`, `curved` or `straight`; without it the map chooses (any other value is an error).
+- Any other property on an arrow is a warning; the arrow is still read.
 
 - `calls`: asks it something and waits for the answer.
 - `sends`: puts a message on a queue. It goes to a `queue`.
@@ -144,7 +152,7 @@ kind "gateway" is="service" title="Gateway" means="Where outside traffic comes i
 }
 ```
 
-It takes its base kind's place, properties and icon, and adds its own properties. `required=#true` makes one required; `one-of=` lists the values it may take. It cannot use the name of a built-in kind or of an arrow kind, nor `at`, `badges` or `pattern`.
+It takes its base kind's place, properties and icon, and adds its own properties. `required=#true` makes one required; `one-of=` lists the values it may take. It cannot use the name of a built-in kind or of an arrow kind, nor `at`, `badges`, `pattern` or `context`.
 
 ## OLD NAMES
 
@@ -197,4 +205,4 @@ That last block is three files of one line each: one top-level node per file.
 
 ## SEE ALSO
 
-ig(1): `ig analyse` writes a first `ig/`, `ig plan` checks it, `ig fmt` lays it out, `ig view` draws it.
+ig(1): `ig analyse` writes a first `ig/`, `ig plan` checks it, `ig apply` builds what it lists, `ig fmt` lays it out, `ig view` draws it.

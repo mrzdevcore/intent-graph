@@ -185,4 +185,4 @@ That last block is three files of one line each: one top-level node per file.
 
 ## SEE ALSO
 
-ig(1): `ig analyse` writes a first `ig/`, `ig plan` checks it, `ig fmt` lays it out, `ig view` draws it.
+ig(1): `ig analyse` writes a first `ig/`, `ig plan` checks it, `ig apply` builds what it lists, `ig fmt` lays it out, `ig view` draws it.
