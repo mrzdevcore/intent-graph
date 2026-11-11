@@ -18,9 +18,10 @@ diagrams with cardinality (0..1, 1, 0..n, n..n), and a table tree to find and pi
 
 - **Quiet the noise** (row 2 of the canvas): translation tables (`*_translations`) folded into their
   table as an i18n strip; the bookkeeping columns `deleted`, `created_at`, `updated_at`, `deleted_at`
-  folded into one "+4" line; `*_backup*` and `*_temp` tables set aside in a "leftovers" group; what a view
-  reads listed on its card and drawn only when the view is picked; hub tables (pointed at by 10 or more
-  tables) pinned: their rows name the target, no wire. Each reducer is a switch, on by default.
+  folded into one "+4" line; `*_backup`, `*_backup_<date>`, `<table>_backup_*` and `*_temp` tables
+  set aside in a "leftovers" group (not `user_backup_codes`); what a view reads listed on its card
+  and drawn only when the view is picked; hub tables (pointed at by 10 or more tables, translation
+  and join tables not counted) pinned: their rows name the target, no wire. Each reducer is a switch, on by default.
 - **A · Domains**: inside an opened store, tables grouped by name prefix into domain groups; a domain with
   fewer than 3 tables goes into "other"; views in their own group; leftovers in theirs. Closed, a domain is
   a group box like any other; arrows between domains are bundled with a count (the map's existing
@@ -39,8 +40,8 @@ diagrams with cardinality (0..1, 1, 0..n, n..n), and a table tree to find and pi
   `references`): the parent end is 1 (non-null FK) or 0..1 (nullable FK); the child end is 0..n, or
   0..1 when the FK is unique or is the whole primary key (one-to-one). A join table (its primary key is
   two foreign keys and it has at most 2 other columns, bookkeeping excluded) is folded into one n..n line
-  named on the line; "Show join tables" brings it back. A self-reference loops. View reads are dotted,
-  without ends.
+  named on the line; "Show join tables" brings it back. The map skips self-references; only the focus
+  draws the loop. View reads are dotted, without ends.
 - **Ends notation**: crow's foot (default), "0..n" text labels, or both — a per-browser setting in the
   More menu, like the scroll wheel.
 - **The card at three distances** (Cards board): far = a chip (name, column count, tags i18n / ←N hub /
@@ -74,6 +75,8 @@ diagrams with cardinality (0..1, 1, 0..n, n..n), and a table tree to find and pi
   sends (Rust sends everything needed to show either way). Rust lays out the default-folded structure
   (join tables and the `(translations)` group get no frame); the viewer places whatever a switch brings
   back. With Pin hubs on, only foreign-key hub arrows are hidden; a pinned `via` arrow stays drawn.
+  A table box is as tall as its keys-only card and a domain box takes its tables' shape, so an opened
+  domain reads at fit; near, every column is shrunk into the box once it can be read.
 - **The viewer draws**: Table.svelte at three distances; cardinality ends drawn at wire ends by a small
   pure module (`viewer/src/map/db/ends.ts`) used by the map's wires and by the focus view; row-to-row
   attachment: a table arrow's end attaches at its column's row on the card (an anchor offset fed to the
