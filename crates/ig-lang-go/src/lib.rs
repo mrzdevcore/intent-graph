@@ -102,7 +102,6 @@ fn left_out(src: &str) -> bool {
             .strip_prefix("//go:build ")
             .or_else(|| l.strip_prefix("// +build "));
         constraint.is_some_and(|c| c.split_whitespace().any(|t| t == "ignore"))
-            || (l.starts_with("// Code generated ") && l.ends_with("DO NOT EDIT."))
     })
 }
 
