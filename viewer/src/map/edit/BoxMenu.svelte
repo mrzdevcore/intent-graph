@@ -5,15 +5,18 @@
   import { iconMask } from "./add";
   import { menuKeys, type Act } from "./menu";
 
-  let { x, y, title, group = false, code = false, kinds, current, onpick, onkind, onclose }: {
-    x: number; y: number; title: string; group?: boolean; code?: boolean; kinds: KindView[]; current: string;
+  let { x, y, title, group = false, code = false, paste = false, kinds, current, onpick, onkind, onclose }: {
+    x: number; y: number; title: string; group?: boolean; code?: boolean; paste?: boolean; kinds: KindView[]; current: string;
     onpick: (a: Act) => void; onkind: (name: string) => void; onclose: () => void;
   } = $props();
   const items: [Act, string, string][] = $derived([
     ["rename", "Rename", "F2"], ["kinds", "Kind", "▸"], ["details", "Edit details", "E"], ["arrow", "Arrow from here", "A"], ["add", "Add a box inside", "B"],
     ["move", "Move to a group…", "M"], ...(group ? [["arrange", "Arrange inside", ""] as [Act, string, string]] : []),
-    ...(code ? [["code", "Open the code", "O"] as [Act, string, string]] : []), ["delete", "Delete", "⌫"],
+    ...(code ? [["code", "Open the code", "O"] as [Act, string, string]] : []),
+    ["copy", "Copy", "⌘C"], ["copyAll", "Copy with what's inside", "⌘⇧C"], ...(paste ? [["paste", "Paste", "⌘V"] as [Act, string, string]] : []), ["duplicate", "Duplicate", "⌘D"],
+    ["delete", "Delete", "⌫"],
   ]);
+  const MOD: Record<string, Act> = { c: "copy", v: "paste", d: "duplicate" };
   const KEYS: Record<string, Act> = { f2: "rename", e: "details", a: "arrow", b: "add", k: "kinds", m: "move", o: "code", delete: "delete", backspace: "delete" };
   let menu: HTMLDivElement;
   let sub = $state(false);
@@ -45,6 +48,10 @@
     } else if (!e.metaKey && !e.ctrlKey && !e.altKey && KEYS[k] && items.some(([a]) => a === KEYS[k])) {
       e.preventDefault();
       onpick(KEYS[k]);
+    } else if ((e.metaKey || e.ctrlKey) && !e.altKey && MOD[k] && items.some(([a]) => a === MOD[k])) {
+      e.preventDefault();
+      e.stopPropagation();
+      onpick(k === "c" && e.shiftKey ? "copyAll" : MOD[k]);
     } else menuKeys(e, top(), onclose);
   }
 </script>

@@ -145,7 +145,7 @@ function editing(boxes: Record<string, string>, opts: { busy?: boolean; arrowKin
     kinds: () => [{ name: "ledger", base: "store", custom: true } as never], arrowKinds: () => opts.arrowKinds,
     cam: () => ({ x: 0, y: 0, k: 1 }), stage: () => document.body, selected: () => null, select: () => {}, tool: () => {}, used: () => {},
     run: (p) => (opts.busy ? false : (p(), true)), arrange: () => {}, drop: () => {}, draftFrame: () => undefined,
-    view: () => ({ boxes: [], arrows: [] }) as unknown as View, ground: () => ({ parent: "system", x: 0, y: 0 }), draftAt: () => {}, details: () => {}, open: () => {},
+    view: () => ({ boxes: [], arrows: [] }) as unknown as View, ground: () => ({ parent: "system", x: 0, y: 0 }), draftAt: () => {}, details: () => {}, open: () => {}, clip: () => {}, pasteAt: () => {},
   };
   return { s: new EditSession(ctx), sent };
 }

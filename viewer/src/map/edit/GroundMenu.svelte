@@ -2,8 +2,8 @@
   import { onMount } from "svelte";
   import { menuKeys } from "./menu";
 
-  let { x, y, title, arrange, onnew, onarrange, onclose }: {
-    x: number; y: number; title: string; arrange: boolean; onnew: () => void; onarrange: () => void; onclose: () => void;
+  let { x, y, title, arrange, paste = false, onnew, onarrange, onpaste, onclose }: {
+    x: number; y: number; title: string; arrange: boolean; paste?: boolean; onnew: () => void; onarrange: () => void; onpaste: () => void; onclose: () => void;
   } = $props();
   let menu: HTMLDivElement;
   const items = () => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
@@ -12,7 +12,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div role="menu" data-popover aria-label="{title} menu" tabindex="-1" bind:this={menu} style:left="{x}px" style:top="{y}px" onkeydown={(e) => menuKeys(e, items(), onclose)}>
-  <button type="button" role="menuitem" disabled title="Copy a box first"><span>Paste</span><kbd>⌘V</kbd></button>
+  <button type="button" role="menuitem" disabled={!paste} title={paste ? undefined : "Copy a box first"} onclick={onpaste}><span>Paste</span><kbd>⌘V</kbd></button>
   <button type="button" role="menuitem" onclick={onnew}><span>New box here</span></button>
   {#if arrange}<button type="button" role="menuitem" onclick={onarrange}><span>Arrange this group</span><kbd>⌥⇧F</kbd></button>{/if}
 </div>

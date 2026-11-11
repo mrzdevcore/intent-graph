@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { flushSync, mount as mountIt, unmount } from "svelte";
 import Map from "../src/map/Map.svelte";
 import type { EditApi } from "../src/api";
-import type { View } from "../src/map/types";
+import type { Edit, View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 import { prefill, slug } from "../src/map/edit/add";
 import { proposed } from "../src/map/edit/proposals";
@@ -14,6 +14,7 @@ import { parentsFor } from "../src/map/edit/menu";
 import { Camera } from "../src/map/glide";
 import { EditSession, type Ctx } from "../src/map/edit/session.svelte";
 import { fitTo, worldFrame } from "../src/map/camera";
+import { remember } from "../src/map/edit/clipboard";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 // a map left mounted still hears the window's keys
@@ -27,6 +28,7 @@ afterEach(() => {
   for (const m of mounted.splice(0)) unmount(m);
   document.body.innerHTML = "";
   localStorage.clear();
+  remember(null);
 });
 const fresh = () => structuredClone(shop) as unknown as View;
 const size = { w: 1000, h: 800 };
@@ -339,7 +341,7 @@ test("right-click opens the menu, Esc closes it", () => {
   boxEl(target, "web").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
   flushSync();
   expect([...menuOf(target)!.querySelectorAll('[role="menuitem"]')].map((b) => b.firstElementChild!.textContent))
-    .toEqual(["Rename", "Kind", "Edit details", "Arrow from here", "Add a box inside", "Move to a group…", "Arrange inside", "Open the code", "Delete"]);
+    .toEqual(["Rename", "Kind", "Edit details", "Arrow from here", "Add a box inside", "Move to a group…", "Arrange inside", "Open the code", "Copy", "Copy with what's inside", "Duplicate", "Delete"]);
   expect([...menuOf(target)!.querySelectorAll("kbd")].filter((k) => !k.textContent)).toHaveLength(0);
   press("ArrowDown", {}, document.activeElement!);
   press("Escape", {}, document.activeElement!);
@@ -1729,4 +1731,146 @@ test("a failed save shows the toast and the field keeps what was typed; a second
   panelField(target, "at").blur();
   await tick();
   expect(n).toBe(2);
+});
+
+// --- copy and paste
+const pasteText = (text: string) => {
+  const dt = new DataTransfer();
+  dt.setData("text/plain", text);
+  const e = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+  window.dispatchEvent(e);
+  flushSync();
+  return e;
+};
+const copied = () => {
+  const texts: string[] = [];
+  vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (t: string) => void texts.push(t));
+  return texts;
+};
+const withCopyOf = (of: string, id: string) => {
+  const v = fresh();
+  v.boxes.push({ ...structuredClone(v.boxes.find((b) => b.id === of)!), id, title: { value: "copy", source: "ig" } });
+  v.placed.frames[id] = { ...v.placed.frames[of], y: v.placed.frames[of].y + 400 };
+  return v;
+};
+
+test("Cmd+C copies the selected box as ig/ text; Cmd+V off the map pastes it beside, one batch, and selects it", async () => {
+  const texts = copied(), got: Edit[] = [];
+  const target = harness(fake({ apply: async (e) => (got.push(e), withCopyOf("postgres", "postgres-2")) }).api);
+  select(target, "postgres");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("c", { metaKey: true });
+  expect(texts).toEqual(['store "postgres" title="Postgres"\n']);
+  const e = pasteText(texts[0]);
+  await tick();
+  flushSync();
+  expect(e.defaultPrevented).toBe(true);
+  expect(got).toHaveLength(1);
+  expect(got[0]).toEqual({ op: "batch", edits: [{ op: "add", parent: "system", kind: "store", id: "postgres-2", title: "Postgres copy", at: [], before: null }] });
+  expect(target.querySelector("section.details")!.textContent).toContain("copy");
+  vi.restoreAllMocks();
+});
+
+test("Cmd+Shift+C copies with what's inside; pasting at the pointer goes into the box under it", async () => {
+  const texts = copied();
+  const { api, got } = recorder();
+  const target = harness(api);
+  select(target, "web");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("c", { metaKey: true, shiftKey: true });
+  expect(texts[0]).toContain('entry "web/pages" title="Pages"');
+  boxEl(target, "postgres").dispatchEvent(new PointerEvent("pointerover", { bubbles: true, clientX: 900, clientY: 200 }));
+  pasteText(texts[0]);
+  await tick();
+  expect(got).toHaveLength(1);
+  expect((got[0] as Extract<Edit, { op: "batch" }>).edits.filter((x) => x.op === "add").map((x) => [(x as { parent: string }).parent, (x as { id: string }).id]))
+    .toEqual([["postgres", "web-2"], ["web-2", "web-2/pages"]]);
+  vi.restoreAllMocks();
+});
+
+test("pasting ig/ text copied from a file works the same; text that is not boxes is left to the page", async () => {
+  const { api, got } = recorder();
+  harness(api);
+  expect(pasteText("just words").defaultPrevented).toBe(false);
+  pasteText('queue "events" title="Order events" tech="NATS"\nstore "db" title="Database" {\n    reads "events"\n}\n');
+  await tick();
+  expect(got).toEqual([{ op: "batch", edits: [
+    { op: "add", parent: "system", kind: "queue", id: "events", title: "Order events", at: [], before: null, props: { tech: "NATS" } },
+    { op: "add", parent: "system", kind: "store", id: "db", title: "Database", at: [], before: null },
+    { op: "arrow", from: "db", to: "events", kind: "reads", label: null },
+  ] }]);
+});
+
+test("Cmd+D duplicates the box alone, Cmd+Shift+D with what's inside; one Cmd+Z undoes a paste", async () => {
+  const { api, got, calls } = recorder();
+  const target = harness(api);
+  select(target, "web");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("d", { metaKey: true });
+  await tick();
+  press("d", { metaKey: true, shiftKey: true });
+  await tick();
+  const ids = (e: Edit) => (e as Extract<Edit, { op: "batch" }>).edits.flatMap((x) => (x.op === "add" ? [x.id] : []));
+  expect(got.map(ids)).toEqual([["web-2"], ["web-2", "web-2/pages"]]);
+  expect(got[0].edits[0].title).toBe("Web copy");
+  press("z", { metaKey: true });
+  await tick();
+  expect(calls).toEqual(["undo"]);
+});
+
+test("the box menu copies, duplicates and, once something is copied, pastes; the ground menu's Paste goes live", async () => {
+  const texts = copied();
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  rightClick(target, "postgres");
+  const names = () => [...menuOf(target)!.querySelectorAll('[role="menuitem"]')].map((b) => b.firstElementChild!.textContent);
+  expect(names()).toEqual(expect.arrayContaining(["Copy", "Copy with what's inside", "Duplicate"]));
+  expect(names()).not.toContain("Paste");
+  item(target, "Copy").click();
+  flushSync();
+  expect(texts).toHaveLength(1);
+  rightClick(target, "web");
+  expect(names()).toContain("Paste");
+  press("Escape", {}, menuOf(target)!);
+  stageOf(target).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 950, clientY: 750 }));
+  flushSync();
+  const paste = item(target, "Paste") as HTMLButtonElement;
+  expect(paste.disabled).toBe(false);
+  paste.click();
+  await tick();
+  expect(got).toHaveLength(1);
+  expect(got[0].edits[0]).toMatchObject({ op: "add", parent: "system", id: "postgres-2", title: "Postgres copy" });
+  vi.restoreAllMocks();
+});
+
+test("several boxes pasted are all selected once the view holds them", async () => {
+  const texts = copied(), v = withCopyOf("postgres", "postgres-2");
+  v.boxes.push({ ...structuredClone(v.boxes.find((b) => b.id === "stripe")!), id: "stripe-2" });
+  v.placed.frames["stripe-2"] = { ...v.placed.frames.stripe, y: v.placed.frames.stripe.y + 400 };
+  const target = harness(fake({ apply: async () => v }).api);
+  select(target, "postgres");
+  shiftClick(target, "stripe");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("c", { metaKey: true });
+  pasteText(texts[0]);
+  await tick();
+  flushSync();
+  expect(picked(target)).toEqual(["postgres-2", "stripe-2"]);
+  vi.restoreAllMocks();
+});
+
+test("Cmd+V with no paste event from the webview pastes the copy in the page; with one, only once", async () => {
+  const { api, got } = recorder();
+  const target = harness(api);
+  select(target, "postgres");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("c", { metaKey: true });
+  press("v", { metaKey: true });
+  await new Promise((r) => setTimeout(r, 150));
+  expect(got).toHaveLength(1);
+  await tick();
+  press("v", { metaKey: true });
+  pasteText("");
+  await new Promise((r) => setTimeout(r, 150));
+  expect(got).toHaveLength(2);
 });

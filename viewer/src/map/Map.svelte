@@ -45,7 +45,8 @@
   import { sharedParent, written } from "./edit/menu";
   import EditLayer from "./edit/EditLayer.svelte";
   import { EditSession, type Draft as DraftBox } from "./edit/session.svelte";
-  import type { Act } from "./edit/menu";
+  import type { Act, Clipped } from "./edit/menu";
+  import { copy, fromKdl, paste, remember, remembered, toKdl, type Clip, type Copy } from "./edit/clipboard";
   import Proposals from "./edit/Proposals.svelte";
   import Warnings from "./Warnings.svelte";
   import Folders from "./Folders.svelte";
@@ -147,7 +148,8 @@
   }
   // a confirmed draft: its box lands where and as big as it was drawn once the view holds it
   // `also`: the places of what lands with it (a new group's inside and the boxes moved into it)
-  let landing: { id: string; place: Place; kinds?: boolean; rename?: boolean; also?: Record<string, Place> } | null = null;
+  // `pick`: the boxes to select once they land (a paste)
+  let landing: { id: string; place?: Place; kinds?: boolean; rename?: boolean; also?: Record<string, Place>; pick?: string[] } | null = null;
   // a new view keeps what was drawn; settle finds room for what is new before it is drawn
   $effect.pre(() => {
     const v = view, t = title;
@@ -173,9 +175,11 @@
       landing = null;
       const carried: Record<string, Place> = {};
       for (const [k, p] of Object.entries(made?.also ?? {})) if (isInside(k)) prev[k] = p; else if (ids.has(k)) carried[k] = p;
-      const next = settlePlaces(prev, v, made ? { ...back, ...carried, [made.id]: made.place } : back, made?.id ?? null);
+      const own = made?.place ? { [made.id]: made.place } : {};
+      const next = settlePlaces(prev, v, { ...back, ...carried, ...own }, made?.place ? made.id : null);
       for (const [id, p] of Object.entries(truth)) if (!(id in next)) gone[id] = p;
-      placeAll(next, made ? [made.id, ...Object.keys(carried)] : [], false);
+      placeAll(next, [...Object.keys(own), ...Object.keys(carried)], false);
+      if (made?.pick) choose(made.pick.filter((id) => ids.has(id)));
       if (made?.kinds) {
         selected = made.id;
         sess.kinds = [made.id];
@@ -323,11 +327,12 @@
   let hot = $state<string | null>(null);
   let hotArrow = $state<string | null>(null);
   const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && linksOf([a], id).length > 0);
-  let pointer = { x: 0, y: 0 };
+  let pointer = { x: 0, y: 0 }, onMap = false;
   function over(e: PointerEvent) {
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     hot = el?.dataset.box ?? null;
     pointer = { x: e.clientX, y: e.clientY };
+    onMap = true;
   }
   let stage: HTMLDivElement;
   let root = $state<HTMLDivElement>();
@@ -554,6 +559,17 @@
         if (k === "a") sess.connect(many[0], many[1]);
         else sess.remove(many);
         return;
+      }
+      const mod = (e.metaKey || e.ctrlKey) && !e.altKey;
+      if (mod && (k === "c" || k === "d") && chosen().length && !(k === "c" && globalThis.getSelection?.()?.toString())) {
+        e.preventDefault();
+        if (k === "c") copyOut(chosen(), e.shiftKey);
+        else duplicate(chosen(), e.shiftKey);
+        return;
+      }
+      if (mod && k === "v" && clip) {
+        clearTimeout(pasteTimer);
+        pasteTimer = setTimeout(() => clip && pasteHere(clip.copy), 100);
       }
       if (plain && selected && shortcuts[k] && (k !== "o" || hasCode(selected))) {
         e.preventDefault();
@@ -871,6 +887,62 @@
     }));
     if (!sent) landing = was;
   }
+  let clip = $state.raw<Clip | null>(remembered());
+  function copyOut(ids: string[], inside: boolean) {
+    const c = copy(ids, view, inside, truth);
+    if (!c.boxes.length) return;
+    const text = toKdl(c);
+    clip = remember({ copy: c, text });
+    try {
+      globalThis.navigator?.clipboard?.writeText(text)?.catch(() => {});
+    } catch { /* no clipboard: the copy stays in the page */ }
+  }
+  function pasteIn(c: Copy, parent: string, at: { x: number; y: number } | null) {
+    if (!api || !c.boxes.length) return;
+    const r = paste(c, parent, at, view), first = r.ids[0];
+    if (!first) return;
+    const was = landing, { [first]: place, ...also } = r.places;
+    landing = { id: first, place, also, pick: r.ids };
+    const sent = run(() => api!.apply(r.batch).catch((err) => {
+      if (landing?.id === first) landing = null;
+      throw err;
+    }));
+    if (!sent) landing = was;
+  }
+  const roomMiddle = (id: string) => {
+    const r = truth[innerKey(id)];
+    return r ? { x: r.x + r.w / 2, y: r.y + r.h / 2 } : null;
+  };
+  // under the pointer: inside the closed box there, else on the ground of the open box; off the map, where the copy came from
+  function pasteHere(c: Copy) {
+    if (!onMap) return pasteIn(c, c.parent && byId.has(c.parent) ? c.parent : ROOT, null);
+    const closed = hot && hot !== ROOT && written(byId.get(hot)) && !stage.querySelector(`[data-box="${CSS.escape(hot)}"][data-open]`);
+    if (closed) return pasteIn(c, hot!, roomMiddle(hot!));
+    const hit = document.elementFromPoint?.(pointer.x, pointer.y), g = groundAt({ clientX: pointer.x, clientY: pointer.y, target: hit && stage.contains(hit) ? hit : stage });
+    pasteIn(c, g.parent, g);
+  }
+  // a webview with no Paste in its menu sends no paste event for Cmd+V: the copy in the page goes in after a moment
+  let pasteTimer: ReturnType<typeof setTimeout> | undefined;
+  onDestroy(() => clearTimeout(pasteTimer));
+  function pasted(e: ClipboardEvent) {
+    clearTimeout(pasteTimer);
+    if (!edit || typing(e.target) || sess.ui || (e.target as Element | null)?.closest?.("[data-popover]")) return;
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    const c = clip && (!text || text === clip.text) ? clip.copy : text ? fromKdl(text, view.kinds) : null;
+    if (!c) return;
+    e.preventDefault();
+    pasteHere(c);
+  }
+  function duplicate(ids: string[], inside: boolean) {
+    const c = copy(ids, view, inside, truth);
+    pasteIn(c, c.parent && byId.has(c.parent) ? c.parent : ROOT, null);
+  }
+  function clipAct(a: Clipped, id: string) {
+    const ids = chosen().includes(id) ? chosen() : [id];
+    if (a === "copy" || a === "copyAll") copyOut(ids, a === "copyAll");
+    else if (a === "duplicate") duplicate(ids, false);
+    else if (clip) pasteIn(clip.copy, id, roomMiddle(id));
+  }
   function align(dir: "row" | "column") {
     const ids = many.filter((id) => truth[id]);
     if (ids.length < 2) return;
@@ -898,6 +970,7 @@
       return { x: (d.x - o.x) * t.s + t.x, y: (d.y - o.y) * t.s + t.y, w: d.w * t.s, h: d.h * t.s };
     },
     ground: (e) => groundAt(e), draftAt: (g) => void draftAt(g), details, open: openBox,
+    clip: (a, id) => clipAct(a, id), pasteAt: (g) => clip && pasteIn(clip.copy, g.parent, g),
   });
   const panelBox = $derived(edit && sess.panel?.box && sess.panel.box === selected ? byId.get(selected) : undefined);
   // the panel follows the selection to another box, and closes with it
@@ -1183,7 +1256,7 @@
   {/each}
 {/snippet}
 
-<svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={pressAway} onkeydown={key} onkeyup={keyup} />
+<svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={pressAway} onkeydown={key} onkeyup={keyup} onpaste={pasted} />
 
 <!-- the dot grid sits on the map's own grid and moves and scales with it; a dot keeps its size on screen -->
 <div class="map" bind:this={root} bind:clientWidth={cw} bind:clientHeight={ch}>
@@ -1192,7 +1265,7 @@
   {/each}
   <div class="stage" class:hand={tool.current === "hand" || space} class:draw={!!edit && (tool.current === "box" || tool.current === "frame") && !space} bind:this={stage} role="presentation"
     onpointerdown={down} onclickcapture={clickCapture} ondblclick={dblclick} oncontextmenu={(e) => { const hit = edit ? arrowHit(e) : undefined; if (hit) sess.arrowMenuAt(e, hit); else sess.menuAt(e); }}
-    onpointerover={over} onpointerleave={() => (hot = hotArrow = null)}>
+    onpointerover={over} onpointerleave={() => ((hot = hotArrow = null), (onMap = false))}>
     <div class="world" style:transform="translate({base.x}px, {base.y}px) scale({base.k})">{@render level(anchor)}</div>
   </div>
   {#if marquee}
@@ -1277,7 +1350,7 @@
       <ArrowPanel {a} how={sess.editing} kinds={arrowKindNames(view.arrowKinds)} s={sess} titleOf={sess.titleOf} focus={sess.panel.focus} onclose={closePanel} />
     {/key}
   {/if}
-  {#if edit}<EditLayer s={sess} {arrangeable} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
+  {#if edit}<EditLayer s={sess} {arrangeable} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} paste={!!clip} />{/if}
   {#if view.landscape}
     <Folders landscape={view.landscape} />
   {/if}

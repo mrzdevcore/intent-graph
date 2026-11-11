@@ -13,7 +13,9 @@
   import { parentsFor } from "./menu";
   import type { EditSession } from "./session.svelte";
 
-  let { s, arrangeable, boxes, kinds, arrowKinds, root }: { s: EditSession; arrangeable: Set<string>; boxes: MapBox[]; kinds: KindView[]; arrowKinds?: ArrowKindView[]; root: string } = $props();
+  let { s, arrangeable, boxes, kinds, arrowKinds, root, paste = false }: {
+    s: EditSession; arrangeable: Set<string>; boxes: MapBox[]; kinds: KindView[]; arrowKinds?: ArrowKindView[]; root: string; paste?: boolean;
+  } = $props();
   const ui = $derived(s.ui);
   const band = $derived(s.band);
   const chip = $derived(s.chip);
@@ -27,10 +29,10 @@
   {@const id = ui.id}
   {@const box = boxes.find((b) => b.id === id)}
   {#if ui.t === "ground"}
-    <GroundMenu x={ui.x} y={ui.y} title={box?.title.value ?? id} arrange={arrangeable.has(id)} onnew={() => s.ground("new")} onarrange={() => s.ground("arrange")} onclose={() => s.shut(false)} />
+    <GroundMenu x={ui.x} y={ui.y} title={box?.title.value ?? id} arrange={arrangeable.has(id)} {paste} onnew={() => s.ground("new")} onpaste={() => s.ground("paste")} onarrange={() => s.ground("arrange")} onclose={() => s.shut(false)} />
   {:else if ui.t === "menu"}
     {@const byId = new Map(boxes.map((b) => [b.id, b]))}
-    <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} group={arrangeable.has(id)} code={!!box?.madeOf.length && box.level !== "code"}
+    <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} group={arrangeable.has(id)} code={!!box?.madeOf.length && box.level !== "code"} {paste}
       kinds={mostUsed(boxes, kinds, inside(box?.parent ?? root, byId, kinds))} current={box ? kindName(box) : ""}
       onpick={(a) => s.act(a, id, { x: ui.x, y: ui.y })} onkind={(k) => { s.setKind([id], k); s.shut(); }} onclose={() => s.shut()} />
   {:else if ui.t === "rename"}

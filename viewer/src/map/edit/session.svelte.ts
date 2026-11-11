@@ -4,7 +4,7 @@ import type { EditApi } from "../../api";
 import type { ArrowKind, ArrowKindView, Edit, Frame, KindView, MapArrow, MapBox, View } from "../types";
 import { editing, onArrow, specKind } from "./arrows";
 import { baseOf, guessArrow } from "./guess";
-import { removal, written, type Act } from "./menu";
+import { removal, written, type Act, type Clipped } from "./menu";
 import type { Tool } from "./tool.svelte";
 
 export type Draft = { parent: string; x: number; y: number; w: number; h: number; title: string; drawing: boolean; from?: string };
@@ -24,6 +24,8 @@ export type Ctx = {
   draftAt: (g: { parent: string; x: number; y: number }) => void;
   details: (id: string) => void;
   open: (id: string) => void;
+  clip: (a: Clipped, id: string) => void;
+  pasteAt: (g: { parent: string; x: number; y: number }) => void;
 };
 type Pt = { x: number; y: number };
 const sides = (f: Frame): Pt[] => [{ x: f.x, y: f.y + f.h / 2 }, { x: f.x + f.w, y: f.y + f.h / 2 }, { x: f.x + f.w / 2, y: f.y }, { x: f.x + f.w / 2, y: f.y + f.h }];
@@ -309,6 +311,7 @@ export class EditSession {
       this.kinds = [id];
     } else if (a === "details") this.c.details(id);
     else if (a === "code") this.c.open(id);
+    else if (a === "copy" || a === "copyAll" || a === "paste" || a === "duplicate") this.c.clip(a, id);
     else this.remove([id]);
   }
   setKind(ids: string[], value: string) {
@@ -335,11 +338,12 @@ export class EditSession {
     this.asking = null;
     if (a) this.c.run(() => this.c.edit()!.apply(a.edit));
   }
-  ground(make: "new" | "arrange") {
+  ground(make: "new" | "arrange" | "paste") {
     const u = this.ui;
     this.ui = null;
     if (u?.t !== "ground") return;
     if (make === "new") this.c.draftAt({ parent: u.id, x: u.gx!, y: u.gy! });
+    else if (make === "paste") this.c.pasteAt({ parent: u.id, x: u.gx!, y: u.gy! });
     else this.c.arrange([u.id]);
   }
   /** Close the rename or move popover and send the edit it makes for its box (read before ui is cleared). */
