@@ -133,14 +133,24 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     return best;
   }
 
-  // a left/right wire with a box in the way goes round through the rows instead
+  const crosses = (pts: P[], skip: string[]) =>
+    pts.slice(1).some((q, i) => blocked(within(Math.min(pts[i][0], q[0]), Math.max(pts[i][0], q[0]), skip), pts[i][0], q[0], pts[i][1], q[1]));
+  // two stacked boxes a third chains into one row: a bend between them, if no box is in the way
+  function stacked(a: MapArrow, e: End): P[] | null {
+    const [u, l] = e.sides[0] === "t" ? [e.to, e.from] : [e.from, e.to];
+    if (l[1] <= u[1]) return null;
+    const x = (u[0] + l[0]) / 2, y = (u[1] + l[1]) / 2;
+    const pts: P[] = Math.abs(u[0] - l[0]) <= pitch / 2 ? [[x, u[1]], [x, l[1]]] : [u, [u[0], y], [l[0], y], l];
+    return crosses(pts, [a.from, a.to]) ? null : pts;
+  }
+
   const chosen: Record<string, [Side, Side]> = {};
   let ends = pins(live, frames, kinds);
-  for (let pass = 0; pass < 3; pass++) {
+  for (;;) {
     let more = false;
     for (const a of live) {
       const e = ends.get(a.id)!, [rf, rt] = [row(a.from), row(a.to)];
-      if (chosen[a.id] || (across(e.sides[0]) ? sideways(a, e) : rf !== rt)) continue;
+      if (chosen[a.id] || (across(e.sides[0]) ? sideways(a, e) : rf !== rt || stacked(a, e))) continue;
       chosen[a.id] = rf < rt ? ["b", "t"] : rf > rt ? ["t", "b"] : ["b", "b"];
       more = true;
     }
@@ -168,7 +178,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
   for (const a of live) {
     const e = ends.get(a.id)!, [sa, sz] = e.sides;
     if (across(sa)) {
-      const { p, q, flip } = facing(a, e), plan = sideways(a, e) ?? { mid: (p[0] + q[0]) / 2, room: 0 };
+      const { p, q, flip } = facing(a, e), plan = sideways(a, e)!;
       if ("y" in plan) draws.push([a.id, () => orient([[p[0], plan.y], [q[0], plan.y]], flip)]);
       else {
         const s = down(plan.mid, plan.room, a.id, () => span(p[1], q[1]));
@@ -177,24 +187,53 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     } else if (sa === sz) {
       const s = along(row(a.from), a.id, () => span(e.from[0], e.to[0]));
       draws.push([a.id, () => [e.from, [e.from[0], s.v], [e.to[0], s.v], e.to]]);
+    } else if (row(a.from) === row(a.to)) {
+      const pts = stacked(a, e)!, flip = sa === "t";
+      if (pts.length === 2) draws.push([a.id, () => orient(pts, flip)]);
+      else {
+        const [u, l] = [pts[0], pts[3]];
+        const s = slot(`m${Math.round(pts[1][1])}`, pts[1][1], l[1] - u[1], false, a.id, () => span(u[0], l[0]));
+        draws.push([a.id, () => orient([u, [u[0], s.v], [l[0], s.v], l], flip)]);
+      }
     } else {
       const flip = sa === "t";
       const [u, l] = flip ? [e.to, e.from] : [e.from, e.to];
       const [ra, rb] = flip ? [row(a.to), row(a.from)] : [row(a.from), row(a.to)];
       const free = rb - ra > 1 ? g.spans(ra + 1, rb - 1) : [[-Infinity, Infinity] as P];
       const clear = (x: number) => free.some(([lo, hi]) => x > lo && x < hi);
+      const mid = (c: number) => (g.channel(c).top + g.channel(c).bottom) / 2;
+      const jog = (y: number): P[] => [u, [u[0], y], [l[0], y], l];
+      // each way it can go, tried in turn until one crosses no box: [as drawn on the channels' middles, laid]
+      const ways: [P[], () => () => P[]][] = [];
       const x = (u[0] + l[0]) / 2;
-      if (Math.abs(u[0] - l[0]) <= pitch / 2 && clear(x)) draws.push([a.id, () => orient([[x, u[1]], [x, l[1]]], flip)]);
-      else if (clear(l[0]) || clear(u[0])) {
-        const s = along(clear(l[0]) ? ra : rb - 1, a.id, () => span(u[0], l[0]));
-        draws.push([a.id, () => orient([u, [u[0], s.v], [l[0], s.v], l], flip)]);
-      } else {
+      if (Math.abs(u[0] - l[0]) <= pitch / 2 && clear(x)) {
+        const pts: P[] = [[x, u[1]], [x, l[1]]];
+        ways.push([pts, () => () => orient(pts, flip)]);
+      }
+      const inChannel = (c: number) =>
+        ways.push([jog(mid(c)), () => {
+          const s = along(c, a.id, () => span(u[0], l[0]));
+          return () => orient(jog(s.v), flip);
+        }]);
+      if (clear(l[0])) inChannel(ra);
+      if (clear(u[0])) inChannel(rb - 1);
+      if (rb - ra > 1) {
         const cost = ([c]: P) => Math.abs(c - u[0]) + Math.abs(c - l[0]) + load * (used.get(key(c)) ?? 0);
         const [gx, gw] = g.gaps(free).reduce((m, o) => (cost(o) < cost(m) ? o : m));
-        const s1 = along(ra, a.id, () => span(u[0], gx)), s2 = along(rb - 1, a.id, () => span(gx, l[0]));
-        const sg = down(gx, gw, a.id, () => [s1.v, s2.v]);
-        draws.push([a.id, () => orient([u, [u[0], s1.v], [sg.v, s1.v], [sg.v, s2.v], [l[0], s2.v], l], flip)]);
+        const [y1, y2] = [mid(ra), mid(rb - 1)];
+        ways.push([[u, [u[0], y1], [gx, y1], [gx, y2], [l[0], y2], l], () => {
+          const s1 = along(ra, a.id, () => span(u[0], gx)), s2 = along(rb - 1, a.id, () => span(gx, l[0]));
+          const sg = down(gx, gw, a.id, () => [s1.v, s2.v]);
+          return () => orient([u, [u[0], s1.v], [sg.v, s1.v], [sg.v, s2.v], [l[0], s2.v], l], flip);
+        }]);
       }
+      const ym = (u[1] + l[1]) / 2;
+      if (l[1] > u[1])
+        ways.push([jog(ym), () => {
+          const s = slot(`m${Math.round(ym)}`, ym, l[1] - u[1], false, a.id, () => span(u[0], l[0]));
+          return () => orient(jog(s.v), flip);
+        }]);
+      draws.push([a.id, (ways.find(([pts]) => !crosses(pts, [a.from, a.to])) ?? ways[0])[1]()]);
     }
   }
   for (const t of lanes.values()) if (!t.vertical) g.lay(t.runs, t.mid, t.room, false);

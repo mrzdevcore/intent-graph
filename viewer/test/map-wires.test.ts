@@ -15,15 +15,15 @@ const frames: Record<string, Frame> = {
 const all = [arrow("a", "g"), arrow("b", "h"), arrow("c", "f"), arrow("a", "d"), arrow("b", "e"), arrow("g", "b"), arrow("d", "e"), arrow("a", "c")];
 
 /** Every leg of every wire is level, upright or a 45° cut, and passes no box but its own two. */
-function check(mode: Mode) {
-  const w = wires(all, frames, mode).wires;
-  expect(w.size).toBe(all.length);
-  for (const a of all) {
+function check(mode: Mode, arrows = all, fs = frames) {
+  const w = wires(arrows, fs, mode).wires;
+  expect(w.size).toBe(arrows.length);
+  for (const a of arrows) {
     const p = points(w.get(a.id)!.d);
     for (let i = 0; i < p.length - 1; i++) {
       const [dx, dy] = [Math.abs(p[i + 1][0] - p[i][0]), Math.abs(p[i + 1][1] - p[i][1])];
       expect(dx === 0 || dy === 0 || Math.abs(dx - dy) < 0.02, `${a.id} leg ${i}: ${dx}x${dy}`).toBe(true);
-      for (const [id, f] of Object.entries(frames)) {
+      for (const [id, f] of Object.entries(fs)) {
         if (id === a.from || id === a.to) continue;
         for (const t of [0.25, 0.5, 0.75]) {
           const [x, y] = [p[i][0] + (p[i + 1][0] - p[i][0]) * t, p[i][1] + (p[i + 1][1] - p[i][1]) * t];
@@ -116,4 +116,18 @@ test("one side's wires spread along it; ribbons gather wires into fewer gaps tha
 
 test("a box's arrow to itself, or to a box with no frame, has no wire", () => {
   expect(wires([arrow("a", "a"), arrow("a", "zz")], frames, "routed").wires.size).toBe(0);
+});
+
+test("two stacked boxes a third chains into one row: a bend between them, through no box", () => {
+  const fs = { a: box(0, 0), c: box(300, 40), b: box(40, 90) };
+  const w = check("routed", [arrow("a", "b")], fs);
+  const p = points(w.get("a->b")!.d);
+  expect(p[0][1]).toBe(60);
+  expect(p[p.length - 1][1]).toBe(90);
+});
+
+test("a crowded row: every wire past a box in the way goes round, through no box", () => {
+  const fs = Object.fromEntries(["p", "q", "r", "s", "t"].map((id, i) => [id, box(i * 140, (i % 2) * 20)]));
+  const as = ["q", "r", "s", "t"].flatMap((id) => [arrow("p", id), arrow(id, "p")]).concat([arrow("q", "s"), arrow("r", "t"), arrow("t", "q")]);
+  check("routed", as, fs);
 });
