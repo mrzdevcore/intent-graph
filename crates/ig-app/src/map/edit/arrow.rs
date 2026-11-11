@@ -3,9 +3,10 @@
 use super::set::context_format;
 use super::{Edit, Spec, arrow, box_id, named, set_str, tidy};
 use crate::map::ArrowKind;
+use crate::map::arrows::Shape;
 use kdl::{KdlEntry, KdlNode};
 
-const PROPS: [&str; 3] = ["label", "note", "context"];
+const PROPS: [&str; 4] = ["label", "note", "context", "shape"];
 
 impl Spec {
     pub(super) fn arrow_set(
@@ -81,6 +82,12 @@ impl Spec {
                 })
             }
             k if PROPS.contains(&k) => {
+                if let (Some(v), "shape") = (value, k) {
+                    if named::<Shape>(v).is_none() {
+                        let all = Shape::NAMES.join(", ");
+                        return Err(format!("`{v}` is not an arrow shape: one of {all}"));
+                    }
+                }
                 let n = self.node_mut(&at(i));
                 let (old, was) = prop(n, k, value, restore)?;
                 Ok(Edit::ArrowSet {
@@ -93,7 +100,7 @@ impl Spec {
                 })
             }
             _ => Err(format!(
-                "`{key}` is not something to set on an arrow: one of kind, label, note, context, from, to, flip"
+                "`{key}` is not something to set on an arrow: one of kind, label, note, context, shape, from, to, flip"
             )),
         }
     }

@@ -303,3 +303,26 @@ fn a_first_child_goes_before_the_first_child_of_a_brace_line_with_a_comment() {
     };
     check_on(f, e, &[("ig/api.kdl", &want)]);
 }
+
+#[test]
+fn arrowset_shape() {
+    let want = api(
+        "data \"db\" label=\"orders\"",
+        "data \"db\" label=\"orders\" shape=\"elbow\"",
+    );
+    let inv = check(
+        set("api", "db", "shape", Some("elbow")),
+        &[("ig/api.kdl", &want)],
+    );
+    assert_eq!(inv, set("api", "db", "shape", None));
+    let f = MemFiles::with(&[("ig/system.kdl", SYS), ("ig/api.kdl", &want)]);
+    let inv = check_on(
+        f,
+        set("api", "db", "shape", Some("curved")),
+        &[("ig/api.kdl", &want.replace("elbow", "curved"))],
+    );
+    assert_eq!(inv, restoring("shape", "elbow", 2, " shape=\"elbow\""));
+    let f = MemFiles::with(&[("ig/system.kdl", SYS), ("ig/api.kdl", &want)]);
+    let inv = check_on(f, set("api", "db", "shape", None), &[("ig/api.kdl", API)]);
+    assert_eq!(inv, restoring("shape", "elbow", 2, " shape=\"elbow\""));
+}

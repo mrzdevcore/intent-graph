@@ -427,6 +427,7 @@ fn spec_arrow(from: &str, kind: ArrowKind, to: &str) -> MapArrow {
     MapArrow {
         note: None,
         context: None,
+        shape: None,
         written: Default::default(),
         seen: vec![],
         id: format!("{from}->{to}"),

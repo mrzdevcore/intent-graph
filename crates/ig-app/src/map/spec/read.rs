@@ -2,6 +2,7 @@
 //! nothing partial is returned. Every field read is a person's and pinned.
 
 use super::DIR;
+use crate::map::arrows::Shape;
 use crate::map::facts::Role;
 use crate::map::file::{Field, MapBox, MapFile, PINNABLE, Source, validate_spec};
 use crate::map::kinds::{KindDef, Kinds, base_name};
@@ -123,7 +124,7 @@ pub fn parse(texts: Vec<(String, Option<String>)>) -> Result<MapFile, Vec<String
 }
 
 const BOX_WORDS: [&str; 4] = ["at", "badges", "pattern", "context"];
-const ARROW_PROPS: [&str; 3] = ["label", "note", "context"];
+const ARROW_PROPS: [&str; 4] = ["label", "note", "context", "shape"];
 const NOTE_MAX: usize = 80;
 
 #[derive(Clone, Copy)]
@@ -403,6 +404,14 @@ impl Reader {
             }
         }
         let context = text(self, "context");
+        let shape = text(self, "shape").and_then(|s| {
+            let shape = serde_json::from_value(serde_json::Value::String(s.clone())).ok();
+            if shape.is_none() {
+                let all = Shape::NAMES.join(", ");
+                self.err(at, n, format!("`shape` is one of {all}, not `{s}`"));
+            }
+            shape
+        });
         let id = format!("{from}->{to}");
         if self.arrows.iter().any(|(a, _)| a.id == id) {
             self.err(at, n, format!("arrow `{id}` is written twice"));
@@ -418,6 +427,7 @@ impl Reader {
                 label,
                 note,
                 context,
+                shape,
                 written: crate::map::arrows::Written(Some(place.clone())),
                 seen: vec![],
                 count: 0,

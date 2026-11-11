@@ -124,7 +124,7 @@ The boxes inside it.
 \fBat\fR, \fBbadges\fR, \fBpattern\fR and \fBcontext\fR are each written once.
 .SH ARROWS
 .PP
-An arrow is written in the box it leaves: its kind, the id it points to, and the optional \fBlabel\fR, \fBnote\fR and \fBcontext\fR:
+An arrow is written in the box it leaves: its kind, the id it points to, and the optional \fBlabel\fR, \fBnote\fR, \fBcontext\fR and \fBshape\fR:
 .PP
 .RS 4
 .nf
@@ -137,6 +137,8 @@ calls "billing" label="charges the card" note="once per checkout"
 \fBnote\fR: one short line shown on the map under the label, at most 80 characters, no line break (more is an error).
 .IP \(bu 2
 \fBcontext\fR: free text of any length for whoever builds it.
+.IP \(bu 2
+\fBshape\fR: how the arrow is drawn on the map, one of \fBcircuit\fR, \fBelbow\fR, \fBcurved\fR or \fBstraight\fR; without it the map chooses (any other value is an error).
 .IP \(bu 2
 Any other property on an arrow is a warning; the arrow is still read.
 .IP \(bu 2

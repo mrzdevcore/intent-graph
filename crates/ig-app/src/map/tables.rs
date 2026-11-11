@@ -92,6 +92,7 @@ fn arrow(parent: &str, from: &str, to: &str, kind: ArrowKind, label: Option<Stri
     MapArrow {
         note: None,
         context: None,
+        shape: None,
         written: Default::default(),
         seen: vec![],
         id: format!("{from}->{to}"),

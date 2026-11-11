@@ -118,7 +118,7 @@ ig view [--no-open] [--json] [-C <dir>] [-q]
 
 A box drawn before its kind is chosen is kind `box` ("Not decided yet"): it sits wherever a block that runs or a design block may, holds either, and never draws a misplaced warning. `ig plan` lists it as `to build: box <id>, kind not decided`.
 
-Any box can carry `context`: free text of any length for whoever builds it, written in its body (`context "…"`, or a KDL raw multi-line string, `context #"""` … `"""#`, when it has line breaks). `description` stays the one line shown on hover. An arrow takes `label`, a `note` (one line, at most 80 characters, shown on the map under the label) and a `context` (free text): `calls "billing" label="charges" note="every checkout" context="…"`. A longer or multi-line `note` is a read error; any other property on an arrow is a warning, and the arrow still reads.
+Any box can carry `context`: free text of any length for whoever builds it, written in its body (`context "…"`, or a KDL raw multi-line string, `context #"""` … `"""#`, when it has line breaks). `description` stays the one line shown on hover. An arrow takes `label`, a `note` (one line, at most 80 characters, shown on the map under the label) and a `context` (free text) and a `shape` (`circuit`, `elbow`, `curved` or `straight`: how the arrow is drawn; any other value is a read error): `calls "billing" label="charges" note="every checkout" context="…" shape="elbow"`. A longer or multi-line `note` is a read error; any other property on an arrow is a warning, and the arrow still reads.
 
 **The spec `ig/` is committed.** The first `ig analyse` writes the intended architecture as `ig/*.kdl`:
 from `.ig/map.json` when there is one (its readings and corrections kept), else from the code and

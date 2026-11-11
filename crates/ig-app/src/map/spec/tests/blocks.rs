@@ -307,3 +307,50 @@ fn context_and_notes_survive_a_write_and_a_read() {
     assert_eq!(again.boxes, m.boxes);
     assert_eq!(again.arrows, m.arrows);
 }
+
+#[test]
+fn reads_each_arrow_shape_and_rejects_another() {
+    let arrow = |shape: &str| {
+        parse(&sys(&format!(
+            "  service \"api\" title=\"Api\" {{\n    calls \"web\" shape=\"{shape}\"\n  }}\n  app \"web\" title=\"Web\""
+        )))
+    };
+    for shape in ["circuit", "elbow", "curved", "straight"] {
+        let m = arrow(shape).unwrap();
+        let v = serde_json::to_value(&m.arrows[0]).unwrap();
+        assert_eq!(v["shape"], shape);
+        let again = crate::map::spec::parse(
+            crate::map::spec::write(&m)
+                .into_iter()
+                .map(|(p, t)| (p, Some(t)))
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(again.arrows, m.arrows);
+    }
+    let bad = arrow("zigzag").unwrap_err();
+    assert!(
+        bad.iter()
+            .any(|e| e.contains("shape") && e.contains("circuit, elbow, curved, straight")),
+        "{bad:?}"
+    );
+    let m = parse(&sys(
+        "  service \"api\" title=\"Api\" {\n    calls \"web\"\n  }\n  app \"web\" title=\"Web\"",
+    ))
+    .unwrap();
+    assert!(
+        serde_json::to_value(&m.arrows[0])
+            .unwrap()
+            .get("shape")
+            .is_none()
+    );
+}
+
+#[test]
+fn shape_is_not_an_unknown_arrow_property() {
+    let s = sys(
+        "  service \"api\" title=\"Api\" {\n    calls \"web\" shape=\"elbow\"\n  }\n  app \"web\" title=\"Web\"",
+    );
+    let texts = vec![("ig/system.kdl".to_string(), Some(s))];
+    assert!(crate::map::spec::read::arrow_warnings(&texts).is_empty());
+}

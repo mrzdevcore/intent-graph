@@ -191,6 +191,9 @@ fn node(
                 an.push(KdlEntry::new_prop(key, v.as_str()));
             }
         }
+        if let Some(s) = a.shape.and_then(|s| serde_json::to_value(s).ok()) {
+            an.push(KdlEntry::new_prop("shape", s.as_str().unwrap_or_default()));
+        }
         body.nodes_mut().push(an);
     }
     for c in kids(m, b) {

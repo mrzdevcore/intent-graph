@@ -63,8 +63,8 @@ pub fn tools(k: &Kinds) -> Value {
         }), &["from", "to", "kind"]),
         op("arrowset", json!({
             "from": s("box id the arrow starts at"), "to": s("box id the arrow points to"),
-            "key": {"type": "string", "enum": ["kind", "label", "note", "context", "from", "to", "flip"], "description": "kind changes the arrow's kind; label, note (80 characters at most) and context its text; from and to reconnect one end to the box id in value; flip swaps the ends"},
-            "value": {"type": ["string", "null"], "description": "null removes label, note or context; flip takes none"}
+            "key": {"type": "string", "enum": ["kind", "label", "note", "context", "shape", "from", "to", "flip"], "description": "kind changes the arrow's kind; label, note (80 characters at most) and context its text; shape is how the arrow is drawn: circuit, elbow, curved or straight; from and to reconnect one end to the box id in value; flip swaps the ends"},
+            "value": {"type": ["string", "null"], "description": "null removes label, note, context or shape; flip takes none"}
         }), &["from", "to", "key"]),
     ]});
     let batch = op(
@@ -105,7 +105,7 @@ pub fn tools(k: &Kinds) -> Value {
         },
         {
             "name": "ig_edit",
-            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow, arrowset, batch). Your edits are proposals the user reviews under Proposals in the map (and with `git diff ig/` in a git repository). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. To change an arrow (its kind, label, note, context, an end, or its direction) use `arrowset`, not unarrow plus arrow. To change a box's kind use `set` with key `kind`: an `app` no person uses that serves routes is most likely a `service`; propose `set kind service` for it. Use `batch` ({\"op\": \"batch\", \"edits\": [...]}) for edits that belong together, like a new box and an arrow to it: all or nothing, one journal entry, one undo, and only the end state has to be valid. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
+            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow, arrowset, batch). Your edits are proposals the user reviews under Proposals in the map (and with `git diff ig/` in a git repository). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. To change an arrow (its kind, label, note, context, shape, an end, or its direction) use `arrowset`, not unarrow plus arrow. To change a box's kind use `set` with key `kind`: an `app` no person uses that serves routes is most likely a `service`; propose `set kind service` for it. Use `batch` ({\"op\": \"batch\", \"edits\": [...]}) for edits that belong together, like a new box and an arrow to it: all or nothing, one journal entry, one undo, and only the end state has to be valid. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"edits": {"type": "array", "minItems": 1, "items": one}},

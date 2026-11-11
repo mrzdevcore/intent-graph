@@ -96,7 +96,7 @@ The body of a box holds, in any order:
 
 ## ARROWS
 
-An arrow is written in the box it leaves: its kind, the id it points to, and the optional `label`, `note` and `context`:
+An arrow is written in the box it leaves: its kind, the id it points to, and the optional `label`, `note`, `context` and `shape`:
 
 ```
 calls "billing" label="charges the card" note="once per checkout"
@@ -105,6 +105,7 @@ calls "billing" label="charges the card" note="once per checkout"
 - `label`: what it carries or does, a few words.
 - `note`: one short line shown on the map under the label, at most 80 characters, no line break (more is an error).
 - `context`: free text of any length for whoever builds it.
+- `shape`: how the arrow is drawn on the map, one of `circuit`, `elbow`, `curved` or `straight`; without it the map chooses (any other value is an error).
 - Any other property on an arrow is a warning; the arrow is still read.
 
 - `calls`: asks it something and waits for the answer.

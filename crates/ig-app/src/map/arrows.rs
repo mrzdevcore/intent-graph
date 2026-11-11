@@ -34,6 +34,19 @@ pub const TELLING: [ArrowKind; 7] = [
     ArrowKind::Uses,
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Shape {
+    Circuit,
+    Elbow,
+    Curved,
+    Straight,
+}
+
+impl Shape {
+    pub const NAMES: [&'static str; 4] = ["circuit", "elbow", "curved", "straight"];
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MapArrow {
@@ -50,6 +63,8 @@ pub struct MapArrow {
     pub note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shape: Option<Shape>,
     #[serde(skip_serializing_if = "Written::is_none", default)]
     pub written: Written,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -256,6 +271,7 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
             MapArrow {
                 note: None,
                 context: None,
+                shape: None,
                 written: Written(None),
                 seen: seen(edges.iter().map(|(e, _)| *e)),
                 id: format!("{from}->{to}"),
@@ -342,6 +358,7 @@ pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArro
         MapArrow {
             kind: if bundle { ArrowKind::Bundle } else { kinds[0] },
             written: Written(None),
+            shape: None,
             seen,
             label: Some(label),
             count,
@@ -444,6 +461,7 @@ mod tests {
         MapArrow {
             note: None,
             context: None,
+            shape: None,
             written: Written(None),
             seen: vec![],
             id: format!("{from}->{to}"),

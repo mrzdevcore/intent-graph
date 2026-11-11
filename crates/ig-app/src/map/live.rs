@@ -425,6 +425,7 @@ fn draw_links(
                 m.arrows.push(MapArrow {
                     note: None,
                     context: None,
+                    shape: None,
                     written: Default::default(),
                     seen: vec![],
                     id: format!("{from}->{to}"),

@@ -53,6 +53,7 @@ export type KindView = {
 };
 export type ArrowKindView = { name: ArrowKind; from: string[]; to: string[] };
 export type ArrowKind = "calls" | "sends" | "reads" | "writes" | "uses" | "implements" | "triggers" | "bundle";
+export type ArrowShape = "circuit" | "elbow" | "curved" | "straight";
 export type MapArrow = {
   id: string;
   parent: string;
@@ -62,6 +63,7 @@ export type MapArrow = {
   label?: string;
   note?: string;
   context?: string;
+  shape?: ArrowShape;
   written?: string;
   seen?: string[];
   count: number;

@@ -300,7 +300,9 @@ fn the_tool_schema_lists_the_kinds_of_the_table() {
         .unwrap();
     assert_eq!(
         arrowset["properties"]["key"]["enum"],
-        json!(["kind", "label", "note", "context", "from", "to", "flip"])
+        json!([
+            "kind", "label", "note", "context", "shape", "from", "to", "flip"
+        ])
     );
     assert_eq!(arrowset["required"], json!(["op", "from", "to", "key"]));
     assert!(edit["description"].as_str().unwrap().contains("arrowset"));
