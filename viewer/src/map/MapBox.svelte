@@ -24,11 +24,11 @@
   // parts: a component's part box's list; anatomy: a component's part boxes (title, list), for
   // its chips; w, h: its frame; shape: what it is drawn as (Map knows its children, for a CLI);
   // table: a table box's table, rows: its columns' marks in a diff
-  let { box, look, detail, onopen, inside = 0, more = 0, zoom = 1, source, parts, anatomy, kinds = [], w = 264, h = 152, shape: drawnAs, table, rows, facts, picked = false }: {
+  let { box, look, detail, onopen, inside = 0, more = 0, zoom = 1, source, parts, anatomy, kinds = [], w = 264, h = 152, shape: drawnAs, table, rows, facts, picked = false, onfocus }: {
     box: MapBox; look: Look; detail: "far" | "mid" | "near" | "open" | "source"; onopen: () => void;
     inside?: number; more?: number; zoom?: number; source?: Snippet; parts?: Part[];
     anatomy?: { title: string; parts: Part[] }[]; kinds?: KindView[]; w?: number; h?: number; shape?: ShapeName;
-    table?: TableData; rows?: TableMark; facts?: CardFacts; picked?: boolean;
+    table?: TableData; rows?: TableMark; facts?: CardFacts; picked?: boolean; onfocus?: () => void;
   } = $props();
 
   const CHIP: Record<Tone, string> = {
@@ -107,7 +107,7 @@
 </script>
 
 {#if table && kind === "table"}
-  <Table {table} {look} {rows} {onopen} {zoom} {h} {facts} {picked} />
+  <Table {table} {look} {rows} {onopen} {onfocus} {zoom} {h} {facts} {picked} />
 {:else if unread}
   <button class="chip-box" type="button" aria-label="Open {title}" onclick={onopen}>{title}</button>
 {:else if kind === "person"}

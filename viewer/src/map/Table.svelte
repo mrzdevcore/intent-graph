@@ -6,8 +6,8 @@
   import type { TableMark } from "./diff";
   import { distance, isBookkeeping, isKey, type CardFacts } from "./db/card";
 
-  let { table, look, rows, onopen, zoom = 1, h = 128, facts, picked = false }: {
-    table: Table; look: Look; rows?: TableMark; onopen: () => void; zoom?: number; h?: number; facts?: CardFacts; picked?: boolean;
+  let { table, look, rows, onopen, onfocus, zoom = 1, h = 128, facts, picked = false }: {
+    table: Table; look: Look; rows?: TableMark; onopen: () => void; onfocus?: () => void; zoom?: number; h?: number; facts?: CardFacts; picked?: boolean;
   } = $props();
 
   const HEAD = 56, ROW = 26, FOOT = 8, CHIP = 120;
@@ -90,6 +90,9 @@
     {/if}
   </span>
 </button>
+{#if onfocus && at !== "far"}
+  <button class="focus" class:picked type="button" aria-label="Focus on {table.name}" title="Focus — Enter" style:top="{19 * m}px" style:right="{10 * m}px" style:scale={m === 1 ? null : m} onclick={onfocus}>Focus</button>
+{/if}
 
 <style>
   .table { font: inherit; text-align: left; cursor: pointer; width: 100%; height: 100%; box-sizing: border-box; padding: 0; position: relative; display: block;
@@ -130,5 +133,9 @@
   .col.changed { background: var(--map-warn-bg); color: var(--map-warn-text); }
   .col.removed { background: var(--map-bad-bg); color: var(--map-bad-text); }
   .col.removed .type { color: inherit; }
+  .focus { position: absolute; transform-origin: top right; font: 600 11px/18px var(--font-sans); padding: 0 8px; cursor: pointer;
+    border: 1px solid var(--map-line); border-radius: 999px; background: var(--map-surface); color: var(--map-fg); }
+  .focus:hover { border-color: var(--map-trace); }
+  .focus:focus-visible { outline: 2px solid var(--map-blue); outline-offset: 2px; }
   .none { padding: 4px 12px; font-size: 12px; color: var(--map-faint); }
 </style>

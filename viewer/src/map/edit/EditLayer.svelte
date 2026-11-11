@@ -32,7 +32,7 @@
     <GroundMenu x={ui.x} y={ui.y} title={box?.title.value ?? id} arrange={arrangeable.has(id)} {paste} onnew={() => s.ground("new")} onpaste={() => s.ground("paste")} onarrange={() => s.ground("arrange")} onclose={() => s.shut(false)} />
   {:else if ui.t === "menu"}
     {@const byId = new Map(boxes.map((b) => [b.id, b]))}
-    <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} group={arrangeable.has(id)} code={!!box?.madeOf.length && box.level !== "code"} {paste}
+    <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} group={arrangeable.has(id)} code={!!box?.madeOf.length && box.level !== "code"} {paste} db={s.dbOf(id)}
       kinds={mostUsed(boxes, kinds, inside(box?.parent ?? root, byId, kinds))} current={box ? kindName(box) : ""}
       onpick={(a) => s.act(a, id, { x: ui.x, y: ui.y })} onkind={(k) => { s.setKind([id], k); s.shut(); }} onclose={() => s.shut()} />
   {:else if ui.t === "rename"}

@@ -26,6 +26,8 @@ export type Ctx = {
   open: (id: string) => void;
   clip: (a: Clipped, id: string, p: { x: number; y: number }) => void;
   pasteAt: (g: { parent: string; x: number; y: number }) => void;
+  db?: (id: string) => "focus" | "tables" | undefined;
+  openDb?: (a: "focus" | "tables", id: string) => void;
 };
 type Pt = { x: number; y: number };
 const sides = (f: Frame): Pt[] => [{ x: f.x, y: f.y + f.h / 2 }, { x: f.x + f.w, y: f.y + f.h / 2 }, { x: f.x + f.w / 2, y: f.y }, { x: f.x + f.w / 2, y: f.y + f.h }];
@@ -54,6 +56,7 @@ export class EditSession {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
   titleOf = (id: string) => this.c.box(id)?.title.value ?? id;
+  dbOf = (id: string) => this.c.db?.(id);
   /** The box's top-left on screen, and its width. */
   at = (id: string) => {
     const f = this.c.frame(id), m = this.c.cam();
@@ -309,6 +312,7 @@ export class EditSession {
       this.kinds = [id];
     } else if (a === "details") this.c.details(id);
     else if (a === "code") this.c.open(id);
+    else if (a === "focus" || a === "tables") this.c.openDb?.(a, id);
     else if (a === "copy" || a === "copyAll" || a === "paste" || a === "duplicate" || a === "duplicateAll") this.c.clip(a, id, p);
     else this.remove([id]);
   }

@@ -6,9 +6,9 @@
   import type { Field, MapArrow, MapBox, View } from "./types";
   import Code from "./Code.svelte";
 
-  let { view, box, onclose, onopen, onmenu, onedit, edit, run }: {
+  let { view, box, onclose, onopen, onmenu, onedit, edit, run, ondb }: {
     view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void; onmenu?: (e: MouseEvent) => void; onedit?: () => void;
-    edit?: EditApi; run?: (p: () => Promise<View>) => void;
+    edit?: EditApi; run?: (p: () => Promise<View>) => void; ondb?: { label: string; run: () => void };
   } = $props();
   // the edits Claude or the reading proposed on this box, to keep or drop here
   const proposals = $derived((view.proposals ?? []).filter((p) => p.marks.includes(box.id)));
@@ -69,6 +69,7 @@
     <button type="button" aria-label="Close" onclick={onclose}>×</button>
   </div>
   <ul class="chips">{#each chips as c}<li>{c}</li>{/each}</ul>
+  {#if ondb}<button type="button" class="more db" onclick={ondb.run}>{ondb.label}</button>{/if}
   {#if box.origin === "build"}<p class="muted">To build: no code under <code>{box.madeOf[0] ?? box.id}</code> yet</p>
   {:else if box.origin === "drift"}<p class="muted">Drift: this code is in no box of ig/</p>
   {:else if box.origin === "unmanaged"}<p class="muted">Not in ig/: add a box named like it, or link one with <code>runs=</code></p>{/if}

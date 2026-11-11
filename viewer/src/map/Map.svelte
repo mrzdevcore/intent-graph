@@ -59,6 +59,8 @@
   import { rekey, reparented, settle as settlePlaces, shownView } from "./place/rules";
   import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, renamesOf, undoNext, type Rename } from "./place/history";
   import { cardFacts } from "./db/card";
+  import Focus from "./db/Focus.svelte";
+  import { storeOf } from "./db/focus";
 
   let { view: given, camera = new Camera(), size, edit, onview, show, diff }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -531,6 +533,20 @@
     selected = id;
     fly(id);
   }
+  let focusing = $state<{ store: string; table: string | null } | null>(null);
+  function openFocus(id: string) {
+    const store = storeOf(view, id);
+    if (store && view.tables?.[id]) focusing = { store, table: id };
+  }
+  const hasTables = (id: string) => Object.keys(view.tables ?? {}).some((t) => storeOf(view, t) === id);
+  function openTables(id: string) {
+    if (hasTables(id)) focusing = { store: id, table: null };
+  }
+  function closeFocus() {
+    const id = focusing?.table;
+    focusing = null;
+    if (id && byId.has(id)) sess.focusBox(id);
+  }
   function close() {
     const id = selected;
     selected = null;
@@ -584,7 +600,7 @@
   }
   const shortcuts: Record<string, Act> = { f2: "rename", m: "move", e: "details", o: "code", delete: "delete", backspace: "delete" };
   function key(e: KeyboardEvent) {
-    if (typing(e.target)) return;
+    if (focusing || typing(e.target)) return;
     if ((current || showingDiff) && !sess.ui && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
       goStep(step + (e.key === "ArrowRight" ? 1 : -1));
       return;
@@ -598,6 +614,14 @@
     if (!sess.ui && !(e.target as Element | null)?.closest?.("[data-popover]")) {
       if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && e.key.toLowerCase() === "h") tool.pick("hand");
       if (navKey(e)) return;
+    }
+    if (e.key === "Enter" && !sess.ui && selected && view.tables?.[selected] && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const t = e.target as Element | null;
+      if (!t?.closest?.("button, a, summary, select, [data-popover]") || t.matches?.("[data-box] > button")) {
+        e.preventDefault();
+        openFocus(selected);
+        return;
+      }
     }
     // a popover owns the keys while it is open or has focus
     const owned = e.repeat || sess.ui || !!(e.target as Element | null)?.closest?.("[data-popover]");
@@ -1053,7 +1077,8 @@
   const sess = new EditSession({
     edit: () => api, view: () => view, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
     kinds: () => view.kinds, arrowKinds: () => view.arrowKinds,
-    selected: () => selected, select: (id) => choose(id ? [id] : []), tool: (t) => tool.pick(t), used: (shift) => tool.used(shift), run, arrange: arrangeIn,
+    selected: () => selected, select: (id) => choose(id ? [id] : []), db: (id) => (view.tables?.[id] ? "focus" : hasTables(id) ? "tables" : undefined),
+    openDb: (a, id) => (a === "focus" ? openFocus(id) : openTables(id)), tool: (t) => tool.pick(t), used: (shift) => tool.used(shift), run, arrange: arrangeIn,
     drop: (e, from) => {
       const hit = document.elementFromPoint?.(e.clientX, e.clientY);
       draftAt(groundAt({ clientX: e.clientX, clientY: e.clientY, target: hit && stage.contains(hit) ? hit : e.target }), from);
@@ -1317,7 +1342,8 @@
       <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
-        kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} facts={cards.get(b.id)} picked={many.includes(b.id)} />
+        kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} facts={cards.get(b.id)} picked={many.includes(b.id)}
+        onfocus={view.tables?.[b.id] ? () => openFocus(b.id) : undefined} />
       {#if edit && (selected === b.id || hot === b.id) && !open}
         {#each ["l", "r", "t", "b"] as h (h)}<span class="handle {h}" data-handle aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
       {/if}
@@ -1467,6 +1493,10 @@
   {#if reading}
     <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig analyse</code> to let an AI agent read them.</p>
   {/if}
+  {#if focusing}
+    <Focus {view} store={focusing.store} table={focusing.table} ends={endsPref} onends={setEnds} onclose={closeFocus}
+      onpick={(id) => focusing && (focusing = { ...focusing, table: id })} />
+  {/if}
   {#if panelBox}
     {#key panelBox.id}
       <BoxPanel {view} box={panelBox} s={sess} context={kindContext(panelBox.id)} onclose={closePanel} onbox={(id) => details(id)} onadd={addInside}
@@ -1474,7 +1504,8 @@
     {/key}
   {:else if selected && byId.get(selected)}
     <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined}
-      onedit={edit && written(byId.get(selected)) ? () => details(selected!) : undefined} edit={api} {run} />
+      onedit={edit && written(byId.get(selected)) ? () => details(selected!) : undefined} edit={api} {run}
+      ondb={view.tables?.[selected] ? { label: "Focus", run: () => openFocus(selected!) } : hasTables(selected) ? { label: "Tables…", run: () => openTables(selected!) } : undefined} />
   {/if}
 </div>
 

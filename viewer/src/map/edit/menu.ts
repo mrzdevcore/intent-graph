@@ -3,7 +3,7 @@ import type { Edit, KindView, MapArrow, MapBox } from "../types";
 import { inside, kindOf } from "./add";
 
 export type Clipped = "copy" | "copyAll" | "paste" | "duplicate" | "duplicateAll";
-export type Act = "rename" | "kinds" | "details" | "arrow" | "add" | "move" | "arrange" | "code" | "delete" | Clipped;
+export type Act = "rename" | "kinds" | "details" | "arrow" | "add" | "move" | "arrange" | "code" | "delete" | "focus" | "tables" | Clipped;
 
 /** A run block goes to the root or a group outside any running block; a design block inside a running block (a run block, a
  *  module, a box or group within one); a module either; a group anywhere. Never the box itself, its descendants, its current
