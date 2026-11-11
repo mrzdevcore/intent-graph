@@ -139,17 +139,19 @@ test("arrows rest faint; the box under the pointer lights its own, with labels, 
   camera.to(fitTo(worldFrame("api", view), size), 0);
   m.tick(800);
   flushSync();
-  const id = "api/domain-order->api/infra-prisma";
-  expect(target.querySelector("[data-label]")).toBeNull();
+  const hub = "api/application-checkout", id = "api/application-checkout->api/infra-prisma";
   const states = () => [...target.querySelectorAll("[data-arrow] g[data-state]")].map((g) => g.getAttribute("data-state"));
+  const labels = (state: string) => [...target.querySelectorAll(`[data-label] g[data-state="${state}"]`)].map((g) => g.closest("[data-label]")!.getAttribute("data-label")!);
   expect(new Set(states())).toEqual(new Set(["rest"]));
-  box(target, "api/domain-order")!.querySelector("button")!.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+  expect(labels("rest").filter((a) => a.startsWith("api/"))).toEqual([]);
+  box(target, hub)!.querySelector("button")!.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
   flushSync();
-  expect(target.querySelector(`[data-label="${CSS.escape(id)}"]`)).not.toBeNull();
-  const ids = [...target.querySelectorAll("[data-label]")].map((e) => e.getAttribute("data-label")!);
-  expect(ids.every((a) => a.split("->").includes("api/domain-order"))).toBe(true);
-  expect(states().filter((s) => s === "lit").length).toBe(ids.length);
-  expect(states().filter((s) => s === "dim").length).toBe(view.arrows.filter((a) => a.parent === "api").length - ids.length);
+  expect(labels("lit")).toContain(id);
+  expect(labels("lit").every((a) => a.split("->").includes(hub))).toBe(true);
+  expect(labels("rest").filter((a) => a.startsWith("api/"))).toEqual([]);
+  const mine = view.arrows.filter((a) => a.parent === "api" && (a.from === hub || a.to === hub)).length;
+  expect(states().filter((s) => s === "lit").length).toBe(mine);
+  expect(states().filter((s) => s === "dim").length).toBe(view.arrows.filter((a) => a.parent === "api").length - mine);
 });
 
 test("an open box's inside sits below its header", () => {

@@ -1,4 +1,3 @@
-<!-- The bar of the picked arrow, above its middle. A bundle lists its parts; a drift arrow offers to keep it in ig/ first. -->
 <script lang="ts">
   import type { ArrowKind } from "../types";
   import ArrowChip from "./ArrowChip.svelte";

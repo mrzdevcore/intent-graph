@@ -12,6 +12,7 @@ import MapHarness from "./MapHarness.svelte";
 import MovePicker from "../src/map/edit/MovePicker.svelte";
 import { parentsFor } from "../src/map/edit/menu";
 import { Camera } from "../src/map/glide";
+import { EditSession, type Ctx } from "../src/map/edit/session.svelte";
 import { fitTo, worldFrame } from "../src/map/camera";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -1402,4 +1403,101 @@ test("right-click on an arrow gives its bar as a menu", async () => {
   items.find((b) => b.dataset.item === "delete")!.click();
   await tick();
   expect(got).toEqual([{ op: "unarrow", from: "api", to: "postgres", kind: "reads" }]);
+});
+
+test("typed note text is kept when the press lands on another arrow or on an end handle", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  const typeNote = (id: string, v: string) => {
+    pickArrow(target, id);
+    arrowButton(target, "Note")!.click();
+    flushSync();
+    typeIn(target.querySelector<HTMLInputElement>('[data-arrow-text="note"]')!, v);
+  };
+  typeNote("web->api", "first");
+  ptr(hitOf(target, "api->postgres"), "pointerdown");
+  ptr(window, "pointerup");
+  await tick();
+  typeNote("api->postgres", "second");
+  ptr(target.querySelector('[data-end="to"]')!, "pointerdown");
+  ptr(window, "pointerup");
+  await tick();
+  expect(got).toEqual([
+    { op: "arrowset", from: "web", to: "api", key: "note", value: "first" },
+    { op: "arrowset", from: "api", to: "postgres", key: "note", value: "second" },
+  ]);
+});
+
+test("panning keeps the picked arrow; a click on the ground lets it go", () => {
+  const { target } = setup(recorder().api);
+  pickArrow(target, "web->api");
+  const pan = (init: PointerEventInit) => {
+    ptr(stageOf(target), "pointerdown", { clientX: 900, clientY: 700, ...init });
+    ptr(window, "pointermove", { clientX: 800, clientY: 600, ...init });
+    ptr(window, "pointerup", { clientX: 800, clientY: 600, ...init });
+  };
+  pan({ button: 1 });
+  expect(arrowBar(target)).not.toBeNull();
+  press("h");
+  pan({});
+  expect(arrowBar(target)).not.toBeNull();
+  press("v");
+  ptr(stageOf(target), "pointerdown", { clientX: 900, clientY: 700 });
+  ptr(window, "pointerup", { clientX: 900, clientY: 700 });
+  expect(arrowBar(target)).toBeNull();
+});
+
+test("an end dropped on its own box, the other end, the ground or a box not in ig/ sends nothing", async () => {
+  const { api, got } = recorder();
+  const v = fresh();
+  v.boxes.find((b) => b.id === "stripe")!.origin = "drift";
+  const { target } = setup({ ...api, apply: async (e) => (got.push(e), v) }, v);
+  for (const onto of ["postgres", "api", null, "stripe"]) {
+    pickArrow(target, "api->postgres");
+    ptr(target.querySelector('[data-end="to"]')!, "pointerdown");
+    const at = onto ? boxEl(target, onto) : stageOf(target);
+    ptr(at, "pointermove", { clientX: 950, clientY: 750 });
+    if (onto === "stripe") expect(target.querySelector('[data-box="stripe"]')!.classList.contains("target")).toBe(false);
+    ptr(at, "pointerup", { clientX: 950, clientY: 750 });
+  }
+  await tick();
+  expect(got).toEqual([]);
+});
+
+test("the arrow menu's Kind opens the bar's kind list and Label edits the label", () => {
+  const { target } = setup(recorder().api);
+  const menu = (item: string) => {
+    hitOf(target, "web->api").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+    flushSync();
+    menuOf(target)!.querySelector<HTMLElement>(`[data-item="${item}"]`)!.click();
+    flushSync();
+  };
+  menu("kind");
+  expect(target.querySelector("[data-item]")).toBeNull();
+  expect(kindItems(target).length).toBeGreaterThan(0);
+  menu("label");
+  expect(target.querySelector<HTMLInputElement>('[data-arrow-text="label"]')!.value).toBe("POST /checkout");
+});
+
+test("a labelled arrow shows its label at rest", () => {
+  const { target } = setup(recorder().api);
+  const g = target.querySelector('[data-label="web->api"] g[data-state]')!;
+  expect(g.getAttribute("data-state")).toBe("rest");
+  expect(g.textContent).toContain("POST /checkout");
+});
+
+test("Context and Details open the panel seam at their field; letting go of the arrow closes it", () => {
+  const view = fresh();
+  const s = new EditSession({ view: () => view, box: (id: string) => view.boxes.find((b) => b.id === id), select: () => {}, edit: () => undefined } as unknown as Ctx);
+  s.pickArrow({ id: "web->api" });
+  s.arrowAct("context");
+  expect(s.panel).toEqual({ arrow: { id: "web->api" }, focus: "context" });
+  s.arrowAct("details");
+  expect(s.panel).toEqual({ arrow: { id: "web->api" }, focus: null });
+  s.pickArrow(null);
+  expect(s.panel).toBeNull();
+  s.pickArrow({ id: "web->api" });
+  s.openPanel("context");
+  s.cancel();
+  expect(s.panel).toBeNull();
 });

@@ -4,14 +4,12 @@ import type { EditApi } from "../../api";
 import type { ArrowKind, ArrowKindView, Edit, Frame, KindView, MapArrow, MapBox, View } from "../types";
 import { editing, onArrow, specKind } from "./arrows";
 import { baseOf, guessArrow } from "./guess";
-import { removal, type Act } from "./menu";
+import { removal, written, type Act } from "./menu";
 import type { Tool } from "./tool.svelte";
 
 export type Draft = { parent: string; x: number; y: number; w: number; h: number; title: string; drawing: boolean; from?: string };
 export type Ui = { t: "menu" | "rename" | "move" | "ground" | "arrow"; id: string; x: number; y: number; gx?: number; gy?: number };
-/** A drawn arrow, or one of a bundle's parts (by its ends). */
 export type ArrowPick = { id: string; part?: { from: string; to: string } };
-/** The details panel's seam (Task 13): which arrow, and the field it opens at. */
 export type Panel = { arrow: ArrowPick; focus: "context" | null };
 export type Ctx = {
   edit: () => EditApi | undefined; view: () => View; box: (id: string) => MapBox | undefined; frame: (id: string) => Frame;
@@ -103,7 +101,7 @@ export class EditSession {
   }
   /** Drop everything in flight (Esc, a box gone). */
   cancel() {
-    this.link = this.ui = this.adding = this.draft = this.made = this.kinds = this.asking = this.end = this.writing = this.arrow = null;
+    this.link = this.ui = this.adding = this.draft = this.made = this.kinds = this.asking = this.end = this.writing = this.arrow = this.panel = null;
     this.arrowKinds = false;
     this.release();
   }
@@ -205,7 +203,6 @@ export class EditSession {
     return { op: "batch", edits: [add, { op: "arrow", from: d.from, to: id, kind: this.guess(d.from, null), label: null }] };
   }
 
-  /** The picked arrow as the view has it now. */
   get picked(): MapArrow | undefined {
     const p = this.arrow, a = p ? this.c.view().arrows.find((x) => x.id === p.id) : undefined;
     return p?.part ? a?.parts?.find((x) => x.from === p.part!.from && x.to === p.part!.to) : a;
@@ -215,12 +212,12 @@ export class EditSession {
     return a ? editing(a, this.c.box) : "none";
   }
   pickArrow(p: ArrowPick | null) {
+    if (!p || this.panel?.arrow.id !== p.id) this.panel = null;
     this.arrow = p;
     this.arrowKinds = false;
     this.writing = this.ui = this.kinds = this.asking = this.made = null;
     if (p) this.c.select(null);
   }
-  /** A change to the picked arrow (a drift arrow is kept in ig/ with it); `next` is where the arrow is after it. */
   private change(edits: Edit[], next?: { from: string; to: string }) {
     const a = this.picked, how = this.editing;
     if (!a || !this.c.edit() || (how !== "edit" && how !== "drift")) return;
@@ -235,7 +232,6 @@ export class EditSession {
     if (!a || (key === "kind" ? specKind(a) : this.text(a, key)) === value) return;
     this.change([{ op: "arrowset", from: a.from, to: a.to, key, value }]);
   }
-  /** What ig/ says: a bundle's label is a count, not something written. */
   text(a: MapArrow, key: "label" | "note" | "context") {
     return key === "label" && a.kind === "bundle" ? null : a[key] ?? null;
   }
@@ -252,7 +248,6 @@ export class EditSession {
     this.change([{ op: "unarrow", from: a.from, to: a.to, kind: specKind(a) }]);
     this.pickArrow(null);
   }
-  /** The details panel, at `focus` (Task 13 draws it). */
   openPanel(focus: "context" | null) {
     if (this.arrow) this.panel = { arrow: this.arrow, focus };
   }
@@ -268,7 +263,7 @@ export class EditSession {
     const r = this.end;
     if (!r) return false;
     const to = this.boxAt(e);
-    this.end = { ...r, to: to && to !== r.fixed && this.c.box(to) ? to : null, ...this.rel(e) };
+    this.end = { ...r, to: to && to !== r.fixed && written(this.c.box(to)) ? to : null, ...this.rel(e) };
     return true;
   }
   endEnd(e: PointerEvent): boolean {
@@ -277,7 +272,7 @@ export class EditSession {
     this.end = null;
     this.release();
     const to = this.boxAt(e);
-    if (!a || !to || to === r.fixed || to === r.was || !this.c.box(to)) return true;
+    if (!a || !to || to === r.fixed || to === r.was || !written(this.c.box(to))) return true;
     this.change([{ op: "arrowset", from: a.from, to: a.to, key: r.which, value: to }], r.which === "to" ? { from: a.from, to } : { from: to, to: a.to });
     return true;
   }
@@ -286,7 +281,6 @@ export class EditSession {
     this.pickArrow({ id });
     this.ui = { t: "arrow", id, ...this.rel(e) };
   }
-  /** What the arrow menu's item does (the bar's buttons do the same). */
   arrowAct(a: "kind" | "label" | "note" | "context" | "flip" | "details" | "delete" | "keep") {
     this.ui = null;
     if (a === "kind") this.arrowKinds = true;

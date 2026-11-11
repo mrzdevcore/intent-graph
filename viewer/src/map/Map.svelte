@@ -38,6 +38,7 @@
   import ArrowMenu from "./edit/ArrowMenu.svelte";
   import ArrowText from "./edit/ArrowText.svelte";
   import { arrowKindNames, specKind } from "./edit/arrows";
+  import { arrowBar as barOf, arrowHit, partFrame } from "./edit/arrowPick";
   import { kindName } from "./edit/kinds";
   import { sharedParent } from "./edit/menu";
   import EditLayer from "./edit/EditLayer.svelte";
@@ -622,7 +623,7 @@
   let drag: {
     x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; pt?: { x: number; y: number }; track?: { x: number; y: number; t: number }[];
     box?: { id: string; at: { x: number; y: number }; k: number }; resize?: { id: string; corner: string; f: Frame; k: number }; draw?: { parent: string; x: number; y: number };
-    mark?: { sx: number; sy: number; add: boolean }; frame?: { parent: string; x: number; y: number; sx: number; sy: number };
+    mark?: { sx: number; sy: number; add: boolean }; frame?: { parent: string; x: number; y: number; sx: number; sy: number }; letGo?: boolean;
   } | null = null;
   let marquee = $state<{ x0: number; y0: number; x1: number; y1: number; frame: boolean } | null>(null);
   let swallow = false;
@@ -645,6 +646,8 @@
     stopCoast();
     if (e.button === 1) e.preventDefault();
     // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
+    // picking or grabbing an arrow unmounts the field before its own blur would keep the text
+    (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>("[data-arrow-text]")?.blur();
     if ((e.button !== 0 && e.button !== 1) || (e.target as Element | null)?.closest?.("[data-pad], [data-draft]")) return;
     const panning = e.button === 1 || space || tool.current === "hand";
     const grip = !panning && edit ? (e.target as Element | null)?.closest?.("[data-resize]") as HTMLElement | null : null;
@@ -658,13 +661,8 @@
     if (e.button === 0 && !space && sess.startEnd(e)) return;
     const hit = e.button === 0 && !space && edit && tool.current === "select" ? arrowHit(e) : undefined;
     if (hit) return void sess.pickArrow({ id: hit });
-    if (sess.arrow) {
-      // the typed label or note is kept before the arrow lets go
-      (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>("[data-arrow-text]")?.blur();
-      sess.pickArrow(null);
-    }
     if (e.button === 0 && !space && sess.startLink(e, tool.current === "arrow")) return;
-    drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
+    drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId, letGo: !panning && !!sess.arrow };
     if (!panning && edit && tool.current === "box") {
       drag.draw = groundAt(e);
       return;
@@ -751,6 +749,7 @@
       return;
     }
     sess.release();
+    if (drag?.letGo && !drag.moved) sess.pickArrow(null);
     swallow = !!drag?.moved;
     const d = drag?.draw;
     if (d) {
@@ -1039,46 +1038,19 @@
     };
   });
 
-  const arrowHit = (e: Event) => {
-    const t = e.target as Element | null;
-    return t?.closest?.("[data-hit]") ? (t.closest("[data-arrow]") as HTMLElement | null)?.dataset.arrow : undefined;
-  };
-  const toScreen = (parent: string, [x, y]: [number, number]) => {
-    const t = parent === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(parent), c = cam;
-    return { x: (t.x + x * t.s) * c.k + c.x, y: (t.y + y * t.s) * c.k + c.y };
-  };
-  const centreOf = (id: string) => {
-    const f = frameOf(id), c = cam;
-    return { x: (f.x + f.w / 2) * c.k + c.x, y: (f.y + f.h / 2) * c.k + c.y };
-  };
-  /** The picked arrow's middle on screen: its wire's, or halfway between a bundle part's boxes. */
-  const arrowAt = $derived.by(() => {
-    const p = sess.arrow, a = p && view.arrows.find((x) => x.id === p.id);
-    if (!p || !a) return null;
-    if (p.part) {
-      const [f, t] = [centreOf(p.part.from), centreOf(p.part.to)];
-      return { x: (f.x + t.x) / 2, y: (f.y + t.y) / 2 };
-    }
-    const mode = (unit.get(a.parent) ?? 1) * lod.k < RIBBON ? "ribbon" : "routed", w = wiringOf(a.parent)?.[mode].wires.get(a.id);
-    if (w) return toScreen(a.parent, w.mid);
-    const [f, t] = [centreOf(a.from), centreOf(a.to)];
-    return { x: (f.x + t.x) / 2, y: (f.y + t.y) / 2 };
-  });
   const arrowBar = $derived.by(() => {
-    const a = sess.picked, at = arrowAt, drawnAs = sess.arrow && view.arrows.find((x) => x.id === sess.arrow!.id);
-    if (!edit || !a || !at || !drawnAs || live || sess.link || sess.end || sess.draft || marquee) return null;
-    const how = sess.editing, title = `${sess.titleOf(a.from)} → ${sess.titleOf(a.to)}`;
-    const parts = how === "bundle" ? (a.parts ?? []).map((p) => ({ title: `${sess.titleOf(p.from)} → ${sess.titleOf(p.to)}`, kind: specKind(p) })) : [];
-    return { ...at, y: Math.max(barTop, at.y), how, title, a, parts, bundle: drawnAs };
+    if (!edit || live || sess.link || sess.end || sess.draft || marquee) return null;
+    return barOf(sess, view.arrows, {
+      cam, frame: frameOf, inside: (p) => (p === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(p)),
+      wire: (a) => wiringOf(a.parent)?.[(unit.get(a.parent) ?? 1) * lod.k < RIBBON ? "ribbon" : "routed"].wires.get(a.id),
+    }, barTop);
   });
   function pickPart(bundle: Arrow, i: number) {
     const p = bundle.parts?.[i];
     if (!p) return;
     sess.pickArrow({ id: bundle.id, part: { from: p.from, to: p.to } });
-    const [f, t] = [frameOf(p.from), frameOf(p.to)], x = Math.min(f.x, t.x), y = Math.min(f.y, t.y);
-    glideTo(fitTo({ x, y, w: Math.max(f.x + f.w, t.x + t.w) - x, h: Math.max(f.y + f.h, t.y + t.h) - y }, { w: vw, h: vh }, 0.2));
+    glideTo(fitTo(partFrame(p, frameOf), { w: vw, h: vh }, 0.2));
   }
-  // a new view can drop the picked arrow (a change made elsewhere, an undo)
   $effect(() => {
     void view;
     untrack(() => {
@@ -1100,7 +1072,6 @@
   {@const path = traced?.parent === pid ? traced : null}
   {@const ans = path ? null : answer}
   {@const lit = path ? all.filter((a) => path.arrows.includes(a)) : all.filter((a) => touches(a) || (ans && arrowLit(ans, a) && (!marks || (nowOn.has(a.from) && nowOn.has(a.to)))))}
-  {@const labelled = all.filter((a) => lit.includes(a) || !!a.note || sess.arrow?.id === a.id)}
   {@const answered = ans && (kids.get(pid) ?? []).some((b) => states?.has(b.id))}
   {@const mode = zoom < RIBBON ? "ribbon" : "routed"}
   {#if near}{#each regions.get(pid) ?? [] as r, i (i)}<Region region={r} {zoom} />{/each}{/if}
@@ -1171,12 +1142,13 @@
     <Draft x={d.x - o.x} y={d.y - o.y} w={d.w} h={d.h} editing={!d.drawing} title={d.title}
       ontitle={(v) => sess.draft && (sess.draft.title = v)} onfinish={finishDraft} />
   {/if}
-  <!-- the focused arrows' labels, above the boxes -->
-  {#each labelled as a (a.id)}
+  <!-- the arrows' labels, above the boxes -->
+  {#each mode === "ribbon" ? all.filter((a) => lit.includes(a) || sess.arrow?.id === a.id) : all as a (a.id)}
     {@const c = pathOf(a, mode)}
     {@const here = sess.arrow?.id === a.id}
     <div class="arrow" data-label={a.id}>
       <MapArrow part="label" d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom} note={a.note} len={c.len} picked={here}
+        lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
         ends={here && !sess.arrow?.part && (sess.editing === "edit" || sess.editing === "drift") ? c.ends : undefined} />
     </div>
   {/each}

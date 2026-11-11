@@ -1,4 +1,3 @@
-<!-- The arrow menu (right-click on an arrow): what its bar does. Arrow keys move, a hint key picks, Esc closes. -->
 <script lang="ts">
   import { onMount } from "svelte";
   import type { Editing } from "./arrows";

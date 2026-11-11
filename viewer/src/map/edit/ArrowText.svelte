@@ -1,4 +1,3 @@
-<!-- The arrow's label or note, typed in place at its middle. Enter or leaving the field keeps, Esc cancels. -->
 <script lang="ts">
   import { onMount } from "svelte";
   let { value, what, x, y, max, onsubmit, onclose }: {

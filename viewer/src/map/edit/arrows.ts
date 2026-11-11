@@ -1,4 +1,4 @@
-// Arrow kinds the kind chip offers, and what an arrow on the map lets you change.
+// Arrow kinds the kind chip offers.
 import type { ArrowKind, ArrowKindView, Edit, MapArrow, MapBox } from "../types";
 import { written } from "./menu";
 
@@ -17,10 +17,8 @@ export function editing(a: MapArrow, box: (id: string) => MapBox | undefined): E
   return a.origin === "drift" ? "drift" : "edit";
 }
 
-/** The arrow written into ig/ as it is drawn: what a drift arrow's first change goes with. */
 export const keep = (a: MapArrow): Edit => ({ op: "arrow", from: a.from, to: a.to, kind: specKind(a), label: a.kind === "bundle" ? null : a.label ?? null });
 
-/** `edits` on arrow `a`; a drift arrow is written first, in the same batch. */
 export function onArrow(a: MapArrow, edits: Edit[]): Edit | null {
   const all = a.origin === "drift" ? [keep(a), ...edits] : edits;
   return all.length === 0 ? null : all.length === 1 && a.origin !== "drift" ? all[0] : { op: "batch", edits: all };

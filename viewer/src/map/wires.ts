@@ -1,6 +1,6 @@
 import type { Frame, MapArrow } from "./types";
 
-/** An arrow drawn as a wire: its SVG path, the point halfway along it, its length, and its ends (tail, head). */
+/** An arrow drawn as a wire: its SVG path and the point halfway along it. */
 export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]] };
 /** "routed": each wire on its own track, spread over the gaps; "ribbon": wires gathered into as
  *  few trunks as they can share, packed close, a sleeve behind each trunk. */

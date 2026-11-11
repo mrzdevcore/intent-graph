@@ -2,8 +2,7 @@
      cutting the wire halfway (`part` "label", drawn above the boxes). `zoom` is screen pixels per inner unit: lines, heads and pills keep a steady size on
      screen, so a parent's arrows never turn into bars once you are deep inside one of its boxes.
      At rest a plain arrow is faint; lit (its box or itself under the pointer, or selected) it is
-     drawn in full, and dimmed further while another is lit. A rule's or risk's stays in full.
-     Picked, it is gold with a handle on each end. Under its label, its note: one muted line cut to the arrow's length. -->
+     drawn in full, and dimmed further while another is lit. A rule's or risk's stays in full. -->
 <script lang="ts" module>
   let n = 0;
   const REST = 0.35, DIM = 0.12;
@@ -19,7 +18,8 @@
 
   const id = `ig-head-${n++}`;
   const m = $derived(steady(zoom));
-  const w = $derived((arrowLook.label?.length ?? 0) * 6.5 + 16);
+  // Kalam runs wide: about 0.6 em a character at 12
+  const w = $derived((arrowLook.label?.length ?? 0) * 7.4 + 18);
   const state = $derived(lit ? "lit" : dim ? "dim" : "rest");
   const alpha = $derived(lit || arrowLook.strong || arrowLook.tone !== "neutral" ? 1 : dim ? DIM : REST);
   const NOTE_CH = 5.2;
@@ -55,7 +55,7 @@
     </g>
   {:else}
     {#if arrowLook.label || line}
-      <g transform="translate({mid[0]} {mid[1]}) scale({m})">
+      <g transform="translate({mid[0]} {mid[1]}) scale({m})" opacity={picked ? 1 : alpha} data-state={picked ? "picked" : state} style="transition: opacity 150ms">
         {#if arrowLook.label}
           <rect x={-w / 2} y="-10" width={w} height="20" rx="10" style:fill="var(--map-ground)" style:stroke={color} stroke-width="1" />
           <text y="4" text-anchor="middle" font-size="12" style:font-family="var(--font-hand)" style:fill={TEXT[arrowLook.tone]}>{arrowLook.label}</text>
