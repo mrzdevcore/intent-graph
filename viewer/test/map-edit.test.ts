@@ -25,6 +25,7 @@ const mount = ((c: never, o: never) => {
 afterEach(() => {
   for (const m of mounted.splice(0)) unmount(m);
   document.body.innerHTML = "";
+  localStorage.clear();
 });
 const fresh = () => structuredClone(shop) as unknown as View;
 const size = { w: 1000, h: 800 };
@@ -337,7 +338,7 @@ test("right-click opens the menu, Esc closes it", () => {
   boxEl(target, "web").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
   flushSync();
   expect([...menuOf(target)!.querySelectorAll('[role="menuitem"]')].map((b) => b.firstElementChild!.textContent))
-    .toEqual(["Rename", "Move to…", "Add box inside", "Arrow from here", "Arrange inside", "Delete"]);
+    .toEqual(["Rename", "Kind", "Edit details", "Arrow from here", "Add a box inside", "Move to a group…", "Arrange inside", "Open the code", "Delete"]);
   expect([...menuOf(target)!.querySelectorAll("kbd")].filter((k) => !k.textContent)).toHaveLength(0);
   press("ArrowDown", {}, document.activeElement!);
   press("Escape", {}, document.activeElement!);
@@ -415,17 +416,48 @@ test("parentsFor: a run block goes into a top-level group, a group back to the r
   expect(ids("api/domain-order")).not.toContain("g");
 });
 
-test("Delete sends Remove and shows the refusal", async () => {
+test("Delete of a box with boxes inside asks once in the bar, then sends one batch; a refusal shows", async () => {
   const got: any[] = [];
-  const { api } = fake({ apply: async (e) => (got.push(e), Promise.reject(new Error("`api` still holds 9 boxes"))) });
+  const { api } = fake({ apply: async (e) => (got.push(e), Promise.reject(new Error("`api` is in use"))) });
   const { target } = setup(api);
   boxEl(target, "api").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
   flushSync();
   item(target, "Delete").click();
+  flushSync();
+  await tick();
+  expect(got).toEqual([]);
+  const bar = target.querySelector("[data-bar]")!;
+  expect(bar.textContent).toContain("Delete Api and 9 boxes inside?");
+  expect(document.activeElement!.textContent).toBe("Delete");
+  (document.activeElement as HTMLElement).click();
   await tick();
   flushSync();
-  expect(got).toEqual([{ op: "remove", id: "api" }]);
-  expect(target.querySelector('[aria-live="polite"]')!.textContent).toBe("`api` still holds 9 boxes");
+  expect(got).toHaveLength(1);
+  const edits = got[0].edits as any[];
+  expect(got[0].op).toBe("batch");
+  expect(edits.filter((e) => e.op === "unarrow")).toContainEqual({ op: "unarrow", from: "web", to: "api", kind: "calls" });
+  expect(edits.filter((e) => e.op === "unarrow")).toContainEqual({ op: "unarrow", from: "api/root", to: "api/routers", kind: "uses" });
+  expect(edits.findIndex((e) => e.op === "remove")).toBe(edits.filter((e) => e.op === "unarrow").length);
+  expect(edits.filter((e) => e.op === "remove")).toHaveLength(10);
+  expect(edits.at(-1)).toEqual({ op: "remove", id: "api" });
+  expect(target.querySelector('[aria-live="polite"]')!.textContent).toBe("`api` is in use");
+});
+
+test("Keep or Esc answers no to the delete question", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  select(target, "web");
+  press("Delete");
+  expect(target.querySelector("[data-bar]")!.textContent).toContain("Delete Web and 1 box inside?");
+  press("Escape");
+  expect(target.querySelector("[data-bar]")!.textContent).not.toContain("inside?");
+  press("Delete");
+  [...target.querySelectorAll<HTMLElement>("[data-bar] button")].find((b) => b.textContent === "Keep")!.click();
+  flushSync();
+  press("Delete");
+  press("Delete");
+  await tick();
+  expect(got).toEqual([{ op: "batch", edits: [{ op: "unarrow", from: "web", to: "api", kind: "calls" }, { op: "remove", id: "web/pages" }, { op: "remove", id: "web" }] }]);
 });
 
 // --- fix round 1
@@ -469,15 +501,16 @@ test("Map-level Move: pick a parent and Move is sent", async () => {
   expect(got).toEqual([{ op: "move", id: "api/application-refund", parent: "web", before: null }]);
 });
 
-test("Backspace and Delete with a box selected send Remove", async () => {
+test("Backspace and Delete with a box selected remove it with its arrows, one batch each", async () => {
   const { api, got } = recorder();
   const { target } = setup(api);
-  select(target, "web");
+  select(target, "stripe");
   press("Backspace");
   await tick();
   press("Delete");
   await tick();
-  expect(got).toEqual([{ op: "remove", id: "web" }, { op: "remove", id: "web" }]);
+  const gone = { op: "batch", edits: [{ op: "unarrow", from: "api", to: "stripe", kind: "calls" }, { op: "remove", id: "stripe" }] };
+  expect(got).toEqual([gone, gone]);
 });
 
 test("Backspace inside the rename input sends nothing", async () => {
@@ -912,7 +945,7 @@ test("confirming a draft while another edit is saving keeps it open with its nam
   const got: unknown[] = [];
   const api = fake({ apply: (e) => (got.push(e), got.length === 1 ? new Promise<View>((r) => (done = r)) : Promise.resolve(fresh())) }).api;
   const { target } = setup(api);
-  select(target, "web");
+  select(target, "stripe");
   press("Delete");
   stageOf(target).dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 300, clientY: 300 }));
   flushSync();
@@ -948,4 +981,225 @@ test("double-clicking an arrow or its label makes no draft", () => {
     flushSync();
   }
   expect(draftOf(target)).toBeNull();
+});
+
+// --- several boxes
+const barOf = (t: HTMLElement) => t.querySelector<HTMLElement>("[data-bar]");
+const barButton = (t: HTMLElement, name: string) => [...barOf(t)!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent!.startsWith(name))!;
+const shiftClick = (t: HTMLElement, id: string) => {
+  boxEl(t, id).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }));
+  flushSync();
+};
+const picked = (t: HTMLElement) => [...t.querySelectorAll<HTMLElement>(".slot.picked")].map((e) => e.dataset.box).sort();
+const marquee = (t: HTMLElement, a: { x: number; y: number }, b: { x: number; y: number }, init: PointerEventInit = {}) => {
+  ptr(stageOf(t), "pointerdown", { clientX: a.x, clientY: a.y, ...init });
+  ptr(window, "pointermove", { clientX: b.x, clientY: b.y, ...init });
+  const box = t.querySelector<HTMLElement>("[data-marquee]");
+  ptr(window, "pointerup", { clientX: b.x, clientY: b.y, ...init });
+  return box;
+};
+
+test("a select-drag on the ground draws a dashed marquee and selects what it encloses; a click on the ground clears", () => {
+  const { target } = setup(recorder().api);
+  const m = marquee(target, { x: 120, y: 220 }, { x: 880, y: 560 });
+  expect(m).not.toBeNull();
+  expect(target.querySelector("[data-marquee]")).toBeNull();
+  expect(picked(target)).toEqual(["api", "api-client", "postgres", "stripe", "web"]);
+  expect(barOf(target)!.textContent).toContain("5 boxes");
+  ptr(stageOf(target), "pointerdown", { clientX: 950, clientY: 750 });
+  ptr(window, "pointerup", { clientX: 950, clientY: 750 });
+  expect(picked(target)).toEqual([]);
+  expect(barOf(target)).toBeNull();
+});
+
+test("Shift-drag adds to the selection; Esc clears it", () => {
+  const { target } = setup(recorder().api);
+  marquee(target, { x: 140, y: 240 }, { x: 360, y: 380 });
+  expect(target.querySelector("section.details")!.textContent).toContain("Web");
+  marquee(target, { x: 640, y: 240 }, { x: 850, y: 380 }, { shiftKey: true });
+  expect(picked(target)).toEqual(["postgres", "web"]);
+  press("Escape");
+  expect(picked(target)).toEqual([]);
+});
+
+test("read-only: a drag on the ground still pans", () => {
+  const { target } = setup();
+  const before = (target.querySelector(".world") as HTMLElement).style.transform;
+  expect(marquee(target, { x: 120, y: 220 }, { x: 400, y: 400 })).toBeNull();
+  expect((target.querySelector(".world") as HTMLElement).style.transform).not.toBe(before);
+});
+
+test("Shift-click adds and removes; back to one box it is the plain selection", () => {
+  const { target } = setup(recorder().api);
+  select(target, "web");
+  shiftClick(target, "postgres");
+  expect(picked(target)).toEqual(["postgres", "web"]);
+  expect(target.querySelector("section.details")).toBeNull();
+  expect(barOf(target)!.textContent).toContain("2 boxes");
+  shiftClick(target, "stripe");
+  expect(barOf(target)!.textContent).toContain("3 boxes");
+  shiftClick(target, "postgres");
+  shiftClick(target, "stripe");
+  expect(picked(target)).toEqual([]);
+  expect(target.querySelector("section.details")!.textContent).toContain("Web");
+  expect(barOf(target)!.textContent).not.toContain("boxes");
+});
+
+test("two boxes selected and A connects the first to the second", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  select(target, "web");
+  shiftClick(target, "postgres");
+  press("a");
+  await tick();
+  expect(got).toEqual([{ op: "arrow", from: "web", to: "postgres", kind: "writes", label: null }]);
+  expect(pressed(target)).toBe("Select");
+});
+
+test("the bar of several boxes sets their kind in one batch", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  select(target, "postgres");
+  shiftClick(target, "stripe");
+  expect(barButton(target, "Kind").textContent).toContain("Kind");
+  barButton(target, "Kind").click();
+  flushSync();
+  target.querySelector<HTMLButtonElement>('[data-kinds] [data-kind="queue"]')!.click();
+  await tick();
+  expect(got).toEqual([{ op: "batch", edits: [
+    { op: "set", id: "postgres", key: "kind", value: "queue" }, { op: "set", id: "stripe", key: "kind", value: "queue" },
+  ] }]);
+});
+
+const grouped = (ids: string[]) => {
+  const v = fresh();
+  v.boxes.push({ ...structuredClone(v.boxes.find((b) => b.id === "postgres")!), id: "group", kind: { value: "group" } as never, title: { value: "Group" } as never, madeOf: [] });
+  for (const id of ids) v.boxes.find((b) => b.id === id)!.parent = "group";
+  v.placed.frames.group = { x: 900, y: 0, w: 400, h: 400 };
+  v.placed.inner.group = [400, 400];
+  return v;
+};
+
+test("Group puts the boxes in a new group in their parent, one batch, its title then in edit mode", async () => {
+  const got: any[] = [];
+  const target = harness(fake({ apply: async (e) => (got.push(e), grouped(["postgres", "stripe"])) }).api);
+  select(target, "postgres");
+  shiftClick(target, "stripe");
+  barButton(target, "Group").click();
+  await tick();
+  flushSync();
+  expect(got).toEqual([{ op: "batch", edits: [
+    { op: "add", parent: "system", kind: "group", id: "group", title: "Group", at: [], before: null },
+    { op: "move", id: "postgres", parent: "group", before: null }, { op: "move", id: "stripe", parent: "group", before: null },
+  ] }]);
+  const rename = target.querySelector<HTMLInputElement>('input[aria-label="Rename box"]')!;
+  expect(rename.value).toBe("Group");
+  expect(document.activeElement).toBe(rename);
+  type(rename, "Data");
+  press("Enter", {}, rename);
+  await tick();
+  expect(got[1]).toEqual({ op: "set", id: "group", key: "title", value: "Data" });
+});
+
+test("Group is disabled for boxes in different places", () => {
+  const target = document.createElement("div");
+  document.body.append(target);
+  const v = fresh(), camera = new Camera();
+  const m = mount(Map, { target, props: { view: v, size, edit: recorder().api, camera } });
+  flushSync();
+  camera.to(fitTo(worldFrame("api", v), size), 0);
+  m.tick(800);
+  flushSync();
+  select(target, "api/routers");
+  shiftClick(target, "postgres");
+  expect(barOf(target)!.textContent).toContain("2 boxes");
+  const g = barButton(target, "Group");
+  expect(g.disabled).toBe(true);
+  expect(g.title).toBe("These boxes are in different places");
+});
+
+test("Delete on several boxes is one batch with their arrows and what is inside, asked first", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  select(target, "web");
+  shiftClick(target, "stripe");
+  barButton(target, "Delete").click();
+  flushSync();
+  expect(barOf(target)!.textContent).toContain("Delete 2 boxes and 1 box inside?");
+  barButton(target, "Delete").click();
+  await tick();
+  expect(got).toEqual([{ op: "batch", edits: [
+    { op: "unarrow", from: "api", to: "stripe", kind: "calls" }, { op: "unarrow", from: "web", to: "api", kind: "calls" },
+    { op: "remove", id: "web/pages" }, { op: "remove", id: "web" }, { op: "remove", id: "stripe" },
+  ] }]);
+});
+
+test("Arrange these lays out the selection and says so", () => {
+  const { target } = setup(recorder().api);
+  select(target, "postgres");
+  shiftClick(target, "stripe");
+  shiftClick(target, "web");
+  barButton(target, "Arrange these").click();
+  flushSync();
+  expect(target.querySelector(".arranged")?.textContent).toMatch(/Arranged \d+ box|Already arranged/);
+});
+
+test("Row lines the boxes up at one height, Column at one left edge", () => {
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(MapHarness, { target, props: { start: fresh(), edit: recorder().api, size } });
+  flushSync();
+  const glide = () => (m.tick(performance.now() + 10_000), flushSync());
+  const slot = (id: string) => target.querySelector(`[data-box="${id}"]`) as HTMLElement;
+  select(target, "postgres");
+  shiftClick(target, "stripe");
+  barButton(target, "Row").click();
+  glide();
+  expect(px(slot("stripe"), "top")).toBe(px(slot("postgres"), "top"));
+  expect(px(slot("stripe"), "left")).toBeGreaterThan(px(slot("postgres"), "left"));
+  barButton(target, "Column").click();
+  glide();
+  expect(px(slot("stripe"), "left")).toBe(px(slot("postgres"), "left"));
+});
+
+test("right-click on the ground: Paste waits, New box here makes a draft there, Arrange this group", () => {
+  const { target } = setup(recorder().api);
+  stageOf(target).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 950, clientY: 750 }));
+  flushSync();
+  const items = [...menuOf(target)!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+  expect(items.map((b) => b.firstElementChild!.textContent)).toEqual(["Paste", "New box here", "Arrange this group"]);
+  expect(items[0].disabled).toBe(true);
+  expect(document.activeElement).toBe(items[1]);
+  items[1].click();
+  flushSync();
+  expect(menuOf(target)).toBeNull();
+  expect(document.activeElement).toBe(nameField(target));
+  press("Escape", {}, nameField(target));
+  stageOf(target).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 950, clientY: 750 }));
+  flushSync();
+  item(target, "Arrange this group").click();
+  flushSync();
+  expect(target.querySelector(".arranged")).not.toBeNull();
+});
+
+test("Frame tool: a drag draws a group around the boxes it encloses, one batch", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  press("f");
+  drawBox(stageOf(target), { x: 640, y: 250 }, { x: 850, y: 550 });
+  await tick();
+  expect(got).toEqual([{ op: "batch", edits: [
+    { op: "add", parent: "system", kind: "group", id: "group", title: "Group", at: [], before: null },
+    { op: "move", id: "postgres", parent: "group", before: null }, { op: "move", id: "stripe", parent: "group", before: null },
+  ] }]);
+  expect(pressed(target)).toBe("Select");
+});
+
+test("E with a box selected focuses its details", async () => {
+  const { target } = setup(recorder().api);
+  select(target, "web");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("e");
+  await tick();
+  expect(document.activeElement).toBe(target.querySelector("section.details"));
 });

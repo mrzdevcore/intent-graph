@@ -1,11 +1,11 @@
 <!-- The walkable map. One world <div> under the camera; each box whose screen width reaches
      showsInside mounts its inside (children, regions, wires in its inner units), recursively.
      Only mounted levels are in the DOM. Dragging a box moves it inside its parent (kept per map
-     in localStorage; others make room, the parent grows); dragging elsewhere, or an open box, pans. Map text is repo/AI-derived: text only, never {@html}. -->
+     in localStorage; others make room, the parent grows); dragging elsewhere, or an open box, pans, or draws a marquee when editing. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
-  import { onDestroy, untrack } from "svelte";
+  import { onDestroy, tick as flushed, untrack } from "svelte";
   import type { Edit, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
-  import { detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
+  import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, PLACE_MS, tween, wheelFactor } from "./glide";
   import { GRID, edgePan, gridLevel, momentum, softK, wheelIntent, type WheelPref } from "./nav";
@@ -32,7 +32,10 @@
   import Draft from "./edit/Draft.svelte";
   import { ToolState, type Tool } from "./edit/tool.svelte";
   import AddBox from "./edit/AddBox.svelte";
-  import { freeId, inside } from "./edit/add";
+  import { freeId, inside, kindOf } from "./edit/add";
+  import BoxBar from "./edit/BoxBar.svelte";
+  import { kindName } from "./edit/kinds";
+  import { sharedParent } from "./edit/menu";
   import EditLayer from "./edit/EditLayer.svelte";
   import { EditSession, type Draft as DraftBox } from "./edit/session.svelte";
   import type { Act } from "./edit/menu";
@@ -136,7 +139,8 @@
     glidePlaces(from, instant);
   }
   // a confirmed draft: its box lands where and as big as it was drawn once the view holds it
-  let landing: { id: string; place: Place; kinds: boolean } | null = null;
+  // `also`: the places of what lands with it (a new group's inside and the boxes moved into it)
+  let landing: { id: string; place: Place; kinds?: boolean; rename?: boolean; also?: Record<string, Place> } | null = null;
   // a new view keeps what was drawn; settle finds room for what is new before it is drawn
   $effect.pre(() => {
     const v = view, t = title;
@@ -160,12 +164,19 @@
       lastView = v;
       const made = landing && ids.has(landing.id) ? landing : null;
       landing = null;
-      const next = settlePlaces(prev, v, made ? { ...back, [made.id]: made.place } : back, made?.id ?? null);
+      const carried: Record<string, Place> = {};
+      for (const [k, p] of Object.entries(made?.also ?? {})) if (isInside(k)) prev[k] = p; else if (ids.has(k)) carried[k] = p;
+      const next = settlePlaces(prev, v, made ? { ...back, ...carried, [made.id]: made.place } : back, made?.id ?? null);
       for (const [id, p] of Object.entries(truth)) if (!(id in next)) gone[id] = p;
-      placeAll(next, made ? [made.id] : [], false);
+      placeAll(next, made ? [made.id, ...Object.keys(carried)] : [], false);
       if (made?.kinds) {
         selected = made.id;
-        sess.kinds = made.id;
+        sess.kinds = [made.id];
+      }
+      if (made?.rename) {
+        many = [];
+        selected = made.id;
+        sess.ui = { t: "rename", id: made.id, ...sess.at(made.id) };
       }
     });
   });
@@ -196,7 +207,10 @@
   let tidyTimer: ReturnType<typeof setTimeout> | undefined;
   onDestroy(() => clearTimeout(tidyTimer));
   function arrangeIn(scope: string[]) {
-    const next = arrange(scope, view, truth, GRID), c = changes(truth, next);
+    const laid = arrange(scope, view, truth, GRID);
+    // a selection laid out as a block may leave its parent: the parent grows
+    const next = scope.length > 1 ? settlePlaces(laid, view, Object.fromEntries(scope.filter((id) => laid[id]).map((id) => [id, laid[id]])), null) : laid;
+    const c = changes(truth, next);
     placeAll(next);
     tidied = { n: c ? Object.keys(c.after).filter((k) => !isInside(k)).length : 0, stamp: c ? history.last : undefined };
     clearTimeout(tidyTimer);
@@ -268,6 +282,8 @@
   // detail and wires are worked out from this camera; it trails `cam` while a wheel or drag gesture runs
   let lod = $state<Cam>(untrack(() => camera.cam));
   let selected = $state<string | null>(null);
+  // several boxes selected, in the order they were picked; `selected` is then null
+  let many = $state<string[]>([]);
   // the path the search lit: its boxes and arrows drawn in full, the rest of that level faded
   let traced = $state<Trace | null>(null);
   function lightPath(t: Trace | null) {
@@ -439,6 +455,7 @@
     away = false;
   }
   function openBox(id: string) {
+    many = [];
     selected = id;
     fly(id);
   }
@@ -488,7 +505,7 @@
   function keyup(e: KeyboardEvent) {
     if (e.key === " ") space = false;
   }
-  const shortcuts: Record<string, Act> = { f2: "rename", m: "move", delete: "delete", backspace: "delete" };
+  const shortcuts: Record<string, Act> = { f2: "rename", m: "move", e: "details", o: "code", delete: "delete", backspace: "delete" };
   function key(e: KeyboardEvent) {
     if (typing(e.target)) return;
     if ((current || showingDiff) && !sess.ui && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
@@ -518,8 +535,14 @@
     }
     if (edit && e.key !== "Escape") {
       if (owned) return;
-      const k = e.key.toLowerCase();
-      if (!e.metaKey && !e.ctrlKey && !e.altKey && selected && shortcuts[k]) {
+      const k = e.key.toLowerCase(), plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+      if (plain && many.length > 1 && (k === "delete" || k === "backspace" || (k === "a" && many.length === 2))) {
+        e.preventDefault();
+        if (k === "a") sess.connect(many[0], many[1]);
+        else sess.remove(many);
+        return;
+      }
+      if (plain && selected && shortcuts[k] && (k !== "o" || hasCode(selected))) {
         e.preventDefault();
         sess.act(shortcuts[k], selected);
         return;
@@ -528,14 +551,17 @@
       if (!e.metaKey && !e.ctrlKey && !e.altKey && k === "k") kindFirst(pointer.x, pointer.y, hot && byId.has(hot) ? hot : anchor);
     }
     if (e.key !== "Escape") return;
+    if (sess.asking) return void (sess.asking = null);
     tool.pick("select");
-    if (drag?.draw || drag?.resize) {
+    if (drag?.draw || drag?.resize || drag?.mark || drag?.frame) {
       sess.release();
       live = null;
       drag = null;
     }
     sess.cancel();
-    if (selected) close();
+    marquee = null;
+    if (many.length) many = [];
+    else if (selected) close();
     else if (traced) traced = null;
     else clearAnswer();
   }
@@ -584,7 +610,9 @@
   let drag: {
     x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; pt?: { x: number; y: number }; track?: { x: number; y: number; t: number }[];
     box?: { id: string; at: { x: number; y: number }; k: number }; resize?: { id: string; corner: string; f: Frame; k: number }; draw?: { parent: string; x: number; y: number };
+    mark?: { sx: number; sy: number; add: boolean }; frame?: { parent: string; x: number; y: number; sx: number; sy: number };
   } | null = null;
+  let marquee = $state<{ x0: number; y0: number; x1: number; y1: number; frame: boolean } | null>(null);
   let swallow = false;
   const BOX = { w: 10 * GRID, h: 6 * GRID }, MIN = { w: 4 * GRID, h: 2 * GRID };
   const snap = (v: number) => Math.round(v / GRID) * GRID;
@@ -621,9 +649,19 @@
       drag.draw = groundAt(e);
       return;
     }
+    if (!panning && edit && tool.current === "frame") {
+      const p = sess.rel(e);
+      drag.frame = { ...groundAt(e), sx: p.x, sy: p.y };
+      return;
+    }
     const el = (e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null;
     const id = el && !el.hasAttribute("data-open") ? el.dataset.box : undefined;
-    if (panning || (!id && !(edit && MARQUEE))) {
+    if (!id && !panning && edit && tool.current === "select") {
+      const p = sess.rel(e);
+      drag.mark = { sx: p.x, sy: p.y, add: e.shiftKey };
+      return;
+    }
+    if (panning || !id) {
       drag.pan = true;
       drag.track = [];
       return;
@@ -632,7 +670,6 @@
     const f = b && shown.placed.frames[b.id];
     if (b && f) drag.box = { id: b.id, at: { x: f.x, y: f.y }, k: (unit.get(b.parent ?? ROOT) ?? 1) * camera.cam.k };
   }
-  const MARQUEE = false; // Task 11: a select-drag on empty ground draws the frame instead of panning
   function placeBox() {
     const b = drag?.box;
     if (!drag || !b || !drag.pt || b.k <= 0) return;
@@ -674,6 +711,10 @@
     const b = drag.box;
     if (drag.resize && drag.resize.k > 0) live = { id: drag.resize.id, ...resized(drag.resize, dx, dy) };
     else if (drag.draw) sess.draft = { ...spanned(drag.draw, e), drawing: true };
+    else if (drag.mark || drag.frame) {
+      const o = (drag.mark ?? drag.frame)!, p = sess.rel(e);
+      marquee = { x0: o.sx, y0: o.sy, x1: p.x, y1: p.y, frame: !!drag.frame };
+    }
     else if (b && b.k > 0) {
       drag.pt = { x: e.clientX, y: e.clientY };
       placeBox();
@@ -700,6 +741,21 @@
       drag = null;
       return;
     }
+    if (drag?.mark || drag?.frame) {
+      const { mark, frame: fr, moved } = drag, m = marquee;
+      marquee = null;
+      drag = null;
+      swallow = true;
+      if (fr) {
+        if (moved) {
+          const r = spanned(fr, e), within = (p: Place) => p.x >= r.x && p.y >= r.y && p.x + p.w <= r.x + r.w && p.y + p.h <= r.y + r.h;
+          makeGroup(fr.parent, (kids.get(fr.parent) ?? []).filter((b) => b.level !== "code" && truth[b.id] && within(truth[b.id])).map((b) => b.id), r);
+        }
+        tool.used(e.shiftKey);
+      } else if (moved && m) pickIn(m, mark!.add);
+      else if (!mark!.add) choose([]);
+      return;
+    }
     const tr = drag?.pan ? drag.track : undefined;
     if (tr && tr.length > 1) {
       const a = tr[0], b = tr[tr.length - 1], dt = b.t - a.t;
@@ -722,10 +778,73 @@
     live = null;
     drag = null;
   }
+  const chosen = () => (many.length ? many : selected ? [selected] : []);
+  function choose(ids: string[]) {
+    if (ids.length > 1) [many, selected] = [ids, null];
+    else [many, selected] = [[], ids[0] ?? null];
+  }
+  function pickIn(m: { x0: number; y0: number; x1: number; y1: number }, add: boolean) {
+    const l = Math.min(m.x0, m.x1), r = Math.max(m.x0, m.x1), t = Math.min(m.y0, m.y1), b = Math.max(m.y0, m.y1), c = cam;
+    const hit = [...stage.querySelectorAll<HTMLElement>("[data-box]")].map((el) => el.dataset.box!).filter((id) => {
+      if (!byId.has(id) || id === ROOT) return false;
+      const f = frameOf(id), x = f.x * c.k + c.x, y = f.y * c.k + c.y;
+      return x >= l && y >= t && x + f.w * c.k <= r && y + f.h * c.k <= b;
+    });
+    const set = new Set(hit), top = hit.filter((id) => ![...trailOf(id)].some((p) => set.has(p)));
+    const was = add ? chosen() : [];
+    choose([...was, ...top.filter((id) => !was.includes(id))]);
+  }
+  function* trailOf(id: string) {
+    for (let p = byId.get(id)?.parent, n = 0; p && n < 64; p = byId.get(p)?.parent, n++) yield p;
+  }
+  function toggle(id: string) {
+    const was = chosen();
+    choose(was.includes(id) ? was.filter((x) => x !== id) : [...was, id]);
+  }
+  const hasCode = (id: string) => { const b = byId.get(id); return !!b && b.level !== "code" && b.madeOf.length > 0; };
+  function details(id: string) {
+    choose([id]);
+    void flushed().then(() => root?.querySelector<HTMLElement>("section.details")?.focus({ preventScroll: true }));
+  }
+  function makeGroup(parent: string, ids: string[], rect?: Place) {
+    const ps = ids.map((i) => truth[i]).filter(Boolean);
+    if (!api || (!rect && !ps.length)) return;
+    const id = freeId("group", new Set(view.boxes.map((b) => b.id)));
+    let frame: Place, room: Place;
+    if (rect) {
+      const head = Math.min(HEAD, rect.h / 4);
+      [frame, room] = [rect, { x: rect.x, y: rect.y + head, w: rect.w, h: rect.h - head }];
+    } else {
+      const l = Math.min(...ps.map((p) => p.x)) - GRID, t = Math.min(...ps.map((p) => p.y)) - GRID;
+      const r = Math.max(...ps.map((p) => p.x + p.w)) + GRID, b = Math.max(...ps.map((p) => p.y + p.h)) + GRID;
+      [frame, room] = [{ x: l, y: t - HEAD, w: r - l, h: b - t + HEAD }, { x: l, y: t, w: r - l, h: b - t }];
+    }
+    const add: Edit = { op: "add", parent, kind: "group", id, title: "Group", at: [], before: null };
+    const change: Edit = ids.length ? { op: "batch", edits: [add, ...ids.map((i): Edit => ({ op: "move", id: i, parent: id, before: null }))] } : add;
+    const was = landing;
+    landing = { id, place: frame, rename: true, also: { [innerKey(id)]: room, ...Object.fromEntries(ids.filter((i) => truth[i]).map((i) => [i, truth[i]])) } };
+    const sent = run(() => api!.apply(change).catch((err) => {
+      if (landing?.id === id) landing = null;
+      throw err;
+    }));
+    if (!sent) landing = was;
+  }
+  function align(dir: "row" | "column") {
+    const ids = many.filter((id) => truth[id]);
+    if (ids.length < 2) return;
+    const row = dir === "row", x0 = Math.min(...ids.map((id) => truth[id].x)), y0 = Math.min(...ids.map((id) => truth[id].y)), at: Record<string, Place> = {};
+    let c = row ? x0 : y0;
+    for (const id of [...ids].sort((a, b) => (row ? truth[a].x - truth[b].x : truth[a].y - truth[b].y))) {
+      const p = truth[id];
+      at[id] = row ? { ...p, x: c, y: y0 } : { ...p, x: x0, y: c };
+      c += (row ? p.w : p.h) + 2 * GRID;
+    }
+    placeAll(settlePlaces(truth, view, at, null));
+  }
   const sess = new EditSession({
-    edit: () => api, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
+    edit: () => api, view: () => view, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
     kinds: () => view.kinds, arrowKinds: () => view.arrowKinds,
-    selected: () => selected, select: (id) => (selected = id), tool: (t) => tool.pick(t), used: (shift) => tool.used(shift), run, arrange: arrangeIn,
+    selected: () => selected, select: (id) => choose(id ? [id] : []), tool: (t) => tool.pick(t), used: (shift) => tool.used(shift), run, arrange: arrangeIn,
     drop: (e, from) => {
       const hit = document.elementFromPoint?.(e.clientX, e.clientY);
       draftAt(groundAt({ clientX: e.clientX, clientY: e.clientY, target: hit && stage.contains(hit) ? hit : e.target }), from);
@@ -736,6 +855,7 @@
       const t = d.parent === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(d.parent), o = origin(d.parent);
       return { x: (d.x - o.x) * t.s + t.x, y: (d.y - o.y) * t.s + t.y, w: d.w * t.s, h: d.h * t.s };
     },
+    ground: (e) => groundAt(e), draftAt: (g) => void draftAt(g), details, open: openBox,
   });
   const addParent = $derived(sess.adding ? byId.get(sess.adding.parent) : undefined);
   let landed: Show | null | undefined;
@@ -759,7 +879,9 @@
     });
   });
   function clickCapture(e: MouseEvent) {
+    const shiftOn = edit && e.shiftKey && tool.current === "select" && ((e.target as Element | null)?.closest?.("[data-box]:not([data-open])") as HTMLElement | null)?.dataset.box;
     if (swallow) swallow = false;
+    else if (shiftOn && byId.has(shiftOn)) toggle(shiftOn);
     else if (!(edit && tool.current === "box")) return;
     e.stopPropagation();
     e.preventDefault();
@@ -858,6 +980,7 @@
   // a reload can drop the selected box or the lit path's boxes
   $effect(() => {
     if (selected && !byId.has(selected)) selected = null;
+    if (many.some((id) => !byId.has(id))) choose(many.filter((id) => byId.has(id)));
     if (traced && !traced.boxes.every((id) => byId.has(id))) traced = null;
     // an open popover or form on a box that is gone has nothing to act on
     const gone = (id: string) => id !== ROOT && !byId.has(id);
@@ -870,6 +993,23 @@
     return sp > 0 && Number.isFinite(sp) ? [at(sp, 1), ...(fade > 0 ? [at(sp / 4, fade)] : [])] : [];
   });
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
+  const picked = $derived(many.length > 1 ? many : selected && byId.get(selected)?.level !== "code" && byId.has(selected) ? [selected] : []);
+  const bar = $derived.by(() => {
+    if (!edit || !picked.length || live || sess.link || sess.draft || marquee) return null;
+    const c = cam, boxes = picked.map((id) => byId.get(id)!), names = new Set(boxes.map(kindName));
+    let x = Infinity, y = Infinity;
+    for (const id of picked) {
+      const f = frameOf(id);
+      [x, y] = [Math.min(x, f.x * c.k + c.x), Math.min(y, f.y * c.k + c.y)];
+    }
+    const current = names.size === 1 ? [...names][0] : null, shared = sharedParent(view.boxes, picked, ROOT), parent = shared ?? boxes[0].parent ?? ROOT;
+    const parentKinds = (kids.get(parent) ?? []).filter((b) => !picked.includes(b.id)).map(kindName).filter((n) => n !== "box");
+    return {
+      x: Math.max(8, x), y: Math.max(3 * rem(), y), current, kind: current && boxes[0] ? kindOf(boxes[0], view.kinds) ?? null : null, shared,
+      context: { parentKinds, inRun: inside(parent, byId, view.kinds) }, ask: sess.asking && sess.asking.ids.join() === picked.join() ? sess.asking.text : null,
+      picking: !!sess.kinds && sess.kinds.join() === picked.join(),
+    };
+  });
 
   /** A box's inner space inside its own frame, below its header (as place.inside, locally). */
   function local(id: string) {
@@ -922,7 +1062,7 @@
     {@const change = marks?.boxes.get(b.id)}
     {@const goneHere = marks?.removedHere.get(b.id)?.length ?? 0}
     <div class="slot" data-shape={shape} class:target={sess.aim === b.id} class:traced={path?.boxes.includes(b.id)} class:faded={path ? !path.boxes.includes(b.id) : answered && !st}
-      class:answer={inAnswer && (!marks || nowOn.has(b.id))} class:answer-now={inAnswer && nowOn.has(b.id)} class:diff-changed={change === "changed"} class:diff-added={change === "added"} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
+      class:picked={many.includes(b.id)} class:answer={inAnswer && (!marks || nowOn.has(b.id))} class:answer-now={inAnswer && nowOn.has(b.id)} class:diff-changed={change === "changed"} class:diff-added={change === "added"} data-box={b.id} data-open={open ? "" : undefined} style:left="{f.x}px" style:top="{f.y}px" style:width="{f.w}px" style:height="{f.h}px">
       <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
@@ -976,6 +1116,10 @@
     onpointerover={over} onpointerleave={() => (hot = hotArrow = null)}>
     <div class="world" style:transform="translate({base.x}px, {base.y}px) scale({base.k})">{@render level(anchor)}</div>
   </div>
+  {#if marquee}
+    <div class="marquee" class:frame={marquee.frame} data-marquee aria-hidden="true" style:left="{Math.min(marquee.x0, marquee.x1)}px" style:top="{Math.min(marquee.y0, marquee.y1)}px"
+      style:width="{Math.abs(marquee.x1 - marquee.x0)}px" style:height="{Math.abs(marquee.y1 - marquee.y0)}px">{#if marquee.frame}<span>Group</span>{/if}</div>
+  {/if}
   <Controls {crumbs} {layers} {on} oncrumb={fly} low={!!edit}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     onreset={stored ? () => placeAll(settlePlaces({}, view, {}, null), [], "push", false) : undefined} {wheelPref} onwheel={setPref} onarrange={arrangeMap}>
@@ -1022,6 +1166,15 @@
       <button type="button" onclick={() => (waiting = null)}>Later</button>
     </div>
   {/if}
+  {#if bar}
+    {@const one = picked[0]}
+    <BoxBar x={bar.x} y={bar.y} count={picked.length} kind={bar.kind} current={bar.current} code={picked.length === 1 && hasCode(one)} apart={!bar.shared}
+      asking={bar.ask} picking={bar.picking} kinds={view.kinds} context={bar.context}
+      onkinds={(o) => (sess.kinds = o ? [...picked] : null)} onpick={(k) => sess.setKind([...picked], k)}
+      ondetails={() => details(one)} onarrow={() => sess.act("arrow", one)} oncode={() => openBox(one)} onmore={(e) => sess.menuFrom(e)}
+      ongroup={() => bar.shared && makeGroup(bar.shared, [...picked])} onalign={align} onarrange={() => arrangeIn([...picked])}
+      ondelete={() => sess.remove([...picked])} onconfirm={() => sess.confirmRemove()} onkeep={() => (sess.asking = null)} />
+  {/if}
   {#if edit}<EditLayer s={sess} {arrangeable} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
   {#if view.landscape}
     <Folders landscape={view.landscape} />
@@ -1058,6 +1211,10 @@
   .waiting button { font: inherit; color: var(--map-fg); background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-md); padding: var(--space-1) var(--space-2-5); cursor: pointer; }
   .waiting button.go { background: var(--map-trace); border-color: var(--map-trace); color: var(--color-on-accent); font-weight: 600; }
   .slot.target { outline: 3px solid var(--map-trace); outline-offset: 3px; border-radius: 16px; }
+  .slot.picked { outline: 2px solid var(--map-trace); outline-offset: 4px; border-radius: 16px; }
+  .marquee { position: absolute; z-index: 3; pointer-events: none; box-sizing: border-box; border: 1px dashed var(--map-trace); background: color-mix(in srgb, var(--map-trace) 8%, transparent); }
+  .marquee.frame { border-width: 1.5px; border-radius: var(--radius-lg); background: none; }
+  .marquee span { position: absolute; left: var(--space-2); top: var(--space-1); font-size: var(--text-sm); color: var(--map-trace); }
   .handle { position: absolute; width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--map-blue); border: 2px solid var(--map-ground); translate: -50% -50%; cursor: crosshair; }
   .grip { position: absolute; z-index: 1; width: 0.625rem; height: 0.625rem; box-sizing: border-box; border-radius: 2px; background: var(--map-surface); border: 1.5px solid var(--map-trace); translate: -50% -50%; }
   .grip.nw { left: 0; top: 0; cursor: nwse-resize; } .grip.se { left: 100%; top: 100%; cursor: nwse-resize; }

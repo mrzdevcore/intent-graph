@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 // The add form speaks the kinds table (`view.kinds`); warnings have their own field.
-import { expect, test } from "vitest";
-import { flushSync, mount } from "svelte";
+import { afterEach, expect, test } from "vitest";
+import { flushSync, mount, unmount } from "svelte";
 import Map from "../src/map/Map.svelte";
 import type { EditApi } from "../src/api";
 import type { KindView, View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
+import { mostUsed, rankKinds } from "../src/map/edit/kinds";
+import MapHarness from "./MapHarness.svelte";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const fresh = () => structuredClone(shop) as unknown as View;
@@ -18,10 +20,16 @@ function setup(view: View, got: unknown[] = []) {
   document.body.append(target);
   const api = { apply: async (e: unknown) => (got.push(e), fresh()), keep: async () => fresh(), drop: async () => fresh(), dropAll: async () => fresh(),
     undo: async () => fresh(), redo: async () => fresh() } as unknown as EditApi;
-  mount(Map, { target, props: { view, size: { w: 1000, h: 800 }, edit: api } });
+  mounted.push(mount(Map, { target, props: { view, size: { w: 1000, h: 800 }, edit: api } }));
   flushSync();
   return target;
 }
+// a map left mounted still hears the window's keys
+const mounted: ReturnType<typeof mount>[] = [];
+afterEach(() => {
+  for (const m of mounted.splice(0)) unmount(m);
+  document.body.innerHTML = "";
+});
 function clickBox(t: HTMLElement, id: string | null) {
   const el = id ? t.querySelector(`[data-box="${id}"] > button`)! : t.querySelector(".stage")!;
   el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, clientX: 40, clientY: 50 }));
@@ -139,4 +147,201 @@ test("a group owns no code: its add form has no Code field", async () => {
   await tick();
   expect(field(form(t), "Title")).toBeDefined();
   expect(field(form(t), "Code")).toBeUndefined();
+});
+
+// --- the kind of a box, set afterwards
+const names = (ks: KindView[]) => ks.map((k) => k.name);
+const kinds = () => withIot().kinds;
+
+test("rankKinds: before typing, the kind most used beside the box is best; run kinds, design kinds in a run, the team's, grouping", () => {
+  const out = rankKinds("", kinds(), { parentKinds: ["store", "service", "store", "box"], inRun: false });
+  expect(out.best?.name).toBe("store");
+  expect(out.groups.map((g) => g.title)).toEqual(["Runs", "Your team's kinds", "Grouping"]);
+  expect(names(out.groups[0].kinds)).toEqual(["person", "external", "app", "service", "job", "queue", "model"]);
+  expect(names(out.groups[1].kinds)).toEqual(["iot-device"]);
+  const inRun = rankKinds("", kinds(), { parentKinds: [], inRun: true });
+  expect(inRun.best).toBeNull();
+  expect(inRun.groups.map((g) => g.title)).toEqual(["Runs", "Inside a run", "Your team's kinds", "Grouping"]);
+  expect(names(inRun.groups[1].kinds)).toEqual(["module", "entry", "usecase", "port", "adapter", "agent", "domain"]);
+  expect(names(inRun.groups.flatMap((g) => g.kinds))).not.toContain("system");
+});
+
+test("rankKinds: typing filters by name, title and meaning; the best match is the top hit and is not listed twice", () => {
+  const ctx = { parentKinds: ["store"], inRun: true };
+  const q = rankKinds("que", kinds(), ctx);
+  expect(q.best?.name).toBe("queue");
+  expect(names(q.groups.flatMap((g) => g.kinds))).not.toContain("queue");
+  expect(rankKinds("iot", kinds(), ctx).best?.name).toBe("iot-device");
+  const field = rankKinds("field", kinds(), ctx);
+  expect(field.best?.name).toBe("iot-device");
+  expect(rankKinds("zzz", kinds(), ctx)).toEqual({ best: null, groups: [] });
+  expect(rankKinds("  STO ", kinds(), ctx).best?.name).toBe("store");
+});
+
+test("mostUsed: the map's own kinds first, five of them", () => {
+  const v = fresh();
+  const top = names(mostUsed(v.boxes, v.kinds, false));
+  expect(top).toHaveLength(5);
+  expect(top[0]).toBe("app");
+  expect(top).toEqual(expect.arrayContaining(["store", "external"]));
+});
+
+function harnessed(view: View, got: unknown[], reply: (e: unknown) => View = () => fresh()) {
+  const target = document.createElement("div");
+  document.body.append(target);
+  const api = { apply: async (e: unknown) => (got.push(e), reply(e)), keep: async () => fresh(), drop: async () => fresh(), dropAll: async () => fresh(),
+    undo: async () => fresh(), redo: async () => fresh() } as unknown as EditApi;
+  mounted.push(mount(MapHarness, { target, props: { start: view, edit: api, size: { w: 1000, h: 800 } } }));
+  flushSync();
+  return target;
+}
+const select = (t: HTMLElement, id: string) => { (t.querySelector(`[data-box="${id}"] > button`) as HTMLElement).click(); flushSync(); };
+const bar = (t: HTMLElement) => t.querySelector<HTMLElement>("[data-bar]");
+const kindButton = (t: HTMLElement) => bar(t)!.querySelector<HTMLButtonElement>("[data-kind-button]")!;
+const finder = (t: HTMLElement) => t.querySelector<HTMLInputElement>('input[aria-label="Find a kind"]');
+const press = (key: string, on: EventTarget = window) => { on.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); flushSync(); };
+const withBox = (id: string, title: string) => {
+  const v = fresh();
+  v.boxes.push({ ...structuredClone(v.boxes.find((b) => b.id === "postgres")!), id, kind: { value: "box" } as never, title: { value: title } as never, madeOf: [] });
+  v.placed.frames[id] = { x: 96, y: 600, w: 248, h: 152 };
+  return v;
+};
+
+test("the bar shows the selected box's kind; a box with no kind says Set a kind", () => {
+  const t = setup(withBox("billing", "Billing"));
+  expect(bar(t)).toBeNull();
+  select(t, "postgres");
+  expect(kindButton(t).textContent).toContain("Store");
+  expect(bar(t)!.textContent).toContain("Details");
+  expect(bar(t)!.textContent).not.toContain("Code");
+  select(t, "web");
+  expect(bar(t)!.textContent).toContain("Code");
+  select(t, "billing");
+  expect(kindButton(t).textContent).toContain("Set a kind");
+});
+
+test("no edit: no bar", () => {
+  const target = document.createElement("div");
+  document.body.append(target);
+  mounted.push(mount(Map, { target, props: { view: fresh(), size: { w: 1000, h: 800 } } }));
+  flushSync();
+  select(target, "postgres");
+  expect(bar(target)).toBeNull();
+});
+
+test("the kind list: type to filter, Enter sets the best match; No kind sets box; Esc closes", async () => {
+  const got: unknown[] = [];
+  const t = setup(withBox("billing", "Billing"), got);
+  select(t, "billing");
+  kindButton(t).click();
+  flushSync();
+  expect(document.activeElement).toBe(finder(t));
+  const heads = [...t.querySelectorAll("[data-kinds] .h")].map((h) => h.textContent).filter(Boolean);
+  expect(heads[0]).toBe("Best match");
+  expect(t.querySelector("[data-kinds] .h + button")!.getAttribute("data-kind")).toBe("app");
+  type(finder(t)!, "queu");
+  expect(t.querySelector("[data-kinds] .h + button")!.getAttribute("data-kind")).toBe("queue");
+  press("Enter", finder(t)!);
+  await tick();
+  expect(got).toEqual([{ op: "set", id: "billing", key: "kind", value: "queue" }]);
+  expect(finder(t)).toBeNull();
+  select(t, "postgres");
+  kindButton(t).click();
+  flushSync();
+  expect(t.querySelector('[data-kinds] [aria-checked="true"]')!.getAttribute("data-kind")).toBe("store");
+  press("ArrowDown", finder(t)!);
+  expect(document.activeElement!.getAttribute("role")).toBe("menuitemradio");
+  press("ArrowUp", document.activeElement!);
+  expect(document.activeElement).toBe(finder(t));
+  t.querySelector<HTMLButtonElement>('[data-kinds] [data-kind="box"]')!.click();
+  await tick();
+  expect(got[1]).toEqual({ op: "set", id: "postgres", key: "kind", value: "box" });
+  kindButton(t).click();
+  flushSync();
+  press("Escape", finder(t)!);
+  expect(finder(t)).toBeNull();
+  expect(bar(t)).not.toBeNull();
+  expect(document.activeElement).toBe(kindButton(t));
+});
+
+test("picking the kind a box already has sends nothing", async () => {
+  const got: unknown[] = [];
+  const t = setup(fresh(), got);
+  select(t, "postgres");
+  kindButton(t).click();
+  flushSync();
+  t.querySelector<HTMLButtonElement>('[data-kinds] [data-kind="store"]')!.click();
+  await tick();
+  expect(got).toEqual([]);
+});
+
+const rightClick = (t: HTMLElement, id: string) => {
+  t.querySelector(`[data-box="${id}"] > button`)!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  flushSync();
+};
+const menu = (t: HTMLElement) => t.querySelector<HTMLElement>('[role="menu"]')!;
+
+test("right-click Kind opens the five most used and All kinds; one sets it, K opens the whole list", async () => {
+  const got: unknown[] = [];
+  const t = setup(fresh(), got);
+  rightClick(t, "stripe");
+  const kind = menu(t).querySelector<HTMLElement>('[data-item="kinds"]')!;
+  kind.focus();
+  press("ArrowRight", kind);
+  const sub = t.querySelector<HTMLElement>("[data-sub]")!;
+  expect([...sub.querySelectorAll("[data-kind]")].map((b) => b.getAttribute("data-kind"))).toEqual(mostUsed(fresh().boxes, fresh().kinds, false).map((k) => k.name));
+  expect(sub.textContent).toContain("All kinds…");
+  expect(document.activeElement).toBe(sub.querySelector("[data-kind]"));
+  press("ArrowLeft", document.activeElement!);
+  expect(t.querySelector("[data-sub]")).toBeNull();
+  expect(document.activeElement).toBe(kind);
+  kind.click();
+  flushSync();
+  t.querySelector<HTMLButtonElement>('[data-sub] [data-kind="store"]')!.click();
+  await tick();
+  expect(got).toEqual([{ op: "set", id: "stripe", key: "kind", value: "store" }]);
+  expect(t.querySelector('[role="menu"][aria-label$="menu"]')).toBeNull();
+  rightClick(t, "stripe");
+  menu(t).querySelector<HTMLElement>('[data-item="kinds"]')!.click();
+  flushSync();
+  press("k", t.querySelector("[data-sub] [data-kind]")!);
+  expect(t.querySelector('[role="menu"][aria-label$="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(finder(t));
+});
+
+test("the menu's keys: E edits details, F2 renames, M moves, A draws an arrow", () => {
+  const t = setup(fresh());
+  rightClick(t, "web");
+  press("e", document.activeElement!);
+  expect(t.querySelector('[role="menu"]')).toBeNull();
+  expect(t.querySelector("section.details")).not.toBeNull();
+  rightClick(t, "web");
+  press("F2", document.activeElement!);
+  expect(t.querySelector('input[aria-label="Rename box"]')).not.toBeNull();
+  press("Escape", t.querySelector('input[aria-label="Rename box"]')!);
+  rightClick(t, "web");
+  press("m", document.activeElement!);
+  expect(t.querySelector('[role="dialog"]')).not.toBeNull();
+  press("Escape", document.activeElement!);
+  rightClick(t, "web");
+  press("a", document.activeElement!);
+  expect(t.querySelector('[role="toolbar"] [aria-pressed="true"]')!.getAttribute("aria-label")).toContain("Arrow");
+});
+
+test("Tab out of a draft opens the new box's kind list", async () => {
+  const got: unknown[] = [];
+  const t = harnessed(fresh(), got, () => withBox("billing", "Billing"));
+  t.querySelector(".stage")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 40, clientY: 600 }));
+  flushSync();
+  const name = t.querySelector<HTMLInputElement>('input[aria-label="Name the box"]')!;
+  type(name, "Billing");
+  press("Tab", name);
+  await tick();
+  flushSync();
+  expect(finder(t)).not.toBeNull();
+  expect(document.activeElement).toBe(finder(t));
+  type(finder(t)!, "store");
+  press("Enter", finder(t)!);
+  await tick();
+  expect(got[1]).toEqual({ op: "set", id: "billing", key: "kind", value: "store" });
 });

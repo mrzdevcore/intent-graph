@@ -5,6 +5,9 @@
   import ArrowDraw from "./ArrowDraw.svelte";
   import { arrowKindNames } from "./arrows";
   import BoxMenu from "./BoxMenu.svelte";
+  import GroundMenu from "./GroundMenu.svelte";
+  import { inside } from "./add";
+  import { kindName, mostUsed } from "./kinds";
   import MovePicker from "./MovePicker.svelte";
   import RenameBox from "./RenameBox.svelte";
   import { parentsFor } from "./menu";
@@ -22,8 +25,14 @@
 {/if}
 {#if ui}
   {@const id = ui.id}
-  {#if ui.t === "menu"}
-    <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} group={arrangeable.has(id)} onpick={(a) => s.act(a, id, { x: ui.x, y: ui.y })} onclose={() => s.shut()} />
+  {@const box = boxes.find((b) => b.id === id)}
+  {#if ui.t === "ground"}
+    <GroundMenu x={ui.x} y={ui.y} title={box?.title.value ?? id} arrange={arrangeable.has(id)} onnew={() => s.ground("new")} onarrange={() => s.ground("arrange")} onclose={() => s.shut(false)} />
+  {:else if ui.t === "menu"}
+    {@const byId = new Map(boxes.map((b) => [b.id, b]))}
+    <BoxMenu x={ui.x} y={ui.y} title={s.titleOf(id)} group={arrangeable.has(id)} code={!!box?.madeOf.length && box.level !== "code"}
+      kinds={mostUsed(boxes, kinds, inside(box?.parent ?? root, byId, kinds))} current={box ? kindName(box) : ""}
+      onpick={(a) => s.act(a, id, { x: ui.x, y: ui.y })} onkind={(k) => { s.setKind([id], k); s.shut(); }} onclose={() => s.shut()} />
   {:else if ui.t === "rename"}
     <RenameBox value={s.titleOf(id)} x={ui.x} y={ui.y} w={s.width(id)} onclose={() => s.shut()} onleave={() => s.shut(false)}
       onsubmit={(v) => s.settle((id) => v && v !== s.titleOf(id) ? { op: "set", id, key: "title", value: v } : null)} />

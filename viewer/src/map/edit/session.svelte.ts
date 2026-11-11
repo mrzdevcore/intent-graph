@@ -3,13 +3,13 @@
 import type { EditApi } from "../../api";
 import type { ArrowKind, ArrowKindView, Edit, Frame, KindView, MapBox, View } from "../types";
 import { baseOf, guessArrow } from "./guess";
-import type { Act } from "./menu";
+import { removal, type Act } from "./menu";
 import type { Tool } from "./tool.svelte";
 
 export type Draft = { parent: string; x: number; y: number; w: number; h: number; title: string; drawing: boolean; from?: string };
-export type Ui = { t: "menu" | "rename" | "move"; id: string; x: number; y: number };
+export type Ui = { t: "menu" | "rename" | "move" | "ground"; id: string; x: number; y: number; gx?: number; gy?: number };
 export type Ctx = {
-  edit: () => EditApi | undefined; box: (id: string) => MapBox | undefined; frame: (id: string) => Frame;
+  edit: () => EditApi | undefined; view: () => View; box: (id: string) => MapBox | undefined; frame: (id: string) => Frame;
   kinds: () => KindView[]; arrowKinds: () => ArrowKindView[] | undefined;
   cam: () => { x: number; y: number; k: number }; stage: () => HTMLElement;
   selected: () => string | null; select: (id: string | null) => void; tool: (t: Tool) => void; used: (shift: boolean) => void;
@@ -17,6 +17,10 @@ export type Ctx = {
   arrange: (scope: string[]) => void;
   drop: (e: PointerEvent, from: string) => void;
   draftFrame: () => Frame | undefined;
+  ground: (e: MouseEvent) => { parent: string; x: number; y: number };
+  draftAt: (g: { parent: string; x: number; y: number }) => void;
+  details: (id: string) => void;
+  open: (id: string) => void;
 };
 type Pt = { x: number; y: number };
 const sides = (f: Frame): Pt[] => [{ x: f.x, y: f.y + f.h / 2 }, { x: f.x + f.w, y: f.y + f.h / 2 }, { x: f.x + f.w / 2, y: f.y }, { x: f.x + f.w / 2, y: f.y + f.h }];
@@ -29,8 +33,8 @@ export class EditSession {
   made = $state<{ from: string; to: string; kind: ArrowKind; open: boolean } | null>(null);
   adding = $state<{ parent: string; x: number; y: number } | null>(null);
   draft = $state<Draft | null>(null);
-  // the box whose kind list a Tab out of a draft asked for (Task 11 opens it)
-  kinds = $state<string | null>(null);
+  kinds = $state<string[] | null>(null);
+  asking = $state<{ ids: string[]; text: string; edit: Edit } | null>(null);
   private c: Ctx;
   private pid = -1;
   constructor(c: Ctx) { this.c = c; }
@@ -84,7 +88,7 @@ export class EditSession {
   }
   /** Drop everything in flight (Esc, a box gone). */
   cancel() {
-    this.link = this.ui = this.adding = this.draft = this.made = null;
+    this.link = this.ui = this.adding = this.draft = this.made = this.kinds = this.asking = null;
     this.release();
   }
   /** A lost pointer drops the arrow in flight; open forms keep what was typed. */
@@ -94,8 +98,10 @@ export class EditSession {
   }
   /** A pointer press outside the open popover closes it. */
   outside(e: Event) {
-    if ((e.target as Element | null)?.closest?.("[data-popover]")) return;
+    const t = e.target as Element | null;
+    if (t?.closest?.("[data-popover]")) return;
     this.ui = this.made = null;
+    if (!t?.closest?.("[data-bar]")) this.kinds = this.asking = null;
   }
   grab(id: number) {
     this.pid = id;
@@ -188,7 +194,43 @@ export class EditSession {
       this.c.select(id);
       this.c.tool("arrow");
     } else if (a === "arrange") this.c.arrange([id]);
-    else this.c.run(() => this.c.edit()!.apply({ op: "remove", id }));
+    else if (a === "kinds") {
+      this.c.select(id);
+      this.kinds = [id];
+    } else if (a === "details") this.c.details(id);
+    else if (a === "code") this.c.open(id);
+    else this.remove([id]);
+  }
+  setKind(ids: string[], value: string) {
+    this.kinds = null;
+    const edits: Edit[] = ids.filter((id) => { const b = this.c.box(id); return b && (b.custom ?? b.kind.value) !== value; })
+      .map((id) => ({ op: "set", id, key: "kind", value }));
+    if (edits.length) this.c.run(() => this.c.edit()!.apply(edits.length === 1 ? edits[0] : { op: "batch", edits }));
+  }
+  // a box with boxes inside asks once in the bar; a second Delete answers yes
+  remove(ids: string[]) {
+    const v = this.c.view(), r = removal(v.boxes, v.arrows, ids);
+    if (!r.edit) return;
+    const same = this.asking && this.asking.ids.join() === ids.join();
+    if (r.inside > 0 && !same) {
+      const n = `${r.inside} ${r.inside === 1 ? "box" : "boxes"} inside`;
+      this.asking = { ids, edit: r.edit, text: ids.length === 1 ? `Delete ${this.titleOf(ids[0])} and ${n}?` : `Delete ${ids.length} boxes and ${n}?` };
+      return;
+    }
+    this.asking = null;
+    this.c.run(() => this.c.edit()!.apply(r.edit!));
+  }
+  confirmRemove() {
+    const a = this.asking;
+    this.asking = null;
+    if (a) this.c.run(() => this.c.edit()!.apply(a.edit));
+  }
+  ground(make: "new" | "arrange") {
+    const u = this.ui;
+    this.ui = null;
+    if (u?.t !== "ground") return;
+    if (make === "new") this.c.draftAt({ parent: u.id, x: u.gx!, y: u.gy! });
+    else this.c.arrange([u.id]);
   }
   /** Close the rename or move popover and send the edit it makes for its box (read before ui is cleared). */
   settle(make: (id: string) => Edit | null) {
@@ -198,11 +240,17 @@ export class EditSession {
     if (e) this.c.run(() => this.c.edit()!.apply(e));
   }
   menuAt(e: MouseEvent) {
-    const id = ((e.target as Element | null)?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;
-    if (!this.c.edit() || !id || !this.c.box(id)) return;
+    if (!this.c.edit()) return;
+    const id = ((e.target as Element | null)?.closest?.("[data-box]:not([data-open])") as HTMLElement | null)?.dataset.box;
     e.preventDefault();
-    this.c.select(id);
-    this.ui = { t: "menu", id, ...this.rel(e) };
+    this.kinds = this.asking = null;
+    if (id && this.c.box(id)) {
+      this.c.select(id);
+      this.ui = { t: "menu", id, ...this.rel(e) };
+    } else {
+      const g = this.c.ground(e);
+      this.ui = { t: "ground", id: g.parent, ...this.rel(e), gx: g.x, gy: g.y };
+    }
   }
   /** The card's ⋯ button: the menu opens under it. */
   menuFrom(e: MouseEvent) {
