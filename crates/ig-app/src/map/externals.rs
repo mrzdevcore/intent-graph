@@ -1,5 +1,5 @@
 //! Outside systems known by the client libraries that talk to them: npm packages, Python's
-//! top-level modules, Rust crates and Go modules alike (ponytail: one list for both; a name two ecosystems share means one system).
+//! top-level modules, Rust crates and Go modules alike (ponytail: one list for all; a name two ecosystems share means one system).
 
 use super::facts::BoxKind;
 

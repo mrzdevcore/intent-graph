@@ -310,36 +310,40 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
     let read = match spec::read(env.files) {
         Ok(Some(s)) => match mode {
             Mode::Look => Ok(s),
-            Mode::Analyse(Some(_))
-                if propose::to_read(&compare(&s, boxes, g, prior.as_ref())).is_empty() =>
-            {
-                notices.push(propose::NOTHING_TO_READ.into());
-                Ok(s)
-            }
-            Mode::Analyse(ask) => match ask.map(|a| (consent(a, config), a)) {
-                Some((Some(agent), a)) => {
-                    let ev = Evidence::new(boxes, &built.extras.imports, config).for_spec();
-                    let cm = compare(&s, boxes, g, prior.as_ref());
-                    notices.extend(propose::propose(
-                        a,
-                        agent,
-                        &cm,
-                        &ev,
-                        env.files,
-                        env.progress,
-                        env.vcs.is_some_and(|v| v.head().is_some()),
-                    ));
-                    // the reading's edits are in ig/ now, so it is read again
-                    Ok(spec::read(env.files).ok().flatten().unwrap_or(s))
-                }
-                refused => {
-                    if let Some((None, a)) = refused {
-                        notices.extend(refusal(a, config, false));
+            Mode::Analyse(ask) => {
+                let cm = ask.is_some().then(|| compare(&s, boxes, g, prior.as_ref()));
+                let nothing = cm.as_ref().is_some_and(|c| propose::to_read(c).is_empty());
+                match (
+                    ask.filter(|_| !nothing).map(|a| (consent(a, config), a)),
+                    cm,
+                ) {
+                    _ if nothing => {
+                        notices.push(propose::NOTHING_TO_READ.into());
+                        Ok(s)
                     }
-                    notices.push(NOTHING_TO_PROPOSE.into());
-                    Ok(s)
+                    (Some((Some(agent), a)), Some(cm)) => {
+                        let ev = Evidence::new(boxes, &built.extras.imports, config).for_spec();
+                        notices.extend(propose::propose(
+                            a,
+                            agent,
+                            &cm,
+                            &ev,
+                            env.files,
+                            env.progress,
+                            env.vcs.is_some_and(|v| v.head().is_some()),
+                        ));
+                        // the reading's edits are in ig/ now, so it is read again
+                        Ok(spec::read(env.files).ok().flatten().unwrap_or(s))
+                    }
+                    (refused, _) => {
+                        if let Some((None, a)) = refused {
+                            notices.extend(refusal(a, config, false));
+                        }
+                        notices.push(NOTHING_TO_PROPOSE.into());
+                        Ok(s)
+                    }
                 }
-            },
+            }
         },
         Err(e) => {
             broken = true;
