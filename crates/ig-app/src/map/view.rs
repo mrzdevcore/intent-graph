@@ -310,6 +310,12 @@ fn build(env: &Env, mode: Mode, connectors: &[&dyn Connector]) -> crate::Result<
     let read = match spec::read(env.files) {
         Ok(Some(s)) => match mode {
             Mode::Look => Ok(s),
+            Mode::Analyse(Some(_))
+                if propose::to_read(&compare(&s, boxes, g, prior.as_ref())).is_empty() =>
+            {
+                notices.push(propose::NOTHING_TO_READ.into());
+                Ok(s)
+            }
             Mode::Analyse(ask) => match ask.map(|a| (consent(a, config), a)) {
                 Some((Some(agent), a)) => {
                     let ev = Evidence::new(boxes, &built.extras.imports, config).for_spec();
