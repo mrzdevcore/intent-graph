@@ -380,6 +380,8 @@
   // under the pointer: the deepest box, and an arrow
   let hot = $state<string | null>(null);
   let hotArrow = $state<string | null>(null);
+  // the arrows behind the pad or inside wire under the pointer: lit gold with it
+  let hotPad = $state<string[] | null>(null);
   const touches = (a: Arrow) => a.id === hotArrow || [hot, selected].some((id) => id && linksOf([a], id).length > 0);
   let pointer = { x: 0, y: 0 }, onMap = false;
   function over(e: PointerEvent) {
@@ -393,6 +395,7 @@
 
   const home = () => fitTo(place.frame(ROOT), { w: vw, h: vh });
   const frameOf = (id: string) => world.get(id) ?? place.frame(id);
+  const opened = (id: string) => kids.has(id) && !!view.placed.inner[id] && showsInside((world.get(id)?.w ?? 0) * lod.k);
 
   // rAF-driven camera: runs only while a glide is in flight.
   let raf = 0;
@@ -486,7 +489,7 @@
    *  (below it at the phone width, so across the full width) with room for the labels. Otherwise a
    *  box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
   function target(id: string): Cam {
-    const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on);
+    const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on, frameOf);
     if (pads.length) return fitBeside(frameOf(id), to, pads, selected ? cardRem() : 0, rem());
     const inner = shown.placed.inner[id];
     if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
@@ -496,7 +499,7 @@
   const fly = (id: string) => glideTo(id === ROOT ? home() : target(id));
   function aimAt(aim: Aim | null) {
     if (!aim) return;
-    const pads = aim.id ? padsOf(view, aim.id, aim.frame, drawn, on) : [];
+    const pads = aim.id ? padsOf(view, aim.id, aim.frame, drawn, on, frameOf) : [];
     const beside = globalThis.matchMedia?.("(max-width: 47.5rem)").matches ? 0 : ANSWER_CARD;
     glideTo(fitBeside(aim.frame, { w: vw, h: vh }, pads, 0, rem(), beside));
     away = false;
@@ -1142,7 +1145,7 @@
     const cam = lod;
     const out = [ROOT], card = cardRem(), r = rem();
     // ponytail: padsOf walks every arrow, but only for the box or two a frame's test lets through; memo per view if a huge map shows it
-    const hasPads = (id: string) => padsOf(view, id, frameOf(id), () => undefined, on).length > 0;
+    const hasPads = (id: string) => padsOf(view, id, frameOf(id), () => undefined, on, frameOf).length > 0;
     for (let p = ROOT; ; ) {
       if (out.indexOf(p) !== out.length - 1) return out.slice(0, -1); // a loop: stop before it
       const next = (kids.get(p) ?? []).find((b) => {
@@ -1277,9 +1280,10 @@
     {@const asked = ans && arrowLit(ans, a)}
     {@const drawnLook = arrowLook(a, view.marks, on, by.get(a.id))}
     {@const changeLook = !marks ? null : a.ghost ? "ghost" : marks.addedArrows.has(arrowKey(a.from, a.to)) ? "added" : null}
+    {@const gold = !!hotPad?.includes(a.id) || (hotArrow === a.id && (opened(a.from) || opened(a.to)))}
     <div class="arrow" class:fresh={mode === "routed" && fresh.has(a.id)} data-arrow={a.id} data-line={mode === "routed" ? lineAt(a) : "ribbon"}>
-      <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(drawnLook, changeLook) : asked ? { ...drawnLook, color: "var(--map-trace)" } : drawnLook} {zoom}
-        lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)} picked={sess.arrow?.id === a.id}
+      <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(drawnLook, changeLook) : asked || gold ? { ...drawnLook, color: "var(--map-trace)" } : drawnLook} {zoom}
+        lit={gold || lit.includes(a)} dim={!gold && lit.length > 0 && !lit.includes(a)} picked={sess.arrow?.id === a.id}
         onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
       {#if ans && arrowNumber(ans, a)}
         <span class="number on-arrow" class:now={arrowNumber(ans, a) === step + 1} style:left="{c.mid[0]}px" style:top="{c.mid[1]}px" style:scale={1 / zoom}>{arrowNumber(ans, a)}</span>
@@ -1317,7 +1321,10 @@
         <div class="inside" style:width="{t.iw}px" style:height="{t.ih}px"
           style:transform="translate({t.x}px, {t.y}px) scale({t.s})">{@render level(b.id)}</div>
       {/if}
-      {#if showsInside(sw)}<Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} />{/if}
+      {#if showsInside(sw)}
+        <Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} worldOf={frameOf} shape={shapeAt.get(b.id) ?? "circuit"}
+          hot={hotArrow} onhot={(ids) => (hotPad = ids)} onassign={edit ? (e) => sess.send(e) : undefined} />
+      {/if}
       {#if inAnswer}
         <span class="numbers" style:scale={f.w / sw}>
           {#each (ans?.numbers.has(b.id) ? [ans.numbers.get(b.id)!] : st!.under).filter((n) => !marks || n === step + 1) as n (n)}<span class="number" class:now={n === step + 1}>{n}</span>{/each}

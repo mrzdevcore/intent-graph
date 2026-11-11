@@ -314,7 +314,7 @@ function ribbon(arrows: MapArrow[], frames: Record<string, Frame>, g: Grid): Map
 }
 
 /** The polyline with each corner cut at 45°, `r` back along both legs (at most half of either). */
-function chamfer(p: P[], r: number): string {
+export function chamfer(p: P[], r: number): string {
   let d = `M${pt(p[0])}`;
   for (let i = 1; i < p.length - 1; i++) {
     const [a, c, b] = [p[i - 1], p[i], p[i + 1]];

@@ -4,7 +4,9 @@ import { flushSync, mount } from "svelte";
 import Pads from "../src/map/Pads.svelte";
 import Map from "../src/map/Map.svelte";
 import { Camera } from "../src/map/glide";
-import { CARD, fillsBeside, fitBeside, inBox, padsOf, type Pad } from "../src/map/pads";
+import { CARD, fillsBeside, fitBeside, inBox, padPoint, padsOf, wiresOf, type Pad } from "../src/map/pads";
+import { cuts } from "../src/map/shapes/inside";
+import type { P } from "../src/map/shapes/path";
 import { OPEN, fitInner, fitTo, showsInside, worldFrame } from "../src/map/camera";
 import type { Frame, MapArrow, MapBox, Mark, View } from "../src/map/types";
 
@@ -26,7 +28,7 @@ const out = make([arrow("host", "public", [arrow("traefik/r1", "a"), arrow("trae
 
 test("each part crossing the edge is a pad, wired from the child holding its end", () => {
   // traefik holds routes r1, r2; the arrow host->public has parts r1->a, r2->b
-  expect(padsOf(out, "traefik", F, cf, on).map((p) => [p.side, p.other, p.child])).toEqual([["out", "a", "traefik/r1"], ["out", "b", "traefik/r2"]]);
+  expect(padsOf(out, "traefik", F, cf, on).map((p) => [p.way, p.edge, p.other, p.child])).toEqual([["out", "r", "a", "traefik/r1"], ["out", "r", "b", "traefik/r2"]]);
 });
 
 test("a part's end deep in the box is wired from the direct child holding it", () => {
@@ -34,32 +36,32 @@ test("a part's end deep in the box is wired from the direct child holding it", (
   expect(padsOf(v, "host", F, cf, on).map((p) => p.child)).toEqual(["traefik"]);
 });
 
-test("a pad sits level with its child", () => {
+test("with no frames to face, a pad sits on the right going out, level with its child", () => {
   const t = fitInner(F, 100, 100);
   const pads = padsOf(out, "traefik", F, cf, on);
-  expect(pads[0].y).toBeCloseTo(t.y + t.s * 10);
-  expect(pads[1].y).toBeCloseTo(t.y + t.s * 70);
+  expect(pads[0].at).toBeCloseTo(t.y + t.s * 10);
+  expect(pads[1].at).toBeCloseTo(t.y + t.s * 70);
   expect(inBox(out, "traefik", F)(frames["traefik/r2"]).y).toBeCloseTo(t.y + t.s * 60);
 });
 
 test("the frames given are the ones used: a moved child takes its pad along", () => {
   const moved = (id: string) => (id === "traefik/r1" ? { ...frames[id], y: 40 } : undefined);
   const t = fitInner(F, 100, 100);
-  expect(padsOf(make([arrow("host", "public", [arrow("traefik/r1", "a")])]), "traefik", F, moved, on)[0].y).toBeCloseTo(t.y + t.s * 50);
+  expect(padsOf(make([arrow("host", "public", [arrow("traefik/r1", "a")])]), "traefik", F, moved, on)[0].at).toBeCloseTo(t.y + t.s * 50);
 });
 
-test("incoming parts are on the other side", () => {
+test("with no frames to face, incoming parts are on the left", () => {
   const v = make([arrow("public", "host", [arrow("a", "traefik/r1")])]);
-  expect(padsOf(v, "traefik", F, cf, on).map((p) => [p.side, p.other, p.title, p.child])).toEqual([["in", "a", "A", "traefik/r1"]]);
+  expect(padsOf(v, "traefik", F, cf, on).map((p) => [p.way, p.edge, p.other, p.title, p.child])).toEqual([["in", "l", "a", "A", "traefik/r1"]]);
 });
 
 test("an arrow with no parts is one pad, with no wire inside", () => {
   const v = make([arrow("host", "public")]);
   const pads = padsOf(v, "host", F, cf, on);
-  expect(pads.map((p) => [p.side, p.other, p.title])).toEqual([["out", "public", "PUBLIC"]]);
+  expect(pads.map((p) => [p.way, p.other, p.title])).toEqual([["out", "public", "PUBLIC"]]);
   expect(pads[0].child).toBeUndefined();
-  expect(pads[0].y).toBeGreaterThanOrEqual(0);
-  expect(pads[0].y).toBeLessThanOrEqual(F.h);
+  expect(pads[0].at).toBeGreaterThanOrEqual(0);
+  expect(pads[0].at).toBeLessThanOrEqual(F.h);
 });
 
 test("an arrow inside the box, or elsewhere, has no pad", () => {
@@ -82,7 +84,7 @@ test("pads too close for their height spread out, in the order of their children
   const close = (id: string) => ({ x: 0, y: id === "traefik/r1" ? 41 : 40, w: 40, h: 20 });
   const pads = padsOf(out, "traefik", { w: 100, h: 200 }, close, on);
   expect(pads.map((p) => p.other)).toEqual(["b", "a"]);
-  expect(pads[1].y - pads[0].y).toBeGreaterThan(20);
+  expect(pads[1].at - pads[0].at).toBeGreaterThan(20);
 });
 
 test("crowded pads fold: at most 12 a side, each a pad's height from the next, inside the box", () => {
@@ -96,7 +98,7 @@ test("crowded pads fold: at most 12 a side, each a pad's height from the next, i
     expect(shown.length + fold[0].more!).toBe(40);
     expect(fold[0].title).toBe(`+${fold[0].more} more`);
     expect(pads.at(-1)).toBe(fold[0]);
-    const ys = pads.map((p) => p.y);
+    const ys = pads.map((p) => p.at);
     ys.slice(1).forEach((y, i) => expect(y - ys[i]).toBeGreaterThanOrEqual((frame.w * 24) / OPEN));
     expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...ys)).toBeLessThanOrEqual(frame.h);
@@ -104,20 +106,21 @@ test("crowded pads fold: at most 12 a side, each a pad's height from the next, i
   expect(padsOf(crowded, "x", { w: 100, h: 200 }, cf, on).filter((p) => !p.more).length).toBe(12);
 });
 
-test("each side folds on its own, and 12 fold nothing", () => {
+test("both ways to one far box are one two-way pad, and 12 fold nothing", () => {
   const extra = Array.from({ length: 12 }, (_, i) => box(`t${i}`, "public"));
   const v = make([
     ...extra.map((b) => arrow("host", "public", [arrow("x", b.id)])),
     ...extra.map((b) => arrow("public", "host", [arrow(b.id, "x")])),
   ], [], [...extra, box("x", "host")]);
   const pads = padsOf(v, "x", { w: 100, h: 200 }, cf, on);
-  expect(pads.length).toBe(24);
+  expect(pads.length).toBe(12);
   expect(pads.some((p) => p.more)).toBe(false);
+  expect(pads.every((p) => p.way === "both" && p.ends.length === 2)).toBe(true);
 });
 
 test("two parts with the same side, far box and child are one pad", () => {
   const v = make([arrow("host", "public", [arrow("traefik/r1", "a"), arrow("traefik/r2", "a")]), arrow("system", "public", [arrow("traefik/r1", "a")])]);
-  expect(padsOf(v, "traefik", F, cf, on).map((p) => [p.side, p.other, p.child])).toEqual([["out", "a", "traefik/r1"], ["out", "a", "traefik/r2"]]);
+  expect(padsOf(v, "traefik", F, cf, on).map((p) => [p.way, p.edge, p.other, p.child])).toEqual([["out", "r", "a", "traefik/r1"], ["out", "r", "a", "traefik/r2"]]);
 });
 
 function drawn(n: number, onopen = (_: string) => {}) {
@@ -164,7 +167,7 @@ test("at the width limit rounding never closes the box", () => {
 // a frame wider than its inside, as a group of one is; at 16px a rem: card 356, labels 192
 const wide = { x: 100, y: 100, w: 264, h: 152 };
 const V = { w: 1440, h: 900 };
-const pad = (side: Pad["side"]): Pad => ({ side, other: "o", title: "O", down: false, y: 0 });
+const pad = (way: "in" | "out"): Pad => ({ way, edge: way === "out" ? "r" : "l", other: "o", title: "O", down: false, at: 0, arrows: [], ends: [] });
 const onScreen = (f: Frame, c: { k: number; x: number; y: number }) => ({ l: f.x * c.k + c.x, r: (f.x + f.w) * c.k + c.x, t: f.y * c.k + c.y, b: (f.y + f.h) * c.k + c.y });
 
 test("with a card at 1440x900 the frame and its labels stay left of the card, the rest on screen", () => {
@@ -294,4 +297,202 @@ test("zooming by hand to a box with no pads keeps the 60% rule", () => {
   };
   expect(at(860)).toEqual(["SYSTEM"]);
   expect(at(865)).toEqual(["SYSTEM", "ALONE"]);
+});
+
+// the screenshot's open group: six parts in two rows, far boxes above, below, left and right, three of them both ways
+const site = (() => {
+  const kids = ["c0", "c1", "c2", "c3", "c4", "c5"];
+  const v: View = {
+    version: 1,
+    boxes: [box("system"), box("node3", "system"), ...kids.map((k) => box(k, "node3")), ...["up", "down", "west", "east"].map((b) => box(b, "system"))],
+    arrows: [
+      arrow("node3", "up", [arrow("c0", "up"), arrow("c4", "up")]),
+      arrow("up", "node3", [arrow("up", "c0")]),
+      arrow("node3", "east", [arrow("c2", "east"), arrow("c5", "east")]),
+      arrow("east", "node3", [arrow("east", "c5")]),
+      arrow("west", "node3", [arrow("west", "c0"), arrow("west", "c3")]),
+      arrow("node3", "down", [arrow("c3", "down"), arrow("c4", "down"), arrow("c5", "down")]),
+      arrow("down", "node3", [arrow("down", "c4")]),
+    ],
+    marks: [], notices: [], warnings: [], kinds: [],
+    placed: {
+      frames: {
+        node3: { x: 700, y: 500, w: 600, h: 400 }, up: { x: 900, y: 0, w: 200, h: 100 }, down: { x: 900, y: 1300, w: 200, h: 100 },
+        west: { x: 0, y: 600, w: 300, h: 200 }, east: { x: 1700, y: 600, w: 300, h: 200 },
+        ...Object.fromEntries(kids.map((k, i) => [k, { x: 20 + (i % 3) * 200, y: 20 + Math.floor(i / 3) * 200, w: 160, h: 100 }])),
+      },
+      inner: { system: [2000, 1400], node3: [600, 340] }, regions: [],
+    },
+  };
+  const frame = { w: 600, h: 400 }, child = (id: string) => v.placed.frames[id];
+  const pads = padsOf(v, "node3", frame, child, on);
+  const place = inBox(v, "node3", frame);
+  const kidFrames = Object.fromEntries(kids.map((k) => [k, place(child(k))]));
+  return { v, frame, child, pads, kids: kidFrames };
+})();
+
+test("a pad sits on the edge facing its far box, one per far box and child, both ways one two-way pad", () => {
+  const got = site.pads.map((p) => [p.edge, p.other, p.child, p.way]);
+  expect(got).toEqual([
+    ["r", "east", "c2", "out"], ["r", "east", "c5", "both"],
+    ["l", "west", "c0", "in"], ["l", "west", "c3", "in"],
+    ["t", "up", "c0", "both"], ["t", "up", "c4", "out"],
+    ["b", "down", "c3", "out"], ["b", "down", "c4", "both"], ["b", "down", "c5", "out"],
+  ]);
+  expect(site.pads.reduce((n, p) => n + p.ends.length, 0)).toBe(12);
+  expect(site.pads.find((p) => p.other === "up" && p.child === "c0")!.ends).toEqual([
+    { from: "c0", to: "up", key: "from" }, { from: "up", to: "c0", key: "to" },
+  ]);
+});
+
+test("along an edge pads follow their children's places, ties by the far box's", () => {
+  for (const e of ["t", "b", "l", "r"] as const) {
+    const mine = site.pads.filter((p) => p.edge === e), along = (f: Frame) => (e === "t" || e === "b" ? f.x + f.w / 2 : f.y + f.h / 2);
+    mine.slice(1).forEach((p, i) => {
+      expect(p.at).toBeGreaterThan(mine[i].at);
+      expect(along(site.kids[p.child!])).toBeGreaterThanOrEqual(along(site.kids[mine[i].child!]));
+    });
+  }
+  const v: View = { ...site.v, boxes: [...site.v.boxes, box("up2", "system")], arrows: [...site.v.arrows, arrow("node3", "up2", [arrow("c0", "up2")])] };
+  v.placed = { ...v.placed, frames: { ...v.placed.frames, up2: { x: 600, y: 0, w: 200, h: 100 } } };
+  expect(padsOf(v, "node3", site.frame, site.child, on).filter((p) => p.edge === "t").map((p) => [p.other, p.child])).toEqual([["up2", "c0"], ["up", "c0"], ["up", "c4"]]);
+});
+
+const segs = (pts: P[]) => pts.slice(1).map((q, i) => [pts[i], q] as [P, P]);
+function crossing([a, b]: [P, P], [c, d]: [P, P]) {
+  const o = (p: P, q: P, r: P) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+  const [d1, d2, d3, d4] = [o(c, d, a), o(c, d, b), o(a, b, c), o(a, b, d)];
+  if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+  // collinear and overlapping for more than a point
+  if (d1 === 0 && d2 === 0) {
+    const k = a[0] === b[0] && c[0] === d[0] ? 1 : 0;
+    const [lo, hi] = [Math.max(Math.min(a[k], b[k]), Math.min(c[k], d[k])), Math.min(Math.max(a[k], b[k]), Math.max(c[k], d[k]))];
+    return hi - lo > 1e-6;
+  }
+  return false;
+}
+
+for (const shape of ["circuit", "elbow", "curved", "straight"] as const)
+  test(`${shape}: each pad is wired to its child, through no other child, and no two inside wires cross`, () => {
+    const ws = wiresOf(site.pads, site.frame, site.kids, shape);
+    site.pads.forEach((p, i) => {
+      const w = ws[i]!, f = site.kids[p.child!], end = w.pts[w.pts.length - 1];
+      expect(w.pts[0]).toEqual(padPoint(p, site.frame));
+      expect(end[0] >= f.x - 1e-6 && end[0] <= f.x + f.w + 1e-6 && end[1] >= f.y - 1e-6 && end[1] <= f.y + f.h + 1e-6).toBe(true);
+      for (const [id, k] of Object.entries(site.kids)) if (id !== p.child) for (const [a, b] of segs(w.pts)) expect(cuts(a, b, k), `${p.other}/${p.child} through ${id}`).toBe(false);
+    });
+    ws.forEach((a, i) => ws.forEach((b, j) => {
+      if (j <= i) return;
+      for (const s of segs(a!.pts)) for (const t of segs(b!.pts)) expect(crossing(s, t), `${site.pads[i].child}/${site.pads[i].other} x ${site.pads[j].child}/${site.pads[j].other}`).toBe(false);
+    }));
+  });
+
+test("a wire into a lower part goes round the part above it", () => {
+  const i = site.pads.findIndex((p) => p.edge === "t" && p.child === "c4");
+  const w = wiresOf(site.pads, site.frame, site.kids, "circuit")[i]!;
+  expect(w.pts.length).toBeGreaterThan(2);
+  for (const [a, b] of segs(w.pts)) expect(cuts(a, b, site.kids.c1)).toBe(false);
+});
+
+test("an inside wire is in the arrow's own shape, else the level's", () => {
+  const v: View = { ...site.v, arrows: site.v.arrows.map((a) => ({ ...a, parts: a.parts?.map((p) => (p.from === "west" && p.to === "c0" ? { ...p, shape: "straight" as const } : p)) })) };
+  const pads = padsOf(v, "node3", site.frame, site.child, on), ws = wiresOf(pads, site.frame, site.kids, "circuit");
+  const i = pads.findIndex((p) => p.other === "west" && p.child === "c0");
+  expect(ws[i]!.pts.length).toBe(2);
+  expect(ws[i]!.d).not.toContain("C");
+});
+
+function siteDrawn(props: Record<string, unknown> = {}) {
+  const target = document.createElement("div");
+  document.body.append(target);
+  mount(Pads, { target, props: { view: site.v, id: "node3", frame: site.frame, childFrame: site.child, on, scale: 1, onopen: () => {}, ...props } });
+  flushSync();
+  return target;
+}
+
+test("hovering a pad or its inside wire lights both, and names its arrows outside; the outside arrow hovered lights them too", () => {
+  const onhot = vi.fn(), t = siteDrawn({ onhot });
+  const pad = t.querySelector('[data-pad="up"][data-way="both"]') as HTMLElement;
+  pad.dispatchEvent(new PointerEvent("pointerenter"));
+  flushSync();
+  expect(onhot).toHaveBeenLastCalledWith(["node3->up", "up->node3"]);
+  expect(pad.classList.contains("lit")).toBe(true);
+  const lit = t.querySelectorAll("g.lit");
+  expect(lit.length).toBe(1);
+  expect(lit[0].getAttribute("data-wire")).toBe("up");
+  pad.dispatchEvent(new PointerEvent("pointerleave"));
+  flushSync();
+  expect(onhot).toHaveBeenLastCalledWith(null);
+  expect(t.querySelectorAll("g.lit, .pad.lit").length).toBe(0);
+  const wire = t.querySelectorAll('[data-wire="east"] .hit')[0];
+  wire.dispatchEvent(new PointerEvent("pointerenter"));
+  flushSync();
+  expect(onhot).toHaveBeenLastCalledWith(["node3->east"]);
+  expect(t.querySelectorAll(".pad.lit").length).toBe(1);
+
+  const out = siteDrawn({ hot: "node3->down" });
+  expect([...out.querySelectorAll(".pad.lit")].map((b) => b.getAttribute("data-pad"))).toEqual(["down", "down", "down"]);
+  expect(out.querySelectorAll("g.lit").length).toBe(3);
+});
+
+const stubView = () => {
+  const v = make([arrow("host", "public")]);
+  v.placed.inner = { host: [100, 100] };
+  return v;
+};
+const traefikAt = (() => {
+  const f = inBox(stubView(), "host", F)({ x: 50, y: 50, w: 40, h: 20 });
+  return { clientX: f.x + f.w / 2, clientY: f.y + f.h / 2 };
+})();
+
+function stubbed(onassign?: (e: unknown) => void) {
+  const v = stubView();
+  const target = document.createElement("div");
+  document.body.append(target);
+  mount(Pads, { target, props: { view: v, id: "host", frame: F, childFrame: (id: string) => (id === "traefik" ? { x: 50, y: 50, w: 40, h: 20 } : undefined), on, scale: 1, onopen: () => {}, onassign } });
+  flushSync();
+  const root = target.querySelector(".pads") as HTMLElement;
+  root.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 200, right: 200, bottom: 200, x: 0, y: 0, toJSON: () => ({}) });
+  return target;
+}
+
+test("a pad with no part shows which part?, and its stub dragged onto a part writes the arrow from it", () => {
+  const onassign = vi.fn(), t = stubbed(onassign);
+  expect(t.querySelector(".ask")?.textContent).toBe("?");
+  const end = t.querySelector("[data-stub]")!;
+  end.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 176, clientY: 100, bubbles: true }));
+  window.dispatchEvent(new PointerEvent("pointermove", traefikAt));
+  flushSync();
+  expect(t.querySelector("rect.pull")).not.toBeNull();
+  window.dispatchEvent(new PointerEvent("pointerup", traefikAt));
+  flushSync();
+  expect(onassign).toHaveBeenCalledWith({ op: "arrowset", from: "host", to: "public", key: "from", value: "traefik" });
+});
+
+test("dropped on no part, the stub writes nothing; read-only, it only shows the ?", () => {
+  const onassign = vi.fn(), t = stubbed(onassign);
+  t.querySelector("[data-stub]")!.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 176, clientY: 100, bubbles: true }));
+  window.dispatchEvent(new PointerEvent("pointerup", { clientX: 10, clientY: 190 }));
+  expect(onassign).not.toHaveBeenCalled();
+  const ro = stubbed();
+  expect(ro.querySelector(".ask")).not.toBeNull();
+  expect(ro.querySelector("[data-stub]")).toBeNull();
+});
+
+test("on the map, a pad hovered lights its outside arrow gold, and the outside arrow hovered lights the pad", () => {
+  const { target, open } = opened();
+  open("host");
+  const line = () => target.querySelector('[data-arrow="host->public"] g[data-state] path:not(.hit)') as SVGPathElement;
+  const pad = target.querySelector('[data-box="host"] [data-pad="a"]') as HTMLElement;
+  expect(line().style.stroke).not.toBe("var(--map-trace)");
+  pad.dispatchEvent(new PointerEvent("pointerenter"));
+  flushSync();
+  expect(line().style.stroke).toBe("var(--map-trace)");
+  pad.dispatchEvent(new PointerEvent("pointerleave"));
+  flushSync();
+  expect(line().style.stroke).not.toBe("var(--map-trace)");
+  target.querySelector('[data-arrow="host->public"] .hit')!.dispatchEvent(new PointerEvent("pointerenter"));
+  flushSync();
+  expect(pad.classList.contains("lit")).toBe(true);
+  expect(line().style.stroke).toBe("var(--map-trace)");
 });

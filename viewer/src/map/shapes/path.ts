@@ -71,8 +71,13 @@ export function pins(
 export function path(shape: "elbow" | "curved" | "straight", end: End, avoid: Frame[] = []): Path {
   if (shape === "straight") return line([end.from, end.to], end);
   if (shape === "elbow") return elbow(end);
-  return curved(end, avoid) ?? elbow(end);
+  const c = curved(end, avoid);
+  if (!c) return elbow(end);
+  const { pts: _, ...p } = c;
+  return p;
 }
+
+export const rounded = (p: P[]) => line(p, { from: p[0], to: p[p.length - 1], sides: ["r", "l"] }).d;
 
 function elbow(end: End): Path {
   const [[x1, y1], [x2, y2]] = [end.from, end.to];
@@ -97,7 +102,7 @@ function line(p: P[], end: End): Path {
   return { d, mid: halfway(p), len: r2(length(p)), head: head(tip, p.length > 1 ? sub(tip, p[p.length - 2]) : [0, 0], end), ends: [end.from, end.to] };
 }
 
-function curved(end: End, avoid: Frame[]): Path | undefined {
+export function curved(end: End, avoid: Frame[]): (Path & { pts: P[] }) | undefined {
   const { from, to, sides: [sa, sz] } = end;
   const reach = Math.max(dist(from, to) * REACH, 1);
   const base: [P, P] = [add(from, NORMAL[sa], reach), add(to, NORMAL[sz], reach)];
@@ -122,7 +127,7 @@ function curved(end: End, avoid: Frame[]): Path | undefined {
   }
   const [c1, c2] = ctl;
   const t = [sub(to, c2), sub(to, c1), sub(to, from)].find((v) => v[0] || v[1]) ?? ([0, 0] as P);
-  return { d: `M${pt(from)} C${pt(c1)} ${pt(c2)} ${pt(to)}`, mid: halfway(s), len: r2(length(s)), head: head(to, t, end), ends: [from, to] };
+  return { d: `M${pt(from)} C${pt(c1)} ${pt(c2)} ${pt(to)}`, mid: halfway(s), len: r2(length(s)), head: head(to, t, end), ends: [from, to], pts: s };
 }
 
 function head(tip: P, dir: P, end: End): [P, P] {
