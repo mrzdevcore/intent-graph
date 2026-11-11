@@ -6,8 +6,8 @@
   import type { Field, MapArrow, MapBox, View } from "./types";
   import Code from "./Code.svelte";
 
-  let { view, box, onclose, onopen, onmenu, edit, run }: {
-    view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void; onmenu?: (e: MouseEvent) => void;
+  let { view, box, onclose, onopen, onmenu, onedit, edit, run }: {
+    view: View; box: MapBox; onclose: () => void; onopen: (id: string) => void; onmenu?: (e: MouseEvent) => void; onedit?: () => void;
     edit?: EditApi; run?: (p: () => Promise<View>) => void;
   } = $props();
   // the edits Claude or the reading proposed on this box, to keep or drop here
@@ -64,6 +64,7 @@
 <section class="details" class:wide={!!source} aria-label="Details" tabindex="-1" bind:this={card}>
   <div class="head">
     <b>{box.title.value}</b>
+    {#if onedit}<button type="button" aria-label="Edit details" title="Edit details — E" onclick={onedit}>✎</button>{/if}
     {#if onmenu}<button type="button" aria-label="Box menu" aria-haspopup="menu" onclick={onmenu}>⋯</button>{/if}
     <button type="button" aria-label="Close" onclick={onclose}>×</button>
   </div>

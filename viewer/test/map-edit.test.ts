@@ -1206,13 +1206,22 @@ test("Frame tool: a drag draws a group around the boxes it encloses, one batch",
   expect(pressed(target)).toBe("Select");
 });
 
-test("E with a box selected focuses its details", async () => {
+test("E with a box selected opens its panel and focuses it; read-only, the card stays", async () => {
   const { target } = setup(recorder().api);
   select(target, "web");
   (document.activeElement as HTMLElement | null)?.blur();
   press("e");
   await tick();
-  expect(document.activeElement).toBe(target.querySelector("section.details"));
+  expect(target.querySelector("section.details")).toBeNull();
+  expect(document.activeElement).toBe(target.querySelector('[data-panel="box"]'));
+  press("Escape", {}, target.querySelector('[data-panel="box"]')!);
+  target.querySelector<HTMLElement>('section.details [aria-label="Edit details"]')!.click();
+  flushSync();
+  expect(target.querySelector('[data-panel="box"]')).not.toBeNull();
+  const ro = setup().target;
+  select(ro, "web");
+  expect(ro.querySelector("section.details")).not.toBeNull();
+  expect(ro.querySelector('[aria-label="Edit details"]')).toBeNull();
 });
 
 // --- an arrow: select, bar, reconnect, label and note
@@ -1500,4 +1509,201 @@ test("Context and Details open the panel seam at their field; letting go of the 
   s.openPanel("context");
   s.cancel();
   expect(s.panel).toBeNull();
+});
+
+// --- the details panel
+const panelField = (t: HTMLElement, name: string) => t.querySelector<HTMLInputElement>(`[data-panel] [data-field="${name}"]`)!;
+const fill = (el: HTMLInputElement, v: string) => {
+  el.focus();
+  typeIn(el, v);
+  el.blur();
+  flushSync();
+};
+const openPanel = (t: HTMLElement, id: string) => {
+  select(t, id);
+  press("e");
+};
+
+test("the box panel: name, description, tech, context and made of each send one set on blur or Enter, nothing when unchanged", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  openPanel(target, "web");
+  const panel = target.querySelector<HTMLElement>('[data-panel="box"]')!;
+  expect(panelField(target, "title").value).toBe("Web");
+  expect(panelField(target, "title").classList.contains("hand")).toBe(true);
+  expect(panel.textContent).toContain("One line, shown on hover and in lists.");
+  expect(panel.textContent).toContain("Context for whoever builds it");
+  fill(panelField(target, "title"), "Web");
+  fill(panelField(target, "title"), "  Storefront ");
+  await tick();
+  fill(panelField(target, "description"), "The shop people see");
+  await tick();
+  const tech = panelField(target, "tech");
+  tech.focus();
+  typeIn(tech, "SvelteKit");
+  press("Enter", {}, tech);
+  await tick();
+  tech.blur();
+  fill(panelField(target, "context"), "Checkout runs here.\n\nKeep it fast.\n");
+  await tick();
+  fill(panelField(target, "at"), " apps/web/**\n\napps/shared/ui/** \n");
+  await tick();
+  fill(panelField(target, "at"), "apps/web/**\napps/shared/ui/**");
+  fill(panelField(target, "description"), "");
+  await tick();
+  expect(got).toEqual([
+    { op: "set", id: "web", key: "title", value: "Storefront" },
+    { op: "set", id: "web", key: "description", value: "The shop people see" },
+    { op: "set", id: "web", key: "tech", value: "SvelteKit" },
+    { op: "set", id: "web", key: "context", value: "Checkout runs here.\n\nKeep it fast." },
+    { op: "set", id: "web", key: "at", value: "apps/web/**\napps/shared/ui/**" },
+    { op: "set", id: "web", key: "description", value: null },
+  ]);
+});
+
+test("Shift+Enter is a new line in context; Enter saves it", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  openPanel(target, "web");
+  const ctx = panelField(target, "context");
+  ctx.focus();
+  typeIn(ctx, "line one");
+  const shift = new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true });
+  ctx.dispatchEvent(shift);
+  flushSync();
+  await tick();
+  expect(shift.defaultPrevented).toBe(false);
+  expect(got).toEqual([]);
+  typeIn(ctx, "line one\nline two");
+  const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  ctx.dispatchEvent(enter);
+  flushSync();
+  await tick();
+  expect(enter.defaultPrevented).toBe(true);
+  expect(got).toEqual([{ op: "set", id: "web", key: "context", value: "line one\nline two" }]);
+});
+
+test("the box panel's kind dropdown and the kind's own properties: chips for one-of", async () => {
+  const { api, got } = recorder();
+  const view = fresh();
+  Object.assign(view.boxes.find((b) => b.id === "web")!, { kind: { value: "model", source: "ig" }, props: { hosted: "local" } });
+  const { target } = setup(api, view);
+  openPanel(target, "web");
+  const panel = target.querySelector<HTMLElement>('[data-panel="box"]')!;
+  const chips = () => [...panel.querySelectorAll<HTMLButtonElement>('[data-prop="hosted"]')];
+  expect(chips().map((c) => [c.textContent, c.getAttribute("aria-pressed")])).toEqual([["local", "true"], ["hosted", "false"]]);
+  chips()[1].click();
+  await tick();
+  chips()[0].click();
+  await tick();
+  fill(panelField(target, "prop-provider"), "ollama");
+  await tick();
+  panel.querySelector<HTMLElement>("[data-kind-button]")!.click();
+  flushSync();
+  panel.querySelector<HTMLElement>('[data-kinds] [data-kind="service"]')!.click();
+  await tick();
+  expect(got).toEqual([
+    { op: "set", id: "web", key: "hosted", value: "hosted" },
+    { op: "set", id: "web", key: "hosted", value: null },
+    { op: "set", id: "web", key: "provider", value: "ollama" },
+    { op: "set", id: "web", key: "kind", value: "service" },
+  ]);
+});
+
+test("the box panel lists its arrows and what is inside; an arrow opens its panel, + Add a box a draft inside", () => {
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(Map, { target, props: { view: fresh(), size, edit: recorder().api, camera: new Camera() } });
+  flushSync();
+  openPanel(target, "api");
+  const panel = target.querySelector<HTMLElement>('[data-panel="box"]')!;
+  const rows = [...panel.querySelectorAll<HTMLElement>("[data-arrow-row]")];
+  expect(rows.map((r) => r.textContent!.replace(/\s+/g, " ").trim())).toEqual(expect.arrayContaining(["reads→ Postgres", "calls← Web"]));
+  expect([...panel.querySelectorAll("[data-inside]")].map((b) => b.getAttribute("data-inside"))).toContain("api/routers");
+  panel.querySelector<HTMLElement>("[data-add-inside]")!.click();
+  m.tick(performance.now() + 10_000);
+  flushSync();
+  expect(target.querySelector('[data-box="api"][data-open] [data-draft]')).not.toBeNull();
+  expect(target.querySelector('[data-panel="box"]')).not.toBeNull();
+  rows.find((r) => r.getAttribute("data-arrow-row") === "api->postgres")!.click();
+  flushSync();
+  expect(target.querySelector('[data-panel="box"]')).toBeNull();
+  expect(target.querySelector('[data-panel="arrow"]')!.getAttribute("aria-label")).toBe("Edit arrow Api → Postgres");
+});
+
+test("the arrow panel: kind chips, label, the note of at most 80 and context send arrowset; the preview shows it as written", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api, withArrow("web->api", { note: "retries twice", context: 'Idempotent: send "key".\nSee #12.' }));
+  pickArrow(target, "web->api");
+  arrowButton(target, "Details")!.click();
+  flushSync();
+  const panel = target.querySelector<HTMLElement>('[data-panel="arrow"]')!;
+  expect(panel.querySelector(".head b")!.textContent).toBe("Web → Api");
+  expect(panel.querySelector("[data-kdl]")!.textContent).toBe(
+    'calls "api" label="POST /checkout" note="retries twice" context=#"""\n    Idempotent: send "key".\n    See #12.\n    """#');
+  expect(panel.querySelector('[data-arrow-kind="calls"]')!.getAttribute("aria-pressed")).toBe("true");
+  panel.querySelector<HTMLElement>('[data-arrow-kind="sends"]')!.click();
+  await tick();
+  expect(panelField(target, "note").maxLength).toBe(80);
+  fill(panelField(target, "note"), "retries twice");
+  fill(panelField(target, "label"), "POST /pay");
+  await tick();
+  fill(panelField(target, "note"), "");
+  await tick();
+  fill(panelField(target, "context"), "Ask the team first.");
+  await tick();
+  expect(got).toEqual([
+    { op: "arrowset", from: "web", to: "api", key: "kind", value: "sends" },
+    { op: "arrowset", from: "web", to: "api", key: "label", value: "POST /pay" },
+    { op: "arrowset", from: "web", to: "api", key: "note", value: null },
+    { op: "arrowset", from: "web", to: "api", key: "context", value: "Ask the team first." },
+  ]);
+});
+
+test("Context on the arrow bar opens the panel at the context field", () => {
+  const { target } = setup(recorder().api);
+  pickArrow(target, "api->postgres");
+  arrowButton(target, "Context")!.click();
+  flushSync();
+  expect(document.activeElement).toBe(panelField(target, "context"));
+  expect(target.querySelector("[data-kdl]")!.textContent).toBe('reads "postgres"');
+});
+
+test("Esc closes the panel, keeps what was typed and gives the focus back to the map", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  openPanel(target, "web");
+  const d = panelField(target, "description");
+  d.focus();
+  typeIn(d, "The shop");
+  press("Escape", {}, d);
+  await tick();
+  expect(target.querySelector("[data-panel]")).toBeNull();
+  expect(document.activeElement).toBe(boxEl(target, "web"));
+  expect(target.querySelector("section.details")).not.toBeNull();
+  pickArrow(target, "web->api");
+  arrowButton(target, "Details")!.click();
+  flushSync();
+  press("Escape", {}, target.querySelector('[data-panel="arrow"]')!);
+  await tick();
+  expect(target.querySelector("[data-panel]")).toBeNull();
+  expect(arrowBar(target)).not.toBeNull();
+  expect(document.activeElement).toBe(boxEl(target, "web"));
+  expect(got).toEqual([{ op: "set", id: "web", key: "description", value: "The shop" }]);
+});
+
+test("a failed save shows the toast and the field keeps what was typed; a second blur tries again", async () => {
+  let n = 0;
+  const { api } = fake({ apply: async () => { n++; throw new Error("not a glob"); } });
+  const { target } = setup(api);
+  openPanel(target, "web");
+  fill(panelField(target, "at"), "../outside");
+  await tick();
+  flushSync();
+  expect(target.querySelector('[aria-live="polite"]')!.textContent).toBe("not a glob");
+  expect(panelField(target, "at").value).toBe("../outside");
+  panelField(target, "at").focus();
+  panelField(target, "at").blur();
+  await tick();
+  expect(n).toBe(2);
 });

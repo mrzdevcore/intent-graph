@@ -10,7 +10,7 @@ import type { Tool } from "./tool.svelte";
 export type Draft = { parent: string; x: number; y: number; w: number; h: number; title: string; drawing: boolean; from?: string };
 export type Ui = { t: "menu" | "rename" | "move" | "ground" | "arrow"; id: string; x: number; y: number; gx?: number; gy?: number };
 export type ArrowPick = { id: string; part?: { from: string; to: string } };
-export type Panel = { arrow: ArrowPick; focus: "context" | null };
+export type Panel = { arrow?: ArrowPick; box?: string; focus: "context" | null };
 export type Ctx = {
   edit: () => EditApi | undefined; view: () => View; box: (id: string) => MapBox | undefined; frame: (id: string) => Frame;
   kinds: () => KindView[]; arrowKinds: () => ArrowKindView[] | undefined;
@@ -212,25 +212,30 @@ export class EditSession {
     return a ? editing(a, this.c.box) : "none";
   }
   pickArrow(p: ArrowPick | null) {
-    if (!p || this.panel?.arrow.id !== p.id) this.panel = null;
+    if (p ? this.panel?.arrow?.id !== p.id : this.panel?.arrow) this.panel = null;
     this.arrow = p;
     this.arrowKinds = false;
     this.writing = this.ui = this.kinds = this.asking = this.made = null;
     if (p) this.c.select(null);
   }
-  private change(edits: Edit[], next?: { from: string; to: string }) {
+  private change(edits: Edit[], next?: { from: string; to: string }, failed?: () => void): boolean {
     const a = this.picked, how = this.editing;
-    if (!a || !this.c.edit() || (how !== "edit" && how !== "drift")) return;
+    if (!a || !this.c.edit() || (how !== "edit" && how !== "drift")) return false;
     const e = onArrow(a, edits);
-    if (!e || !this.c.run(() => this.c.edit()!.apply(e))) return;
+    if (!e || !this.c.run(() => this.c.edit()!.apply(e).catch((err) => (failed?.(), Promise.reject(err))))) return false;
     if (next && this.arrow) this.arrow = this.arrow.part ? { id: this.arrow.id, part: next } : { id: `${next.from}->${next.to}` };
+    return true;
   }
-  arrowSet(key: "kind" | "label" | "note" | "context", value: string | null) {
+  arrowSet(key: "kind" | "label" | "note" | "context", value: string | null, failed?: () => void): boolean {
     const a = this.picked;
     this.arrowKinds = false;
     this.writing = null;
-    if (!a || (key === "kind" ? specKind(a) : this.text(a, key)) === value) return;
-    this.change([{ op: "arrowset", from: a.from, to: a.to, key, value }]);
+    if (!a || (key === "kind" ? specKind(a) : this.text(a, key)) === value) return false;
+    return this.change([{ op: "arrowset", from: a.from, to: a.to, key, value }], undefined, failed);
+  }
+  setBox(id: string, key: string, value: string | null, failed?: () => void): boolean {
+    if (!this.c.edit() || !this.c.box(id)) return false;
+    return this.c.run(() => this.c.edit()!.apply({ op: "set", id, key, value }).catch((err) => (failed?.(), Promise.reject(err))));
   }
   text(a: MapArrow, key: "label" | "note" | "context") {
     return key === "label" && a.kind === "bundle" ? null : a[key] ?? null;

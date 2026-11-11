@@ -327,7 +327,7 @@ test("the menu's keys: E edits details, F2 renames, M moves, A draws an arrow", 
   rightClick(t, "web");
   press("e", document.activeElement!);
   expect(t.querySelector('[role="menu"]')).toBeNull();
-  expect(t.querySelector("section.details")).not.toBeNull();
+  expect(t.querySelector('[data-panel="box"]')).not.toBeNull();
   rightClick(t, "web");
   press("F2", document.activeElement!);
   expect(t.querySelector('input[aria-label="Rename box"]')).not.toBeNull();

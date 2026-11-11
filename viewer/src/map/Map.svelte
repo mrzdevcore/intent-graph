@@ -35,12 +35,14 @@
   import { freeId, inside, kindOf } from "./edit/add";
   import BoxBar from "./edit/BoxBar.svelte";
   import ArrowBar from "./edit/ArrowBar.svelte";
+  import BoxPanel from "./edit/BoxPanel.svelte";
+  import ArrowPanel from "./edit/ArrowPanel.svelte";
   import ArrowMenu from "./edit/ArrowMenu.svelte";
   import ArrowText from "./edit/ArrowText.svelte";
   import { arrowKindNames, specKind } from "./edit/arrows";
   import { arrowBar as barOf, arrowHit, partFrame } from "./edit/arrowPick";
   import { kindName } from "./edit/kinds";
-  import { sharedParent } from "./edit/menu";
+  import { sharedParent, written } from "./edit/menu";
   import EditLayer from "./edit/EditLayer.svelte";
   import { EditSession, type Draft as DraftBox } from "./edit/session.svelte";
   import type { Act } from "./edit/menu";
@@ -647,7 +649,7 @@
     if (e.button === 1) e.preventDefault();
     // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
     // picking or grabbing an arrow unmounts the field before its own blur would keep the text
-    (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>("[data-arrow-text]")?.blur();
+    (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>("[data-arrow-text], [data-panel] [data-field]")?.blur();
     if ((e.button !== 0 && e.button !== 1) || (e.target as Element | null)?.closest?.("[data-pad], [data-draft]")) return;
     const panning = e.button === 1 || space || tool.current === "hand";
     const grip = !panning && edit ? (e.target as Element | null)?.closest?.("[data-resize]") as HTMLElement | null : null;
@@ -824,7 +826,26 @@
   const hasCode = (id: string) => { const b = byId.get(id); return !!b && b.level !== "code" && b.madeOf.length > 0; };
   function details(id: string) {
     choose([id]);
-    void flushed().then(() => root?.querySelector<HTMLElement>("section.details")?.focus({ preventScroll: true }));
+    if (edit && written(byId.get(id))) sess.panel = { box: id, focus: null };
+    else void flushed().then(() => root?.querySelector<HTMLElement>("section.details")?.focus({ preventScroll: true }));
+  }
+  function kindContext(id: string) {
+    const parent = byId.get(id)?.parent ?? ROOT;
+    return { parentKinds: (kids.get(parent) ?? []).filter((b) => b.id !== id).map(kindName).filter((n) => n !== "box"), inRun: inside(parent, byId, view.kinds) };
+  }
+  function addInside(id: string) {
+    const ps = view.boxes.filter((b) => b.parent === id && truth[b.id]).map((b) => truth[b.id]), o = origin(id);
+    const x = ps.length ? Math.min(...ps.map((p) => p.x)) : o.x + GRID, y = ps.length ? Math.max(...ps.map((p) => p.y + p.h)) + GRID : o.y + GRID;
+    openBox(id);
+    sess.panel = { box: id, focus: null };
+    draftAt({ parent: id, x: x + BOX.w / 2, y: y + BOX.h / 2 });
+  }
+  function closePanel() {
+    const p = sess.panel;
+    sess.panel = null;
+    const to = p?.box ?? (p?.arrow && sess.picked?.from);
+    // after the read-only card mounts, which takes the focus for itself
+    if (to) void flushed().then(() => sess.focusBox(to));
   }
   function makeGroup(parent: string, ids: string[], rect?: Place) {
     const ps = ids.map((i) => truth[i]).filter(Boolean);
@@ -876,6 +897,13 @@
       return { x: (d.x - o.x) * t.s + t.x, y: (d.y - o.y) * t.s + t.y, w: d.w * t.s, h: d.h * t.s };
     },
     ground: (e) => groundAt(e), draftAt: (g) => void draftAt(g), details, open: openBox,
+  });
+  const panelBox = $derived(edit && sess.panel?.box && sess.panel.box === selected ? byId.get(selected) : undefined);
+  // the panel follows the selection to another box, and closes with it
+  $effect(() => {
+    const p = untrack(() => sess.panel), id = selected;
+    if (!p?.box || p.box === id) return;
+    sess.panel = id && written(byId.get(id)) ? { box: id, focus: null } : null;
   });
   const addParent = $derived(sess.adding ? byId.get(sess.adding.parent) : undefined);
   let landed: Show | null | undefined;
@@ -1242,6 +1270,12 @@
     <ArrowMenu x={sess.ui.x} y={sess.ui.y} title={ab.title} how={ab.how} parts={ab.parts.map((p) => `${p.kind} · ${p.title}`)}
       onpick={(a) => sess.arrowAct(a)} onpart={(i) => { sess.ui = null; pickPart(ab.bundle, i); }} onclose={() => (sess.ui = null)} />
   {/if}
+  {#if edit && sess.panel?.arrow && sess.picked}
+    {@const a = sess.picked}
+    {#key sess.panel.arrow.id + (sess.panel.arrow.part ? `:${a.from}->${a.to}` : "")}
+      <ArrowPanel {a} how={sess.editing} kinds={arrowKindNames(view.arrowKinds)} s={sess} titleOf={sess.titleOf} focus={sess.panel.focus} onclose={closePanel} />
+    {/key}
+  {/if}
   {#if edit}<EditLayer s={sess} {arrangeable} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
   {#if view.landscape}
     <Folders landscape={view.landscape} />
@@ -1249,8 +1283,14 @@
   {#if reading}
     <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig analyse</code> to let an AI agent read them.</p>
   {/if}
-  {#if selected && byId.get(selected)}
-    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined} edit={api} {run} />
+  {#if panelBox}
+    {#key panelBox.id}
+      <BoxPanel {view} box={panelBox} s={sess} context={kindContext(panelBox.id)} onclose={closePanel} onbox={(id) => details(id)} onadd={addInside}
+        onarrow={(p) => { sess.pickArrow(p); sess.openPanel(null); }} />
+    {/key}
+  {:else if selected && byId.get(selected)}
+    <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined}
+      onedit={edit && written(byId.get(selected)) ? () => details(selected!) : undefined} edit={api} {run} />
   {/if}
 </div>
 
