@@ -1,24 +1,23 @@
-<!-- An open box's connections, in the box's own units: a pad on the edge facing each far box, its title
-     beside it, and a wire inside to the child holding its end. `scale` keeps pads and text one size on
-     screen. Titles are repo-derived: text only. The fold of what does not fit has no wire and opens this
-     box, whose card lists every link. -->
+<!-- Titles are repo-derived: text only. -->
 <script lang="ts">
   import type { ArrowShape, Edit, Frame, View } from "./types";
-  import { assign, inBox, padPoint, padsOf, wiresOf, type Pad } from "./pads";
+  import { assign, inBox, padPoint, padsOf, wiresOf, type Outside, type Pad } from "./pads";
   import { written } from "./edit/menu";
+  import { editing } from "./edit/arrows";
   import type { P } from "./shapes/path";
 
-  let { view, id, frame, childFrame, on, scale, onopen, shape = "circuit", hot = null, onhot, onassign, worldOf }: {
+  let { view, id, frame, childFrame, on, scale, onopen, shape = "circuit", hot = null, onhot, onassign, worldOf, outside }: {
     view: View; id: string; frame: { w: number; h: number }; childFrame: (id: string) => Frame | undefined;
     on: Set<string>; scale: number; onopen: (id: string) => void; shape?: ArrowShape; hot?: string | null;
     onhot?: (arrows: string[] | null) => void; onassign?: (e: Edit) => void; worldOf?: (id: string) => Frame | undefined;
+    outside?: Outside;
   } = $props();
 
   // past this many, chips would crowd the labels: the grey says it alone
   const CHIPS = 12;
   const STUB = 24;
   const INWARD = { l: [1, 0], r: [-1, 0], t: [0, 1], b: [0, -1] } as const;
-  const pads = $derived(padsOf(view, id, frame, childFrame, on, worldOf));
+  const pads = $derived(padsOf(view, id, frame, childFrame, on, worldOf, outside));
   const place = $derived(inBox(view, id, frame));
   const kids = $derived.by(() => {
     const out: Record<string, Frame> = {};
@@ -31,6 +30,14 @@
   const wires = $derived(wiresOf(pads, frame, kids, shape));
   const asks = $derived(Object.keys(kids).length > 0);
   const keyOf = (p: Pad) => `${p.other}\u0000${p.child ?? ""}`;
+  const boxOf = (b: string) => view.boxes.find((x) => x.id === b);
+  const inIg = $derived.by(() => {
+    const parts = view.arrows.flatMap((a) => (a.parts?.length ? a.parts : [a]));
+    return (p: Pad) => p.ends.filter((e) => {
+      const a = parts.find((x) => x.from === e.from && x.to === e.to);
+      return !!a && editing(a, boxOf) === "edit";
+    });
+  });
   let near = $state<string | null>(null);
   const lit = (i: number) => near === keyOf(pads[i]) || (!!hot && pads[i].arrows.includes(hot));
   function enter(i: number) {
@@ -57,7 +64,8 @@
   };
 
   let root = $state<HTMLDivElement>();
-  let drag = $state<{ i: number; to: P; over: string | null } | null>(null);
+  let drag = $state<{ key: string; to: P; over: string | null } | null>(null);
+  const dragged = $derived(drag ? pads.find((p) => keyOf(p) === drag!.key) : undefined);
   function local(e: PointerEvent): P {
     const r = root!.getBoundingClientRect();
     return r.width && r.height ? [((e.clientX - r.left) * frame.w) / r.width, ((e.clientY - r.top) * frame.h) / r.height] : [0, 0];
@@ -66,11 +74,11 @@
     const hit = Object.entries(kids).find(([, f]) => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h)?.[0] ?? null;
     return hit && written(view.boxes.find((b) => b.id === hit)) ? hit : null;
   }
-  function grab(e: PointerEvent, i: number) {
+  function grab(e: PointerEvent, p: Pad) {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
-    drag = { i, to: stub(pads[i]), over: null };
+    drag = { key: keyOf(p), to: stub(p), over: null };
   }
   function move(e: PointerEvent) {
     if (!drag) return;
@@ -79,9 +87,9 @@
   }
   function up(e: PointerEvent) {
     if (!drag) return;
-    const p = pads[drag.i], child = childAt(local(e));
+    const p = dragged, child = childAt(local(e)), ends = p ? inIg(p) : [];
     drag = null;
-    if (p && child) onassign?.(assign(p, child));
+    if (p && child && ends.length) onassign?.(assign({ ...p, ends }, child));
   }
 </script>
 
@@ -104,16 +112,16 @@
               {@const [x, y] = padPoint(p, frame)}
               {@const s = stub(p)}
               <line x1={s[0]} y1={s[1]} x2={x} y2={y} stroke-linecap="round" stroke-dasharray={p.down ? `0 ${4 * scale}` : undefined} />
-              {#if onassign && asks && !p.child}
+              {#if onassign && asks && !p.child && inIg(p).length}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <circle class="grab" data-pad={p.other} data-stub={i} cx={s[0]} cy={s[1]} r={5 * scale} onpointerdown={(e) => grab(e, i)} />
+                <circle class="grab" data-pad={p.other} data-stub={i} cx={s[0]} cy={s[1]} r={5 * scale} onpointerdown={(e) => grab(e, p)} />
               {/if}
             {/if}
           </g>
         {/if}
       {/each}
-      {#if drag}
-        {@const s = stub(pads[drag.i])}
+      {#if drag && dragged}
+        {@const s = stub(dragged)}
         <line class="pull" x1={s[0]} y1={s[1]} x2={drag.to[0]} y2={drag.to[1]} stroke-width={1.5 * scale} stroke-dasharray="{4 * scale} {4 * scale}" />
         {#if drag.over}
           {@const f = kids[drag.over]}

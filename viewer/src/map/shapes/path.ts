@@ -1,6 +1,5 @@
-import type { ArrowShape, Frame } from "../types";
+import type { Frame } from "../types";
 
-export type Shape = ArrowShape;
 export type Side = "l" | "r" | "t" | "b";
 export type P = [number, number];
 export type End = { from: P; to: P; sides: [Side, Side] };

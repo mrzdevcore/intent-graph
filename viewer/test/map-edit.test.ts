@@ -2053,6 +2053,8 @@ test("a change of shape cross-fades: the old line fades out over the new one", (
   const now = target.querySelector<HTMLElement>('[data-arrow="web->api"]')!;
   expect(now.classList.contains("fresh")).toBe(true);
   expect([...target.querySelectorAll(".fade-out g[data-state] > path")].map((p) => p.getAttribute("d"))).toContain(was);
+  expect(target.querySelector('[data-label="web->api"]')!.classList.contains("fresh")).toBe(true);
+  expect(target.querySelector(".fade-out g[transform^='translate'] rect")).not.toBeNull();
   vi.unstubAllGlobals();
 });
 
@@ -2080,6 +2082,17 @@ test("the bar's Line sends arrowset shape, and Like the map clears it; the panel
     { op: "arrowset", from: "api", to: "stripe", key: "shape", value: "curved" },
     { op: "arrowset", from: "api", to: "postgres", key: "shape", value: "straight" },
   ]);
+});
+
+test("the bar's Line goes back to the arrow's shape when the change is refused", async () => {
+  const { api } = fake({ apply: async () => Promise.reject(new Error("changed by hand")) });
+  const { target } = setup(api, withArrow("web->api", { shape: "elbow" }));
+  pickArrow(target, "web->api");
+  const line = arrowBar(target)!.querySelector<HTMLSelectElement>("[data-line]")!;
+  choose(line, "curved");
+  await tick();
+  flushSync();
+  expect(arrowBar(target)!.querySelector<HTMLSelectElement>("[data-line]")!.value).toBe("elbow");
 });
 
 test("a curved arrow is picked by its wide hit path, with a handle on each end of the curve and its label halfway", async () => {

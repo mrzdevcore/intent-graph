@@ -1,8 +1,8 @@
 import { HEAD, OPEN, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
-import { sides, type Side } from "./shapes/path";
+import { sides, type P, type Side } from "./shapes/path";
 import { inside, spreadAt, type InWire, type Port } from "./shapes/inside";
 import { lineOf } from "./shapes/auto";
-import type { ArrowShape, Edit, Frame, View } from "./types";
+import type { ArrowShape, Edit, Frame, MapArrow, View } from "./types";
 
 export type PadEnd = { from: string; to: string; key: "from" | "to" };
 export type Pad = {
@@ -75,10 +75,17 @@ export function assign(p: Pad, child: string): Edit {
   return edits.length === 1 ? edits[0] : { op: "batch", edits };
 }
 
-// with no frames to face, or a far box overlapping this one, out goes right and in comes left
+export const sideAt = (f: Frame, [x, y]: P): Side => {
+  const d: [Side, number][] = [["l", Math.abs(x - f.x)], ["r", Math.abs(x - f.x - f.w)], ["t", Math.abs(y - f.y)], ["b", Math.abs(y - f.y - f.h)]];
+  return d.reduce((m, o) => (o[1] < m[1] ? o : m))[0];
+};
+
+export type Outside = { frame: Frame; wire: (a: MapArrow) => { ends: [P, P] } | undefined };
+
+// the side the outside wire ends on, else facing the far box; with neither, out right and in left
 export function padsOf(
   view: View, id: string, frame: { w: number; h: number }, childFrame: (id: string) => Frame | undefined, on: Set<string>,
-  worldOf?: (id: string) => Frame | undefined,
+  worldOf?: (id: string) => Frame | undefined, outside?: Outside,
 ): Pad[] {
   const parent = new Map(view.boxes.map((b) => [b.id, b.parent]));
   const title = new Map(view.boxes.map((b) => [b.id, b.title.value]));
@@ -98,7 +105,11 @@ export function padsOf(
   })();
   const here = world(id);
   const place = inBox(view, id, frame);
-  const byKey = new Map<string, Pad & { far?: Frame }>();
+  const ended = (a: MapArrow) => {
+    const w = outside && (a.from === id || a.to === id) ? outside.wire(a) : undefined;
+    return w ? sideAt(outside!.frame, w.ends[a.from === id ? 0 : 1]) : undefined;
+  };
+  const byKey = new Map<string, Pad & { far?: Frame; wired?: boolean }>();
   for (const a of view.arrows) {
     for (const part of a.parts?.length ? a.parts : [a]) {
       const from = holder(part.from), to = holder(part.to);
@@ -115,7 +126,11 @@ export function padsOf(
         byKey.set(key, p);
       } else if (p.way !== way) {
         p.way = "both";
-        if (!p.far) p.edge = "r";
+        if (!p.far && !p.wired) p.edge = "r";
+      }
+      if (!p.wired) {
+        const e = ended(a);
+        if (e) [p.edge, p.wired] = [e, true];
       }
       p.shape ??= part.shape;
       if (!p.arrows.includes(a.id)) p.arrows.push(a.id);
@@ -138,7 +153,7 @@ export function padsOf(
       const same = mine.filter((q) => q.child === p.child), t = spreadAt(same.indexOf(p), same.length);
       p.at = x ? c.x + c.w * t : c.y + c.h * t;
     }
-    const pads = mine.map(({ far: _, ...p }) => p);
+    const pads = mine.map(({ far: _, wired: __, ...p }) => p);
     out.push(...(x ? placed(pads, 0, frame.w, frame.w * WIDE) : placed(pads, head, frame.h, frame.w * ROOM)));
   }
   return out;

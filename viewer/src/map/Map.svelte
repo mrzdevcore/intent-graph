@@ -4,7 +4,7 @@
      in localStorage; others make room, the parent grows); dragging elsewhere, or an open box, pans, or draws a marquee when editing. Map text is repo/AI-derived: text only, never {@html}. -->
 <script lang="ts">
   import { onDestroy, tick as flushed, untrack } from "svelte";
-  import type { Edit, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
+  import type { ArrowShape, Edit, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
   import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, PLACE_MS, tween, wheelFactor } from "./glide";
@@ -16,7 +16,7 @@
   import MapArrow from "./MapArrow.svelte";
   import Region from "./Region.svelte";
   import Pads from "./Pads.svelte";
-  import { ANSWER_CARD, CARD, CARD_WIDE, fillsBeside, fitBeside, padsOf } from "./pads";
+  import { ANSWER_CARD, CARD, CARD_WIDE, fillsBeside, fitBeside, padsOf, type Outside } from "./pads";
   import { answerFrame, answerOf, arrowLit, arrowNumber, boxStates, holders, stepFrame, type Aim } from "./answer";
   import AnswerCard from "./AnswerCard.svelte";
   import type { Show } from "../model/show";
@@ -275,11 +275,10 @@
   };
   const siblings = (p: string) => Object.fromEntries((kids.get(p) ?? []).map((b) => [b.id, shown.placed.frames[b.id]]));
   const byParent = $derived(group([...view.arrows, ...ghosts], (a: Arrow) => a.parent));
-  // the map's arrow shape at each level, from what is drawn there: Auto by its boxes and arrows
   const shapeAt = $derived.by(() => {
-    const out = new Map<string, ReturnType<typeof mapShape>>();
+    const out = new Map<string, ArrowShape>();
     for (const [p, bs] of kids) {
-      const at = new Set(bs.map((b) => b.id)), n = (byParent.get(p) ?? []).filter((a) => a.from !== a.to && at.has(a.from) && at.has(a.to)).length;
+      const at = new Set(bs.map((b) => b.id)), n = (byParent.get(p) ?? []).filter((a) => !a.ghost && a.from !== a.to && at.has(a.from) && at.has(a.to)).length;
       out.set(p, mapShape(arrowPref, bs.length, n));
     }
     return out;
@@ -300,9 +299,9 @@
     return { p, ...wired(arrows.get(p) ?? [], frames, p) };
   });
   const wiringOf = (p: string) => (liveWiring?.p === p ? liveWiring : wiring.get(p));
+  const outsideOf = (id: string): Outside => ({ frame: drawn(id), wire: (a) => wiringOf(a.parent)?.routed.wires.get(a.id) });
   const pathOf = (a: Arrow, mode: Mode) => wiringOf(a.parent)![mode].wires.get(a.id)!;
   const lineAt = (a: Arrow) => lineOf(a, shapeAt.get(a.parent) ?? "circuit");
-  // a shape that changes cross-fades: the old line fades out over the new one fading in
   const FADE = 240;
   let fading = $state.raw<{ a: Arrow; w: Wire }[]>([]);
   let fresh = $state.raw(new Set<string>());
@@ -488,7 +487,7 @@
    *  (below it at the phone width, so across the full width) with room for the labels. Otherwise a
    *  box with an inside is framed by its inside (so the inside fills the screen), others by their frame. */
   function target(id: string): Cam {
-    const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on, frameOf);
+    const to = { w: vw, h: vh }, pads = padsOf(view, id, frameOf(id), drawn, on, frameOf, outsideOf(id));
     if (pads.length) return fitBeside(frameOf(id), to, pads, selected ? cardRem() : 0, rem());
     const inner = shown.placed.inner[id];
     if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
@@ -498,7 +497,7 @@
   const fly = (id: string) => glideTo(id === ROOT ? home() : target(id));
   function aimAt(aim: Aim | null) {
     if (!aim) return;
-    const pads = aim.id ? padsOf(view, aim.id, aim.frame, drawn, on, frameOf) : [];
+    const pads = aim.id ? padsOf(view, aim.id, aim.frame, drawn, on, frameOf, outsideOf(aim.id)) : [];
     const beside = globalThis.matchMedia?.("(max-width: 47.5rem)").matches ? 0 : ANSWER_CARD;
     glideTo(fitBeside(aim.frame, { w: vw, h: vh }, pads, 0, rem(), beside));
     away = false;
@@ -1321,7 +1320,7 @@
           style:transform="translate({t.x}px, {t.y}px) scale({t.s})">{@render level(b.id)}</div>
       {/if}
       {#if showsInside(sw)}
-        <Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} worldOf={frameOf} shape={shapeAt.get(b.id) ?? "circuit"}
+        <Pads {view} id={b.id} frame={f} childFrame={drawn} {on} scale={f.w / sw} onopen={openBox} worldOf={frameOf} outside={outsideOf(b.id)} shape={shapeAt.get(b.id) ?? "circuit"}
           hot={hotArrow} onhot={(ids) => (hotPad = ids)} onassign={edit ? (e) => sess.send(e) : undefined} />
       {/if}
       {#if inAnswer}
@@ -1341,10 +1340,15 @@
       ontitle={(v) => sess.draft && (sess.draft.title = v)} onfinish={finishDraft} />
   {/if}
   <!-- the arrows' labels, above the boxes -->
-  {#each mode === "ribbon" ? all.filter((a) => lit.includes(a) || sess.arrow?.id === a.id) : all as a (a.id)}
+  {#if mode === "routed"}
+    {#each fading.filter((f) => f.a.parent === pid) as f (f.a.id)}
+      <div class="arrow fade-out" aria-hidden="true"><MapArrow part="label" d={f.w.d} mid={f.w.mid} arrowLook={arrowLook(f.a, view.marks, on)} {zoom} note={f.a.note} len={f.w.len} /></div>
+    {/each}
+  {/if}
+  {#each mode === "ribbon" ? all.filter((a) => lit.includes(a) || sess.arrow?.id === a.id) : all as a (`${a.id} ${lineAt(a)}`)}
     {@const c = pathOf(a, mode)}
     {@const here = sess.arrow?.id === a.id}
-    <div class="arrow" data-label={a.id}>
+    <div class="arrow" class:fresh={mode === "routed" && fresh.has(a.id)} data-label={a.id}>
       <MapArrow part="label" d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom} note={a.note} len={c.len} picked={here}
         lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
         ends={here && !sess.arrow?.part && (sess.editing === "edit" || sess.editing === "drift") ? c.ends : undefined} />
@@ -1355,7 +1359,7 @@
 <svelte:window onpointermove={move} onpointerup={up} onpointercancel={abort} onblur={abort} onpointerdowncapture={pressAway} onkeydown={key} onkeyup={keyup} onpaste={pasted} />
 
 <!-- the dot grid sits on the map's own grid and moves and scales with it; a dot keeps its size on screen -->
-<div class="map" bind:this={root} bind:clientWidth={cw} bind:clientHeight={ch}>
+<div class="map" bind:this={root} bind:clientWidth={cw} bind:clientHeight={ch} style:--fade="{FADE}ms">
   {#each dots as d, i (i)}
     <div class="dots" aria-hidden="true" style:opacity={d.opacity} style:background-size="{d.sp}px {d.sp}px" style:background-position="{d.x}px {d.y}px"></div>
   {/each}
@@ -1430,7 +1434,7 @@
         onsubmit={(v) => sess.arrowSet(sess.writing!, v)} onclose={() => (sess.writing = null)} />
     {:else}
       <ArrowBar x={ab.x} y={ab.y} how={ab.how} title={ab.title} kind={specKind(ab.a)} kinds={arrowKindNames(view.arrowKinds)} picking={sess.arrowKinds}
-        note={!!ab.a.note} context={!!ab.a.context} shape={ab.a.shape ?? null} parts={ab.parts} onshape={(v) => sess.arrowSet("shape", v)}
+        note={!!ab.a.note} context={!!ab.a.context} shape={ab.a.shape ?? null} parts={ab.parts} onshape={(v, undo) => sess.arrowSet("shape", v, undo) || undo()}
         onkinds={(o) => (sess.arrowKinds = o)} onpick={(k) => sess.arrowSet("kind", k)} onnote={() => (sess.writing = "note")} oncontext={() => sess.openPanel("context")}
         onflip={() => sess.flip()} ondetails={() => sess.openPanel(null)} ondelete={() => sess.unarrow()} onkeep={() => sess.keepArrow()} onpart={(i) => pickPart(ab.bundle, i)} />
     {/if}
@@ -1518,8 +1522,8 @@
   .legend .w-added { stroke: var(--color-added); stroke-width: 2; }
   .legend .w-ghost { stroke: var(--color-removed); stroke-width: 1.5; stroke-dasharray: 5 4; }
   .arrow { display: contents; }
-  .fresh > :global(svg) { animation: line-in 240ms ease both; }
-  .fade-out > :global(svg) { animation: line-out 240ms ease both; }
+  .fresh > :global(svg) { animation: line-in var(--fade) ease both; }
+  .fade-out > :global(svg) { animation: line-out var(--fade) ease both; }
   @keyframes line-in { from { opacity: 0; } }
   @keyframes line-out { to { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .fresh > :global(svg), .fade-out > :global(svg) { animation: none; } .fade-out { display: none; } }

@@ -8,7 +8,7 @@
     onkinds, onpick, onnote, oncontext, onflip, onshape, ondetails, ondelete, onkeep, onpart }: {
     x: number; y: number; how: Editing; title: string; kind: ArrowKind; kinds: ArrowKind[]; picking: boolean; note?: boolean; context?: boolean; shape?: ArrowShape | null;
     parts?: { title: string; kind: ArrowKind }[];
-    onkinds: (open: boolean) => void; onpick: (k: ArrowKind) => void; onnote: () => void; oncontext: () => void; onflip: () => void; onshape: (s: ArrowShape | null) => void;
+    onkinds: (open: boolean) => void; onpick: (k: ArrowKind) => void; onnote: () => void; oncontext: () => void; onflip: () => void; onshape: (s: ArrowShape | null, failed: () => void) => void;
     ondetails: () => void; ondelete: () => void; onkeep: () => void; onpart: (i: number) => void;
   } = $props();
   const can = $derived(how === "edit" || how === "drift");
@@ -28,7 +28,10 @@
       <button type="button" onclick={oncontext} title="Context for whoever builds it" aria-label={context ? "Context (set)" : "Context"}>Context{#if context}<i class="dot" data-dot aria-hidden="true"></i>{/if}</button>
       <button type="button" onclick={onflip} title="Turn it the other way">Flip</button>
       <label class="line" title="How the arrow is drawn">Line
-        <select data-line value={shape ?? ""} onchange={(e) => onshape((e.currentTarget.value || null) as ArrowShape | null)}>
+        <select data-line value={shape ?? ""} onchange={(e) => {
+          const el = e.currentTarget;
+          onshape((el.value || null) as ArrowShape | null, () => (el.value = shape ?? ""));
+        }}>
           <option value="">Like the map</option>{#each SHAPES as s (s)}<option value={s}>{s[0].toUpperCase() + s.slice(1)}</option>{/each}
         </select>
       </label>
