@@ -413,3 +413,26 @@ test("the card links a rendered tag to its component, and closes once you walk i
   go("api");
   expect(target.querySelector(".details")).toBeNull();
 });
+
+test("opening an ordinary group keeps the inside inside the margin, as before the tables' fit", () => {
+  const { view, camera, target, m } = setup();
+  for (const id of Object.keys(view.placed.inner).filter((k) => k !== "system")) {
+    const input = target.querySelector<HTMLInputElement>('input[aria-label="Search the map"]')!;
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input.value = view.boxes.find((b) => b.id === id)!.title.value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    const hit = [...target.querySelectorAll<HTMLButtonElement>(".drop li button")].find((b) => b.querySelector("b")?.textContent === input.value)!;
+    hit.click();
+    flushSync();
+    m.tick(performance.now() + 60_000);
+    flushSync();
+    const t = innerTransform(id, view), [iw, ih] = view.placed.inner[id];
+    const c = camera.cam, x0 = t.x * c.k + c.x, y0 = t.y * c.k + c.y;
+    const [x1, y1] = [x0 + iw * t.s * c.k, y0 + ih * t.s * c.k];
+    expect(c.k).toBeLessThanOrEqual(fitTo({ x: t.x, y: t.y, w: iw * t.s, h: ih * t.s }, size).k + 1e-9);
+    expect(Math.min(x0, y0)).toBeGreaterThanOrEqual(-1e-6);
+    expect(x1).toBeLessThanOrEqual(size.w + 1e-6);
+    expect(y1).toBeLessThanOrEqual(size.h + 1e-6);
+  }
+});

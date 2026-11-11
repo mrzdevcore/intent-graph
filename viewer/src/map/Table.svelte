@@ -21,7 +21,7 @@
     .filter(Boolean).join(" · ");
   const pinnedTo = (c: Column) => (c.references ? facts?.pinned.get(c.references.table.toLowerCase()) : undefined);
 
-  const card = $derived(cardLayout(table, zoom, h, fold, (c) => !!mark(c)));
+  const card = $derived(cardLayout(table, zoom, h, fold, (c) => !!mark(c), rows?.removed.length ?? 0));
   const { at, m, folded, shown, keys, foot } = $derived(card);
   const tags = $derived.by(() => {
     const t: { text: string; tone: string; title: string }[] = [];

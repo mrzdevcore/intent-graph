@@ -26,7 +26,8 @@ export const tipsOf = (a: MapArrow, w: Wire, tables: Tables) =>
 export const anchorsAt = (
   as: MapArrow[], frames: Record<string, { h: number }>, tables: Tables, zoom: number, fold: boolean, marks: Map<string, TableMark> | null,
 ): Record<string, Anchor> =>
-  anchorsOf(as, frames, tables, zoom, fold, marks ? (id, c) => !!marks.get(id)?.columns.get(c.name.toLowerCase()) : undefined);
+  anchorsOf(as, frames, tables, zoom, fold, marks ? (id, c) => !!marks.get(id)?.columns.get(c.name.toLowerCase()) : undefined,
+    (id) => marks?.get(id)?.removed.length ?? 0);
 
 const shifted = (v: View, homes: Homes) => v.boxes.filter((b) => homes.get(b.id) !== b.parent).map((b) => b.id);
 const bare = (k: string) => (isInside(k) ? k.slice(0, -1) : k);

@@ -537,9 +537,18 @@
     if (pads.length) return fitBeside(frameOf(id), to, pads, selected ? cardRem() : 0, rem());
     const inner = shown.placed.inner[id];
     if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
-    const t = place.inside(id);
-    return fitInside({ x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s }, frameOf(id), to);
+    const t = place.inside(id), area = { x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s };
+    if (!ofTables(id)) return fitTo(area, to);
+    const fs = (kids.get(id) ?? []).map((b) => shown.placed.frames[b.id]).filter(Boolean);
+    const [x0, y0] = [Math.min(...fs.map((f) => f.x)), Math.min(...fs.map((f) => f.y))];
+    const [x1, y1] = [Math.max(...fs.map((f) => f.x + f.w)), Math.max(...fs.map((f) => f.y + f.h))];
+    const content = fs.length ? { x: t.x + x0 * t.s, y: t.y + y0 * t.s, w: (x1 - x0) * t.s, h: (y1 - y0) * t.s } : area, r = rem();
+    return fitInside(area, content, frameOf(id), to, { top: OVERLAY_TOP * r, bottom: OVERLAY_BOTTOM * r });
   }
+  // the boxes Rust shapes to their tables: a group of tables, or a store holding them
+  const ofTables = (id: string) => holdsTables(id) || (!!kids.get(id)?.length && kids.get(id)!.every((b) => !!view.tables?.[b.id]));
+  // rem under the breadcrumb and toolbar, and above the zoom control
+  const OVERLAY_TOP = 3.5, OVERLAY_BOTTOM = 4;
   const fly = (id: string) => glideTo(id === ROOT ? home() : target(id));
   function aimAt(aim: Aim | null) {
     if (!aim) return;

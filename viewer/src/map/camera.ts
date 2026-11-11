@@ -11,19 +11,26 @@ export function fitTo(f: Frame, view: { w: number; h: number }, margin = 0.1): C
   return { k: kk, x: view.w / 2 - (f.x + f.w / 2) * kk, y: view.h / 2 - (f.y + f.h / 2) * kk };
 }
 
-// an opened box's inside fills the screen: zoomed in up to where its frame (below the inside's top)
-// covers the screen, then kept on the frame, so no stretch of the level above shows past its edge
-export function fitInside(area: Frame, frame: Frame, view: { w: number; h: number }): Cam {
-  const fit = fitTo(area, view), most = fitTo(area, view, 0);
+// an opened box of tables fills the screen: zoomed in up to where its frame (below the inside's top)
+// covers the screen, then kept on the frame, its boxes (`content`) clear of the overlays (`pad`)
+export function fitInside(area: Frame, content: Frame, frame: Frame, view: { w: number; h: number }, pad = { top: 0, bottom: 0 }): Cam {
+  const fit = fitTo(area, view).k;
+  const most = Math.min(view.w / area.w, view.h / area.h, view.w / content.w, (view.h - pad.top - pad.bottom) / content.h);
   const below = frame.y + frame.h - area.y;
-  const cover = pos(frame.w) && pos(below) ? Math.max(view.w / frame.w, view.h / below) : fit.k;
-  const k = Math.max(fit.k, Math.min(most.k, cover));
-  const axis = (a0: number, as: number, f0: number, fs: number, v: number) => {
-    let c = v / 2 - (a0 + as / 2) * k;
+  const cover = pos(frame.w) && pos(below) ? Math.max(view.w / frame.w, view.h / below) : fit;
+  const k0 = Math.min(most, Math.max(fit, cover));
+  const k = pos(k0) ? k0 : 1;
+  const axis = (a0: number, as: number, c0: number, cs: number, f0: number, fs: number, v: number, lo: number, hi: number) => {
+    let c = (lo + v - hi) / 2 - (c0 + cs / 2) * k;
     if (fs * k >= v) c = Math.min(-f0 * k, Math.max(v - (f0 + fs) * k, c));
-    return Math.max(-a0 * k, Math.min(v - (a0 + as) * k, c));
+    const min = Math.max(-a0 * k, lo - c0 * k), max = Math.min(v - (a0 + as) * k, v - hi - (c0 + cs) * k);
+    return Math.max(min, Math.min(max, c));
   };
-  return { k, x: axis(area.x, area.w, frame.x, frame.w, view.w), y: axis(area.y, area.h, frame.y, frame.h, view.h) };
+  return {
+    k,
+    x: axis(area.x, area.w, content.x, content.w, frame.x, frame.w, view.w, 0, 0),
+    y: axis(area.y, area.h, content.y, content.h, frame.y, frame.h, view.h, pad.top, pad.bottom),
+  };
 }
 
 /**

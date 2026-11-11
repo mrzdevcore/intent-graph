@@ -239,3 +239,12 @@ test("cardFacts counts the tables pointing at a hub and its pinned keys", () => 
   expect([...facts.get("p#a")!.pinned]).toEqual([["companies", "companies"]]);
   expect(facts.get("p#c")).toBeUndefined();
 });
+
+test("near, the columns a diff removed count when every column is shrunk into the box", () => {
+  const h = 56 + 26 * 8 + 8;
+  const plain = render(undefined, big, { zoom: 6, h }).querySelector<HTMLElement>(".card")!.style.transform;
+  const gone = { added: false, columns: new Map(), removed: [col("old_a", "text"), col("old_b", "text")] };
+  const shrunk = render(gone, big, { zoom: 6, h }).querySelector<HTMLElement>(".card")!.style.transform;
+  expect(plain).toBe("");
+  expect(shrunk).toBe(`scale(${h / (56 + 26 * 9 + 8)})`);
+});
