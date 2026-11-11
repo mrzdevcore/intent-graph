@@ -25,6 +25,8 @@
   import { key as arrowKey } from "./answer";
   import DetailsCard from "./DetailsCard.svelte";
   import Controls from "./Controls.svelte";
+  import type { Notation } from "./db/ends";
+  import { loadNotation, saveNotation } from "./db/notation";
   import Search from "./Search.svelte";
   import type { Trace } from "./search";
   import type { EditApi } from "../api";
@@ -698,6 +700,12 @@
       if (p === "auto") globalThis.window?.localStorage?.removeItem("ig-wheel");
       else globalThis.window?.localStorage?.setItem("ig-wheel", p);
     } catch { /* private mode: the setting lasts the page */ }
+  }
+
+  let endsPref = $state<Notation>(untrack(() => loadNotation()));
+  function setEnds(n: Notation) {
+    endsPref = n;
+    saveNotation(n);
   }
 
   // Wheel needs a non-passive listener to stop the page scrolling.
@@ -1376,7 +1384,7 @@
   {/if}
   <Controls {crumbs} {layers} {on} oncrumb={fly} low={!!edit}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
-    {wheelPref} onwheel={setPref} {arrowPref} arrowHere={shapeHere} onarrows={setArrows} onarrange={arrangeMap}>
+    {wheelPref} onwheel={setPref} {arrowPref} arrowHere={shapeHere} onarrows={setArrows} {endsPref} onends={setEnds} onarrange={arrangeMap}>
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
   {#if edit}

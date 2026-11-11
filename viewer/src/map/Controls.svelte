@@ -4,12 +4,14 @@
   import type { Snippet } from "svelte";
   import type { ArrowShape } from "./types";
   import { SHAPES, type MapShape } from "./shapes/auto";
+  import type { Notation } from "./db/ends";
 
-  let { crumbs, layers, on, oncrumb, ontoggle, wheelPref, onwheel, arrowPref = "auto", arrowHere = "circuit", onarrows, onarrange, low = false, children }: {
+  let { crumbs, layers, on, oncrumb, ontoggle, wheelPref, onwheel, arrowPref = "auto", arrowHere = "circuit", onarrows, endsPref = "crowsfoot", onends, onarrange, low = false, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void;
     wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void;
-    arrowPref?: MapShape; arrowHere?: ArrowShape; onarrows?: (p: MapShape) => void; onarrange?: () => void; low?: boolean; children?: Snippet;
+    arrowPref?: MapShape; arrowHere?: ArrowShape; onarrows?: (p: MapShape) => void;
+    endsPref?: Notation; onends?: (n: Notation) => void; onarrange?: () => void; low?: boolean; children?: Snippet;
   } = $props();
 </script>
 
@@ -45,6 +47,11 @@
         {#if arrowPref === "auto"}<span class="here" data-here>· {arrowHere} here</span>{/if}
       </label>
     {/if}
+    <label>Ends
+      <select value={endsPref} onchange={(e) => onends?.(e.currentTarget.value as Notation)}>
+        <option value="crowsfoot">Crow's foot</option><option value="labels">Labels</option><option value="both">Both</option>
+      </select>
+    </label>
     {#if onarrange}<button type="button" class="item" onclick={onarrange}>Arrange the map <kbd>⌥⇧F</kbd></button>{/if}
   </details>
 </div>
