@@ -1,4 +1,4 @@
-<!-- What an EditSession has open: the arrow's rubber band, the new arrow's kind chip, the box menu, rename, move picker. -->
+<!-- The open popover of an EditSession: the arrow's rubber band and kind chips, the box menu, rename, move picker. -->
 <script lang="ts">
   import type { ArrowKindView, KindView, MapBox } from "../types";
   import ArrowChip from "./ArrowChip.svelte";
@@ -18,7 +18,7 @@
 
 {#if band}<ArrowDraw line={band} />{/if}
 {#if chip && s.made}
-  <ArrowChip kind={s.made.kind} kinds={arrowKindNames(arrowKinds)} x={chip.x} y={chip.y} onpick={(k) => s.rekind(k)} />
+  <ArrowChip kind={s.made.kind} kinds={arrowKindNames(arrowKinds)} x={chip.x} y={chip.y} open={s.made.open} ontoggle={(o) => s.chipOpen(o)} onpick={(k) => s.rekind(k)} />
 {/if}
 {#if ui}
   {@const id = ui.id}

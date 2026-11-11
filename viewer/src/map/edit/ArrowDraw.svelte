@@ -1,4 +1,3 @@
-<!-- The rubber band of an arrow being drawn: dashed gold, from a box's side to the pointer or the side that catches it. -->
 <script lang="ts">
   let { line }: { line: { x1: number; y1: number; x2: number; y2: number } } = $props();
 </script>

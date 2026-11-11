@@ -606,7 +606,6 @@
     if (e.button === 1) e.preventDefault();
     // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
     if ((e.button !== 0 && e.button !== 1) || (e.target as Element | null)?.closest?.("[data-pad], [data-draft]")) return;
-    if (e.button === 0 && !space && sess.startLink(e, tool.current === "arrow")) return;
     const panning = e.button === 1 || space || tool.current === "hand";
     const grip = !panning && edit ? (e.target as Element | null)?.closest?.("[data-resize]") as HTMLElement | null : null;
     const gripped = grip && (grip.closest("[data-box]") as HTMLElement | null)?.dataset.box;
@@ -616,6 +615,7 @@
         resize: { id: gripped, corner: grip!.dataset.resize!, f: shown.placed.frames[gripped], k: (unit.get(byId.get(gripped)?.parent ?? ROOT) ?? 1) * camera.cam.k } };
       return;
     }
+    if (e.button === 0 && !space && sess.startLink(e, tool.current === "arrow")) return;
     drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
     if (!panning && edit && tool.current === "box") {
       drag.draw = groundAt(e);
@@ -782,14 +782,12 @@
     const id = freeId(title, new Set(view.boxes.map((b) => b.id)));
     const was = landing, change = sess.confirm(d, id, title);
     landing = { id, place: { x: d.x, y: d.y, w: d.w, h: d.h }, kinds: then === "kinds" };
-    const sent = run(() => api.apply(change).catch((err) => {
+    const sent = sess.send(change, then !== "kinds", () => {
       if (landing?.id === id) landing = null;
       sess.draft ??= d;
-      throw err;
-    }));
+    });
     if (!sent) return void (landing = was);
     sess.draft = null;
-    if (change.op === "batch" && d.from) sess.made = { from: d.from, to: id, kind: sess.guess(d.from, null) };
   }
   function kindFirst(x: number, y: number, parent: string) {
     if (!edit) return;

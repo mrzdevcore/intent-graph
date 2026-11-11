@@ -154,7 +154,7 @@ test("connect draws the first box to the second with the kind guessed from both 
   s.connect("api", "books");
   await tick();
   expect(sent).toEqual([{ op: "arrow", from: "api", to: "books", kind: "writes", label: null }]);
-  expect(s.made).toEqual({ from: "api", to: "books", kind: "writes" });
+  expect(s.made).toEqual({ from: "api", to: "books", kind: "writes", open: true });
   s.connect("web", "api");
   s.connect("web", "web");
   s.connect("web", "nope");

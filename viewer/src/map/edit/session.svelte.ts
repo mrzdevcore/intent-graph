@@ -6,7 +6,6 @@ import { baseOf, guessArrow } from "./guess";
 import type { Act } from "./menu";
 import type { Tool } from "./tool.svelte";
 
-/** A box being drawn; `from` when it is the far end of an arrow dropped on empty ground. */
 export type Draft = { parent: string; x: number; y: number; w: number; h: number; title: string; drawing: boolean; from?: string };
 export type Ui = { t: "menu" | "rename" | "move"; id: string; x: number; y: number };
 export type Ctx = {
@@ -16,9 +15,7 @@ export type Ctx = {
   selected: () => string | null; select: (id: string | null) => void; tool: (t: Tool) => void; used: (shift: boolean) => void;
   run: (p: () => Promise<View>) => boolean;
   arrange: (scope: string[]) => void;
-  /** A link let go on empty ground: a draft there, its far end. */
   drop: (e: PointerEvent, from: string) => void;
-  /** The draft's frame in world units, as `frame`. */
   draftFrame: () => Frame | undefined;
 };
 type Pt = { x: number; y: number };
@@ -29,8 +26,7 @@ const centre = (f: Frame): Pt => ({ x: f.x + f.w / 2, y: f.y + f.h / 2 });
 export class EditSession {
   link = $state<{ from: string; to: string | null; x: number; y: number; x0: number; y0: number; armed: boolean } | null>(null);
   ui = $state<Ui | null>(null);
-  /** The arrow just drawn: its chip changes the guessed kind. */
-  made = $state<{ from: string; to: string; kind: ArrowKind } | null>(null);
+  made = $state<{ from: string; to: string; kind: ArrowKind; open: boolean } | null>(null);
   adding = $state<{ parent: string; x: number; y: number } | null>(null);
   draft = $state<Draft | null>(null);
   // the box whose kind list a Tab out of a draft asked for (Task 11 opens it)
@@ -56,12 +52,10 @@ export class EditSession {
     const m = this.c.cam();
     return { x: f.x * m.k + m.x, y: f.y * m.k + m.y, w: f.w * m.k, h: f.h * m.k };
   }
-  /** From the side of one box nearest the other to the side of the other nearest that. */
   private span(a: Frame, b: Frame) {
     const p = nearest(a, centre(b)), q = nearest(b, p);
     return { x1: p.x, y1: p.y, x2: q.x, y2: q.y };
   }
-  /** The rubber band on screen: to the pointer, or caught by the nearest side of the box under it or of the draft at its end. */
   get band() {
     const l = this.link;
     if (l) {
@@ -72,7 +66,6 @@ export class EditSession {
     const d = this.draft, f = d?.from && this.c.box(d.from) ? this.c.draftFrame() : undefined;
     return f && d?.from ? this.span(this.screen(this.c.frame(d.from)), this.screen(f)) : undefined;
   }
-  /** Where the new arrow's chip sits: the middle of its band. */
   get chip() {
     const m = this.made;
     if (!m || !this.c.box(m.from) || !this.c.box(m.to)) return undefined;
@@ -119,7 +112,6 @@ export class EditSession {
     const el = hit && hit !== s && s.contains(hit) ? hit : (e.target as Element | null);
     return (el?.closest?.("[data-box]:not([data-open])") as HTMLElement | null)?.dataset.box;
   }
-  /** Press on a box's side dot, or anywhere on a box with the Arrow tool: starts the arrow. */
   startLink(e: PointerEvent, armed: boolean): boolean {
     const t = e.target as Element | null, from = (t?.closest?.("[data-box]") as HTMLElement | null)?.dataset.box;
     if (!this.c.edit() || !from || !this.c.box(from) || !(armed || t?.closest?.("[data-handle]"))) return false;
@@ -135,7 +127,6 @@ export class EditSession {
     this.link = { ...this.link, to: to && to !== this.link.from && this.c.box(to) ? to : null, ...this.rel(e) };
     return true;
   }
-  /** Release on another box draws the arrow; on empty ground, a draft there at its end; on its own box, nothing. */
   endLink(e: PointerEvent): boolean {
     const l = this.link;
     if (!l) return false;
@@ -149,24 +140,40 @@ export class EditSession {
     if (l.armed) this.c.used(e.shiftKey);
     return true;
   }
-  /** The kind an arrow from one box to another (or to a box of no kind yet) is first drawn with. */
+  // a null end is the draft's box, of kind "box"
   guess(from: string, to: string | null): ArrowKind {
     const kinds = this.c.kinds(), kind = (id: string | null) => (id && this.c.box(id) ? baseOf(this.c.box(id)!.kind.value, kinds) : "box");
     return guessArrow(kind(from), kind(to), this.c.arrowKinds() ?? []);
   }
-  /** Draw an arrow from one box to another with the guessed kind; its chip offers the others. */
   connect(from: string, to: string) {
     if (!this.c.edit() || from === to || !this.c.box(from) || !this.c.box(to)) return;
-    const kind = this.guess(from, to);
-    if (this.c.run(() => this.c.edit()!.apply({ op: "arrow", from, to, kind, label: null }))) this.made = { from, to, kind };
+    this.send({ op: "arrow", from, to, kind: this.guess(from, to), label: null });
   }
-  /** The chip's pick: the new arrow's kind. */
+  send(e: Edit, open = true, failed?: () => void): boolean {
+    const a = (e.op === "batch" ? e.edits : [e]).find((x) => x.op === "arrow");
+    const made = a?.op === "arrow" ? { from: a.from, to: a.to, kind: a.kind, open } : null;
+    const sent = this.c.run(() => this.c.edit()!.apply(e).catch((err) => {
+      if (made && this.made?.from === made.from && this.made.to === made.to) this.made = null;
+      failed?.();
+      throw err;
+    }));
+    if (sent && made) this.made = made;
+    return sent;
+  }
+  chipOpen(open: boolean) {
+    if (this.made) this.made = { ...this.made, open };
+  }
   rekind(kind: ArrowKind) {
     const m = this.made;
-    if (!m || m.kind === kind) return;
-    if (this.c.run(() => this.c.edit()!.apply({ op: "arrowset", from: m.from, to: m.to, key: "kind", value: kind }))) this.made = { ...m, kind };
+    if (!m) return;
+    this.made = { ...m, open: false };
+    if (m.kind === kind) return;
+    const sent = this.c.run(() => this.c.edit()!.apply({ op: "arrowset", from: m.from, to: m.to, key: "kind", value: kind }).catch((err) => {
+      if (this.made?.from === m.from && this.made.to === m.to) this.made = { ...this.made, kind: m.kind };
+      throw err;
+    }));
+    if (sent) this.made = { ...m, kind, open: false };
   }
-  /** The edit a confirmed draft sends: its box, and the arrow to it when it was dropped at an arrow's end. */
   confirm(d: Draft, id: string, title: string): Edit {
     const add: Edit = { op: "add", parent: d.parent, kind: "box", id, title, at: [], before: null };
     if (!d.from || !this.c.box(d.from)) return add;

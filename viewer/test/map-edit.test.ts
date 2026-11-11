@@ -198,6 +198,7 @@ const item = (t: HTMLElement, name: string) => [...menuOf(t)!.querySelectorAll<H
 
 const far = { clientX: 300, clientY: 300 };
 const chipOf = (t: HTMLElement) => t.querySelector<HTMLElement>("[data-chip] button.kind");
+const kindItems = (t: HTMLElement) => [...t.querySelectorAll<HTMLElement>('[data-chip] [role="menuitemradio"]')];
 
 test("Arrow tool: drag A to B lights B in gold and sends the guessed kind at once; the chip changes it", async () => {
   const { api, got } = recorder();
@@ -213,15 +214,64 @@ test("Arrow tool: drag A to B lights B in gold and sends the guessed kind at onc
   expect(got).toEqual([{ op: "arrow", from: "web", to: "postgres", kind: "writes", label: null }]);
   expect(target.querySelector("form")).toBeNull();
   expect(pressed(target)).toBe("Select");
-  chipOf(target)!.click();
-  flushSync();
-  const items = [...target.querySelectorAll<HTMLElement>('[data-chip] [role="menuitemradio"]')];
-  expect(items.find((b) => b.getAttribute("aria-checked") === "true")!.textContent).toBe("writes");
-  items.find((b) => b.textContent === "reads")!.click();
+  expect(document.activeElement!.textContent).toBe("writes");
+  expect(document.activeElement!.getAttribute("aria-checked")).toBe("true");
+  kindItems(target).find((b) => b.textContent === "reads")!.click();
   await tick();
   flushSync();
   expect(got[1]).toEqual({ op: "arrowset", from: "web", to: "postgres", key: "kind", value: "reads" });
   expect(chipOf(target)!.textContent).toBe("reads");
+  expect(kindItems(target)).toEqual([]);
+  chipOf(target)!.click();
+  flushSync();
+  expect(kindItems(target).find((b) => b.getAttribute("aria-checked") === "true")!.textContent).toBe("reads");
+});
+
+test("the new arrow's kind list closes on Esc, Enter or a click elsewhere and keeps the guess", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  const make = async () => {
+    press("a");
+    ptr(boxEl(target, "web"), "pointerdown");
+    ptr(boxEl(target, "api"), "pointerup", far);
+    await tick();
+    flushSync();
+    expect(kindItems(target).length).toBeGreaterThan(0);
+  };
+  await make();
+  press("Escape", {}, document.activeElement!);
+  expect(kindItems(target)).toEqual([]);
+  expect(chipOf(target)!.textContent).toBe("calls");
+  await make();
+  press("Enter", {}, document.activeElement!);
+  expect(kindItems(target)).toEqual([]);
+  await make();
+  ptr(stageOf(target), "pointerdown", { clientX: 900, clientY: 700 });
+  ptr(window, "pointerup", { clientX: 900, clientY: 700 });
+  expect(kindItems(target)).toEqual([]);
+  await tick();
+  expect(got.map((e) => e.op)).toEqual(["arrow", "arrow", "arrow"]);
+});
+
+test("a failed arrow leaves no chip", async () => {
+  const { target } = setup(fake({ apply: async () => { throw new Error("no"); } }).api);
+  press("a");
+  ptr(boxEl(target, "web"), "pointerdown");
+  ptr(boxEl(target, "api"), "pointerup", far);
+  await tick();
+  flushSync();
+  expect(chipOf(target)).toBeNull();
+});
+
+test("under the arrow tool a corner grip of the selected box still resizes", () => {
+  const target = harness(fake().api);
+  const slot = (id: string) => target.querySelector(`[data-box="${id}"]`) as HTMLElement;
+  const h = px(slot("postgres"), "height");
+  select(target, "postgres");
+  press("a");
+  drawBox(slot("postgres").querySelector('[data-resize="se"]')!, { x: 500, y: 300 }, { x: 500, y: 500 });
+  expect(target.querySelector("[data-band]")).toBeNull();
+  expect(px(slot("postgres"), "height")).not.toBe(h);
 });
 
 test("side dots show on a hovered box under any tool; a drag from one connects without the arrow tool", async () => {

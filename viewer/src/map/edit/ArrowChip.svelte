@@ -1,19 +1,25 @@
-<!-- An arrow's kind as a small chip; a click opens the kind list, one click on a kind changes it. Esc closes the list. -->
 <script lang="ts">
   import type { ArrowKind } from "../types";
 
-  let { kind, kinds, x, y, onpick }: { kind: ArrowKind; kinds: ArrowKind[]; x: number; y: number; onpick: (k: ArrowKind) => void } = $props();
-  let open = $state(false);
+  let { kind, kinds, x, y, open, ontoggle, onpick }: {
+    kind: ArrowKind; kinds: ArrowKind[]; x: number; y: number; open: boolean; ontoggle: (open: boolean) => void; onpick: (k: ArrowKind) => void;
+  } = $props();
   let list = $state<HTMLDivElement>();
   $effect(() => {
-    if (open) list?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+    if (open) list?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus({ preventScroll: true });
   });
   function keydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && open) {
+    if (!open) return;
+    if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      open = false;
-    } else if (open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      ontoggle(false);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      const b = (e.target as Element).closest<HTMLButtonElement>('[role="menuitemradio"]');
+      if (b) b.click(); else ontoggle(false);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const b = [...list!.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')], i = b.indexOf(document.activeElement as HTMLButtonElement);
       b[(i + (e.key === "ArrowDown" ? 1 : b.length - 1)) % b.length].focus();
@@ -23,11 +29,11 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="chip" data-popover data-chip style:left="{x}px" style:top="{y}px" onkeydown={keydown}>
-  <button type="button" class="kind" aria-haspopup="menu" aria-expanded={open} aria-label="Arrow kind: {kind}" onclick={() => (open = !open)}>{kind}</button>
+  <button type="button" class="kind" aria-haspopup="menu" aria-expanded={open} aria-label="Arrow kind: {kind}" onclick={() => ontoggle(!open)}>{kind}</button>
   {#if open}
     <div role="menu" aria-label="Arrow kinds" bind:this={list}>
       {#each kinds as k (k)}
-        <button type="button" role="menuitemradio" aria-checked={k === kind} onclick={() => { open = false; onpick(k); }}>{k}</button>
+        <button type="button" role="menuitemradio" aria-checked={k === kind} onclick={() => onpick(k)}>{k}</button>
       {/each}
     </div>
   {/if}
