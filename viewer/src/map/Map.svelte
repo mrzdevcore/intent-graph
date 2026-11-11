@@ -292,7 +292,8 @@
   const kindById = $derived(Object.fromEntries(view.boxes.map((b) => [b.id, b.kind.value])));
   const wired = (as: Arrow[], frames: Record<string, Frame>, p: string, anchors: Record<string, Anchor> = {}) => {
     const map = shapeAt.get(p) ?? "circuit";
-    return { routed: wires(as, frames, "routed", kindById, (a) => lineOf(a, map), anchors), ribbon: wires(as, frames, "ribbon") };
+    const inner = shown.placed.inner[p];
+    return { routed: wires(as, frames, "routed", kindById, (a) => lineOf(a, map), anchors, inner && [inner[0], inner[1]]), ribbon: wires(as, frames, "ribbon") };
   };
   type Wired = ReturnType<typeof wired>;
   const siblings = (p: string) => Object.fromEntries((kids.get(p) ?? []).map((b) => [b.id, shown.placed.frames[b.id]]));
@@ -326,7 +327,7 @@
     let changed = memo.size !== byParent.size;
     for (const [p, as] of byParent) {
       const frames = siblings(p), anchors = anchorsAt(p, as, frames);
-      const key = [shapeAt.get(p), kindById, JSON.stringify(anchors), ...as, ...Object.entries(frames).flat()];
+      const key = [shapeAt.get(p), kindById, shown.placed.inner[p], JSON.stringify(anchors), ...as, ...Object.entries(frames).flat()];
       const old = memo.get(p);
       if (old && old.key.length === key.length && old.key.every((k, i) => k === key[i])) next.set(p, old);
       else {

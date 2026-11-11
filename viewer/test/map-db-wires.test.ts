@@ -87,6 +87,29 @@ test("circuit: the lane past one side keeps clear of a box between the two table
   expect(Math.max(...points(w.d).map(([x]) => x))).toBeGreaterThan(496);
 });
 
+const column = (x: number): Record<string, Frame> => ({ [id("shop_orders")]: { ...card, x, y: 24 }, [id("shop_users")]: { ...card, x, y: 440 }, [id("shop_items")]: { ...card, x, y: 856 } });
+const inner: [number, number] = [1200, 1200];
+const routedIn = (fs: Record<string, Frame>, shape: ArrowShape, arrows = [fk]) =>
+  wires(arrows, fs, "routed", {}, () => shape, anchorsOf(arrows, fs, tables, 2), inner).wires;
+
+test.each(["circuit", "curved", "elbow"] as ArrowShape[])("%s: in the rightmost column the rows join on the left, inside the parent", (shape) => {
+  const fs = column(1200 - 24 - 320);
+  const more = Array.from({ length: 5 }, (_, i) => ({ ...fk, id: `more ${i}` }));
+  const w = routedIn(fs, shape, [fk, ...more]);
+  for (const a of [fk, ...more]) {
+    const p = points(w.get(a.id)!.d);
+    expect(p[0][0]).toBe(856);
+    expect(p.every(([x]) => x >= 0 && x <= 1200)).toBe(true);
+    expect(p.slice(1, -1).every(([x]) => x < 856)).toBe(true);
+  }
+});
+
+test.each(["circuit", "curved"] as ArrowShape[])("%s: in a middle column the rows still join on the right", (shape) => {
+  const p = points(routedIn(column(440), shape).get(fk.id)!.d);
+  expect(p[0][0]).toBe(760);
+  expect(p.slice(1, -1).every(([x]) => x > 760 && x <= 760 + 48)).toBe(true);
+});
+
 test("arrows anchored on the same row share it, spread across its height", () => {
   const second = { ...fk, id: "second" };
   const anchors = anchorsOf([fk, second], frames, tables, 2);

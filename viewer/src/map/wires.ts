@@ -23,9 +23,10 @@ type ShapeOf = (a: MapArrow) => ArrowShape;
 // bends cut at 45°; an arrow not drawn as circuit takes `path` from the same pins
 export function wires(
   arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode, kinds: Kinds = {}, shape: ShapeOf = () => "circuit", anchors: Record<string, Anchor> = {},
+  bounds?: [number, number],
 ): Wiring {
   const g = grid(frames, mode);
-  return { wires: mode === "routed" ? routed(arrows, frames, kinds, shape, g, anchors) : ribbon(arrows, frames, g), sleeves: g.sleeves };
+  return { wires: mode === "routed" ? routed(arrows, frames, kinds, shape, g, anchors, bounds) : ribbon(arrows, frames, g), sleeves: g.sleeves };
 }
 
 function grid(frames: Record<string, Frame>, mode: Mode) {
@@ -79,7 +80,7 @@ const span = (x: number, y: number): P => [Math.min(x, y), Math.max(x, y)];
 const orient = (p: P[], flip: boolean) => (flip ? [...p].reverse() : p);
 const wire = (p: P[], bend: number): Wire => ({ d: chamfer(p, bend), mid: halfway(p), len: r2(length(p)), ends: [p[0], p[p.length - 1]], out: leaving(p) });
 
-function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, shape: ShapeOf, g: Grid, anchors: Record<string, Anchor>): Map<string, Wire> {
+function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, shape: ShapeOf, g: Grid, anchors: Record<string, Anchor>, bounds?: [number, number]): Map<string, Wire> {
   const { pitch, bend, load } = LOOK.routed;
   const live = arrows.filter((a) => a.from !== a.to && frames[a.from] && frames[a.to]).sort((x, y) => x.id.localeCompare(y.id));
   const row = (id: string) => g.rowOf.get(id)!;
@@ -139,20 +140,21 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     return crosses(pts, [a.from, a.to]) ? null : pts;
   }
 
-  function beside(a: MapArrow, e: End): number {
-    const r = e.sides[0] === "r", [lo, hi] = span(e.from[1], e.to[1]), edge = r ? Math.min(e.from[0], e.to[0]) : Math.max(e.from[0], e.to[0]);
-    let x = r ? Math.max(e.from[0], e.to[0]) + OUT : Math.min(e.from[0], e.to[0]) - OUT;
+  function beside(a: MapArrow, e: End): { mid: number; room: number } {
+    const r = e.sides[0] === "r", [lo, hi] = span(e.from[1], e.to[1]), inner = r ? Math.min(e.from[0], e.to[0]) : Math.max(e.from[0], e.to[0]);
+    let edge = r ? Math.max(e.from[0], e.to[0]) : Math.min(e.from[0], e.to[0]);
     for (let moved = true, n = 0; moved && n < 64; n++) {
       moved = false;
       for (const [id, f] of Object.entries(frames)) {
         if (id === a.from || id === a.to || f.y >= hi || f.y + f.h <= lo) continue;
-        if (r ? f.x < x + CLEAR && f.x + f.w > edge : f.x + f.w > x - CLEAR && f.x < edge) {
-          x = r ? f.x + f.w + OUT : f.x - OUT;
+        if (r ? f.x < edge + 2 * OUT && f.x + f.w > inner && f.x + f.w > edge : f.x + f.w > edge - 2 * OUT && f.x < inner && f.x < edge) {
+          edge = r ? f.x + f.w : f.x;
           moved = true;
         }
       }
     }
-    return x;
+    const far = r ? Math.min(edge + 2 * OUT, bounds?.[0] ?? Infinity) : Math.max(edge - 2 * OUT, bounds ? 0 : -Infinity);
+    return { mid: (edge + far) / 2, room: Math.abs(far - edge) };
   }
   const under = (c: number) => (g.channel(c).top + g.channel(c).bottom) / 2;
   const level = (a: MapArrow, e: End) => (e.sides[0] === "b" ? row(a.from) : row(a.from) - 1);
@@ -161,7 +163,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     return [e.from, [e.from[0], y], [e.to[0], y], e.to];
   };
   const chosen: Record<string, [Side, Side]> = {}, tried = new Set<string>();
-  let ends = pins(live, frames, kinds, {}, anchors);
+  let ends = pins(live, frames, kinds, {}, anchors, bounds);
   for (;;) {
     let more = false;
     for (const a of live) {
@@ -176,13 +178,13 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
         if (c?.[0] !== "b" || c[1] !== "b" || tried.has(a.id)) continue;
         tried.add(a.id);
         if (!crosses(round(a, ends.get(a.id)!), skip)) continue;
-        const alt = pins(live, frames, kinds, { ...chosen, [a.id]: ["t", "t"] }, anchors);
+        const alt = pins(live, frames, kinds, { ...chosen, [a.id]: ["t", "t"] }, anchors, bounds);
         if (crosses(round(a, alt.get(a.id)!), skip)) continue;
         chosen[a.id] = ["t", "t"];
         more = true;
       }
     if (!more) break;
-    ends = pins(live, frames, kinds, chosen, anchors);
+    ends = pins(live, frames, kinds, chosen, anchors, bounds);
   }
 
   const lanes = new Map<string, { mid: number; room: number; vertical: boolean; runs: Run[] }>();
@@ -207,7 +209,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     const e = ends.get(a.id)!, [sa, sz] = e.sides, form = shape(a);
     if (form !== "circuit") drawn.set(a.id, path(form, e, walls));
     else if (across(sa) && sa === sz) {
-      const x = beside(a, e), s = down(x, 2 * OUT, a.id, () => span(e.from[1], e.to[1]));
+      const b = beside(a, e), s = down(b.mid, b.room, a.id, () => span(e.from[1], e.to[1]));
       draws.push([a.id, () => [e.from, [s.v, e.from[1]], [s.v, e.to[1]], e.to]]);
     } else if (across(sa)) {
       const { p, q, flip } = facing(a, e), plan = sideways(a, e)!;

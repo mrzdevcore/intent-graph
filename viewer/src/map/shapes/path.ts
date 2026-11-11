@@ -33,6 +33,12 @@ export function figure(f: Frame, kind?: string): Frame {
   return { x: f.x + (f.w - w) / 2, y: f.y + (f.h - h) / 2, w, h };
 }
 
+function oneSide(a: Frame, b: Frame, bounds?: [number, number]): [Side, Side] {
+  const right = bounds ? bounds[0] - Math.max(a.x + a.w, b.x + b.w) : Infinity, left = bounds ? Math.min(a.x, b.x) : 0;
+  const s: Side = right >= 2 * OUT || (left < 2 * OUT && right >= left) ? "r" : "l";
+  return [s, s];
+}
+
 const apart = (a: Frame, b: Frame): [Side, Side] | undefined => (b.x >= a.x + a.w ? ["r", "l"] : b.x + b.w <= a.x ? ["l", "r"] : undefined);
 
 export function pins(
@@ -41,6 +47,7 @@ export function pins(
   kinds: Record<string, string | undefined> = {},
   chosen: Record<string, [Side, Side]> = {},
   anchors: Record<string, Anchor> = {},
+  bounds?: [number, number],
 ): Map<string, End> {
   const rect = (id: string) => figure(frames[id], kinds[id]);
   const centre = (f: Frame): P => [f.x + f.w / 2, f.y + f.h / 2];
@@ -51,7 +58,7 @@ export function pins(
   for (const a of [...arrows].sort((x, y) => x.id.localeCompare(y.id))) {
     if (a.from === a.to || !frames[a.from] || !frames[a.to]) continue;
     const [fa, fb] = [rect(a.from), rect(a.to)], held = anchors[a.id];
-    const end: End = { from: [0, 0], to: [0, 0], sides: chosen[a.id] ?? (held && (apart(fa, fb) ?? (held.from && held.to ? (["r", "r"] as [Side, Side]) : undefined))) ?? sides(fa, fb) };
+    const end: End = { from: [0, 0], to: [0, 0], sides: chosen[a.id] ?? (held && (apart(fa, fb) ?? (held.from && held.to ? oneSide(fa, fb, bounds) : undefined))) ?? sides(fa, fb) };
     out.set(a.id, end);
     for (const [box, side, far, key] of [[a.from, end.sides[0], fb, "from"], [a.to, end.sides[1], fa, "to"]] as const) {
       const c = centre(far), band = held?.[key];
@@ -124,7 +131,7 @@ function line(p: P[], end: End): Path {
 
 export function curved(end: End, avoid: Frame[]): (Path & { pts: P[] }) | undefined {
   const { from, to, sides: [sa, sz] } = end;
-  const reach = Math.max(dist(from, to) * REACH, 1);
+  const reach = Math.max(sa === sz ? Math.min(dist(from, to) * REACH, 2 * OUT) : dist(from, to) * REACH, 1);
   const base: [P, P] = [add(from, NORMAL[sa], reach), add(to, NORMAL[sz], reach)];
   const walls = avoid.filter((f) => !inside(from, f, 1) && !inside(to, f, 1));
   const bezier = ([c1, c2]: [P, P]) => Array.from({ length: SAMPLES + 1 }, (_, i) => cubic(from, c1, c2, to, i / SAMPLES));
