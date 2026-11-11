@@ -143,6 +143,20 @@ fn a_table_pointed_at_by_ten_tables_is_a_hub() {
     let mut ts = vec![
         plain_table("users", vec![pk("id")]),
         plain_table("teams", vec![pk("id")]),
+        plain_table("roles", vec![pk("id")]),
+        plain_table(
+            "role_users",
+            vec![
+                Column {
+                    pk: true,
+                    ..fk("role", "roles")
+                },
+                Column {
+                    pk: true,
+                    ..fk("user", "users")
+                },
+            ],
+        ),
     ];
     for i in 0..10 {
         ts.push(plain_table(
@@ -156,7 +170,8 @@ fn a_table_pointed_at_by_ten_tables_is_a_hub() {
     }
     let t = tables(&db(), &schema(ts));
     let to_users: Vec<&MapArrow> = t.arrows.iter().filter(|a| a.to == "db#users").collect();
-    assert_eq!(to_users.len(), 10);
+    assert_eq!(to_users.len(), 12);
+    assert!(find(&t, "db#roles->db#users via role_users").pinned);
     assert!(to_users.iter().all(|a| a.pinned));
     assert!(
         t.arrows

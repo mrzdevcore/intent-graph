@@ -395,11 +395,6 @@ pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArro
             kinds,
             in_loop,
             parts,
-            from_column: None,
-            to_column: None,
-            ends: None,
-            via: None,
-            pinned: false,
             ..first
         }
     }));

@@ -137,7 +137,6 @@ fn tables_sit_in_the_database_of_their_dialect() {
     assert_eq!(
         ids,
         [
-            "postgres#(other)",
             "postgres#(views)",
             "postgres#batches",
             "postgres#batches_notes",
@@ -154,7 +153,7 @@ fn tables_sit_in_the_database_of_their_dialect() {
             .iter()
             .all(|b| b.level == Level::Code && !b.needs_reading)
     );
-    assert_eq!(parent_of(&t, "postgres#batches"), "postgres#(other)");
+    assert_eq!(parent_of(&t, "postgres#batches"), "postgres");
     assert_eq!(parent_of(&t, "postgres#v_notes"), "postgres#(views)");
     assert_eq!(parent_of(&t, "postgres#(views)"), "postgres");
     assert_eq!(t.tables["postgres#v_notes"].table.kind, "view");
@@ -171,7 +170,7 @@ fn a_foreign_key_is_one_arrow_per_table_and_a_view_reads() {
         [
             (
                 "db#batches_notes->db#batches",
-                "db#(other)",
+                "db",
                 ArrowKind::Uses,
                 Some("batch, previous_batch")
             ),
@@ -252,23 +251,45 @@ fn tables_group_by_their_prefix_and_a_table_named_like_it_joins() {
 }
 
 #[test]
-fn single_word_names_all_go_in_other() {
+fn with_no_domain_the_tables_sit_in_the_store_itself() {
     let t = tables(
         &db(),
         &schema(vec![
             plain_table("users", vec![pk("id")]),
             plain_table("posts", vec![pk("id"), fk("author", "users")]),
             plain_table("tags", vec![pk("id")]),
+            table("v_posts", "view", vec![], &["posts"]),
         ]),
     );
-    assert_eq!(t.groups.keys().collect::<Vec<_>>(), ["db#(other)"]);
-    assert!(
-        t.boxes
-            .iter()
-            .filter(|b| b.kind.value == BoxKind::Table)
-            .all(|b| b.parent.as_deref() == Some("db#(other)"))
+    assert_eq!(t.groups.keys().collect::<Vec<_>>(), ["db#(views)"]);
+    for id in ["db#users", "db#posts", "db#tags"] {
+        assert_eq!(parent_of(&t, id), "db");
+    }
+    assert_eq!(parent_of(&t, "db#v_posts"), "db#(views)");
+    assert_eq!(find(&t, "db#posts->db#users").parent, "db");
+    let mut t = t;
+    let mut boxes = vec![store("db", "Database")];
+    boxes.append(&mut t.boxes);
+    let parents: HashMap<&str, &str> = (boxes.iter())
+        .filter_map(|b| Some((b.id.as_str(), b.parent.as_deref()?)))
+        .collect();
+    let arrows = lift(&parents, t.arrows.clone());
+    let read = arrows.iter().find(|a| a.kind == ArrowKind::Reads).unwrap();
+    assert_eq!(
+        (read.from.as_str(), read.to.as_str()),
+        ("db#(views)", "db#posts")
     );
-    assert_eq!(find(&t, "db#posts->db#users").parent, "db#(other)");
+    let rows = (t.tables.iter())
+        .map(|(id, v)| (id.clone(), v.table.columns.len() as u32))
+        .collect();
+    let (placed, unrouted) = layout_with(&boxes, &arrows, &rows);
+    assert!(unrouted.is_empty(), "{unrouted:?}");
+    assert!(
+        boxes
+            .iter()
+            .filter(|b| b.id != "db")
+            .all(|b| placed.frames.contains_key(&b.id))
+    );
 }
 
 #[test]
@@ -285,7 +306,7 @@ fn backups_and_temp_tables_are_set_aside_and_do_not_make_a_domain() {
     );
     assert_eq!(parent_of(&t, "db#orders_backup_2023"), "db#(leftovers)");
     assert_eq!(parent_of(&t, "db#orders_temp"), "db#(leftovers)");
-    assert_eq!(parent_of(&t, "db#orders"), "db#(other)");
+    assert_eq!(parent_of(&t, "db#orders"), "db");
     assert_eq!(t.groups["db#(leftovers)"], TableGroup::Leftovers);
 }
 
@@ -311,6 +332,10 @@ fn translations_fold_into_their_table_and_sit_apart() {
             plain_table(
                 "kind_translations",
                 vec![pk("id"), fk("kind", "kinds"), plain("label")],
+            ),
+            plain_table(
+                "kinds_translations",
+                vec![pk("id"), fk("kind", "kinds"), plain("label"), plain("hint")],
             ),
             plain_table("languages", vec![pk("id")]),
             plain_table("tags", vec![pk("id")]),
@@ -339,12 +364,12 @@ fn translations_fold_into_their_table_and_sit_apart() {
         "db#(translations)"
     );
     assert_eq!(t.groups["db#(translations)"], TableGroup::Translations);
-    assert_eq!(parent_of(&t, "db#orphan_translations"), "db#(other)");
+    assert_eq!(parent_of(&t, "db#orphan_translations"), "db");
     assert!(t.tables["db#orphan_translations"].translations.is_empty());
     let a = find(&t, "db#products_translations->db#products");
     assert_eq!(a.parent, "db");
     assert_eq!(t.tables["db#tags"].translations, ["label"]);
-    assert_eq!(t.tables["db#kinds"].translations, ["label"]);
+    assert_eq!(t.tables["db#kinds"].translations, ["label", "hint"]);
     assert!(
         t.arrows.iter().all(|a| a.via.is_none()),
         "a translation is no join table"

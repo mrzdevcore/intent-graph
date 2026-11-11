@@ -72,7 +72,14 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
     let of = |name: &str| by_name.get(&name.to_lowercase()).copied();
     let placed = place(db, &by_name);
     let group_id = |t: &Table| placed[&t.name.to_lowercase()].0.clone();
-    let group_of = |t: &Table| -> String { format!("{}#{}", store.id, group_id(t)) };
+    let loose = !placed.values().any(|g| g.1 == TableGroup::Domain);
+    let in_store = |kind: TableGroup| loose && kind == TableGroup::Other;
+    let group_of = |t: &Table| -> String {
+        match &placed[&t.name.to_lowercase()] {
+            (_, kind, _) if in_store(*kind) => store.id.clone(),
+            (g, _, _) => format!("{}#{g}", store.id),
+        }
+    };
     let parent = |a: &Table, b: &Table| {
         if group_id(a) == group_id(b) {
             group_of(a)
@@ -90,7 +97,7 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
             .2
             .push(t);
     }
-    for (g, (kind, title, ts)) in &members {
+    for (g, (kind, title, ts)) in members.iter().filter(|(_, m)| !in_store(m.0)) {
         let gid = format!("{}#{g}", store.id);
         let files: BTreeSet<String> = ts.iter().map(|t| t.file.clone()).collect();
         out.boxes.push(made(FactBox {
@@ -115,7 +122,12 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
                 .filter(|c| !c.pk && c.references.is_none() && !bookkeeping(c))
                 .filter(|c| !LOCALE.contains(&c.name.to_lowercase().as_str()))
                 .map(|c| c.name.clone());
-            translations.entry(of_parent).or_default().extend(cols);
+            let all = translations.entry(of_parent).or_default();
+            for c in cols {
+                if !all.contains(&c) {
+                    all.push(c);
+                }
+            }
         }
     }
 
@@ -244,7 +256,7 @@ fn place(
             let p = prefix(&name);
             let g = match set_aside(&name, &t.kind) {
                 Some(g) => aside(g),
-                None if !p.is_empty() && count[&p] >= DOMAIN => {
+                None if !p.is_empty() && count.get(&p).copied().unwrap_or(0) >= DOMAIN => {
                     (format!("{p}_*"), TableGroup::Domain, p)
                 }
                 None => aside(TableGroup::Other),
