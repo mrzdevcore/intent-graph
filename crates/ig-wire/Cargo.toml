@@ -12,6 +12,7 @@ ig-conn-traefik = { path = "../ig-conn-traefik" }
 ig-core = { path = "../ig-core" }
 ig-fs = { path = "../ig-fs" }
 ig-git = { path = "../ig-git" }
+ig-lang-go = { path = "../ig-lang-go" }
 ig-lang-py = { path = "../ig-lang-py" }
 ig-lang-rs = { path = "../ig-lang-rs" }
 ig-lang-ts = { path = "../ig-lang-ts" }

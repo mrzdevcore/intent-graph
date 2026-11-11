@@ -3,6 +3,7 @@
 //! files are source.
 
 use crate::tsconfig::{parse_jsonc, read_jsonc};
+use ig_core::config::Config;
 use ig_core::ports::Files;
 use ig_core::workspace::{Package, globset, join, normalize};
 use serde_json::Value;
@@ -44,17 +45,32 @@ fn workspace_patterns(files: &dyn Files) -> Option<Vec<String>> {
     )
 }
 
+fn named(files: &dyn Files, dir: String) -> Package {
+    let pj = files
+        .read(&join(&dir, "package.json"))
+        .and_then(|t| parse_jsonc(&t));
+    let name = pj
+        .and_then(|v| v.get("name")?.as_str().map(str::to_string))
+        .unwrap_or_else(|| dir.rsplit('/').next().unwrap_or(&dir).to_string());
+    Package { name, dir }
+}
+
+/// With no workspace and no root `package.json`, the outermost `package.json` folders a few
+/// levels down.
+pub fn found(files: &dyn Files, config: &Config) -> Vec<Package> {
+    if workspace_patterns(files).is_some() || files.exists("package.json") {
+        return vec![];
+    }
+    (nested(files, config).into_iter())
+        .map(|dir| named(files, dir))
+        .collect()
+}
+
 /// The workspace packages (folders the patterns match that hold a `package.json`, outside
 /// `.`-folders), else the root's own `package.json`; named by their `package.json`, else their
 /// folder.
 pub fn packages(files: &dyn Files) -> Vec<Package> {
-    let name = |dir: &str| {
-        let pj = files
-            .read(&join(dir, "package.json"))
-            .and_then(|t| parse_jsonc(&t));
-        pj.and_then(|v| v.get("name")?.as_str().map(str::to_string))
-            .unwrap_or_else(|| dir.rsplit('/').next().unwrap_or(dir).to_string())
-    };
+    let name = |dir: &str| named(files, dir.into()).name;
     let clean = |p: &str| p.trim_start_matches("./").trim_end_matches('/').to_string();
     let patterns = workspace_patterns(files).unwrap_or_default();
     let (neg, pos): (Vec<_>, Vec<_>) = patterns.iter().partition(|p| p.starts_with('!'));
@@ -87,6 +103,39 @@ pub fn packages(files: &dyn Files) -> Vec<Package> {
             dir,
         })
         .collect()
+}
+
+const OUTPUT: [&str; 6] = ["dist", "build", "out", "coverage", "target", "vendor"];
+
+fn nested(files: &dyn Files, config: &Config) -> Vec<String> {
+    let ignore = globset(&config.ignore).ok();
+    let ignored = |d: &str| {
+        std::iter::successors(Some(d), |p| p.rsplit_once('/').map(|(d, _)| d))
+            .any(|p| ignore.as_ref().is_some_and(|i| i.is_match(p)))
+    };
+    // ponytail: three levels covers web/, apps/web and services/x/client without walking build output
+    let manifests: Vec<String> = ["*/", "*/*/", "*/*/*/"]
+        .iter()
+        .map(|d| format!("{d}package.json"))
+        .collect();
+    let mut dirs: Vec<String> = (files.walk(&manifests).unwrap_or_default().iter())
+        .filter_map(|m| m.strip_suffix("/package.json"))
+        .filter(|d| {
+            !d.split('/')
+                .any(|s| s.starts_with('.') || OUTPUT.contains(&s))
+        })
+        .filter(|d| !ignored(d))
+        .map(str::to_string)
+        .collect();
+    dirs.sort_by_key(|d| d.matches('/').count());
+    let mut out: Vec<String> = vec![];
+    for d in dirs {
+        if !out.iter().any(|o| d.starts_with(&format!("{o}/"))) {
+            out.push(d);
+        }
+    }
+    out.sort();
+    out
 }
 
 fn first_string(v: &Value) -> Option<String> {
@@ -200,6 +249,43 @@ mod tests {
                 dir: ".".into()
             }]
         );
-        assert_eq!(packages(&MemFiles::with(&[("main.py", "")])), []);
+        let none = MemFiles::with(&[("main.py", "")]);
+        assert_eq!(packages(&none), []);
+    }
+
+    #[test]
+    fn without_a_root_package_the_outermost_nested_ones() {
+        let f = MemFiles::with(&[
+            ("go.mod", "module shop\n"),
+            ("web/package.json", r#"{"name": "@shop/web"}"#),
+            ("web/packages/ui/package.json", "{}"),
+            ("tools/lint/package.json", "{}"),
+            ("services/x/client/package.json", "{}"),
+            ("a/b/c/d/package.json", "{}"),
+            (".github/action/package.json", "{}"),
+            ("web/node_modules/vite/package.json", "{}"),
+            ("dist/app/package.json", "{}"),
+            ("generated/sdk/package.json", "{}"),
+        ]);
+        let config = Config {
+            ignore: vec!["**/generated/**".into()],
+            ..Config::default()
+        };
+        let got: Vec<(String, String)> = found(&f, &config)
+            .into_iter()
+            .map(|p| (p.dir, p.name))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("services/x/client".into(), "client".into()),
+                ("tools/lint".into(), "lint".into()),
+                ("web".into(), "@shop/web".into()),
+            ]
+        );
+        assert!(packages(&f).is_empty());
+        let with_root = MemFiles::with(&[("package.json", "{}"), ("web/package.json", "{}")]);
+        assert!(found(&with_root, &Config::default()).is_empty());
+        assert_eq!(packages(&with_root).len(), 1);
     }
 }

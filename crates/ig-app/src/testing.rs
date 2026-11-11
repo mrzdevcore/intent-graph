@@ -67,7 +67,7 @@ impl LanguageFrontend for Fake {
     fn handles(&self, path: &str, _: &Config) -> bool {
         path.ends_with(".ts")
     }
-    fn packages(&self, files: &dyn Files) -> Vec<Package> {
+    fn packages(&self, files: &dyn Files, _: &Config) -> Vec<Package> {
         root_package(files)
     }
     fn build(

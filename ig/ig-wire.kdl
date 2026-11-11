@@ -8,6 +8,7 @@ module "ig-wire" title="Wiring" tech="Rust · notify" description="Wires the cor
     uses "ig-core"
     calls "ig-fs"
     calls "ig-git"
+    uses "ig-lang-go"
     uses "ig-lang-py"
     uses "ig-lang-rs"
     calls "ig-lang-ts"

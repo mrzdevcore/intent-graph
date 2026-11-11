@@ -41,6 +41,16 @@ pub trait Files: Send + Sync {
     /// Regular files matching any pattern (`crate::workspace::glob` flavour), sorted. Never
     /// descends into `workspace::NEVER_WALKED`, nor follows symlinks. Err on a bad pattern.
     fn glob(&self, patterns: &[String]) -> Result<Vec<String>, PortError>;
+    /// `glob` over the files discovery would walk: git's list in a repository (gitignored files
+    /// left out), else outside `.`-folders and build output.
+    fn walk(&self, patterns: &[String]) -> Result<Vec<String>, PortError> {
+        let found = self.glob(patterns)?;
+        let hidden = |p: &str| {
+            let dirs = p.rsplit_once('/').map_or("", |(d, _)| d);
+            dirs.split('/').any(|d| d.starts_with('.'))
+        };
+        Ok(found.into_iter().filter(|p| !hidden(p)).collect())
+    }
     /// The same kind of `Files`, rooted at `root` (a checkout).
     fn at(&self, root: &Path) -> Box<dyn Files>;
     /// The tree's packages (`layout`'s, else the root) and their source files.
@@ -135,7 +145,12 @@ pub trait LanguageFrontend: Send + Sync {
     /// `config` is the one the tree is built with (`embedded` extensions, say).
     fn handles(&self, path: &str, config: &Config) -> bool;
     /// The packages this language declares in the tree (a workspace's, a `pyproject.toml`'s).
-    fn packages(&self, _files: &dyn Files) -> Vec<Package> {
+    fn packages(&self, _files: &dyn Files, _config: &Config) -> Vec<Package> {
+        vec![]
+    }
+    /// Packages found by looking rather than declared (nested `package.json` folders, Go
+    /// folders): the root stays a package beside them, unless something declares one.
+    fn found(&self, _files: &dyn Files, _config: &Config) -> Vec<Package> {
         vec![]
     }
     /// Manifest files whose folder, when no frontend declares it, is another package's and

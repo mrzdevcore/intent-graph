@@ -13,7 +13,11 @@ impl LanguageFrontend for Imports {
     fn handles(&self, path: &str, _: &Config) -> bool {
         path.ends_with(".ts")
     }
-    fn packages(&self, files: &dyn ig_core::ports::Files) -> Vec<ig_core::workspace::Package> {
+    fn packages(
+        &self,
+        files: &dyn ig_core::ports::Files,
+        _: &Config,
+    ) -> Vec<ig_core::workspace::Package> {
         crate::testing::root_package(files)
     }
     fn build(
@@ -113,6 +117,12 @@ fn prefix_packages() {
     let (b, a) = map(&[PKG, ("src/a.ts", "@sentry/node")], "");
     assert_eq!(containers(&b), [("sentry", "Sentry", BoxKind::External)]);
     assert_eq!(a[0].kind, ArrowKind::Calls);
+}
+
+#[test]
+fn go_modules() {
+    let (b, _) = map(&[PKG, ("src/a.ts", "github.com/jackc/pgx/v5")], "");
+    assert_eq!(containers(&b), [("postgres", "PostgreSQL", BoxKind::Store)]);
 }
 
 #[test]

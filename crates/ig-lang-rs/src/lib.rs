@@ -28,7 +28,7 @@ impl LanguageFrontend for RsFrontend {
     }
 
     /// The root `Cargo.toml`'s package, and its workspace `members` (minus `exclude`).
-    fn packages(&self, files: &dyn Files) -> Vec<Package> {
+    fn packages(&self, files: &dyn Files, _: &Config) -> Vec<Package> {
         let read = |p: &str| files.read(p).and_then(|t| t.parse::<toml::Table>().ok());
         let Some(root) = read("Cargo.toml") else {
             return vec![];

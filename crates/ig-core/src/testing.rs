@@ -262,6 +262,7 @@ pub fn files_contract(f: &dyn Files) {
     let source = |p: &str| p.ends_with(".ts") && !p.ends_with(".d.ts");
     let layout = Layout {
         packages: vec![],
+        keep_root: true,
         fences: vec![],
         source: &source,
     };
@@ -360,6 +361,7 @@ mod tests {
                 name: "app".into(),
                 dir: ".".into(),
             }],
+            keep_root: false,
             fences: vec![],
             source: &source,
         };

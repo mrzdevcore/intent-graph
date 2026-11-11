@@ -1,5 +1,5 @@
 //! Outside systems known by the client libraries that talk to them: npm packages, Python's
-//! top-level modules and Rust crates alike (ponytail: one list for both; a name two ecosystems share means one system).
+//! top-level modules, Rust crates and Go modules alike (ponytail: one list for all; a name two ecosystems share means one system).
 
 use super::facts::BoxKind;
 
@@ -33,30 +33,30 @@ use BoxKind::{External, Queue, Store};
 
 #[rustfmt::skip]
 pub const KNOWN: &[Known] = &[
-    k("postgres", "PostgreSQL", Store, Some("postgresql"), &["pg", "postgres", "pg-promise", "@neondatabase/serverless", "@vercel/postgres", "psycopg2", "psycopg", "asyncpg", "tokio_postgres"]),
-    k("mysql", "MySQL", Store, Some("mysql"), &["mysql", "mysql2", "MySQLdb", "pymysql", "aiomysql", "mysql_async"]),
-    k("mongodb", "MongoDB", Store, Some("mongodb"), &["mongodb", "mongoose", "pymongo", "motor"]),
-    k("redis", "Redis", Store, Some("redis"), &["redis", "ioredis", "@upstash/redis", "aioredis"]),
-    k("sqlite", "SQLite", Store, Some("sqlite"), &["better-sqlite3", "sqlite3", "aiosqlite", "rusqlite"]),
-    k("elasticsearch", "Elasticsearch", Store, Some("elasticsearch"), &["@elastic/elasticsearch", "elasticsearch"]),
+    k("postgres", "PostgreSQL", Store, Some("postgresql"), &["pg", "postgres", "pg-promise", "@neondatabase/serverless", "@vercel/postgres", "psycopg2", "psycopg", "asyncpg", "tokio_postgres", "github.com/jackc/pgx*", "github.com/lib/pq"]),
+    k("mysql", "MySQL", Store, Some("mysql"), &["mysql", "mysql2", "MySQLdb", "pymysql", "aiomysql", "mysql_async", "github.com/go-sql-driver/mysql"]),
+    k("mongodb", "MongoDB", Store, Some("mongodb"), &["mongodb", "mongoose", "pymongo", "motor", "go.mongodb.org/mongo-driver*"]),
+    k("redis", "Redis", Store, Some("redis"), &["redis", "ioredis", "@upstash/redis", "aioredis", "github.com/redis/go-redis*", "github.com/go-redis/redis*"]),
+    k("sqlite", "SQLite", Store, Some("sqlite"), &["better-sqlite3", "sqlite3", "aiosqlite", "rusqlite", "github.com/mattn/go-sqlite3", "modernc.org/sqlite"]),
+    k("elasticsearch", "Elasticsearch", Store, Some("elasticsearch"), &["@elastic/elasticsearch", "elasticsearch", "github.com/elastic/go-elasticsearch*"]),
     k("prisma", "Database (Prisma)", Store, Some("prisma"), &["@prisma/client"]),
     k("drizzle", "Database (Drizzle)", Store, None, &["drizzle-orm"]),
     k("database", "Database", Store, None, &[]),
     k("bull", "Bull queue (Redis)", Queue, Some("redis"), &["bullmq", "bull"]),
-    k("kafka", "Kafka", Queue, Some("apachekafka"), &["kafkajs", "kafka", "confluent_kafka", "aiokafka", "rdkafka"]),
-    k("rabbitmq", "RabbitMQ", Queue, Some("rabbitmq"), &["amqplib", "pika", "aio_pika", "lapin"]),
-    k("sqs", "AWS SQS", Queue, Some("amazonsqs"), &["@aws-sdk/client-sqs", "aws_sdk_sqs"]),
-    k("s3", "AWS S3", Store, Some("amazons3"), &["@aws-sdk/client-s3", "aws_sdk_s3"]),
-    k("stripe", "Stripe", External, Some("stripe"), &["stripe", "@stripe/stripe-js"]),
+    k("kafka", "Kafka", Queue, Some("apachekafka"), &["kafkajs", "kafka", "confluent_kafka", "aiokafka", "rdkafka", "github.com/segmentio/kafka-go", "github.com/IBM/sarama", "github.com/confluentinc/confluent-kafka-go*"]),
+    k("rabbitmq", "RabbitMQ", Queue, Some("rabbitmq"), &["amqplib", "pika", "aio_pika", "lapin", "github.com/rabbitmq/amqp091-go"]),
+    k("sqs", "AWS SQS", Queue, Some("amazonsqs"), &["@aws-sdk/client-sqs", "aws_sdk_sqs", "github.com/aws/aws-sdk-go-v2/service/sqs"]),
+    k("s3", "AWS S3", Store, Some("amazons3"), &["@aws-sdk/client-s3", "aws_sdk_s3", "github.com/aws/aws-sdk-go-v2/service/s3"]),
+    k("stripe", "Stripe", External, Some("stripe"), &["stripe", "@stripe/stripe-js", "github.com/stripe/stripe-go*"]),
     k("auth0", "Auth0", External, Some("auth0"), &["auth0", "@auth0/*"]),
-    k("sentry", "Sentry", External, Some("sentry"), &["@sentry/*", "sentry_sdk", "sentry"]),
+    k("sentry", "Sentry", External, Some("sentry"), &["@sentry/*", "sentry_sdk", "sentry", "github.com/getsentry/sentry-go"]),
     k("elastic-apm", "Elastic APM", External, None, &["elastic-apm-node", "@elastic/apm-rum*", "elasticapm"]),
     k("firebase", "Firebase", External, Some("firebase"), &["firebase", "firebase-admin", "firebase_admin"]),
     k("supabase", "Supabase", External, Some("supabase"), &["@supabase/*", "supabase"]),
-    k("openai", "OpenAI", External, Some("openai"), &["openai", "async_openai"]),
-    k("anthropic", "Anthropic", External, Some("anthropic"), &["@anthropic-ai/sdk", "anthropic"]),
+    k("openai", "OpenAI", External, Some("openai"), &["openai", "async_openai", "github.com/openai/openai-go*", "github.com/sashabaranov/go-openai"]),
+    k("anthropic", "Anthropic", External, Some("anthropic"), &["@anthropic-ai/sdk", "anthropic", "github.com/anthropics/anthropic-sdk-go"]),
     k("sendgrid", "SendGrid", External, None, &["@sendgrid/*", "sendgrid"]),
-    k("twilio", "Twilio", External, Some("twilio"), &["twilio"]),
+    k("twilio", "Twilio", External, Some("twilio"), &["twilio", "github.com/twilio/twilio-go"]),
 ];
 
 fn by_id(id: &str) -> Option<&'static Known> {

@@ -1,0 +1,9 @@
+// ig's intended architecture: edit freely; ig changes it only when you or an agent ask (ig accept, ig fmt, edits in the app, ig_edit).
+adapter "ig-lang-go" title="Go extractor" tech="Rust · tree-sitter" description="Parses Go sources with tree-sitter to extract packages, imports and code, telling the standard library from modules." {
+    at "crates/ig-lang-go/**"
+    pattern "none"
+    calls "ig-core"
+    adapter "ig-lang-go/root" title="Go parser" tech="Rust · tree-sitter" description="Reads go.mod and go.work for modules, makes a package per folder and pulls out imports, types, functions and methods." logo="go" {
+        at "crates/ig-lang-go/src/*"
+    }
+}

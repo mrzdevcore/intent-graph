@@ -5,6 +5,7 @@ use ig_core::ports::PortError;
 use ig_core::workspace::{Layout, NEVER_WALKED, Package, SourceFile, WorkspaceInfo, globset, rel};
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::Arc;
 
 fn io(e: impl std::fmt::Display) -> PortError {
     PortError::Io(e.to_string())
@@ -13,18 +14,30 @@ fn io(e: impl std::fmt::Display) -> PortError {
 /// `layout`'s packages (else the root, named after its folder) and their source files, under the
 /// canonical `root`.
 pub fn discover(root: &Path, config: &Config, layout: &Layout) -> Result<WorkspaceInfo, PortError> {
+    discover_with(root, config, layout, git_visible(root).map(Arc::new))
+}
+
+pub(crate) fn discover_with(
+    root: &Path,
+    config: &Config,
+    layout: &Layout,
+    tracked: Option<Arc<BTreeSet<String>>>,
+) -> Result<WorkspaceInfo, PortError> {
     let root = root.canonicalize().map_err(io)?;
     let mut packages = layout.packages.clone();
-    if packages.is_empty() {
+    if (packages.is_empty() || layout.keep_root) && !packages.iter().any(|p| p.dir == ".") {
         let name = root
             .file_name()
             .map_or_else(|| ".".into(), |n| n.to_string_lossy().to_string());
-        packages.push(Package {
-            name,
-            dir: ".".into(),
-        });
+        packages.insert(
+            0,
+            Package {
+                name,
+                dir: ".".into(),
+            },
+        );
     }
-    let files = discover_files(&root, &packages, config, layout)?;
+    let files = discover_files(&root, &packages, config, layout, tracked.as_deref())?;
     Ok(WorkspaceInfo {
         root,
         packages,
@@ -52,7 +65,7 @@ pub const BUILD_DIRS: [&str; 10] = [
 /// enclosing repo). One git run, its errors silenced.
 // ponytail: a root ignored by an enclosing repo yet holding force-added files gets git's list
 // (those files only); `git check-ignore` first would cost a second spawn per run
-fn git_visible(root: &Path) -> Option<BTreeSet<String>> {
+pub(crate) fn git_visible(root: &Path) -> Option<BTreeSet<String>> {
     let out = std::process::Command::new("git")
         .args([
             "ls-files",
@@ -80,10 +93,10 @@ fn discover_files(
     packages: &[Package],
     config: &Config,
     layout: &Layout,
+    tracked: Option<&BTreeSet<String>>,
 ) -> Result<Vec<SourceFile>, PortError> {
     let ignore = globset(&config.ignore).map_err(io)?;
     let pkg_dirs: BTreeSet<&str> = packages.iter().map(|p| p.dir.as_str()).collect();
-    let tracked = git_visible(root);
     let mut files = vec![];
     for (pi, pkg) in packages.iter().enumerate() {
         let mut stack = vec![root.join(&pkg.dir)];
@@ -195,6 +208,7 @@ mod tests {
         let source = |p: &str| p.ends_with(".ts");
         let layout = Layout {
             packages: vec![],
+            keep_root: true,
             fences: vec![],
             source: &source,
         };

@@ -8,16 +8,34 @@ pub mod folders;
 use ig_core::config::Config;
 use ig_core::ports::{Files, PortError};
 use ig_core::workspace::{Layout, NEVER_WALKED, WorkspaceInfo, globset, rel};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 /// Files under `root`.
 pub struct FsFiles {
     pub root: PathBuf,
+    git: Mutex<Option<Option<Arc<BTreeSet<String>>>>>,
 }
 
 impl FsFiles {
     pub fn new(root: impl Into<PathBuf>) -> FsFiles {
-        FsFiles { root: root.into() }
+        FsFiles {
+            root: root.into(),
+            git: Mutex::new(None),
+        }
+    }
+
+    // the readers' walks share one git run, and discovery takes it so the next build lists afresh
+    fn listed(&self, take: bool) -> Option<Arc<BTreeSet<String>>> {
+        let mut git = self.git.lock().unwrap_or_else(|e| e.into_inner());
+        let listed = git
+            .get_or_insert_with(|| discover::git_visible(&self.root).map(Arc::new))
+            .clone();
+        if take {
+            *git = None;
+        }
+        listed
     }
 }
 
@@ -57,6 +75,51 @@ fn io(e: impl std::fmt::Display) -> PortError {
     PortError::Io(e.to_string())
 }
 
+impl FsFiles {
+    fn find(
+        &self,
+        patterns: &[String],
+        pruned: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<String>, PortError> {
+        let set = globset(patterns).map_err(io)?;
+        let mut out = vec![];
+        if patterns.is_empty() {
+            return Ok(out);
+        }
+        // no deeper than the deepest pattern reaches, unless one has `**`
+        let deep = patterns.iter().any(|p| p.contains("**"));
+        let depth = patterns
+            .iter()
+            .map(|p| p.split('/').count())
+            .max()
+            .unwrap_or(0);
+        let mut stack = vec![(self.root.clone(), 1)];
+        while let Some((dir, at)) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                let p = e.path();
+                let Some(r) = rel(&self.root, &p) else {
+                    continue;
+                };
+                // `DirEntry::file_type` does not follow symlinks: they are neither.
+                let Ok(ft) = e.file_type() else { continue };
+                if ft.is_dir() {
+                    let name = e.file_name();
+                    if !pruned(name.to_str().unwrap_or("")) && (deep || at < depth) {
+                        stack.push((p, at + 1));
+                    }
+                } else if ft.is_file() && set.is_match(&r) {
+                    out.push(r);
+                }
+            }
+        }
+        out.sort();
+        Ok(out)
+    }
+}
+
 impl Files for FsFiles {
     fn read_bytes(&self, path: &str) -> Option<Vec<u8>> {
         std::fs::read(self.root.join(path)).ok()
@@ -92,49 +155,26 @@ impl Files for FsFiles {
         self.root.join(path).is_file()
     }
     fn glob(&self, patterns: &[String]) -> Result<Vec<String>, PortError> {
-        let set = globset(patterns).map_err(io)?;
-        let mut out = vec![];
-        if patterns.is_empty() {
-            return Ok(out);
+        self.find(patterns, &|name| NEVER_WALKED.contains(&name))
+    }
+    fn walk(&self, patterns: &[String]) -> Result<Vec<String>, PortError> {
+        if let Some(listed) = self.listed(false) {
+            let set = globset(patterns).map_err(io)?;
+            let skip = |p: &str| p.split('/').any(|d| NEVER_WALKED.contains(&d));
+            return Ok((listed.iter())
+                .filter(|p| set.is_match(p) && !skip(p) && self.root.join(p).is_file())
+                .cloned()
+                .collect());
         }
-        // no deeper than the deepest pattern reaches, unless one has `**`
-        let deep = patterns.iter().any(|p| p.contains("**"));
-        let depth = patterns
-            .iter()
-            .map(|p| p.split('/').count())
-            .max()
-            .unwrap_or(0);
-        let mut stack = vec![(self.root.clone(), 1)];
-        while let Some((dir, at)) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for e in rd.flatten() {
-                let p = e.path();
-                let Some(r) = rel(&self.root, &p) else {
-                    continue;
-                };
-                // `DirEntry::file_type` does not follow symlinks: they are neither.
-                let Ok(ft) = e.file_type() else { continue };
-                if ft.is_dir() {
-                    let name = e.file_name();
-                    let walked = !NEVER_WALKED.contains(&name.to_str().unwrap_or(""));
-                    if walked && (deep || at < depth) {
-                        stack.push((p, at + 1));
-                    }
-                } else if ft.is_file() && set.is_match(&r) {
-                    out.push(r);
-                }
-            }
-        }
-        out.sort();
-        Ok(out)
+        self.find(patterns, &|name| {
+            NEVER_WALKED.contains(&name) || BUILD_DIRS.contains(&name) || name.starts_with('.')
+        })
     }
     fn at(&self, root: &Path) -> Box<dyn Files> {
         Box::new(FsFiles::new(self.root.join(root)))
     }
     fn discover(&self, config: &Config, layout: &Layout) -> Result<WorkspaceInfo, PortError> {
-        discover(&self.root, config, layout)
+        discover::discover_with(&self.root, config, layout, self.listed(true))
     }
 }
 

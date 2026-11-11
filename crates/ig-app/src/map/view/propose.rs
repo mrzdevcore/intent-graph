@@ -11,6 +11,16 @@ use super::super::origin::Origin;
 use ig_core::ports::Files;
 use std::collections::{BTreeSet, HashMap};
 
+pub const NOTHING_TO_READ: &str =
+    "nothing for the AI to read: every box has a description and no code drifted";
+
+pub fn to_read(cm: &MapFile) -> BTreeSet<&str> {
+    (cm.boxes.iter())
+        .filter(|b| !b.stale && (b.origin == Origin::Drift || b.description.is_none()))
+        .map(|b| b.id.as_str())
+        .collect()
+}
+
 pub fn propose(
     a: &mut Ask,
     agent: Agent,
@@ -23,10 +33,10 @@ pub fn propose(
     let Some(root) = cm.boxes.iter().find(|b| b.level == Level::System) else {
         return vec![];
     };
-    let to_read: BTreeSet<&str> = (cm.boxes.iter())
-        .filter(|b| !b.stale && (b.origin == Origin::Drift || b.description.is_none()))
-        .map(|b| b.id.as_str())
-        .collect();
+    let to_read = to_read(cm);
+    if to_read.is_empty() {
+        return vec![NOTHING_TO_READ.into()];
+    }
     // the boxes read and their ancestors, so ids and parents resolve; only the first are read
     let parent: HashMap<&str, Option<&str>> = (cm.boxes.iter())
         .map(|b| (b.id.as_str(), b.parent.as_deref()))
@@ -342,6 +352,28 @@ mod tests {
             v.notices
                 .iter()
                 .any(|n| n == "the AI reading found nothing to propose"),
+            "{:?}",
+            v.notices
+        );
+    }
+
+    #[test]
+    fn nothing_to_read_asks_no_agent() {
+        let sys = "system \"shop\" title=\"Shop\" description=\"The shop\" {\n    at \"**\"\n    \
+                   app \"api\" title=\"Api\" description=\"Orders\" {\n        at \"apps/api/**\"\n    }\n}\n";
+        let files = MemFiles::with(&[
+            ("ig/system.kdl", sys),
+            ("apps/api/a.ts", "export function f() {}\n"),
+        ]);
+        let v = read(&files, &|_| panic!("the agent is not asked"));
+        assert!(entries(&files).0.is_empty());
+        assert!(
+            v.notices.iter().any(|n| n == super::NOTHING_TO_READ),
+            "{:?}",
+            v.notices
+        );
+        assert!(
+            !v.notices.iter().any(|n| n.contains("found nothing")),
             "{:?}",
             v.notices
         );

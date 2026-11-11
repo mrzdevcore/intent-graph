@@ -11,7 +11,7 @@
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/explore-dark.png"><img alt="ig's map of its own repo, with the answer to “how does ig view build the map” drawn as numbered steps" src="assets/screenshots/explore-light.png"></picture></p>
 
-**ig** (say *"eye-gee"*, short for *intent graph*) reads a TypeScript/JavaScript, Python or Rust repo and draws it as a **system map**: a canvas you can walk from the whole system down to a single function. You commit the architecture you intend in `ig/`, and ig checks the code against it on every run. Ask it a question and the answer is drawn on the map; give it a branch and it shows what the change does to the architecture.
+**ig** (say *"eye-gee"*, short for *intent graph*) reads a TypeScript/JavaScript, Python, Rust or Go repo and draws it as a **system map**: a canvas you can walk from the whole system down to a single function. You commit the architecture you intend in `ig/`, and ig checks the code against it on every run. Ask it a question and the answer is drawn on the map; give it a branch and it shows what the change does to the architecture.
 
 One binary, written in Rust. The map is a single offline HTML page.
 
@@ -94,7 +94,7 @@ Every flag, the `ig.yaml` keys, layers, connectors and the desktop app are in th
 
 ## How it works
 
-ig parses the repo (oxc for TypeScript/JavaScript, tree-sitter for Python and Rust) into a graph of modules, classes, functions, tests and your own ast-grep patterns. The map is built in three passes:
+ig parses the repo (oxc for TypeScript/JavaScript, tree-sitter for Python, Rust and Go) into a graph of modules, classes, functions, tests and your own ast-grep patterns. The map is built in three passes:
 
 1. **Facts:** packages, folders, imports, calls and file counts. No AI; every box and arrow exists after this.
 2. **Reading** (optional): an agent with read-only tools names each box, describes it and spots its pattern (onion, hexagonal, layered). Every value records whether it came from the agent or from ig, and how sure it is.

@@ -32,23 +32,56 @@ pub struct Extras {
     pub http_unmatched: Vec<(String, u32, String, String)>,
 }
 
-/// The tree's packages, as the frontends declare them (the first to declare a folder names it),
-/// and the files some frontend handles.
+/// The tree's packages, as the frontends declare or find them (the first to name a folder
+/// names it; the root too when none is declared), and the files some frontend handles.
 pub fn discover(
     frontends: &[&dyn LanguageFrontend],
     files: &dyn Files,
     config: &Config,
 ) -> Result<WorkspaceInfo, PortError> {
+    discover_named(frontends, files, config).map(|(ws, _)| ws)
+}
+
+fn discover_named(
+    frontends: &[&dyn LanguageFrontend],
+    files: &dyn Files,
+    config: &Config,
+) -> Result<(WorkspaceInfo, Vec<Vec<Package>>), PortError> {
     let source = |p: &str| frontends.iter().any(|f| f.handles(p, config));
-    let mut packages: Vec<Package> = frontends.iter().flat_map(|f| f.packages(files)).collect();
+    let declared: Vec<Vec<Package>> = (frontends.iter())
+        .map(|f| f.packages(files, config))
+        .collect();
+    let keep_root = declared.iter().all(Vec::is_empty);
+    let own: Vec<Vec<Package>> = (frontends.iter().zip(declared))
+        .map(|(f, mut d)| {
+            d.extend(f.found(files, config));
+            d
+        })
+        .collect();
+    let mut packages: Vec<Package> = own.iter().flatten().cloned().collect();
     packages.sort_by(|a, b| a.dir.cmp(&b.dir));
     packages.dedup_by(|a, b| a.dir == b.dir);
     let layout = Layout {
         packages,
+        keep_root,
         fences: frontends.iter().flat_map(|f| f.fences()).copied().collect(),
         source: &source,
     };
-    files.discover(config, &layout)
+    Ok((files.discover(config, &layout)?, own))
+}
+
+fn named_by(ws: &WorkspaceInfo, own: &[Package]) -> Option<WorkspaceInfo> {
+    let same = (ws.packages.iter()).all(|p| own.iter().all(|o| o.dir != p.dir || o.name == p.name));
+    if same {
+        return None;
+    }
+    let mut ws = ws.clone();
+    for p in &mut ws.packages {
+        if let Some(o) = own.iter().find(|o| o.dir == p.dir) {
+            p.name = o.name.clone();
+        }
+    }
+    Some(ws)
 }
 
 /// Builds the graph of the tree `files` is rooted at. Each source file goes to the first
@@ -59,7 +92,7 @@ pub fn build_graph(
     files: &dyn Files,
     config: &Config,
 ) -> Result<Built, PortError> {
-    let ws = discover(frontends, files, config)?;
+    let (ws, own) = discover_named(frontends, files, config)?;
     let tests = workspace::globset(&config.tests).map_err(|e| PortError::Io(e.to_string()))?;
     let mut facts: Vec<FileFacts> = vec![];
     let mut edge_lists: Vec<Vec<Edge>> = vec![];
@@ -76,7 +109,8 @@ pub fn build_graph(
             // ponytail: serial reads; parallelise the reads (needs a batch read on the Files port) if large repos need it
             .map(|f| (f.clone(), files.read(&f.path).unwrap_or_default()))
             .collect();
-        let out = fe.build(&mine, &ws, config);
+        let renamed = named_by(&ws, &own[i]);
+        let out = fe.build(&mine, renamed.as_ref().unwrap_or(&ws), config);
         facts.extend(out.facts);
         edge_lists.push(out.edges);
         parse_errors.extend(out.parse_errors);
@@ -208,6 +242,7 @@ fn read_schema(
     let declared = |p: &str| p.ends_with(".sql") || p.ends_with(".prisma");
     let layout = Layout {
         packages: vec![],
+        keep_root: true,
         fences: vec![],
         source: &declared,
     };
