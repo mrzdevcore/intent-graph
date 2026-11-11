@@ -40,7 +40,10 @@ pub fn discover(
     config: &Config,
 ) -> Result<WorkspaceInfo, PortError> {
     let source = |p: &str| frontends.iter().any(|f| f.handles(p, config));
-    let mut packages: Vec<Package> = frontends.iter().flat_map(|f| f.packages(files)).collect();
+    let mut packages: Vec<Package> = frontends
+        .iter()
+        .flat_map(|f| f.packages(files, config))
+        .collect();
     packages.sort_by(|a, b| a.dir.cmp(&b.dir));
     packages.dedup_by(|a, b| a.dir == b.dir);
     let layout = Layout {

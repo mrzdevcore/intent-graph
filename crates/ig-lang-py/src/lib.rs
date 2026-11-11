@@ -49,7 +49,7 @@ impl LanguageFrontend for PyFrontend {
 
     /// Every folder with a `pyproject.toml` or `setup.py`, at most two folders down.
     // ponytail: two levels covers services/x and packages/x; deeper Python projects join their parent
-    fn packages(&self, files: &dyn Files) -> Vec<Package> {
+    fn packages(&self, files: &dyn Files, _: &Config) -> Vec<Package> {
         let manifests: Vec<String> = ["", "*/", "*/*/"]
             .iter()
             .flat_map(|d| [format!("{d}pyproject.toml"), format!("{d}setup.py")])

@@ -235,7 +235,7 @@ fn packages_from_manifests() {
         ("a/b/c/pyproject.toml", ""),
     ]);
     let got: Vec<(String, String)> = PyFrontend
-        .packages(&f)
+        .packages(&f, &Config::default())
         .into_iter()
         .map(|p| (p.dir, p.name))
         .collect();

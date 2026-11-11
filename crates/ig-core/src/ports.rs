@@ -135,7 +135,7 @@ pub trait LanguageFrontend: Send + Sync {
     /// `config` is the one the tree is built with (`embedded` extensions, say).
     fn handles(&self, path: &str, config: &Config) -> bool;
     /// The packages this language declares in the tree (a workspace's, a `pyproject.toml`'s).
-    fn packages(&self, _files: &dyn Files) -> Vec<Package> {
+    fn packages(&self, _files: &dyn Files, _config: &Config) -> Vec<Package> {
         vec![]
     }
     /// Manifest files whose folder, when no frontend declares it, is another package's and

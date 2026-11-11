@@ -26,8 +26,8 @@ impl LanguageFrontend for TsFrontend {
         is_source_ext(path, &config.embedded)
     }
 
-    fn packages(&self, files: &dyn Files) -> Vec<Package> {
-        workspace::packages(files)
+    fn packages(&self, files: &dyn Files, config: &Config) -> Vec<Package> {
+        workspace::packages(files, config)
     }
 
     /// A folder with its own `package.json` that no workspace lists is another project.

@@ -211,7 +211,7 @@ fn workspace_members_minus_excluded() {
         ("crates/old/Cargo.toml", "[package]\nname = \"old\"\n"),
     ]);
     let got: Vec<(String, String)> = RsFrontend
-        .packages(&f)
+        .packages(&f, &Config::default())
         .into_iter()
         .map(|p| (p.dir, p.name))
         .collect();
@@ -224,7 +224,7 @@ fn workspace_members_minus_excluded() {
     );
     let one = MemFiles::with(&[("Cargo.toml", "[package]\nname = \"tool\"\n")]);
     assert_eq!(
-        RsFrontend.packages(&one),
+        RsFrontend.packages(&one, &Config::default()),
         [Package {
             name: "tool".into(),
             dir: ".".into()
