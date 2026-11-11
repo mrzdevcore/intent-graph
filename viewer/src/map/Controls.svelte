@@ -1,12 +1,12 @@
-<!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles, More (scroll wheel,
-     Arrange the map) and, once boxes were moved by hand, Reset layout (top right). Zoom sits in the bottom-left corner. -->
+<!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles and More (scroll wheel,
+     Arrange the map) top right. Zoom sits in the bottom-left corner. -->
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  let { crumbs, layers, on, oncrumb, ontoggle, onreset, wheelPref, onwheel, onarrange, low = false, children }: {
+  let { crumbs, layers, on, oncrumb, ontoggle, wheelPref, onwheel, onarrange, low = false, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void;
-    onreset?: () => void; wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void; onarrange?: () => void; low?: boolean; children?: Snippet;
+    wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void; onarrange?: () => void; low?: boolean; children?: Snippet;
   } = $props();
 </script>
 
@@ -21,7 +21,6 @@
 
 <div class="tools">
   {@render children?.()}
-  {#if onreset}<button type="button" onclick={onreset}>Reset layout</button>{/if}
   <details class="layers">
     <summary>Layers</summary>
     {#each layers as l (l)}

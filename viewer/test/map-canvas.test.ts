@@ -210,7 +210,7 @@ test("a React component is a box of its own; the details card lists a part box's
   expect(target.querySelector(".details")!.textContent).toContain("useState open false");
 });
 
-test("dragging a closed box moves it and its arrows, keeps it, and Reset layout undoes it", () => {
+test("dragging a closed box moves it and its arrows, keeps it, and ⌘Z puts it back", () => {
   // Node's own localStorage (unset without --localstorage-file) hides happy-dom's
   const kept: Record<string, string> = {};
   vi.stubGlobal("localStorage", {
@@ -239,11 +239,12 @@ test("dragging a closed box moves it and its arrows, keeps it, and Reset layout 
   expect(target.querySelector(".details")).toBeNull();
   const places = JSON.parse(kept["ig-places:" + view.boxes.find((b) => b.id === "system")!.title.value]);
   expect(places[id].x).toBeCloseTo(view.placed.frames[id].x - 20);
-  (([...target.querySelectorAll(".tools button")].find((b) => b.textContent === "Reset layout")) as HTMLButtonElement).click();
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true }));
+  expect([...target.querySelectorAll("button")].some((b) => b.textContent === "Reset layout")).toBe(false);
   m.tick(performance.now() + 1000);
   flushSync();
   expect(slot().style.left).toBe(left);
-  expect(kept).toEqual({});
+  expect(JSON.parse(kept["ig-places:" + view.boxes.find((b) => b.id === "system")!.title.value])[id].x).toBeCloseTo(view.placed.frames[id].x);
   vi.unstubAllGlobals();
 });
 

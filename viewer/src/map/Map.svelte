@@ -116,7 +116,6 @@
   const title = $derived(view.boxes.find((b) => b.id === ROOT)?.title.value ?? "");
   let store = untrack(() => new Places(title, view.placed.frames));
   let truth = $state.raw<Record<string, Place>>(untrack(() => settlePlaces(store.snapshot(), view, {}, null)));
-  let stored = $state(untrack(() => store.size > 0));
   let lastView = untrack(() => view);
   // the places of boxes since removed: an undone delete puts them back
   const gone: Record<string, Place> = {};
@@ -137,14 +136,13 @@
     anim = { from: f, start: performance.now(), t: 0 };
     if (!placeRaf) placeRaf = requestAnimationFrame(placeFrame);
   }
-  function placeAll(next: Record<string, Place>, instant: string[] = [], record: "push" | "merge" | false = "push", keep = true) {
+  function placeAll(next: Record<string, Place>, instant: string[] = [], record: "push" | "merge" | false = "push") {
     const c = changes(truth, next);
     if (!c) return;
     if (record) history[record](c.before, c.after);
     const from = showing;
     truth = next;
-    store.replace(keep ? next : {});
-    stored = store.size > 0;
+    store.replace(next);
     glidePlaces(from, instant);
   }
   // a confirmed draft: its box lands where and as big as it was drawn once the view holds it
@@ -161,7 +159,6 @@
       if (t !== store.system) {
         store = new Places(t, v.placed.frames);
         truth = settlePlaces(store.snapshot(), v, {}, null);
-        stored = store.size > 0;
         anim = null;
         lastView = v;
         return;
@@ -1296,7 +1293,7 @@
   {/if}
   <Controls {crumbs} {layers} {on} oncrumb={fly} low={!!edit}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
-    onreset={stored ? () => placeAll(settlePlaces({}, view, {}, null), [], "push", false) : undefined} {wheelPref} onwheel={setPref} onarrange={arrangeMap}>
+    {wheelPref} onwheel={setPref} onarrange={arrangeMap}>
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
   {#if edit}
