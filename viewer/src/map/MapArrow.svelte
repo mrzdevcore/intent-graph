@@ -10,10 +10,13 @@
 <script lang="ts">
   import type { ArrowLook } from "./looks";
   import { steady } from "./camera";
+  import { endLabel, endMarks, type End, type Notation } from "./db/ends";
 
-  let { d, mid, arrowLook, part = "line", zoom = 1, lit = false, dim = false, picked = false, note, len = Infinity, ends, onhover }: {
+  type Tip = { end: End; at: [number, number]; out: [number, number] };
+  let { d, mid, arrowLook, part = "line", zoom = 1, lit = false, dim = false, picked = false, note, len = Infinity, ends, head = true, tips = [], notation = "crowsfoot", onhover }: {
     d: string; mid: [number, number]; arrowLook: ArrowLook; part?: "line" | "label"; zoom?: number;
-    lit?: boolean; dim?: boolean; picked?: boolean; note?: string; len?: number; ends?: [[number, number], [number, number]]; onhover?: (on: boolean) => void;
+    lit?: boolean; dim?: boolean; picked?: boolean; note?: string; len?: number; ends?: [[number, number], [number, number]];
+    head?: boolean; tips?: Tip[]; notation?: Notation; onhover?: (on: boolean) => void;
   } = $props();
 
   const id = `ig-head-${n++}`;
@@ -45,7 +48,22 @@
     <g opacity={picked ? 1 : alpha} data-state={picked ? "picked" : state} style="transition: opacity 150ms">
       <path {d} style:stroke={color} stroke-width={(arrowLook.width + (lit || picked ? 0.75 : 0)) * m}
         stroke-dasharray={arrowLook.dash?.split(" ").map((d) => Number(d) * m).join(" ") ?? undefined}
-        stroke-linecap="round" stroke-linejoin="round" marker-end="url(#{id})" />
+        stroke-linecap="round" stroke-linejoin="round" marker-end={head ? `url(#${id})` : undefined} />
+      {#each tips as t, i (i)}
+        {@const n = Math.hypot(...t.out) || 1}
+        {@const u = [t.out[0] / n, t.out[1] / n]}
+        <g class="tip" data-tip={t.end} transform="translate({t.at[0]} {t.at[1]}) scale({m})" style:stroke={color}>
+          {#if notation !== "labels"}
+            {@const k = endMarks(t.end, [0, 0], t.out)}
+            <path d={k.lines} stroke-width="1.5" />
+            {#each k.rings as [cx, cy], j (j)}<circle {cx} {cy} r="4" stroke-width="1.5" />{/each}
+          {/if}
+          {#if notation !== "crowsfoot"}
+            {@const r = notation === "both" ? 30 : 10}
+            <text x={u[0] * r + 6 * Math.abs(u[1])} y={u[1] * r - 6 * Math.abs(u[0])} text-anchor={u[0] < 0 ? "end" : "start"}>{endLabel(t.end)}</text>
+          {/if}
+        </g>
+      {/each}
       {#if onhover}
         <!-- hover only lights the arrow up: the details card holds the same facts for keyboards -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -74,6 +92,8 @@
 </svg>
 
 <style>
+  .tip circle { fill: var(--map-surface); }
+  .tip text { stroke: none; fill: var(--map-muted); font: 11px var(--font-sans); }
   .hit { pointer-events: stroke; cursor: pointer; }
   .end { pointer-events: all; cursor: crosshair; fill: var(--map-ground); stroke: var(--map-trace); }
   .note { font-family: var(--font-hand); fill: var(--map-muted); stroke: var(--map-ground); stroke-width: 3px; paint-order: stroke; stroke-linejoin: round; }

@@ -4,30 +4,25 @@
   import type { Look } from "./looks";
   import type { Column, Table } from "./types";
   import type { TableMark } from "./diff";
-  import { distance, isBookkeeping, isKey, type CardFacts } from "./db/card";
+  import { cardLayout, type CardFacts } from "./db/card";
 
   let { table, look, rows, onopen, onfocus, zoom = 1, h = 128, facts, picked = false, fold = true }: {
     table: Table; look: Look; rows?: TableMark; onopen: () => void; onfocus?: () => void; zoom?: number; h?: number; facts?: CardFacts; picked?: boolean; fold?: boolean;
   } = $props();
 
-  const HEAD = 56, ROW = 26, FOOT = 8, CHIP = 120;
   const SIGN = { added: "+", changed: "~", removed: "−" } as const;
 
   const view = $derived(table.kind === "view");
   const neutral = $derived(look.edge === "var(--map-edge)");
   const glow = $derived(look.glow ? `0 0 0 5px color-mix(in srgb, ${look.glow} 25%, transparent)` : "none");
-  const at = $derived(distance(zoom));
   const mark = (c: Column) => rows?.columns.get(c.name.toLowerCase());
   const fk = (c: Column) => (c.references ? `${c.references.table}${c.references.column ? `.${c.references.column}` : ""}` : "");
   const hint = (c: Column) => [fk(c) && `→ ${fk(c)}`, c.nullable ? "null" : "", c.default ? `default ${c.default}` : "", c.check ? `check ${c.check}` : ""]
     .filter(Boolean).join(" · ");
   const pinnedTo = (c: Column) => (c.references ? facts?.pinned.get(c.references.table.toLowerCase()) : undefined);
 
-  const folded = $derived(fold ? table.columns.filter((c) => isBookkeeping(c) && !mark(c)) : []);
-  const shown = $derived(table.columns.filter((c) => !folded.includes(c)));
-  const keys = $derived(shown.filter(isKey));
-  const others = $derived(shown.length - keys.length);
-  const foot = $derived([others && `+${others} ${others === 1 ? "column" : "columns"}`, folded.length && `+${folded.length} bookkeeping`].filter(Boolean).join(" · "));
+  const card = $derived(cardLayout(table, zoom, h, fold, (c) => !!mark(c)));
+  const { at, m, folded, shown, keys, foot } = $derived(card);
   const tags = $derived.by(() => {
     const t: { text: string; tone: string; title: string }[] = [];
     if (table.translations?.length) t.push({ text: "i18n", tone: "i18n", title: `translated: ${table.translations.join(", ")}` });
@@ -40,8 +35,6 @@
     }
     return t;
   });
-  const fit = (need: number, cap: number) => Math.max(1, Math.min(cap / (zoom > 0 ? zoom : 1), h / need));
-  const m = $derived(at === "far" ? Math.min(3, fit(CHIP, 0.55)) : at === "mid" ? fit(HEAD + ROW * (keys.length + (foot ? 1 : 0)) + FOOT, 0.9) : 1);
 </script>
 
 {#snippet row(c: Column)}

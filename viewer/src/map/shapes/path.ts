@@ -3,7 +3,9 @@ import type { Frame } from "../types";
 export type Side = "l" | "r" | "t" | "b";
 export type P = [number, number];
 export type End = { from: P; to: P; sides: [Side, Side] };
-export type Path = { d: string; mid: P; len: number; head: [P, P]; ends: [P, P] };
+export type Path = { d: string; mid: P; len: number; head: [P, P]; ends: [P, P]; out: [P, P] };
+export type Band = { y: number; h: number };
+export type Anchor = { from?: Band; to?: Band };
 
 export const SPREAD = 0.6;
 export const BEND = 8;
@@ -30,28 +32,44 @@ export function figure(f: Frame, kind?: string): Frame {
   return { x: f.x + (f.w - w) / 2, y: f.y + (f.h - h) / 2, w, h };
 }
 
+const apart = (a: Frame, b: Frame): [Side, Side] | undefined => (b.x >= a.x + a.w ? ["r", "l"] : b.x + b.w <= a.x ? ["l", "r"] : undefined);
+
 export function pins(
   arrows: { id: string; from: string; to: string }[],
   frames: Record<string, Frame>,
   kinds: Record<string, string | undefined> = {},
   chosen: Record<string, [Side, Side]> = {},
+  anchors: Record<string, Anchor> = {},
 ): Map<string, End> {
   const rect = (id: string) => figure(frames[id], kinds[id]);
   const centre = (f: Frame): P => [f.x + f.w / 2, f.y + f.h / 2];
   type Pin = { id: string; head: number; set: (p: P) => void };
   const onSide = new Map<string, { box: string; side: Side; list: Pin[] }>();
+  const onRow = new Map<string, { box: string; side: Side; band: Band; list: Pin[] }>();
   const out = new Map<string, End>();
   for (const a of [...arrows].sort((x, y) => x.id.localeCompare(y.id))) {
     if (a.from === a.to || !frames[a.from] || !frames[a.to]) continue;
-    const [fa, fb] = [rect(a.from), rect(a.to)];
-    const end: End = { from: [0, 0], to: [0, 0], sides: chosen[a.id] ?? sides(fa, fb) };
+    const [fa, fb] = [rect(a.from), rect(a.to)], held = anchors[a.id];
+    const end: End = { from: [0, 0], to: [0, 0], sides: chosen[a.id] ?? (held && apart(fa, fb)) ?? sides(fa, fb) };
     out.set(a.id, end);
     for (const [box, side, far, key] of [[a.from, end.sides[0], fb, "from"], [a.to, end.sides[1], fa, "to"]] as const) {
+      const c = centre(far), band = held?.[key];
+      const pin = { id: a.id, head: across(side) ? c[1] : c[0], set: (p: P) => (end[key] = p) };
+      if (band && across(side)) {
+        const k = `${box}\u0000${side}\u0000${Math.round(band.y)}`;
+        if (!onRow.has(k)) onRow.set(k, { box, side, band, list: [] });
+        onRow.get(k)!.list.push(pin);
+        continue;
+      }
       const k = `${box}\u0000${side}`;
       if (!onSide.has(k)) onSide.set(k, { box, side, list: [] });
-      const c = centre(far);
-      onSide.get(k)!.list.push({ id: a.id, head: across(side) ? c[1] : c[0], set: (p) => (end[key] = p) });
+      onSide.get(k)!.list.push(pin);
     }
+  }
+  for (const { box, side, band, list } of onRow.values()) {
+    const f = rect(box);
+    list.sort((x, y) => x.head - y.head || x.id.localeCompare(y.id));
+    list.forEach((p, i) => p.set([side === "l" ? f.x : f.x + f.w, f.y + band.y + band.h * SPREAD * ((i + 0.5) / list.length - 0.5)]));
   }
   for (const { box, side, list } of onSide.values()) {
     const f = rect(box);
@@ -98,7 +116,7 @@ function line(p: P[], end: End): Path {
   }
   d += ` L${pt(p[p.length - 1])}`;
   const tip = p[p.length - 1];
-  return { d, mid: halfway(p), len: r2(length(p)), head: head(tip, p.length > 1 ? sub(tip, p[p.length - 2]) : [0, 0], end), ends: [end.from, end.to] };
+  return { d, mid: halfway(p), len: r2(length(p)), head: head(tip, p.length > 1 ? sub(tip, p[p.length - 2]) : [0, 0], end), ends: [end.from, end.to], out: leaving(p, end) };
 }
 
 export function curved(end: End, avoid: Frame[]): (Path & { pts: P[] }) | undefined {
@@ -126,7 +144,15 @@ export function curved(end: End, avoid: Frame[]): (Path & { pts: P[] }) | undefi
   }
   const [c1, c2] = ctl;
   const t = [sub(to, c2), sub(to, c1), sub(to, from)].find((v) => v[0] || v[1]) ?? ([0, 0] as P);
-  return { d: `M${pt(from)} C${pt(c1)} ${pt(c2)} ${pt(to)}`, mid: halfway(s), len: r2(length(s)), head: head(to, t, end), ends: [from, to], pts: s };
+  return { d: `M${pt(from)} C${pt(c1)} ${pt(c2)} ${pt(to)}`, mid: halfway(s), len: r2(length(s)), head: head(to, t, end), ends: [from, to], out: leaving(s, end), pts: s };
+}
+
+export function leaving(p: P[], end?: End): [P, P] {
+  const away = (at: P, rest: P[], side?: Side): P => {
+    const q = rest.find((r) => r[0] !== at[0] || r[1] !== at[1]);
+    return q ? sub(q, at) : side ? NORMAL[side] : [1, 0];
+  };
+  return [away(p[0], p.slice(1), end?.sides[0]), away(p[p.length - 1], [...p].reverse().slice(1), end?.sides[1])];
 }
 
 function head(tip: P, dir: P, end: End): [P, P] {

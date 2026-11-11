@@ -1,7 +1,7 @@
 import type { ArrowShape, Frame, MapArrow } from "./types";
-import { BEND, SPREAD, across, halfway, length, path, pins, pt, r2, straight, type End, type P, type Side } from "./shapes/path";
+import { BEND, SPREAD, across, halfway, leaving, length, path, pins, pt, r2, straight, type Anchor, type End, type P, type Side } from "./shapes/path";
 
-export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]] };
+export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]]; out: [[number, number], [number, number]] };
 export type Mode = "routed" | "ribbon";
 export type Wiring = { wires: Map<string, Wire>; sleeves: { d: string; w: number }[] };
 
@@ -21,9 +21,11 @@ type Kinds = Record<string, string | undefined>;
 type ShapeOf = (a: MapArrow) => ArrowShape;
 
 // bends cut at 45°; an arrow not drawn as circuit takes `path` from the same pins
-export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode, kinds: Kinds = {}, shape: ShapeOf = () => "circuit"): Wiring {
+export function wires(
+  arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode, kinds: Kinds = {}, shape: ShapeOf = () => "circuit", anchors: Record<string, Anchor> = {},
+): Wiring {
   const g = grid(frames, mode);
-  return { wires: mode === "routed" ? routed(arrows, frames, kinds, shape, g) : ribbon(arrows, frames, g), sleeves: g.sleeves };
+  return { wires: mode === "routed" ? routed(arrows, frames, kinds, shape, g, anchors) : ribbon(arrows, frames, g), sleeves: g.sleeves };
 }
 
 function grid(frames: Record<string, Frame>, mode: Mode) {
@@ -75,9 +77,9 @@ function grid(frames: Record<string, Frame>, mode: Mode) {
 
 const span = (x: number, y: number): P => [Math.min(x, y), Math.max(x, y)];
 const orient = (p: P[], flip: boolean) => (flip ? [...p].reverse() : p);
-const wire = (p: P[], bend: number): Wire => ({ d: chamfer(p, bend), mid: halfway(p), len: r2(length(p)), ends: [p[0], p[p.length - 1]] });
+const wire = (p: P[], bend: number): Wire => ({ d: chamfer(p, bend), mid: halfway(p), len: r2(length(p)), ends: [p[0], p[p.length - 1]], out: leaving(p) });
 
-function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, shape: ShapeOf, g: Grid): Map<string, Wire> {
+function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, shape: ShapeOf, g: Grid, anchors: Record<string, Anchor>): Map<string, Wire> {
   const { pitch, bend, load } = LOOK.routed;
   const live = arrows.filter((a) => a.from !== a.to && frames[a.from] && frames[a.to]).sort((x, y) => x.id.localeCompare(y.id));
   const row = (id: string) => g.rowOf.get(id)!;
@@ -144,7 +146,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     return [e.from, [e.from[0], y], [e.to[0], y], e.to];
   };
   const chosen: Record<string, [Side, Side]> = {}, tried = new Set<string>();
-  let ends = pins(live, frames, kinds);
+  let ends = pins(live, frames, kinds, {}, anchors);
   for (;;) {
     let more = false;
     for (const a of live) {
@@ -159,13 +161,13 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
         if (c?.[0] !== "b" || c[1] !== "b" || tried.has(a.id)) continue;
         tried.add(a.id);
         if (!crosses(round(a, ends.get(a.id)!), skip)) continue;
-        const alt = pins(live, frames, kinds, { ...chosen, [a.id]: ["t", "t"] });
+        const alt = pins(live, frames, kinds, { ...chosen, [a.id]: ["t", "t"] }, anchors);
         if (crosses(round(a, alt.get(a.id)!), skip)) continue;
         chosen[a.id] = ["t", "t"];
         more = true;
       }
     if (!more) break;
-    ends = pins(live, frames, kinds, chosen);
+    ends = pins(live, frames, kinds, chosen, anchors);
   }
 
   const lanes = new Map<string, { mid: number; room: number; vertical: boolean; runs: Run[] }>();

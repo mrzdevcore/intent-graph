@@ -59,7 +59,8 @@
   import { arrange } from "./place/arrange";
   import { rekey, reparented, settle as settlePlaces, shownView } from "./place/rules";
   import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, renamesOf, undoNext, type Rename } from "./place/history";
-  import { cardFacts } from "./db/card";
+  import { anchorsOf, cardFacts } from "./db/card";
+  import type { Anchor } from "./shapes/path";
   import Focus from "./db/Focus.svelte";
   import { hasTables as storeHasTables, storeOf } from "./db/focus";
 
@@ -289,12 +290,22 @@
   const regions = $derived(group([...view.placed.regions].sort((a, b) => area(b.frame) - area(a.frame)), (r: R) => r.parent));
   /** Each parent's wires both ways, from its children's frames as drawn. */
   const kindById = $derived(Object.fromEntries(view.boxes.map((b) => [b.id, b.kind.value])));
-  const wired = (as: Arrow[], frames: Record<string, Frame>, p: string) => {
+  const wired = (as: Arrow[], frames: Record<string, Frame>, p: string, anchors: Record<string, Anchor> = {}) => {
     const map = shapeAt.get(p) ?? "circuit";
-    return { routed: wires(as, frames, "routed", kindById, (a) => lineOf(a, map)), ribbon: wires(as, frames, "ribbon") };
+    return { routed: wires(as, frames, "routed", kindById, (a) => lineOf(a, map), anchors), ribbon: wires(as, frames, "ribbon") };
   };
+  type Wired = ReturnType<typeof wired>;
   const siblings = (p: string) => Object.fromEntries((kids.get(p) ?? []).map((b) => [b.id, shown.placed.frames[b.id]]));
-  const byParent = $derived(group([...view.arrows, ...ghosts], (a: Arrow) => a.parent));
+  const leaves = (a: Arrow): Arrow[] => (a.parts?.length ? a.parts.flatMap(leaves) : [a]);
+  const isRead = (a: Arrow) => a.kind === "reads" && view.tables?.[a.from]?.kind === "view";
+  const readsOnly = (a: Arrow) => leaves(a).every(isRead);
+  const isTableLink = (a: Arrow) => !a.parts?.length && !!view.tables?.[a.from] && !!view.tables?.[a.to];
+  const readShown = (a: Arrow) => !leaves(a).some(isRead) || leaves(a).some((l) => isRead(l) && (selected === l.from || many.includes(l.from)));
+  const byParent = $derived(group([...view.arrows, ...ghosts].filter(readShown), (a: Arrow) => a.parent));
+  const anchorsAt = (p: string, as: Arrow[], frames: Record<string, Frame>) =>
+    view.tables
+      ? anchorsOf(as, frames, view.tables, (unit.get(p) ?? 1) * lod.k, noise.bookkeeping, marks ? (id, c) => !!marks.tables.get(id)?.columns.get(c.name.toLowerCase()) : undefined)
+      : {};
   const shapeAt = $derived.by(() => {
     const out = new Map<string, ArrowShape>();
     for (const [p, bs] of kids) {
@@ -303,7 +314,25 @@
     }
     return out;
   });
-  const wiring = $derived(new Map([...byParent].map(([p, as]) => [p, wired(as, siblings(p), p)])));
+  // table rows move with the zoom: reroute a level only when its anchors or inputs change
+  let memo = new Map<string, { key: unknown[]; out: Wired }>(), memoOut = new Map<string, Wired>();
+  const wiring = $derived.by(() => {
+    const next = new Map<string, { key: unknown[]; out: Wired }>();
+    let changed = memo.size !== byParent.size;
+    for (const [p, as] of byParent) {
+      const frames = siblings(p), anchors = anchorsAt(p, as, frames);
+      const key = [shapeAt.get(p), kindById, JSON.stringify(anchors), ...as, ...Object.entries(frames).flat()];
+      const old = memo.get(p);
+      if (old && old.key.length === key.length && old.key.every((k, i) => k === key[i])) next.set(p, old);
+      else {
+        next.set(p, { key, out: wired(as, frames, p, anchors) });
+        changed = true;
+      }
+    }
+    memo = next;
+    if (changed) memoOut = new Map([...next].map(([p, v]) => [p, v.out]));
+    return memoOut;
+  });
   const arrows = $derived(group([...view.arrows, ...ghosts].filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));
   // the box being dragged and its shift so far: only it and its parent's arrows follow the pointer
   // `with`: the other selected boxes of its parent, moved along
@@ -316,7 +345,8 @@
     if (!live) return null;
     const p = byId.get(live.id)?.parent ?? ROOT, frames = siblings(p);
     for (const id of [live.id, ...Object.keys(live.with ?? {})]) frames[id] = drawn(id);
-    return { p, ...wired(arrows.get(p) ?? [], frames, p) };
+    const as = arrows.get(p) ?? [];
+    return { p, ...wired(as, frames, p, anchorsAt(p, as, frames)) };
   });
   const wiringOf = (p: string) => (liveWiring?.p === p ? liveWiring : wiring.get(p));
   const outsideOf = (id: string): Outside => ({ frame: drawn(id), wire: (a) => wiringOf(a.parent)?.routed.wires.get(a.id) });
@@ -1324,7 +1354,7 @@
   {/if}
   {#if mode === "routed"}
     {#each fading.filter((f) => f.a.parent === pid) as f (f.a.id)}
-      <div class="arrow fade-out" aria-hidden="true"><MapArrow d={f.w.d} mid={f.w.mid} arrowLook={arrowLook(f.a, view.marks, on)} {zoom} /></div>
+      <div class="arrow fade-out" aria-hidden="true"><MapArrow d={f.w.d} mid={f.w.mid} arrowLook={arrowLook(f.a, view.marks, on)} {zoom} head={!isTableLink(f.a)} /></div>
     {/each}
   {/if}
   {#each all as a (`${a.id} ${lineAt(a)}`)}
@@ -1333,8 +1363,12 @@
     {@const drawnLook = arrowLook(a, view.marks, on, by.get(a.id))}
     {@const changeLook = !marks ? null : a.ghost ? "ghost" : marks.addedArrows.has(arrowKey(a.from, a.to)) ? "added" : null}
     {@const gold = !!hotPad?.includes(a.id) || (hotArrow === a.id && (opened(a.from) || opened(a.to)))}
-    <div class="arrow" class:fresh={mode === "routed" && fresh.has(a.id)} data-arrow={a.id} data-line={mode === "routed" ? lineAt(a) : "ribbon"}>
-      <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(drawnLook, changeLook) : asked || gold ? { ...drawnLook, color: "var(--map-trace)" } : drawnLook} {zoom}
+    {@const table = isTableLink(a)}
+    {@const read = readsOnly(a)}
+    {@const shownLook = read ? { ...drawnLook, dash: "1 4" } : drawnLook}
+    <div class="arrow" class:fresh={mode === "routed" && fresh.has(a.id)} data-arrow={a.id} data-line={mode === "routed" ? lineAt(a) : "ribbon"} data-read={read ? "" : undefined}>
+      <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(shownLook, changeLook) : asked || gold ? { ...shownLook, color: "var(--map-trace)" } : shownLook} {zoom}
+        head={!table} notation={endsPref} tips={table && !read && a.ends ? [{ end: a.ends.from, at: c.ends[0], out: c.out[0] }, { end: a.ends.to, at: c.ends[1], out: c.out[1] }] : []}
         lit={gold || lit.includes(a)} dim={!gold && lit.length > 0 && !lit.includes(a)} picked={sess.arrow?.id === a.id}
         onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
       {#if ans && arrowNumber(ans, a)}
