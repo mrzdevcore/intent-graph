@@ -101,7 +101,7 @@ export type Column = {
 /** A table or view a table box draws: `reads` are a view's tables. */
 export type Table = {
   name: string; kind: "table" | "view"; source: string; file: string; range: { startLine: number; endLine: number };
-  columns: Column[]; reads?: string[]; translations?: string[];
+  columns: Column[]; reads?: string[]; translations?: string[]; nullability?: boolean;
 };
 /** A piece of a file: `text` from line `line` on, `cut` lines left out at its end. */
 export type Snippet = { file: string; line: number; text: string; cut?: number; complexity: number };

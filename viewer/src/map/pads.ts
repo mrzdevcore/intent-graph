@@ -3,6 +3,7 @@ import { sides, type P, type Side } from "./shapes/path";
 import { inside, spreadAt, type InWire, type Port } from "./shapes/inside";
 import { lineOf } from "./shapes/auto";
 import type { ArrowShape, Edit, Frame, MapArrow, View } from "./types";
+import { isRead } from "./db/wiring";
 
 export type PadEnd = { from: string; to: string; key: "from" | "to" };
 export type Pad = {
@@ -109,7 +110,6 @@ export function padsOf(
     return w ? sideAt(outside!.frame, w.ends[a.from === id ? 0 : 1]) : undefined;
   };
   const byKey = new Map<string, Pad & { far?: Frame; wired?: boolean }>();
-  const isRead = (a: MapArrow) => a.kind === "reads" && view.tables?.[a.from]?.kind === "view";
   for (const a of view.arrows) {
     for (const part of a.parts?.length ? a.parts : [a]) {
       const from = holder(part.from), to = holder(part.to);
@@ -133,7 +133,7 @@ export function padsOf(
         if (e) [p.edge, p.wired] = [e, true];
       }
       p.shape ??= part.shape;
-      p.read &&= isRead(part);
+      p.read &&= isRead(part, view.tables);
       if (!p.arrows.includes(a.id)) p.arrows.push(a.id);
       if (!p.ends.some((e) => e.from === part.from && e.to === part.to)) p.ends.push({ from: part.from, to: part.to, key: from ? "from" : "to" });
     }

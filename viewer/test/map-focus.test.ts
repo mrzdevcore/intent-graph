@@ -6,7 +6,7 @@ import Focus from "../src/map/db/Focus.svelte";
 import Tree from "../src/map/db/Tree.svelte";
 import { Camera } from "../src/map/glide";
 import { fitTo, worldFrame } from "../src/map/camera";
-import { anchor, focusLayout, relations, treeOf, type Card } from "../src/map/db/focus";
+import { SIZE, anchor, focusLayout, relations, treeOf, type Card } from "../src/map/db/focus";
 import type { Column, End, MapArrow, MapBox, Table, View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 
@@ -14,7 +14,7 @@ const f = <T,>(value: T) => ({ value, source: "ig" as const });
 const col = (name: string, o: Partial<Column> = {}): Column => ({ name, type: o.references ? "uuid" : "text", line: 1, ...o });
 const ref = (table: string, o: Partial<Column> = {}) => ({ references: { table }, ...o });
 const table = (name: string, columns: Column[], o: Partial<Table> = {}): Table =>
-  ({ name, kind: "table", source: "sql", file: "db/V1.sql", range: { startLine: 1, endLine: 2 }, columns, ...o });
+  ({ name, kind: "table", source: "sql", file: "db/V1.sql", range: { startLine: 1, endLine: 2 }, columns, nullability: true, ...o });
 const book = ["deleted", "created_at", "updated_at", "deleted_at"].map((n) => col(n));
 
 const PARENTS = ["plants_production_lines", "parameters_batch_cycles", "parameters_products", "parameters_recipes", "plants_sites", "users"];
@@ -95,7 +95,7 @@ test("batches in the middle: 6 parents on the right, 8 children on the left, tra
   expect(centre.rows).toContainEqual({ t: "fold", names: ["deleted", "created_at", "updated_at", "deleted_at"] });
   expect(centre.rows).toContainEqual({ t: "i18n", names: ["label"] });
   const site = l.cards.find((k) => k.table.name === "plants_sites")!;
-  expect(site.rows.map((r) => (r.t === "col" ? r.col.name : r.t))).toEqual(["id", "company_id", "more"]);
+  expect(site.rows.map((r) => (r.t === "col" ? r.col.name : r.t))).toEqual(["id", "more"]);
 });
 
 test("each line joins the foreign-key row to the primary-key row, with the ends Rust read", () => {
@@ -117,7 +117,10 @@ test("each line joins the foreign-key row to the primary-key row, with the ends 
   }
   const arriving = l.lines.filter((x) => x.to === id("batches") && x.from !== x.to).map((x) => x.b.y);
   expect(arriving).toHaveLength(9);
-  expect(new Set(arriving).size).toBe(9);
+  expect(new Set(arriving).size).toBe(2);
+  const ones = l.lines.filter((x) => x.to === id("batches") && x.from !== x.to && x.b.end === "one");
+  expect(ones).toHaveLength(7);
+  expect(ones.filter((x) => !x.b.shared)).toHaveLength(1);
   const self = l.lines.find((x) => x.from === x.to)!;
   expect(self.a).toMatchObject({ y: anchor(centre, "parent_batch"), end: "many0" });
   expect(self.b).toMatchObject({ y: pkRow, end: "zeroOne" });
@@ -223,7 +226,9 @@ test("ends drawn as the notation says: crow's foot, labels or both", () => {
   const labels = focus("labels").target;
   expect(labels.querySelectorAll(".end").length).toBe(0);
   const texts = [...labels.querySelectorAll(`[data-line="${CSS.escape("pg#manual_entries.batch_id->pg#batches")}"] text.label`)].map((t) => t.textContent);
-  expect(texts).toEqual(["0..n", "0..1"]);
+  expect(texts[0]).toBe("0..n");
+  const said = (t: string) => [...labels.querySelectorAll("text.label")].filter((x) => x.textContent === t).length;
+  expect([said("1"), said("0..1")]).toEqual([6, 3]);
   const both = focus("both").target;
   expect(both.querySelectorAll(".end").length).toBeGreaterThan(0);
   expect(both.querySelectorAll("text.label").length).toBeGreaterThan(0);
@@ -302,4 +307,34 @@ test("on the map: the store's Tables… opens the tree, Enter on a selected tabl
   flushSync();
   expect(target.querySelector(".focus section.card")!.getAttribute("aria-label")).toBe("batches");
   target.remove();
+});
+
+test("a view that reads the centre is a card with a dotted line between the heads, no ends", () => {
+  const v = dbView();
+  v.tables![id("v_batches")] = table("v_batches", [col("code")], { kind: "view", reads: ["batches"] });
+  v.boxes.push({ id: id("v_batches"), parent: "pg", level: "code", madeOf: [], files: 1, kind: f("table"), title: f("v_batches") });
+  v.arrows.push({ id: "pg#v_batches->pg#batches", parent: "pg", from: id("v_batches"), to: id("batches"), kind: "reads", count: 1, kinds: ["reads"] });
+  const l = focusLayout(v, id("batches"))!;
+  const card = l.cards.find((k) => k.id === id("v_batches"))!, centre = l.cards.find((k) => k.col === 0)!;
+  expect(card.col).toBe(-1);
+  const read = l.lines.find((x) => x.from === id("v_batches"))!;
+  expect(read).toMatchObject({ read: true, a: { y: anchor(card), end: undefined }, b: { x: centre.x, y: anchor(centre), end: undefined } });
+  const target = document.createElement("div");
+  document.body.append(target);
+  mounted.push(mount(Focus, { target, props: { view: v, store: "pg", table: id("batches"), onpick: () => {}, onends: () => {}, onclose: () => {} } }));
+  flushSync();
+  expect(target.querySelector(`[data-line="${CSS.escape(read.id)}"]`)!.getAttribute("class")).toContain("read");
+});
+
+test("an end's label sits above its row, on the straight stub out of the card, clear of its marks and the next row's", () => {
+  const l = focusLayout(dbView(), id("batches"))!;
+  for (const x of l.lines.filter((x) => x.from !== x.to)) {
+    const [mx, my] = [x.a.x + x.a.out[0] * SIZE.stub, x.a.y];
+    expect(x.d.startsWith(`M${x.a.x} ${x.a.y}L${mx} ${my}C`)).toBe(true);
+    expect(x.d.endsWith(`${x.b.x + x.b.out[0] * SIZE.stub} ${x.b.y}L${x.b.x} ${x.b.y}`)).toBe(true);
+  }
+  const target = focus("labels").target;
+  const label = target.querySelector(`[data-line="${CSS.escape("pg#manual_entries.batch_id->pg#batches")}"] text.label`)!;
+  const line = l.lines.find((x) => x.id === "pg#manual_entries.batch_id->pg#batches")!;
+  expect(Number(label.getAttribute("y"))).toBe(line.a.y - 9);
 });

@@ -8,11 +8,12 @@ import Controls from "../src/map/Controls.svelte";
 import { Camera } from "../src/map/glide";
 import { fitTo, worldFrame } from "../src/map/camera";
 import { look } from "../src/map/looks";
-import { cardFacts } from "../src/map/db/card";
 import { overlaps } from "../src/map/place/rules";
 import { treeOf } from "../src/map/db/focus";
-import { NOISE, applyNoise, foldNoise, loadNoise, saveNoise, type Noise } from "../src/map/db/noise";
+import { NOISE, applyNoise, cardFacts, loadNoise, saveNoise, type Noise } from "../src/map/db/noise";
 import type { Place } from "../src/map/place/places";
+import { aside, backHome, unshifted } from "../src/map/db/wiring";
+import { reparented } from "../src/map/place/rules";
 import type { Column, MapArrow, MapBox as Box, Table, View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 
@@ -89,7 +90,6 @@ test("everything on: translations, leftovers set aside, hubs pinned, joins folde
 test("a view with no tables comes back as it is", () => {
   const v = { ...dbView(), tables: undefined };
   expect(applyNoise(v)).toBe(v);
-  expect(foldNoise(v)).toBe(v);
 });
 
 test("Fold translations: off, the translations group and its tables are on the map with their arrow", () => {
@@ -143,11 +143,11 @@ test("Set leftovers aside: off, they return to their domain, or to the store whe
 test("Pin hubs: on, a pinned arrow is not drawn but the card names its target; off, it is drawn and the card is plain", () => {
   const hub = id("shop_orders") + "->" + id("shop_users");
   expect(arrowIds(applyNoise(dbView()))).not.toContain(hub);
-  expect(cardFacts(foldNoise(dbView())).get(id("shop_orders"))!.pinned.get("shop_users")).toBe("shop_users");
+  expect(cardFacts(dbView(), true, applyNoise(dbView()).tables).get(id("shop_orders"))!.pinned.get("shop_users")).toBe("shop_users");
   const v = applyNoise(dbView(), off("hubs"));
   expect(arrowIds(v)).toContain(hub);
   expect(v.arrows.find((a) => a.id === hub)!.pinned).toBe(false);
-  expect(cardFacts(foldNoise(dbView(), off("hubs"))).size).toBe(0);
+  expect(cardFacts(dbView(), false, v.tables).size).toBe(0);
 });
 
 test("Fold join tables: on, the join table and its two arrows give way to the one between its tables", () => {
@@ -364,4 +364,21 @@ test("on the map, a hit on a folded translations table opens the focus; a persis
   expect(target.querySelector(".focus")).not.toBeNull();
   target.remove();
   vi.unstubAllGlobals();
+});
+
+test("a leftover's own place comes back when Leftovers aside goes off and on again", () => {
+  const given = dbView(), homes = new globalThis.Map(given.boxes.map((b) => [b.id, b.parent]));
+  const backup = id("shop_orders_backup"), mine: Place = { x: 40, y: 50, w: 320, h: 160 };
+  const kept: Record<string, Place> = { [backup]: mine };
+  const offView = applyNoise(given, off("leftovers"));
+  expect(unshifted(kept, offView, homes)[backup]).toBeUndefined();
+  const held = { ...aside(kept, offView, homes) };
+  expect(held[backup]).toEqual(mine);
+  const onView = applyNoise(given);
+  const prev: Record<string, Place> = { [backup]: { x: 900, y: 900, w: 320, h: 160 } };
+  backHome(prev, reparented(offView, onView), onView, homes, (k) => held[k]);
+  expect(prev[backup]).toEqual(mine);
+  const away: Record<string, Place> = { [backup]: mine };
+  backHome(away, reparented(onView, offView), offView, homes, (k) => held[k]);
+  expect(away[backup]).toBeUndefined();
 });

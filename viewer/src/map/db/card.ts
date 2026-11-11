@@ -1,7 +1,5 @@
-import type { Column, MapArrow, Table, View } from "../types";
+import type { Column, MapArrow, Table } from "../types";
 import type { Anchor, Band } from "../shapes/path";
-
-const flat = (a: MapArrow): MapArrow[] => (a.parts?.length ? a.parts.flatMap(flat) : [a]);
 
 export type Distance = "far" | "mid" | "near";
 export type CardFacts = { hub: number; pinned: Map<string, string> };
@@ -13,33 +11,28 @@ export const isKey = (c: Column) => !!c.pk || !!c.references;
 // a store of tables at fit is under 0.45; a domain fitted to the screen, under 1.4
 export const distance = (zoom: number): Distance => (zoom < 0.45 ? "far" : zoom < 1.4 ? "mid" : "near");
 
-/** By table box id: how many tables point at it when it is a hub, and its pinned foreign keys' targets by referenced table name. */
-export function cardFacts(view: View): Map<string, CardFacts> {
-  const out = new Map<string, CardFacts>();
-  const of = (id: string) => out.get(id) ?? out.set(id, { hub: 0, pinned: new Map() }).get(id)!;
-  const pointing = new Map<string, Set<string>>();
-  for (const a of view.arrows.flatMap(flat)) {
-    if (!a.pinned || a.via) continue;
-    const to = view.tables?.[a.to];
-    if (!to || !view.tables?.[a.from]) continue;
-    pointing.set(a.to, (pointing.get(a.to) ?? new Set()).add(a.from));
-    of(a.from).pinned.set(to.name.toLowerCase(), to.name);
-  }
-  for (const [id, from] of pointing) of(id).hub = from.size;
-  return out;
-}
+// Rust lays a table box out keys-only at these sizes (TABLE and card_rows in crates/ig-app)
+export const CARD = { w: 320, head: 56, row: 26, foot: 8 };
+const { head: HEAD, row: ROW, foot: FOOT } = CARD, CHIP = 120;
 
-const HEAD = 56, ROW = 26, FOOT = 8, CHIP = 120;
+export const keysOnly = (t: Table) => {
+  const keys = t.columns.filter(isKey).length;
+  return keys + (t.columns.length > keys ? 1 : 0) + (t.translations?.length ? 1 : 0);
+};
+export const cardSize = (t: Table) => ({ w: CARD.w, h: HEAD + ROW * Math.max(keysOnly(t), 2) + FOOT });
 
 export function cardLayout(t: Table, zoom: number, h: number, fold = true, marked: (c: Column) => boolean = () => false) {
-  const at = distance(zoom);
-  const folded = fold ? t.columns.filter((c) => isBookkeeping(c) && !marked(c)) : [];
+  const folded = fold ? t.columns.filter((c) => isBookkeeping(c) && !isKey(c) && !marked(c)) : [];
   const shown = t.columns.filter((c) => !folded.includes(c));
   const keys = shown.filter(isKey);
   const others = shown.length - keys.length;
   const foot = [others && `+${others} ${others === 1 ? "column" : "columns"}`, folded.length && `+${folded.length} bookkeeping`].filter(Boolean).join(" · ");
+  const strip = t.translations?.length ? 1 : 0;
+  const near = HEAD + ROW * (shown.length + (folded.length ? 1 : 0) + strip) + FOOT;
+  const shrink = Math.min(1, h / near);
+  const at = distance(zoom) === "near" && zoom * shrink < 1 ? "mid" : distance(zoom);
   const fit = (need: number, cap: number) => Math.max(1, Math.min(cap / (zoom > 0 ? zoom : 1), h / need));
-  const m = at === "far" ? Math.min(3, fit(CHIP, 0.55)) : at === "mid" ? fit(HEAD + ROW * (keys.length + (foot ? 1 : 0)) + FOOT, 0.9) : 1;
+  const m = at === "far" ? Math.min(3, fit(CHIP, 0.55)) : at === "mid" ? fit(HEAD + ROW * (keys.length + (foot ? 1 : 0) + strip) + FOOT, 0.9) : shrink;
   return { at, m, folded, shown, keys, foot, rows: at === "far" ? [] : at === "mid" ? keys : shown };
 }
 

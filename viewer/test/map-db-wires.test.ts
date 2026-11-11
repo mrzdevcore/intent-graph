@@ -46,7 +46,10 @@ test("a column's row on the card: every column near, keys only in the middle, no
   expect(rowAt(orders, "user_id", 0.3, 300)).toBeUndefined();
   expect(rowAt(orders, "created_at", 2, 300)).toBeUndefined();
   expect(rowAt(orders, "created_at", 2, 300, false)).toEqual({ y: 56 + 26 * 4.5, h: 26 });
-  expect(rowAt(orders, "user_id", 2, 120)).toBeUndefined();
+  const shrunk = rowAt(orders, "user_id", 2, 120)!, k = 120 / (56 + 26 * 5 + 8);
+  expect([shrunk.y, shrunk.h]).toEqual([k * (56 + 26 * 3.5), k * 26]);
+  expect(rowAt(orders, "user_id", 1.5, 120)).toEqual({ y: 56 + 26 * 1.5, h: 26 });
+  expect(rowAt(orders, "user_id", 1.5, 100)).toBeUndefined();
 });
 
 const ends = (shape: ArrowShape, zoom: number) => {

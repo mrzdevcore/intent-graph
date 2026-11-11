@@ -11,6 +11,21 @@ export function fitTo(f: Frame, view: { w: number; h: number }, margin = 0.1): C
   return { k: kk, x: view.w / 2 - (f.x + f.w / 2) * kk, y: view.h / 2 - (f.y + f.h / 2) * kk };
 }
 
+// an opened box's inside fills the screen: zoomed in up to where its frame (below the inside's top)
+// covers the screen, then kept on the frame, so no stretch of the level above shows past its edge
+export function fitInside(area: Frame, frame: Frame, view: { w: number; h: number }): Cam {
+  const fit = fitTo(area, view), most = fitTo(area, view, 0);
+  const below = frame.y + frame.h - area.y;
+  const cover = pos(frame.w) && pos(below) ? Math.max(view.w / frame.w, view.h / below) : fit.k;
+  const k = Math.max(fit.k, Math.min(most.k, cover));
+  const axis = (a0: number, as: number, f0: number, fs: number, v: number) => {
+    let c = v / 2 - (a0 + as / 2) * k;
+    if (fs * k >= v) c = Math.min(-f0 * k, Math.max(v - (f0 + fs) * k, c));
+    return Math.max(-a0 * k, Math.min(v - (a0 + as) * k, c));
+  };
+  return { k, x: axis(area.x, area.w, frame.x, frame.w, view.w), y: axis(area.y, area.h, frame.y, frame.h, view.h) };
+}
+
 /**
  * Where a parent's inner space sits in the world: the inner box (inner units) is placed in the
  * parent's world frame by fitInner, below its header. world = (x, y) + s * innerPoint. The

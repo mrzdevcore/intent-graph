@@ -1,5 +1,5 @@
-<!-- Sizes are the layout's (TABLE in crates/ig-app/src/map/layout.rs), sized for the near card; far
-     and mid are scaled up to read inside that frame. -->
+<!-- Sizes are the layout's (CARD in db/card.ts), a box as tall as its keys-only card; far and mid
+     are scaled up to read inside that frame. -->
 <script lang="ts">
   import type { Look } from "./looks";
   import type { Column, Table } from "./types";
@@ -47,7 +47,7 @@
   </span>
 {/snippet}
 
-<button class="table {at}" class:view class:picked type="button" aria-label="Open {table.name}" onclick={onopen}
+<button class="table {at}" class:view class:picked class:focusable={!!onfocus} type="button" aria-label="Open {table.name}" onclick={onopen}
   style:border-color={neutral ? null : look.edge} style:border-style={look.dashed ? "dashed" : null} style:box-shadow={glow} style:opacity={look.fade}>
   <span class="card" style:width={m === 1 ? null : `${100 / m}%`} style:height={m === 1 ? null : `${100 / m}%`} style:transform={m === 1 ? null : `scale(${m})`}>
     {#if at === "far"}
@@ -66,6 +66,7 @@
         {#if at === "mid"}
           {#each keys as c, i (i)}{@render row(c)}{/each}
           {#if foot}<span class="fold">{foot}</span>{/if}
+          {#if table.translations?.length}<span class="i18n"><i class="tag i18n">i18n</i><span class="names">{table.translations.join(", ")}</span></span>{/if}
         {:else}
           {#each shown as c, i (i)}{@render row(c)}{/each}
           {#if folded.length}<span class="fold bookkeeping" title={folded.map((c) => c.name).join(", ")}>+{folded.length} <span class="names">{folded.map((c) => c.name).join(", ")}</span></span>{/if}
@@ -117,6 +118,12 @@
   .type { color: var(--map-muted); white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
   .type.to { color: var(--map-gold); font-family: var(--font-sans); }
   .sign { font-weight: 700; margin-right: 6px; }
+  .mid .name { font-size: 19px; line-height: 24px; }
+  .focusable .head { padding-right: 64px; }
+  .mid .col { font-size: 16px; grid-template-columns: 52px minmax(0, 1fr) auto; }
+  .mid .keys i { font-size: 11px; line-height: 14px; }
+  .mid .type:not(.to) { display: none; }
+  .mid .fold, .mid .i18n { font-size: 14px; }
   .fold, .i18n { flex: none; height: 26px; box-sizing: border-box; padding: 0 12px; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap;
     font: 12px/26px var(--font-sans); color: var(--map-muted); }
   .i18n { border-top: 1px dashed var(--map-line); }

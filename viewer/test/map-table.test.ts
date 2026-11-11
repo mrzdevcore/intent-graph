@@ -6,7 +6,8 @@ import { look } from "../src/map/looks";
 import { diffAnswer, type TableMark } from "../src/map/diff";
 import type { Diff } from "../src/model/diff";
 import type { Column, MapArrow, MapBox as Box, Table, View } from "../src/map/types";
-import { cardFacts, distance, type CardFacts } from "../src/map/db/card";
+import { distance, type CardFacts } from "../src/map/db/card";
+import { cardFacts } from "../src/map/db/noise";
 
 const f = <T,>(value: T) => ({ value, source: "ig" as const });
 const col = (name: string, type: string, o: Partial<Column> = {}): Column => ({ name, type, line: 1, ...o });
@@ -163,14 +164,25 @@ test("mid, a table shows its keys and counts the rest", () => {
   expect(t.querySelector(".table")!.className).toContain("mid");
   expect(names(t)).toEqual(["id_batch", "company", "cycle"]);
   expect(t.querySelector(".fold")!.textContent).toBe("+2 columns · +4 bookkeeping");
-  expect(t.querySelector(".i18n")).toBeNull();
+  expect(t.querySelector(".i18n")!.textContent).toContain("i18n");
+});
+
+test("near, a box as tall as its keys-only card stays keys-only until every column can be read shrunk into it", () => {
+  const h = 56 + 26 * 5 + 8, wide = { ...big, columns: [...big.columns, ...Array.from({ length: 20 }, (_, i) => col(`c${i}`, "text"))] };
+  const t = render(undefined, wide, { zoom: 2, h });
+  expect(t.querySelector(".table")!.className).toContain("mid");
+  expect(names(t)).toEqual(["id_batch", "company", "cycle"]);
+  const close = render(undefined, wide, { zoom: 6, h });
+  expect(close.querySelector(".table")!.className).toContain("near");
+  expect(names(close).length).toBeGreaterThan(3);
+  expect(close.querySelector<HTMLElement>(".card")!.style.transform).toMatch(/^scale\(0\./);
 });
 
 test("mid, the keys are scaled up to read, within the near card's frame", () => {
   const t = render(undefined, big, { zoom: 0.5, h: 400 });
   const card = t.querySelector(".card") as HTMLElement;
   expect(card.style.transform).toBe("scale(1.8)");
-  expect(render(undefined, big, { zoom: 0.5, h: 252 }).querySelector<HTMLElement>(".card")!.style.transform).toBe("scale(1.5)");
+  expect(render(undefined, big, { zoom: 0.5, h: 291 }).querySelector<HTMLElement>(".card")!.style.transform).toBe("scale(1.5)");
   expect(render(undefined, big, { zoom: 0.5, h: 150 }).querySelector<HTMLElement>(".card")!.style.transform).toBe("");
 });
 
@@ -221,8 +233,9 @@ test("cardFacts counts the tables pointing at a hub and its pinned keys", () => 
     ],
     tables,
   } as unknown as View;
-  const facts = cardFacts(view);
+  const facts = cardFacts(view, true, tables);
   expect(facts.get("p#companies")!.hub).toBe(2);
+  expect(cardFacts(view, true, { "p#companies": tables["p#companies"], "p#a": notes }).get("p#companies")!.hub).toBe(1);
   expect([...facts.get("p#a")!.pinned]).toEqual([["companies", "companies"]]);
   expect(facts.get("p#c")).toBeUndefined();
 });

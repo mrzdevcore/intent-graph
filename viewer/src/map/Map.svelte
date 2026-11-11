@@ -5,7 +5,7 @@
 <script lang="ts">
   import { onDestroy, tick as flushed, untrack } from "svelte";
   import type { ArrowShape, Edit, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
-  import { HEAD, detailFor, fitInner, fitTo, placer, showsInside, type Cam } from "./camera";
+  import { HEAD, detailFor, fitInner, fitInside, fitTo, placer, showsInside, type Cam } from "./camera";
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
   import { Camera, PLACE_MS, tween, wheelFactor } from "./glide";
   import { GRID, edgePan, gridLevel, momentum, softK, wheelIntent, type WheelPref } from "./nav";
@@ -27,7 +27,7 @@
   import Controls from "./Controls.svelte";
   import type { Notation } from "./db/ends";
   import { loadNotation, saveNotation } from "./db/notation";
-  import { applyNoise, foldNoise, loadNoise, saveNoise, type Noise } from "./db/noise";
+  import { applyNoise, cardFacts, loadNoise, saveNoise, type Noise } from "./db/noise";
   import Search from "./Search.svelte";
   import type { Trace } from "./search";
   import type { EditApi } from "../api";
@@ -59,10 +59,11 @@
   import { arrange } from "./place/arrange";
   import { rekey, reparented, settle as settlePlaces, shownView } from "./place/rules";
   import { Clock, EditLog, PlaceHistory, apply, changes, redoNext, renamesOf, undoNext, type Rename } from "./place/history";
-  import { anchorsOf, cardFacts } from "./db/card";
+  import { anchorsAt as rowAnchors, aside as asideOf, backHome, isRead as readOf, isTableLink as tableLinkOf, leaves, readShown as readShownOf, readsOnly as readsOnlyOf,
+    tipsOf as tipsAt, unshifted as unshiftedOf } from "./db/wiring";
   import type { Anchor } from "./shapes/path";
   import Focus from "./db/Focus.svelte";
-  import { hasTables as storeHasTables, storeOf } from "./db/focus";
+  import { holdsTables as storeHoldsTables, storeOf } from "./db/focus";
 
   let { view: given, camera = new Camera(), size, edit, onview, show, diff }: {
     view: View; camera?: Camera; size?: { w: number; h: number };
@@ -72,20 +73,10 @@
     diff?: Diff | null;
   } = $props();
   let noise = $state<Noise>(untrack(() => loadNoise()));
-  const folded = $derived(foldNoise(given, noise));
   const view = $derived(applyNoise(given, noise));
   const homes = $derived(new Map(given.boxes.map((b) => [b.id, b.parent])));
-  const shifted = (v: View) => v.boxes.filter((b) => homes.get(b.id) !== b.parent).map((b) => b.id);
-  const aside = () => {
-    const drawn = new Set(view.boxes.map((b) => b.id)), moved = new Set(shifted(view));
-    const bare = (k: string) => (isInside(k) ? k.slice(0, -1) : k);
-    return Object.fromEntries(Object.entries(store.snapshot()).filter(([k]) => homes.has(bare(k)) && (!drawn.has(bare(k)) || moved.has(bare(k)))));
-  };
-  const unshifted = (places: Record<string, Place>, v: View) => {
-    const out = { ...places };
-    for (const id of shifted(v)) delete out[id];
-    return out;
-  };
+  const aside = () => asideOf(store.snapshot(), view, homes);
+  const unshifted = (places: Record<string, Place>, v: View) => unshiftedOf(places, v, homes);
   const diffed = $derived(diff ? diffAnswer(view, diff) : null);
   let cleared = $state(false);
   const showingDiff = $derived(!!diffed && !cleared);
@@ -187,7 +178,7 @@
       }
       const ids = new Set(v.boxes.map((b) => b.id));
       const prev = rekey({ ...gone, ...truth }, renames, (id) => ids.has(id));
-      for (const id of reparented(lastView, v)) delete prev[id];
+      backHome(prev, reparented(lastView, v), v, homes, (id) => store.get(id));
       const back: Record<string, Place> = {};
       for (const b of v.boxes) if (!truth[b.id] && gone[b.id] && prev[b.id]) back[b.id] = prev[b.id];
       lastView = v;
@@ -297,20 +288,18 @@
   };
   type Wired = ReturnType<typeof wired>;
   const siblings = (p: string) => Object.fromEntries((kids.get(p) ?? []).map((b) => [b.id, shown.placed.frames[b.id]]));
-  const leaves = (a: Arrow): Arrow[] => (a.parts?.length ? a.parts.flatMap(leaves) : [a]);
-  const isRead = (a: Arrow) => a.kind === "reads" && view.tables?.[a.from]?.kind === "view";
-  const readsOnly = (a: Arrow) => leaves(a).every(isRead);
-  const isTableLink = (a: Arrow) => !a.parts?.length && !!view.tables?.[a.from] && !!view.tables?.[a.to];
-  const readShown = (a: Arrow) => !leaves(a).some(isRead) || leaves(a).some((l) => isRead(l) && (selected === l.from || many.includes(l.from)));
+  const isRead = (a: Arrow) => readOf(a, view.tables);
+  const readsOnly = (a: Arrow) => readsOnlyOf(a, view.tables);
+  const isTableLink = (a: Arrow) => tableLinkOf(a, view.tables);
+  const readShown = (a: Arrow) => readShownOf(a, view.tables, (id) => selected === id || many.includes(id));
   const byParent = $derived(group([...view.arrows, ...ghosts].filter(readShown), (a: Arrow) => a.parent));
   const padView = $derived(view.arrows.every(readShown) ? view : { ...view, arrows: view.arrows.filter(readShown) });
   const readLook = <L extends { dash: string | null }>(a: Arrow, l: L): L => (readsOnly(a) ? { ...l, dash: "1 4" } : l);
-  const tipsOf = (a: Arrow, w: Wire) =>
-    isTableLink(a) && !readsOnly(a) && a.ends ? [{ end: a.ends.from, at: w.ends[0], out: w.out[0] }, { end: a.ends.to, at: w.ends[1], out: w.out[1] }] : [];
+  const tipsOf = (a: Arrow, w: Wire) => tipsAt(a, w, view.tables);
   const counted = $derived(group([...view.arrows, ...ghosts].filter((a) => !leaves(a).some(isRead)), (a: Arrow) => a.parent));
   const anchorsAt = (p: string, as: Arrow[], frames: Record<string, Frame>) =>
     view.tables && (p === ROOT || opened(p))
-      ? anchorsOf(as, frames, view.tables, (unit.get(p) ?? 1) * lod.k, noise.bookkeeping, marks ? (id, c) => !!marks.tables.get(id)?.columns.get(c.name.toLowerCase()) : undefined)
+      ? rowAnchors(as, frames, view.tables, (unit.get(p) ?? 1) * lod.k, noise.bookkeeping, marks?.tables ?? null)
       : {};
   const shapeAt = $derived.by(() => {
     const out = new Map<string, ArrowShape>();
@@ -394,7 +383,7 @@
   let off = $state(new Set<string>());
   const on = $derived(new Set(layers.filter((l) => !off.has(l))));
   const counts = $derived(insideCounts(view, view.marks, on));
-  const cards = $derived(cardFacts(folded));
+  const cards = $derived(cardFacts(given, noise.hubs, view.tables));
   const reading = $derived(view.boxes.some((b) => b.needsReading));
 
   let cw = $state(0), ch = $state(0);
@@ -549,7 +538,7 @@
     const inner = shown.placed.inner[id];
     if (!kids.has(id) || !inner) return fitTo(frameOf(id), to);
     const t = place.inside(id);
-    return fitTo({ x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s }, to);
+    return fitInside({ x: t.x, y: t.y, w: inner[0] * t.s, h: inner[1] * t.s }, frameOf(id), to);
   }
   const fly = (id: string) => glideTo(id === ROOT ? home() : target(id));
   function aimAt(aim: Aim | null) {
@@ -589,9 +578,9 @@
     const store = storeOf(given, id);
     if (store && given.tables?.[id]) focusing = { store, table: id };
   }
-  const hasTables = (id: string) => storeHasTables(view, id);
+  const holdsTables = (id: string) => storeHoldsTables(view, id);
   function openTables(id: string) {
-    if (hasTables(id)) focusing = { store: id, table: null };
+    if (holdsTables(id)) focusing = { store: id, table: null };
   }
   function closeFocus() {
     const id = focusing?.table;
@@ -1132,7 +1121,7 @@
   const sess = new EditSession({
     edit: () => api, view: () => view, box: (id) => byId.get(id), frame: frameOf, cam: () => cam, stage: () => stage,
     kinds: () => view.kinds, arrowKinds: () => view.arrowKinds,
-    selected: () => selected, select: (id) => choose(id ? [id] : []), db: (id) => (view.tables?.[id] ? "focus" : hasTables(id) ? "tables" : undefined),
+    selected: () => selected, select: (id) => choose(id ? [id] : []), db: (id) => (view.tables?.[id] ? "focus" : holdsTables(id) ? "tables" : undefined),
     openDb: (a, id) => (a === "focus" ? openFocus(id) : openTables(id)), tool: (t) => tool.pick(t), used: (shift) => tool.used(shift), run, arrange: arrangeIn,
     drop: (e, from) => {
       const hit = document.elementFromPoint?.(e.clientX, e.clientY);
@@ -1371,7 +1360,7 @@
     {@const gold = !!hotPad?.includes(a.id) || (hotArrow === a.id && (opened(a.from) || opened(a.to)))}
     {@const table = isTableLink(a)}
     {@const read = readsOnly(a)}
-    {@const shownLook = readLook(a, drawnLook)}
+    {@const shownLook = readLook(a, table && !(lit.length > 0 && !lit.includes(a)) ? { ...drawnLook, strong: true } : drawnLook)}
     <div class="arrow" class:fresh={mode === "routed" && fresh.has(a.id)} data-arrow={a.id} data-line={mode === "routed" ? lineAt(a) : "ribbon"} data-read={read ? "" : undefined}>
       <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(shownLook, changeLook) : asked || gold ? { ...shownLook, color: "var(--map-trace)" } : shownLook} {zoom}
         head={!table} notation={endsPref} tips={tipsOf(a, c)}
@@ -1564,7 +1553,7 @@
   {:else if selected && byId.get(selected)}
     <DetailsCard {view} box={byId.get(selected)!} onclose={close} onopen={(id) => { traced = null; openBox(id); }} onmenu={edit ? (e) => sess.menuFrom(e) : undefined}
       onedit={edit && written(byId.get(selected)) ? () => details(selected!) : undefined} edit={api} {run}
-      ondb={view.tables?.[selected] ? { label: "Focus", run: () => openFocus(selected!) } : hasTables(selected) ? { label: "Tables…", run: () => openTables(selected!) } : undefined} />
+      ondb={view.tables?.[selected] ? { label: "Focus", run: () => openFocus(selected!) } : holdsTables(selected) ? { label: "Tables…", run: () => openTables(selected!) } : undefined} />
   {/if}
 </div>
 

@@ -1,32 +1,28 @@
-import type { Column, End, MapArrow, MapBox, Table, TableGroup, View } from "../types";
+import type { ArrowKind, Column, End, MapBox, Table, TableGroup, View } from "../types";
 import { isBookkeeping, isKey } from "./card";
+import { NOISE, type Noise } from "./noise";
+import { leaves } from "./wiring";
 
 export type Hops = 1 | 2;
-export type Folds = { translations: boolean; joins: boolean; bookkeeping: boolean; leftovers: boolean; hubs: boolean };
-export const FOLDS: Folds = { translations: true, joins: true, bookkeeping: true, leftovers: true, hubs: true };
 
-export type Rel = { id: string; from: string; to: string; fromColumn?: string; toColumn?: string; ends?: { from: End; to: End }; via?: string };
+export type Rel = { id: string; from: string; to: string; kind: ArrowKind; fromColumn?: string; toColumn?: string; ends?: { from: End; to: End }; via?: string };
 export type Row =
   | { t: "col"; col: Column }
   | { t: "fold"; names: string[] }
   | { t: "i18n"; names: string[] }
   | { t: "more"; n: number };
 export type Card = { id: string; table: Table; col: number; x: number; y: number; w: number; h: number; rows: Row[] };
-export type Tip = { x: number; y: number; out: [number, number]; end?: End };
-export type Line = { id: string; from: string; to: string; a: Tip; b: Tip; d: string; via?: string; mid: [number, number] };
+export type Tip = { x: number; y: number; out: [number, number]; end?: End; shared?: boolean };
+export type Line = { id: string; from: string; to: string; a: Tip; b: Tip; d: string; via?: string; read?: boolean; mid: [number, number] };
 export type Focus = { cards: Card[]; lines: Line[]; w: number; h: number };
 
-export const SIZE = { centre: 300, side: 240, head: 44, row: 26, pad: 8, gapX: 150, gapY: 24, margin: 32, loop: 56 };
-// Rust's TELLS_NULLABLE (crates/ig-app/src/map/tables.rs)
-const STATES = ["sql", "prisma", "django", "sqlalchemy", "drizzle", "typeorm"];
-
-const flat = (a: MapArrow): MapArrow[] => (a.parts?.length ? a.parts.flatMap(flat) : [a]);
+export const SIZE = { centre: 300, side: 240, head: 44, row: 26, pad: 8, gapX: 150, gapY: 16, margin: 32, loop: 56, stub: 30 };
 
 export function relations(view: View): Rel[] {
   const seen = new Map<string, Rel>();
-  for (const a of view.arrows.flatMap(flat)) {
+  for (const a of view.arrows.flatMap(leaves)) {
     if (seen.has(a.id) || a.from === a.to || !view.tables?.[a.from] || !view.tables?.[a.to]) continue;
-    seen.set(a.id, { id: a.id, from: a.from, to: a.to, fromColumn: a.fromColumn, toColumn: a.toColumn, ends: a.ends, via: a.via });
+    seen.set(a.id, { id: a.id, from: a.from, to: a.to, kind: a.kind, fromColumn: a.fromColumn, toColumn: a.toColumn, ends: a.ends, via: a.via });
   }
   return [...seen.values()];
 }
@@ -61,7 +57,7 @@ function indexOf(view: View): Index {
 }
 
 export const storeOf = (view: View, id: string) => indexOf(view).store.get(id);
-export const hasTables = (view: View, store: string) => !!store && indexOf(view).byName.has(store);
+export const holdsTables = (view: View, store: string) => !!store && indexOf(view).byName.has(store);
 export const groupOf = (view: View, id: string) => indexOf(view).boxes.get(id)?.parent;
 const tableIn = (view: View, store: string | undefined, name: string) => indexOf(view).byName.get(store ?? "")?.get(name.toLowerCase());
 
@@ -70,7 +66,7 @@ const groupKind = (view: View, id: string): TableGroup | undefined => {
   return p ? view.tableGroups?.[p] : undefined;
 };
 
-function hidden(view: View, rels: Rel[], folds: Folds, centre: string): Set<string> {
+function hidden(view: View, rels: Rel[], folds: Noise, centre: string): Set<string> {
   const out = new Set<string>();
   if (folds.translations) for (const id of Object.keys(view.tables ?? {})) if (groupKind(view, id) === "translations") out.add(id);
   if (folds.joins)
@@ -82,12 +78,12 @@ function hidden(view: View, rels: Rel[], folds: Folds, centre: string): Set<stri
   return out;
 }
 
-export function visible(view: View, centre: string, folds: Folds = FOLDS): Rel[] {
+export function visible(view: View, centre: string, folds: Noise = NOISE): Rel[] {
   const rels = relations(view), off = hidden(view, rels, folds, centre);
   return rels.filter((r) => (folds.joins ? true : !r.via) && !off.has(r.from) && !off.has(r.to));
 }
 
-function rowsOf(t: Table, centre: boolean, need: Set<string>, folds: Folds): Row[] {
+function rowsOf(t: Table, centre: boolean, need: Set<string>, folds: Noise): Row[] {
   if (centre) {
     const folded = folds.bookkeeping ? t.columns.filter((c) => isBookkeeping(c) && !isKey(c)) : [];
     const rows: Row[] = t.columns.filter((c) => !folded.includes(c)).map((col) => ({ t: "col", col }));
@@ -95,7 +91,7 @@ function rowsOf(t: Table, centre: boolean, need: Set<string>, folds: Folds): Row
     if (folds.translations && t.translations?.length) rows.push({ t: "i18n", names: t.translations });
     return rows;
   }
-  const shown = t.columns.filter((c) => isKey(c) || need.has(c.name.toLowerCase()));
+  const shown = t.columns.filter((c) => need.has(c.name.toLowerCase()));
   const rows: Row[] = shown.map((col) => ({ t: "col", col }));
   if (t.columns.length > shown.length) rows.push({ t: "more", n: t.columns.length - shown.length });
   return rows;
@@ -112,7 +108,7 @@ export function anchor(card: Card, column?: string): number {
 const pkOf = (t: Table) => t.columns.find((c) => c.pk)?.name;
 
 export function columnEnds(t: Table, c: Column): { from: End; to: End } | undefined {
-  if (!STATES.includes(t.source)) return undefined;
+  if (!t.nullability) return undefined;
   const pk = t.columns.filter((k) => k.pk);
   return {
     from: c.unique || (pk.length === 1 && pk[0].name === c.name) ? "zeroOne" : "many0",
@@ -120,7 +116,7 @@ export function columnEnds(t: Table, c: Column): { from: End; to: End } | undefi
   };
 }
 
-export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: Folds = FOLDS): Focus | null {
+export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: Noise = NOISE): Focus | null {
   const me = view.tables?.[centre];
   if (!me) return null;
   const rels = visible(view, centre, folds);
@@ -147,18 +143,19 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: F
 
   const store = storeOf(view, centre);
   const adjacent = (a: string, b: string) => col.has(a) && col.has(b) && Math.abs(col.get(a)! - col.get(b)!) === 1;
-  const specs: Rel[] = rels.filter((r) => r.via && adjacent(r.from, r.to));
+  const specs: Rel[] = rels.filter((r) => (r.via || r.kind === "reads") && adjacent(r.from, r.to));
   for (const from of col.keys()) {
     const t = view.tables![from];
     for (const c of t.columns) {
       const to = c.references ? tableIn(view, store, c.references.table) : undefined;
       if (!to || to === from || !adjacent(from, to)) continue;
-      specs.push({ id: `${from}.${c.name}->${to}`, from, to, fromColumn: c.name, toColumn: c.references!.column ?? pkOf(view.tables![to]), ends: columnEnds(t, c) });
+      specs.push({ id: `${from}.${c.name}->${to}`, from, to, kind: "uses", fromColumn: c.name, toColumn: c.references!.column ?? pkOf(view.tables![to]), ends: columnEnds(t, c) });
     }
   }
   const need = new Map<string, Set<string>>();
   const needs = (id: string, c?: string) => c && (need.get(id) ?? need.set(id, new Set()).get(id)!).add(c.toLowerCase());
   for (const r of specs) {
+    if (r.kind === "reads") continue;
     needs(r.from, r.fromColumn);
     needs(r.to, r.toColumn);
   }
@@ -166,11 +163,14 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: F
   const columns = [...new Set(col.values())].sort((a, b) => a - b);
   const byCol = new Map(columns.map((c) => [c, [...col].filter(([, k]) => k === c).map(([id]) => id)]));
   const width = (c: number) => (c === 0 ? SIZE.centre : SIZE.side);
+  // many lines into one column fan out over a wider gap, so each can be followed
+  const across = (c: number) => specs.filter((r) => Math.min(col.get(r.from)!, col.get(r.to)!) === c).length;
+  const gap = (c: number) => SIZE.gapX + Math.min(120, 12 * Math.max(0, across(c) - 3));
   const xs = new Map<number, number>();
   let x = SIZE.margin;
   for (const c of columns) {
     xs.set(c, x);
-    x += width(c) + SIZE.gapX;
+    x += width(c) + gap(c);
   }
   const cards: Card[] = [];
   for (const c of columns) {
@@ -188,19 +188,15 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: F
 
   const at = new Map(cards.map((k) => [k.id, k]));
   const lines: Line[] = specs.map((r) => {
-    const a = at.get(r.from)!, b = at.get(r.to)!, aRight = a.col < b.col;
+    const a = at.get(r.from)!, b = at.get(r.to)!, aRight = a.col < b.col, read = r.kind === "reads";
     return {
-      id: r.id, from: r.from, to: r.to, via: r.via, mid: [0, 0], d: "",
-      a: { x: aRight ? a.x + a.w : a.x, y: anchor(a, r.fromColumn), out: [aRight ? 1 : -1, 0], end: r.ends?.from },
-      b: { x: aRight ? b.x : b.x + b.w, y: anchor(b, r.toColumn ?? pkOf(b.table)), out: [aRight ? -1 : 1, 0], end: r.ends?.to },
+      id: r.id, from: r.from, to: r.to, via: r.via, read: read || undefined, mid: [0, 0], d: "",
+      a: { x: aRight ? a.x + a.w : a.x, y: read ? anchor(a) : anchor(a, r.fromColumn), out: [aRight ? 1 : -1, 0], end: r.ends?.from },
+      b: { x: aRight ? b.x : b.x + b.w, y: read ? anchor(b) : anchor(b, r.toColumn ?? pkOf(b.table)), out: [aRight ? -1 : 1, 0], end: r.ends?.to },
     };
   });
   spread(lines);
-  for (const l of lines) {
-    const mx = (l.a.x + l.b.x) / 2;
-    l.mid = [mx, (l.a.y + l.b.y) / 2];
-    l.d = `M${l.a.x} ${l.a.y}C${mx} ${l.a.y} ${mx} ${l.b.y} ${l.b.x} ${l.b.y}`;
-  }
+  for (const l of lines) fan(l);
   const self = at.get(centre)!;
   for (const c of me.columns) {
     if (!c.references || tableIn(view, store, c.references.table) !== centre) continue;
@@ -214,9 +210,10 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: F
     });
   }
   const loops = lines.some((l) => l.from === l.to) ? SIZE.loop : 0;
-  return { cards, lines, w: x - SIZE.gapX + SIZE.margin + (columns.at(-1) === 0 ? loops : 0), h: H + 2 * SIZE.margin };
+  return { cards, lines, w: x - gap(columns.at(-1)!) + SIZE.margin + (columns.at(-1) === 0 ? loops : 0), h: H + 2 * SIZE.margin };
 }
 
+// tips on one row with the same end meet at one point and draw it once; other ends share the row
 function spread(lines: Line[]) {
   const at = new Map<string, { tip: Tip; other: Tip }[]>();
   for (const l of lines)
@@ -226,11 +223,26 @@ function spread(lines: Line[]) {
     }
   const half = SIZE.row / 2 - 3;
   for (const list of at.values()) {
-    if (list.length < 2) continue;
-    list.sort((p, q) => p.other.y - q.other.y);
-    const y = list[0].tip.y;
-    list.forEach((p, i) => (p.tip.y = y - half + (2 * half * i) / (list.length - 1)));
+    const ends = new Map<string, { tip: Tip; other: Tip }[]>();
+    for (const p of list) (ends.get(p.tip.end ?? "") ?? ends.set(p.tip.end ?? "", []).get(p.tip.end ?? "")!).push(p);
+    const groups = [...ends.values()].map((g) => ({ g, y: g.reduce((s, p) => s + p.other.y, 0) / g.length })).sort((p, q) => p.y - q.y);
+    const y0 = list[0].tip.y;
+    groups.forEach(({ g }, i) => {
+      const y = groups.length < 2 ? y0 : y0 - half + (2 * half * i) / (groups.length - 1);
+      g.forEach((p, j) => Object.assign(p.tip, { y, shared: j > 0 || undefined }));
+    });
   }
+}
+
+// a stub out of each tip for its ends, then a curve that leaves its row flat and fans into the far tip
+function fan(l: Line) {
+  const s = SIZE.stub, { a, b } = l;
+  const sa: [number, number] = [a.x + a.out[0] * s, a.y], sb: [number, number] = [b.x + b.out[0] * s, b.y];
+  const dx = Math.abs(sb[0] - sa[0]);
+  const c1: [number, number] = [sa[0] + a.out[0] * dx * 0.55, sa[1]];
+  const c2: [number, number] = [sb[0] + b.out[0] * dx * 0.3, sb[1] + (sa[1] - sb[1]) * 0.35];
+  l.mid = [(sa[0] + sb[0]) / 2, (sa[1] + sb[1]) / 2];
+  l.d = `M${a.x} ${a.y}L${sa[0]} ${sa[1]}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${sb[0]} ${sb[1]}L${b.x} ${b.y}`;
 }
 
 export type TreeTable = { id: string; name: string; kind: Table["kind"]; matched: string[] };

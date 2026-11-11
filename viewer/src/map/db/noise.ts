@@ -1,16 +1,15 @@
 import type { ArrowKind, MapArrow, MapBox, Table, View } from "../types";
 import { HEAD } from "../camera";
 import { settle, shownView } from "../place/rules";
-import type { Folds } from "./focus";
+import { cardSize, type CardFacts } from "./card";
+import { leaves } from "./wiring";
 
-export type Noise = Folds;
+export type Noise = { translations: boolean; joins: boolean; bookkeeping: boolean; leftovers: boolean; hubs: boolean };
 export const NOISE: Noise = { translations: true, joins: true, bookkeeping: true, leftovers: true, hubs: true };
 
 const NOUNS: [ArrowKind, string][] = [
   ["calls", "call"], ["sends", "message"], ["reads", "read"], ["writes", "write"], ["triggers", "trigger"], ["implements", "implementation"], ["uses", "use"],
 ];
-
-const flat = (a: MapArrow): MapArrow[] => (a.parts?.length ? a.parts.flatMap(flat) : [a]);
 
 function rebuild(view: View, s: Noise, dropHubs: boolean): View {
   const tables = view.tables;
@@ -38,8 +37,8 @@ function rebuild(view: View, s: Noise, dropHubs: boolean): View {
   const joinNames = new Map<string, string>();
   const byName = new Map<string, string>();
   for (const id of Object.keys(tables)) byName.set(`${storeOf(id)}\0${tables[id].name.toLowerCase()}`, id);
-  const leaves = view.arrows.flatMap(flat);
-  for (const a of leaves) {
+  const all = view.arrows.flatMap(leaves);
+  for (const a of all) {
     const j = a.via && tables[a.from] ? byName.get(`${storeOf(a.from)}\0${a.via.toLowerCase()}`) : undefined;
     if (j) joinNames.set(j, a.via!);
   }
@@ -67,7 +66,7 @@ function rebuild(view: View, s: Noise, dropHubs: boolean): View {
   };
 
   for (const a of view.arrows) {
-    const own = flat(a);
+    const own = leaves(a);
     if (!own.some(dbLeaf)) {
       out.push(a);
       continue;
@@ -123,10 +122,7 @@ const GUTTER = 96;
 
 function size(view: View, bare: MapBox[], empty: MapBox[], tables: Record<string, Table>) {
   const { frames, inner } = view.placed;
-  const card = (id: string) => {
-    const t = tables[id], rows = Math.max(t.columns.length + (t.translations?.length ? 1 : 0), 2);
-    return { x: 0, y: 0, w: 320, h: 56 + 26 * rows + 8 };
-  };
+  const card = (id: string) => ({ x: 0, y: 0, ...cardSize(tables[id]) });
   const ratios = Object.keys(view.tableGroups ?? {}).flatMap((g) => (frames[g] && inner[g] ? [frames[g].w / inner[g][0]] : [])).sort((a, b) => a - b);
   const scale = ratios[Math.floor(ratios.length / 2)] ?? 0.4;
   for (const g of [...bare.filter((b) => view.tableGroups?.[b.id]), ...empty]) {
@@ -146,10 +142,25 @@ function size(view: View, bare: MapBox[], empty: MapBox[], tables: Record<string
   for (const b of bare) if (!frames[b.id] && tables[b.id]) frames[b.id] = card(b.id);
 }
 
-const hasTables = (view: View) => !!view.tables && Object.keys(view.tables).length > 0;
+const anyTables = (view: View) => !!view.tables && Object.keys(view.tables).length > 0;
 
-export const foldNoise = (view: View, s: Noise = NOISE): View => (hasTables(view) ? rebuild(view, s, false) : view);
-export const applyNoise = (view: View, s: Noise = NOISE): View => (hasTables(view) ? rebuild(view, s, s.hubs) : view);
+export const applyNoise = (view: View, s: Noise = NOISE): View => (anyTables(view) ? rebuild(view, s, s.hubs) : view);
+
+// by table box id: how many drawn tables point at it when it is a hub, and its pinned keys' targets by name
+export function cardFacts(given: View, hubs: boolean, drawn: Record<string, Table> | undefined): Map<string, CardFacts> {
+  const out = new Map<string, CardFacts>();
+  if (!hubs || !drawn) return out;
+  const of = (id: string) => out.get(id) ?? out.set(id, { hub: 0, pinned: new Map() }).get(id)!;
+  const pointing = new Map<string, Set<string>>();
+  for (const a of given.arrows.flatMap(leaves)) {
+    if (!a.pinned || a.via || !drawn[a.from] || !drawn[a.to]) continue;
+    const to = drawn[a.to];
+    pointing.set(a.to, (pointing.get(a.to) ?? new Set()).add(a.from));
+    of(a.from).pinned.set(to.name.toLowerCase(), to.name);
+  }
+  for (const [id, from] of pointing) of(id).hub = from.size;
+  return out;
+}
 
 const KEY = "ig-noise";
 const SWITCHES = Object.keys(NOISE) as (keyof Noise)[];

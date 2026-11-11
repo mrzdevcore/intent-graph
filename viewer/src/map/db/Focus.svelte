@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import type { Column, View } from "../types";
   import Tree from "./Tree.svelte";
   import { endLabel, endMarks, type Notation } from "./ends";
-  import { FOLDS, SIZE, focusLayout, groupOf, type Card, type Folds, type Hops, type Tip } from "./focus";
+  import { SIZE, focusLayout, groupOf, type Card, type Hops, type Tip } from "./focus";
+  import { NOISE, type Noise } from "./noise";
 
-  let { view, store, table = null, ends = "crowsfoot", folds = FOLDS, onpick, onends, onclose }: {
-    view: View; store: string; table?: string | null; ends?: Notation; folds?: Folds;
+  let { view, store, table = null, ends = "crowsfoot", folds = NOISE, onpick, onends, onclose }: {
+    view: View; store: string; table?: string | null; ends?: Notation; folds?: Noise;
     onpick: (id: string) => void; onends: (n: Notation) => void; onclose: () => void;
   } = $props();
 
@@ -20,8 +21,24 @@
   const labels = $derived(ends !== "crowsfoot");
   const NOTATIONS: [Notation, string][] = [["crowsfoot", "Crow's foot"], ["labels", "Labels"], ["both", "Both"]];
 
-  let root: HTMLDivElement;
+  // small enough to show the centre's lines at a glance, never so small the names cannot be read
+  const MIN_SCALE = 0.75;
+  let stageW = $state(0), stageH = $state(0);
+  const scale = $derived(layout && stageW && stageH ? Math.max(MIN_SCALE, Math.min(1, (stageW - 16) / layout.w, (stageH - 16) / layout.h)) : 1);
+
+  let root: HTMLDivElement, stage = $state<HTMLDivElement>();
   onMount(() => (root.querySelector<HTMLElement>("input") ?? root).focus());
+  $effect(() => {
+    if (!layout || !stage || !table) return;
+    const at = table, box = stage;
+    void scale;
+    tick().then(() => {
+      const el = box.querySelector<HTMLElement>(`[data-card="${CSS.escape(at)}"]`);
+      if (!el) return;
+      const r = el.getBoundingClientRect(), v = box.getBoundingClientRect();
+      box.scrollBy?.({ left: r.left + r.width / 2 - (v.left + v.width / 2), top: r.top + r.height / 2 - (v.top + v.height / 2) });
+    });
+  });
   function trap(e: KeyboardEvent) {
     const all = [...root.querySelectorAll<HTMLElement>("button, input, [tabindex]:not([tabindex='-1'])")];
     const i = all.indexOf(document.activeElement as HTMLElement);
@@ -44,14 +61,14 @@
 <svelte:window onkeydown={keydown} />
 
 {#snippet tip(t: Tip)}
-  {#if t.end}
+  {#if t.end && !t.shared}
     {#if marks}
       {@const m = endMarks(t.end, [t.x, t.y], t.out)}
       <path class="end" d={m.lines} />
       {#each m.rings as [cx, cy], i (i)}<circle class="ring" {cx} {cy} r="4" />{/each}
     {/if}
     {#if labels}
-      <text class="label" x={t.x + t.out[0] * (marks ? 30 : 8)} y={t.y - 6} text-anchor={t.out[0] < 0 ? "end" : "start"}>{endLabel(t.end)}</text>
+      <text class="label" x={t.x + t.out[0] * 6} y={t.y - 9} text-anchor={t.out[0] < 0 ? "end" : "start"}>{endLabel(t.end)}</text>
     {/if}
   {/if}
 {/snippet}
@@ -104,12 +121,13 @@
   </header>
   <div class="body">
     <Tree {view} {store} focus={table} {onpick} />
-    <div class="stage">
+    <div class="stage" bind:this={stage} bind:clientWidth={stageW} bind:clientHeight={stageH}>
       {#if layout}
-        <div class="board" style:width={u(layout.w)} style:height={u(layout.h)}>
+        <div class="sizer" style:width={u(layout.w * scale)} style:height={u(layout.h * scale)}>
+        <div class="board" style:width={u(layout.w)} style:height={u(layout.h)} style:transform={scale === 1 ? null : `scale(${scale})`}>
           <svg viewBox="0 0 {layout.w} {layout.h}" width="100%" height="100%" aria-hidden="true">
             {#each layout.lines as l (l.id)}
-              <g class="line" class:via={!!l.via} data-line={l.id}>
+              <g class="line" class:via={!!l.via} class:read={!!l.read} data-line={l.id}>
                 <path class="wire" d={l.d} />
                 {@render tip(l.a)}
                 {@render tip(l.b)}
@@ -118,6 +136,7 @@
             {/each}
           </svg>
           {#each layout.cards as k (k.id)}{@render card(k, k.id === table)}{/each}
+        </div>
         </div>
       {:else}
         <p class="empty">Pick a table in the list to see what it references and what references it.</p>
@@ -146,13 +165,15 @@
   .seg button[aria-pressed="true"] { background: var(--map-tint-gold); border-color: var(--map-trace); position: relative; }
   .body { flex: 1; min-height: 0; display: grid; grid-template-columns: 17rem minmax(0, 1fr); }
   .stage { overflow: auto; min-width: 0; }
-  .board { position: relative; }
+  .sizer { position: relative; margin: 0 auto; }
+  .board { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   svg { position: absolute; inset: 0; overflow: visible; }
   .wire { fill: none; stroke: var(--map-fg-2); stroke-width: 1.5; }
   .via .wire { stroke-dasharray: 6 4; }
+  .read .wire { stroke-dasharray: 1.5 4; stroke-linecap: round; }
   .end { fill: none; stroke: var(--map-fg-2); stroke-width: 1.5; }
   .ring { fill: var(--map-surface); stroke: var(--map-fg-2); stroke-width: 1.5; }
-  .label, .via-name { font: 11px var(--font-sans); fill: var(--map-muted); }
+  .label, .via-name { font: var(--text-xs) var(--font-sans); fill: var(--map-muted); }
   .via-name { font-style: italic; }
   .card { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; padding: 0 0 var(--space-2); overflow: hidden; text-align: left;
     font: inherit; color: var(--map-fg); background: var(--map-surface); border: 1.5px solid var(--map-line); border-radius: var(--radius-lg); }

@@ -1,4 +1,5 @@
-export type End = "one" | "zeroOne" | "many0" | "many1";
+import type { End } from "../types";
+
 export type Notation = "crowsfoot" | "labels" | "both";
 
 const LABELS: Record<End, string> = { one: "1", zeroOne: "0..1", many0: "0..n", many1: "1..n" };

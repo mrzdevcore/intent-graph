@@ -1,11 +1,14 @@
 // @vitest-environment happy-dom
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { flushSync, mount } from "svelte";
 import Controls from "../src/map/Controls.svelte";
-import { endLabel, endMarks, type End } from "../src/map/db/ends";
+import { endLabel, endMarks } from "../src/map/db/ends";
+import type { End } from "../src/map/types";
 import { loadNotation, saveNotation } from "../src/map/db/notation";
 
 const ends: End[] = ["one", "zeroOne", "many0", "many1"];
+
+afterEach(() => vi.unstubAllGlobals());
 
 test("labels", () => {
   expect(ends.map(endLabel)).toEqual(["1", "0..1", "0..n", "1..n"]);
@@ -72,5 +75,4 @@ test("the Ends setting is offered, reports a change and persists per browser", (
   expect(loadNotation()).toBe("both");
   saveNotation("crowsfoot");
   expect(loadNotation()).toBe("crowsfoot");
-  vi.unstubAllGlobals();
 });

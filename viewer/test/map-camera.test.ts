@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { detailFor, fitTo, innerTransform, showsInside, worldFrame } from "../src/map/camera";
+import { detailFor, fitInside, fitTo, innerTransform, showsInside, worldFrame } from "../src/map/camera";
 import type { View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 
@@ -71,4 +71,26 @@ test("a parent loop or a self-parent ends the walk", () => {
     expect(Number.isFinite(worldFrame(id, v).w)).toBe(true);
     expect(Number.isFinite(innerTransform(id, v).s)).toBe(true);
   }
+});
+
+test("fitInside zooms an opened box's inside until its frame covers the screen, never cutting the inside", () => {
+  const frame = { x: 0, y: 0, w: 200, h: 110 }, area = { x: 40, y: 20, w: 120, h: 90 }, view = { w: 1600, h: 1000 };
+  const c = fitInside(area, frame, view);
+  expect(c.k).toBeCloseTo(1000 / 90);
+  expect(c.y).toBeCloseTo(-20 * c.k);
+  expect(c.x).toBeLessThanOrEqual(0);
+  expect(200 * c.k + c.x).toBeGreaterThanOrEqual(1600 - 1e-6);
+  expect(area.x * c.k + c.x).toBeGreaterThanOrEqual(0);
+  expect((area.x + area.w) * c.k + c.x).toBeLessThanOrEqual(1600 + 1e-6);
+  const small = fitInside({ x: 0, y: 50, w: 100, h: 100 }, { x: 0, y: 0, w: 1000, h: 1000 }, view);
+  expect(small.k).toBe(fitTo({ x: 0, y: 50, w: 100, h: 100 }, view).k);
+  expect(small.x).toBeCloseTo(0);
+});
+
+test("fitInside keeps the frame's bottom on the screen's when the inside is wide", () => {
+  const frame = { x: 0, y: 0, w: 200, h: 200 }, area = { x: 0, y: 40, w: 200, h: 100 }, view = { w: 1000, h: 1000 };
+  const c = fitInside(area, frame, view);
+  expect(c.k).toBeCloseTo(5);
+  expect(200 * c.k + c.y).toBeCloseTo(1000);
+  expect(40 * c.k + c.y).toBeGreaterThanOrEqual(0);
 });

@@ -10,7 +10,8 @@
 <script lang="ts">
   import type { ArrowLook } from "./looks";
   import { steady } from "./camera";
-  import { endLabel, endMarks, type End, type Notation } from "./db/ends";
+  import { endLabel, endMarks, type Notation } from "./db/ends";
+  import type { End } from "./types";
 
   type Tip = { end: End; at: [number, number]; out: [number, number] };
   let { d, mid, arrowLook, part = "line", zoom = 1, lit = false, dim = false, picked = false, note, len = Infinity, ends, head = true, tips = [], notation = "crowsfoot", onhover }: {
@@ -21,6 +22,8 @@
 
   const id = `ig-head-${n++}`;
   const m = $derived(steady(zoom));
+  // a table end's marks never shrink below their own size: a crow's foot has to be read
+  const tm = $derived(Math.max(1, Math.min(1.6, zoom)) / (zoom > 0 ? zoom : 1));
   // Kalam runs wide: about 0.6 em a character at 12
   const w = $derived((arrowLook.label?.length ?? 0) * 7.4 + 18);
   const state = $derived(lit ? "lit" : dim ? "dim" : "rest");
@@ -52,7 +55,7 @@
       {#each tips as t, i (i)}
         {@const n = Math.hypot(...t.out) || 1}
         {@const u = [t.out[0] / n, t.out[1] / n]}
-        <g class="tip" data-tip={t.end} transform="translate({t.at[0]} {t.at[1]}) scale({m})" style:stroke={color}>
+        <g class="tip" data-tip={t.end} transform="translate({t.at[0]} {t.at[1]}) scale({tm})" style:stroke={color}>
           {#if notation !== "labels"}
             {@const k = endMarks(t.end, [0, 0], t.out)}
             <path d={k.lines} stroke-width="1.5" />
