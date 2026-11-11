@@ -2,8 +2,8 @@ import type { Column, End, MapArrow, MapBox, Table, TableGroup, View } from "../
 import { isBookkeeping, isKey } from "./card";
 
 export type Hops = 1 | 2;
-export type Folds = { translations: boolean; joins: boolean; bookkeeping: boolean };
-export const FOLDS: Folds = { translations: true, joins: true, bookkeeping: true };
+export type Folds = { translations: boolean; joins: boolean; bookkeeping: boolean; leftovers: boolean; hubs: boolean };
+export const FOLDS: Folds = { translations: true, joins: true, bookkeeping: true, leftovers: true, hubs: true };
 
 export type Rel = { id: string; from: string; to: string; fromColumn?: string; toColumn?: string; ends?: { from: End; to: End }; via?: string };
 export type Row =

@@ -27,6 +27,7 @@
   import Controls from "./Controls.svelte";
   import type { Notation } from "./db/ends";
   import { loadNotation, saveNotation } from "./db/notation";
+  import { applyNoise, foldNoise, loadNoise, saveNoise, type Noise } from "./db/noise";
   import Search from "./Search.svelte";
   import type { Trace } from "./search";
   import type { EditApi } from "../api";
@@ -69,7 +70,9 @@
     show?: Show | null;
     diff?: Diff | null;
   } = $props();
-  const view = $derived(given);
+  let noise = $state<Noise>(untrack(() => loadNoise()));
+  const folded = $derived(foldNoise(given, noise));
+  const view = $derived(applyNoise(given, noise));
   const diffed = $derived(diff ? diffAnswer(view, diff) : null);
   let cleared = $state(false);
   const showingDiff = $derived(!!diffed && !cleared);
@@ -343,7 +346,7 @@
   let off = $state(new Set<string>());
   const on = $derived(new Set(layers.filter((l) => !off.has(l))));
   const counts = $derived(insideCounts(view, view.marks, on));
-  const cards = $derived(cardFacts(view));
+  const cards = $derived(noise.hubs ? cardFacts(folded) : new Map());
   const reading = $derived(view.boxes.some((b) => b.needsReading));
 
   let cw = $state(0), ch = $state(0);
@@ -730,6 +733,10 @@
   function setEnds(n: Notation) {
     endsPref = n;
     saveNotation(n);
+  }
+  function setNoise(k: keyof Noise, on: boolean) {
+    noise = { ...noise, [k]: on };
+    saveNoise(noise);
   }
 
   // Wheel needs a non-passive listener to stop the page scrolling.
@@ -1342,7 +1349,7 @@
       <MapBox box={b} look={look(b.id, view.marks, on, b, by.get(b.id))} detail={open ? "open" : reads ? "source" : detailFor(sw)}
         zoom={sw / f.w} source={reads && (showsInside(sw) || !list) ? source : undefined} parts={list} {anatomy}
         inside={counts.get(b.id) ?? 0} more={kids.get(b.id)?.length ?? 0} onopen={() => openBox(b.id)}
-        kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} facts={cards.get(b.id)} picked={many.includes(b.id)}
+        kinds={view.kinds} w={f.w} h={f.h} {shape} table={view.tables?.[b.id]} rows={marks?.tables.get(b.id)} facts={cards.get(b.id)} fold={noise.bookkeeping} picked={many.includes(b.id)}
         onfocus={view.tables?.[b.id] ? () => openFocus(b.id) : undefined} />
       {#if edit && (selected === b.id || hot === b.id) && !open}
         {#each ["l", "r", "t", "b"] as h (h)}<span class="handle {h}" data-handle aria-hidden="true" style:scale={sw ? f.w / sw : 1}></span>{/each}
@@ -1410,7 +1417,7 @@
   {/if}
   <Controls {crumbs} {layers} {on} oncrumb={fly} low={!!edit}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
-    {wheelPref} onwheel={setPref} {arrowPref} arrowHere={shapeHere} onarrows={setArrows} {endsPref} onends={setEnds} onarrange={arrangeMap}>
+    {wheelPref} onwheel={setPref} {arrowPref} arrowHere={shapeHere} onarrows={setArrows} {endsPref} onends={setEnds} {noise} onnoise={setNoise} onarrange={arrangeMap}>
     <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
   </Controls>
   {#if edit}
@@ -1494,7 +1501,7 @@
     <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig analyse</code> to let an AI agent read them.</p>
   {/if}
   {#if focusing}
-    <Focus {view} store={focusing.store} table={focusing.table} ends={endsPref} onends={setEnds} onclose={closeFocus}
+    <Focus view={folded} folds={noise} store={focusing.store} table={focusing.table} ends={endsPref} onends={setEnds} onclose={closeFocus}
       onpick={(id) => focusing && (focusing = { ...focusing, table: id })} />
   {/if}
   {#if panelBox}

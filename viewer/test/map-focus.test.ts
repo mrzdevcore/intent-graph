@@ -145,7 +145,7 @@ test("2 hops: the neighbours' neighbours in the outer columns", () => {
 });
 
 test("the join table comes back as a card when it is not folded", () => {
-  const l = focusLayout(dbView(), id("users"), 1, { translations: true, joins: false, bookkeeping: true })!;
+  const l = focusLayout(dbView(), id("users"), 1, { translations: true, joins: false, bookkeeping: true, leftovers: true, hubs: true })!;
   expect(byCol(l.cards, -1)).toContain("users_roles");
   expect(l.lines.some((x) => x.via)).toBe(false);
   const folded = focusLayout(dbView(), id("users"))!;

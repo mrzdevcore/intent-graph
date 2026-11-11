@@ -6,8 +6,8 @@
   import type { TableMark } from "./diff";
   import { distance, isBookkeeping, isKey, type CardFacts } from "./db/card";
 
-  let { table, look, rows, onopen, onfocus, zoom = 1, h = 128, facts, picked = false }: {
-    table: Table; look: Look; rows?: TableMark; onopen: () => void; onfocus?: () => void; zoom?: number; h?: number; facts?: CardFacts; picked?: boolean;
+  let { table, look, rows, onopen, onfocus, zoom = 1, h = 128, facts, picked = false, fold = true }: {
+    table: Table; look: Look; rows?: TableMark; onopen: () => void; onfocus?: () => void; zoom?: number; h?: number; facts?: CardFacts; picked?: boolean; fold?: boolean;
   } = $props();
 
   const HEAD = 56, ROW = 26, FOOT = 8, CHIP = 120;
@@ -23,7 +23,7 @@
     .filter(Boolean).join(" · ");
   const pinnedTo = (c: Column) => (c.references ? facts?.pinned.get(c.references.table.toLowerCase()) : undefined);
 
-  const folded = $derived(table.columns.filter((c) => isBookkeeping(c) && !mark(c)));
+  const folded = $derived(fold ? table.columns.filter((c) => isBookkeeping(c) && !mark(c)) : []);
   const shown = $derived(table.columns.filter((c) => !folded.includes(c)));
   const keys = $derived(shown.filter(isKey));
   const others = $derived(shown.length - keys.length);

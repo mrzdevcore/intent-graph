@@ -1,4 +1,6 @@
-import type { Column, View } from "../types";
+import type { Column, MapArrow, View } from "../types";
+
+const flat = (a: MapArrow): MapArrow[] => (a.parts?.length ? a.parts.flatMap(flat) : [a]);
 
 export type Distance = "far" | "mid" | "near";
 export type CardFacts = { hub: number; pinned: Map<string, string> };
@@ -15,7 +17,7 @@ export function cardFacts(view: View): Map<string, CardFacts> {
   const out = new Map<string, CardFacts>();
   const of = (id: string) => out.get(id) ?? out.set(id, { hub: 0, pinned: new Map() }).get(id)!;
   const pointing = new Map<string, Set<string>>();
-  for (const a of view.arrows) {
+  for (const a of view.arrows.flatMap(flat)) {
     if (!a.pinned || a.via) continue;
     const to = view.tables?.[a.to];
     if (!to || !view.tables?.[a.from]) continue;

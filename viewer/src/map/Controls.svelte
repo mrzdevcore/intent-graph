@@ -5,13 +5,17 @@
   import type { ArrowShape } from "./types";
   import { SHAPES, type MapShape } from "./shapes/auto";
   import type { Notation } from "./db/ends";
+  import type { Noise } from "./db/noise";
 
-  let { crumbs, layers, on, oncrumb, ontoggle, wheelPref, onwheel, arrowPref = "auto", arrowHere = "circuit", onarrows, endsPref = "crowsfoot", onends, onarrange, low = false, children }: {
+  const SWITCHES: [keyof Noise, string][] = [
+    ["translations", "Fold translations"], ["leftovers", "Set leftovers aside"], ["hubs", "Pin hubs"], ["joins", "Fold join tables"], ["bookkeeping", "Fold bookkeeping"],
+  ];
+  let { crumbs, layers, on, oncrumb, ontoggle, wheelPref, onwheel, arrowPref = "auto", arrowHere = "circuit", onarrows, endsPref = "crowsfoot", onends, noise, onnoise, onarrange, low = false, children }: {
     crumbs: { id: string; title: string }[]; layers: string[]; on: Set<string>;
     oncrumb: (id: string) => void; ontoggle: (layer: string) => void;
     wheelPref: "auto" | "zoom" | "pan"; onwheel: (p: "auto" | "zoom" | "pan") => void;
     arrowPref?: MapShape; arrowHere?: ArrowShape; onarrows?: (p: MapShape) => void;
-    endsPref?: Notation; onends?: (n: Notation) => void; onarrange?: () => void; low?: boolean; children?: Snippet;
+    endsPref?: Notation; onends?: (n: Notation) => void; noise?: Noise; onnoise?: (k: keyof Noise, on: boolean) => void; onarrange?: () => void; low?: boolean; children?: Snippet;
   } = $props();
 </script>
 
@@ -52,6 +56,11 @@
         <option value="crowsfoot">Crow's foot</option><option value="labels">Labels</option><option value="both">Both</option>
       </select>
     </label>
+    {#if noise && onnoise}
+      {#each SWITCHES as [k, text] (k)}
+        <label><input type="checkbox" checked={noise[k]} onchange={(e) => onnoise(k, e.currentTarget.checked)} /> {text}</label>
+      {/each}
+    {/if}
     {#if onarrange}<button type="button" class="item" onclick={onarrange}>Arrange the map <kbd>⌥⇧F</kbd></button>{/if}
   </details>
 </div>
