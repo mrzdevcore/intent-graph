@@ -14,7 +14,7 @@
     ["move", "Move to a group…", "M"], ...(group ? [["arrange", "Arrange inside", ""] as [Act, string, string]] : []),
     ...(code ? [["code", "Open the code", "O"] as [Act, string, string]] : []), ["delete", "Delete", "⌫"],
   ]);
-  const KEYS: Record<string, Act> = { f2: "rename", e: "details", a: "arrow", b: "add", m: "move", o: "code", delete: "delete", backspace: "delete" };
+  const KEYS: Record<string, Act> = { f2: "rename", e: "details", a: "arrow", b: "add", k: "kinds", m: "move", o: "code", delete: "delete", backspace: "delete" };
   let menu: HTMLDivElement;
   let sub = $state(false);
   const top = () => [...menu.querySelectorAll<HTMLElement>("[data-item]")];

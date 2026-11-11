@@ -22,7 +22,9 @@
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      if (inField) rows()[0]?.click();
+      if (inField) {
+        if (ranked.best) onpick(ranked.best.name);
+      }
       else (e.target as Element).closest<HTMLButtonElement>('[role="menuitemradio"]')?.click();
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();

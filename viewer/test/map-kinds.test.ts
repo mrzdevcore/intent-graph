@@ -258,6 +258,14 @@ test("the kind list: type to filter, Enter sets the best match; No kind sets box
   expect(got[1]).toEqual({ op: "set", id: "postgres", key: "kind", value: "box" });
   kindButton(t).click();
   flushSync();
+  type(finder(t)!, "zzz");
+  press("Enter", finder(t)!);
+  await tick();
+  expect(got).toHaveLength(2);
+  expect(finder(t)).not.toBeNull();
+  press("Escape", finder(t)!);
+  kindButton(t).click();
+  flushSync();
   press("Escape", finder(t)!);
   expect(finder(t)).toBeNull();
   expect(bar(t)).not.toBeNull();
@@ -305,6 +313,11 @@ test("right-click Kind opens the five most used and All kinds; one sets it, K op
   menu(t).querySelector<HTMLElement>('[data-item="kinds"]')!.click();
   flushSync();
   press("k", t.querySelector("[data-sub] [data-kind]")!);
+  expect(t.querySelector('[role="menu"][aria-label$="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(finder(t));
+  press("Escape", finder(t)!);
+  rightClick(t, "stripe");
+  press("k", document.activeElement!);
   expect(t.querySelector('[role="menu"][aria-label$="menu"]')).toBeNull();
   expect(document.activeElement).toBe(finder(t));
 });

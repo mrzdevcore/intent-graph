@@ -1134,14 +1134,24 @@ test("Delete on several boxes is one batch with their arrows and what is inside,
   ] }]);
 });
 
-test("Arrange these lays out the selection and says so", () => {
-  const { target } = setup(recorder().api);
-  select(target, "postgres");
+test("Arrange these lays out the selection, moves its boxes and says so", () => {
+  const v = fresh();
+  v.placed.frames.stripe = { ...v.placed.frames.stripe, x: v.placed.frames.web.x, y: v.placed.frames.stripe.y + 200 };
+  const target = document.createElement("div");
+  document.body.append(target);
+  const m = mount(MapHarness, { target, props: { start: v, edit: recorder().api, size } });
+  flushSync();
+  const slot = (id: string) => target.querySelector(`[data-box="${id}"]`) as HTMLElement;
+  const at = () => ["web", "postgres", "stripe"].map((id) => [px(slot(id), "left"), px(slot(id), "top")]);
+  const before = at();
+  shiftClick(target, "postgres");
   shiftClick(target, "stripe");
   shiftClick(target, "web");
   barButton(target, "Arrange these").click();
+  m.tick(performance.now() + 10_000);
   flushSync();
-  expect(target.querySelector(".arranged")?.textContent).toMatch(/Arranged \d+ box|Already arranged/);
+  expect(at()).not.toEqual(before);
+  expect(target.querySelector(".arranged")?.textContent).toMatch(/Arranged [1-9]\d* box/);
 });
 
 test("Row lines the boxes up at one height, Column at one left edge", () => {

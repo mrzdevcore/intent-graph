@@ -994,6 +994,7 @@
   });
   const crumbs = $derived(trail.map((id) => ({ id, title: byId.get(id)?.title.value ?? id })));
   const picked = $derived(many.length > 1 ? many : selected && byId.get(selected)?.level !== "code" && byId.has(selected) ? [selected] : []);
+  const barTop = 3 * rem();
   const bar = $derived.by(() => {
     if (!edit || !picked.length || live || sess.link || sess.draft || marquee) return null;
     const c = cam, boxes = picked.map((id) => byId.get(id)!), names = new Set(boxes.map(kindName));
@@ -1005,7 +1006,7 @@
     const current = names.size === 1 ? [...names][0] : null, shared = sharedParent(view.boxes, picked, ROOT), parent = shared ?? boxes[0].parent ?? ROOT;
     const parentKinds = (kids.get(parent) ?? []).filter((b) => !picked.includes(b.id)).map(kindName).filter((n) => n !== "box");
     return {
-      x: Math.max(8, x), y: Math.max(3 * rem(), y), current, kind: current && boxes[0] ? kindOf(boxes[0], view.kinds) ?? null : null, shared,
+      x: Math.max(8, x), y: Math.max(barTop, y), current, kind: current && boxes[0] ? kindOf(boxes[0], view.kinds) ?? null : null, shared,
       context: { parentKinds, inRun: inside(parent, byId, view.kinds) }, ask: sess.asking && sess.asking.ids.join() === picked.join() ? sess.asking.text : null,
       picking: !!sess.kinds && sess.kinds.join() === picked.join(),
     };
@@ -1211,7 +1212,7 @@
   .waiting button { font: inherit; color: var(--map-fg); background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-md); padding: var(--space-1) var(--space-2-5); cursor: pointer; }
   .waiting button.go { background: var(--map-trace); border-color: var(--map-trace); color: var(--color-on-accent); font-weight: 600; }
   .slot.target { outline: 3px solid var(--map-trace); outline-offset: 3px; border-radius: 16px; }
-  .slot.picked { outline: 2px solid var(--map-trace); outline-offset: 4px; border-radius: 16px; }
+  .slot.picked { outline: 2px solid var(--map-trace); outline-offset: 4px; border-radius: 1rem; }
   .marquee { position: absolute; z-index: 3; pointer-events: none; box-sizing: border-box; border: 1px dashed var(--map-trace); background: color-mix(in srgb, var(--map-trace) 8%, transparent); }
   .marquee.frame { border-width: 1.5px; border-radius: var(--radius-lg); background: none; }
   .marquee span { position: absolute; left: var(--space-2); top: var(--space-1); font-size: var(--text-sm); color: var(--map-trace); }
