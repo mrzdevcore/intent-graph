@@ -94,3 +94,11 @@ test("a diff wins over a show", () => {
   expect(card(t)).not.toBeNull();
   expect(t.querySelector('[aria-label="The answer"]')).toBeNull();
 });
+
+test("removed arrows drawn as ghosts do not count toward Auto's shape", () => {
+  const ids = ["api", "api-client", "postgres", "stripe", "web"], drawn = ["api->postgres", "api->stripe", "web->api", "web->api-client"];
+  const removed = ids.flatMap((f) => ids.filter((t) => t !== f && !drawn.includes(`${f}->${t}`)).map((t) => arrow(f, t)));
+  const t = setup(diff({ arrowsRemoved: removed }));
+  expect(t.querySelectorAll('[data-arrow^="ghost:"]').length).toBe(16);
+  expect(t.querySelector('[data-arrow="web->api"]')!.getAttribute("data-line")).toBe("curved");
+});

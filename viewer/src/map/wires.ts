@@ -1,11 +1,7 @@
-import type { Frame, MapArrow } from "./types";
-import type { ArrowShape } from "./types";
+import type { ArrowShape, Frame, MapArrow } from "./types";
 import { BEND, SPREAD, across, halfway, length, path, pins, pt, r2, straight, type End, type P, type Side } from "./shapes/path";
 
-/** An arrow drawn as a wire: its SVG path and the point halfway along it. */
-export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]]; head?: [P, P] };
-/** "routed": each wire on its own track, spread over the gaps; "ribbon": wires gathered into as
- *  few trunks as they can share, packed close, a sleeve behind each trunk. */
+export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]] };
 export type Mode = "routed" | "ribbon";
 export type Wiring = { wires: Map<string, Wire>; sleeves: { d: string; w: number }[] };
 
@@ -24,14 +20,7 @@ type Grid = ReturnType<typeof grid>;
 type Kinds = Record<string, string | undefined>;
 type ShapeOf = (a: MapArrow) => ArrowShape;
 
-/**
- * The wires of `arrows` between sibling boxes `frames` (in their parent's inner units), laid like a
- * circuit board, bends cut at 45°. "routed": from the facing sides' pins (`pins`), straight when they
- * line up, else one bend on a track of its own between the rows or columns, a drop down a gap only
- * when a box is in the way; an arrow whose `shape` is not circuit is drawn by `path` from the same
- * pins. "ribbon": the upper box's bottom to the lower's top, on shared trunks, whatever the shape.
- * An arrow from a box to itself, or to a box with no frame, has none.
- */
+// bends cut at 45°; an arrow not drawn as circuit takes `path` from the same pins
 export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode, kinds: Kinds = {}, shape: ShapeOf = () => "circuit"): Wiring {
   const g = grid(frames, mode);
   return { wires: mode === "routed" ? routed(arrows, frames, kinds, shape, g) : ribbon(arrows, frames, g), sleeves: g.sleeves };
@@ -51,7 +40,8 @@ function grid(frames: Record<string, Frame>, mode: Mode) {
   }
   // ponytail: a hand-moved box can chain rows into one tall row; a drop out of it may then cross a box
   const rowOf = new Map(rows.flatMap((r, i) => r.ids.map((id) => [id, i] as const)));
-  const channel = (c: number) => ({ top: rows[c].bottom, bottom: rows[c + 1]?.top ?? rows[c].bottom + 2 * OUTSIDE });
+  const channel = (c: number) =>
+    c < 0 ? { top: rows[0].top - 2 * OUTSIDE, bottom: rows[0].top } : { top: rows[c].bottom, bottom: rows[c + 1]?.top ?? rows[c].bottom + 2 * OUTSIDE };
   /** The x spans clear of every box in rows `a` to `b`. */
   function spans(a: number, b: number): P[] {
     let out: P[] = [[-Infinity, Infinity]];
@@ -147,7 +137,13 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
     return crosses(pts, [a.from, a.to]) ? null : pts;
   }
 
-  const chosen: Record<string, [Side, Side]> = {};
+  const under = (c: number) => (g.channel(c).top + g.channel(c).bottom) / 2;
+  const level = (a: MapArrow, e: End) => (e.sides[0] === "b" ? row(a.from) : row(a.from) - 1);
+  const round = (a: MapArrow, e: End): P[] => {
+    const y = under(level(a, e));
+    return [e.from, [e.from[0], y], [e.to[0], y], e.to];
+  };
+  const chosen: Record<string, [Side, Side]> = {}, tried = new Set<string>();
   let ends = pins(live, frames, kinds);
   for (;;) {
     let more = false;
@@ -157,6 +153,17 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
       chosen[a.id] = rf < rt ? ["b", "t"] : rf > rt ? ["t", "b"] : ["b", "b"];
       more = true;
     }
+    if (!more)
+      for (const a of live) {
+        const c = chosen[a.id], skip = [a.from, a.to];
+        if (c?.[0] !== "b" || c[1] !== "b" || tried.has(a.id)) continue;
+        tried.add(a.id);
+        if (!crosses(round(a, ends.get(a.id)!), skip)) continue;
+        const alt = pins(live, frames, kinds, { ...chosen, [a.id]: ["t", "t"] });
+        if (crosses(round(a, alt.get(a.id)!), skip)) continue;
+        chosen[a.id] = ["t", "t"];
+        more = true;
+      }
     if (!more) break;
     ends = pins(live, frames, kinds, chosen);
   }
@@ -190,7 +197,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
         draws.push([a.id, () => orient([p, [s.v, p[1]], [s.v, q[1]], q], flip)]);
       }
     } else if (sa === sz) {
-      const s = along(row(a.from), a.id, () => span(e.from[0], e.to[0]));
+      const s = along(level(a, e), a.id, () => span(e.from[0], e.to[0]));
       draws.push([a.id, () => [e.from, [e.from[0], s.v], [e.to[0], s.v], e.to]]);
     } else if (row(a.from) === row(a.to)) {
       const pts = stacked(a, e)!, flip = sa === "t";
@@ -206,7 +213,6 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
       const [ra, rb] = flip ? [row(a.to), row(a.from)] : [row(a.from), row(a.to)];
       const free = rb - ra > 1 ? g.spans(ra + 1, rb - 1) : [[-Infinity, Infinity] as P];
       const clear = (x: number) => free.some(([lo, hi]) => x > lo && x < hi);
-      const mid = (c: number) => (g.channel(c).top + g.channel(c).bottom) / 2;
       const jog = (y: number): P[] => [u, [u[0], y], [l[0], y], l];
       // each way it can go, tried in turn until one crosses no box: [as drawn on the channels' middles, laid]
       const ways: [P[], () => () => P[]][] = [];
@@ -216,7 +222,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
         ways.push([pts, () => () => orient(pts, flip)]);
       }
       const inChannel = (c: number) =>
-        ways.push([jog(mid(c)), () => {
+        ways.push([jog(under(c)), () => {
           const s = along(c, a.id, () => span(u[0], l[0]));
           return () => orient(jog(s.v), flip);
         }]);
@@ -225,7 +231,7 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
       if (rb - ra > 1) {
         const cost = ([c]: P) => Math.abs(c - u[0]) + Math.abs(c - l[0]) + load * (used.get(key(c)) ?? 0);
         const [gx, gw] = g.gaps(free).reduce((m, o) => (cost(o) < cost(m) ? o : m));
-        const [y1, y2] = [mid(ra), mid(rb - 1)];
+        const [y1, y2] = [under(ra), under(rb - 1)];
         ways.push([[u, [u[0], y1], [gx, y1], [gx, y2], [l[0], y2], l], () => {
           const s1 = along(ra, a.id, () => span(u[0], gx)), s2 = along(rb - 1, a.id, () => span(gx, l[0]));
           const sg = down(gx, gw, a.id, () => [s1.v, s2.v]);

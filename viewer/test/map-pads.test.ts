@@ -4,7 +4,8 @@ import { flushSync, mount, unmount } from "svelte";
 import Pads from "../src/map/Pads.svelte";
 import Map from "../src/map/Map.svelte";
 import { Camera } from "../src/map/glide";
-import { CARD, fillsBeside, fitBeside, inBox, padPoint, padsOf, wiresOf, type Pad } from "../src/map/pads";
+import { CARD, fillsBeside, fitBeside, inBox, padPoint, padsOf, sideAt, wiresOf, type Pad } from "../src/map/pads";
+import { wires } from "../src/map/wires";
 import { cuts } from "../src/map/shapes/inside";
 import type { P } from "../src/map/shapes/path";
 import { HEAD, OPEN, fitInner, fitTo, showsInside, worldFrame } from "../src/map/camera";
@@ -443,8 +444,7 @@ const traefikAt = (() => {
   return { clientX: f.x + f.w / 2, clientY: f.y + f.h / 2 };
 })();
 
-function stubbed(onassign?: (e: unknown) => void) {
-  const v = stubView();
+function stubbed(onassign?: (e: unknown) => void, v = stubView()) {
   const target = document.createElement("div");
   document.body.append(target);
   mount(Pads, { target, props: { view: v, id: "host", frame: F, childFrame: (id: string) => (id === "traefik" ? { x: 50, y: 50, w: 40, h: 20 } : undefined), on, scale: 1, onopen: () => {}, onassign } });
@@ -475,6 +475,19 @@ test("dropped on no part, the stub writes nothing; read-only, it only shows the 
   const ro = stubbed();
   expect(ro.querySelector(".ask")).not.toBeNull();
   expect(ro.querySelector("[data-stub]")).toBeNull();
+});
+
+test("the stub is offered only for arrows written in ig/, and writes only those", () => {
+  const unmanaged = stubView();
+  unmanaged.arrows = [{ ...arrow("host", "public"), origin: "unmanaged" }];
+  expect(stubbed(vi.fn(), unmanaged).querySelector("[data-stub]")).toBeNull();
+  const both = stubView();
+  both.arrows = [arrow("host", "public"), { ...arrow("public", "host"), origin: "drift" }];
+  const onassign = vi.fn(), t = stubbed(onassign, both);
+  t.querySelector("[data-stub]")!.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 176, clientY: 100, bubbles: true }));
+  window.dispatchEvent(new PointerEvent("pointerup", traefikAt));
+  flushSync();
+  expect(onassign).toHaveBeenCalledWith({ op: "arrowset", from: "host", to: "public", key: "from", value: "traefik" });
 });
 
 test("on the map, a pad hovered lights its outside arrow gold, and the outside arrow hovered lights the pad", () => {
@@ -552,4 +565,17 @@ test("pads closed while one is hovered let go of its outside arrows", () => {
   expect(onhot).toHaveBeenLastCalledWith(["node3->east"]);
   unmount(c);
   expect(onhot).toHaveBeenLastCalledWith(null);
+});
+
+test("a pad sits on the side the outside wire ends on: round a box in the way, under the box, not facing the far one", () => {
+  const fs: Record<string, Frame> = { a: { x: 0, y: 0, w: 100, h: 60 }, c: { x: 150, y: 0, w: 100, h: 60 }, b: { x: 300, y: 0, w: 100, h: 60 }, b1: { x: 30, y: 30, w: 40, h: 20 } };
+  const v: View = {
+    version: 1, boxes: [box("system"), box("a", "system"), box("c", "system"), box("b", "system"), box("b1", "b")],
+    arrows: [arrow("a", "b", [arrow("a", "b1")])], marks: [], notices: [], warnings: [], kinds: [],
+    placed: { frames: fs, inner: { system: [400, 60], b: [100, 100] }, regions: [] },
+  };
+  const w = wires(v.arrows, { a: fs.a, c: fs.c, b: fs.b }, "routed").wires.get("a->b")!;
+  expect(sideAt(fs.b, w.ends[1])).toBe("b");
+  expect(padsOf(v, "b", F, (id) => fs[id], on).map((p) => p.edge)).toEqual(["l"]);
+  expect(padsOf(v, "b", F, (id) => fs[id], on, undefined, { frame: fs.b, wire: () => w }).map((p) => p.edge)).toEqual(["b"]);
 });

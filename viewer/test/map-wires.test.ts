@@ -127,6 +127,12 @@ test("two stacked boxes a third chains into one row: a bend between them, throug
   expect(p[p.length - 1][1]).toBe(90);
 });
 
+test("in a chained row with a box under one end, a wire blocked sideways goes over the top, through no box", () => {
+  const fs = { a: box(0, 0), c: box(150, 0), b: box(300, 0), e: { x: 450, y: 0, w: 100, h: 200 }, d: box(0, 90) };
+  const p = points(check("routed", [arrow("a", "b")], fs).get("a->b")!.d);
+  expect([p[0][1], p[p.length - 1][1]]).toEqual([0, 0]);
+});
+
 test("a crowded row: every wire past a box in the way goes round, through no box", () => {
   const fs = Object.fromEntries(["p", "q", "r", "s", "t"].map((id, i) => [id, box(i * 140, (i % 2) * 20)]));
   const as = ["q", "r", "s", "t"].flatMap((id) => [arrow("p", id), arrow(id, "p")]).concat([arrow("q", "s"), arrow("r", "t"), arrow("t", "q")]);
@@ -158,7 +164,6 @@ test("arrows not drawn as circuit take `path` from the same pins: one pin each, 
   expect(new Set(ends).size).toBe(ends.length);
   const de = w.get("d->e")!;
   expect(de.ends).toEqual([[100, 186], [392, 186]]);
-  expect(de.head![1]).toEqual([392, 186]);
   expect(de.mid).toEqual([246, 186]);
   const ribbon = wires(all, frames, "ribbon").wires;
   expect([...ribbon.values()].some((x) => x.d.includes(" C"))).toBe(false);
