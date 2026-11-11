@@ -181,8 +181,13 @@ kind yet) → `uses`. The chip on the new arrow opens the kind list at once; one
     layout is scored by one function: the zoom at which the scope fits the stage, lowered a little
     for crossings and arrows against the flow, then for wire length. A new layout replaces the
     current one only when it fits at least as large and scores 2% higher; otherwise nothing moves
-    and the toast says "Already reads well". A group inside the one arranged keeps its frame or
-    shrinks it, so what holds it never gets worse.
+    and the toast says "Already reads well". ig's own layout of the scope (its server frames, all
+    the way down) is one more candidate, so a map left in a bad state goes back to it when nothing
+    reads better: Arrange is never worse than ig's layout either. A group inside the one arranged
+    keeps its frame or shrinks it, so what holds it never gets worse. "Arrange these" compares the
+    selection's flowed block with the selection as it is the same way.
+  - **The toast** counts only the boxes at the level on screen; when only insides moved it says
+    "Arranged inside 3 groups".
   - **What good looks like**, in this order of weight:
     1. Arrows flow one way: callers before what they call, left to right or top to bottom, whichever
        reads larger (people and apps first, stores and outside systems last), so most arrows point

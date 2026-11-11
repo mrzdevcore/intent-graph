@@ -218,7 +218,7 @@
       if (c) placeAll(apply(truth, c), [], false);
     } else if (next === "edit" && edit) run(() => edit.redo(), "redo");
   }
-  let tidied = $state<{ n: number; stamp?: number } | null>(null);
+  let tidied = $state<{ say: string; stamp?: number } | null>(null);
   let tidyTimer: ReturnType<typeof setTimeout> | undefined;
   onDestroy(() => clearTimeout(tidyTimer));
   function arrangeIn(scope: string[]) {
@@ -227,7 +227,14 @@
     const next = scope.length > 1 ? settlePlaces(laid, view, Object.fromEntries(scope.filter((id) => laid[id]).map((id) => [id, laid[id]])), null) : laid;
     const c = changes(truth, next);
     placeAll(next);
-    tidied = { n: c ? Object.keys(c.after).filter((k) => !isInside(k)).length : 0, stamp: c ? history.last : undefined };
+    const moved = c ? Object.keys(c.after).filter((k) => !isInside(k)) : [];
+    // only boxes at the level on screen move visibly; deeper moves are told as groups
+    const level = new Set(scope.length > 1 ? scope : (kids.get(scope[0]) ?? []).map((b) => b.id));
+    const seen = moved.filter((id) => level.has(id)).length, groups = new Set(moved.filter((id) => !level.has(id)).map((id) => byId.get(id)?.parent ?? ROOT)).size;
+    tidied = {
+      say: seen ? `Arranged ${seen} ${seen === 1 ? "box" : "boxes"}` : groups ? `Arranged inside ${groups} ${groups === 1 ? "group" : "groups"}` : "Already reads well",
+      stamp: c ? history.last : undefined,
+    };
     clearTimeout(tidyTimer);
     tidyTimer = setTimeout(() => (tidied = null), 6000);
   }
@@ -1306,7 +1313,7 @@
     {#if edit}<div class="toast" role="status" aria-live="polite">{note}</div>{/if}
     {#if tidied}
       <div class="arranged" role="status">
-        {tidied.n ? `Arranged ${tidied.n} ${tidied.n === 1 ? "box" : "boxes"}` : "Already reads well"}
+        {tidied.say}
         {#if tidied.stamp !== undefined}<button type="button" onclick={undoArrange}>Undo</button>{/if}
       </div>
     {/if}

@@ -322,8 +322,8 @@ function widthOf(view: View, id: string, iw: number, ih: number): number {
   return f && r ? Math.max(f.w, iw * fitInner(f, r[0], r[1]).s) : Math.max(iw, ih) / 4;
 }
 
-export function arrange(scope: string[], view: View, places: Record<string, Place>, grid: number, stage: Stage = STAGE): Record<string, Place> {
-  const t = treeOf(view, places), out = { ...places };
+function pass(scope: string[], view: View, t: Tree, places: Record<string, Place>, grid: number, stage: Stage): { out: Record<string, Place>; c: Lay } {
+  const out = { ...places };
   const c: Lay = { view, t, kindOf: kindsOf(view), inner: new Map(), kept: new Set(), grid, stage };
   const was = (id: string) => places[id] ?? view.placed.frames[id];
   const frameOf = (g: string, { w, h }: { w: number; h: number }, f: Place) => {
@@ -332,11 +332,7 @@ export function arrange(scope: string[], view: View, places: Record<string, Plac
   };
   for (const g of groupsOf(scope, t, patterned(view))) {
     const kids = t.kidsOf.get(g)!, f = out[g] ?? view.placed.frames[g], top = g === t.root || (scope.length === 1 && scope[0] === g);
-    const stated = places[inside(g)] ?? (view.placed.inner[g] && { w: view.placed.inner[g][0], h: view.placed.inner[g][1] });
-    const room = stated && kids.every((id) => out[id]) && {
-      w: Math.max(stated.w, ...kids.map((id) => out[id].x + out[id].w + 4 * grid)),
-      h: Math.max(stated.h, ...kids.map((id) => out[id].y + out[id].h + 4 * grid)),
-    };
+    const room = roomOf(view, g, kids, places, out, grid);
     // a group inside the one arranged keeps its frame or shrinks it, so what holds it never gets worse
     const own = top || !f ? stage : { w: f.w / 0.8, h: (f.h - Math.min(HEAD, f.h / 4)) / 0.8 };
     const fits = (r: { w: number; h: number }) => {
@@ -354,20 +350,63 @@ export function arrange(scope: string[], view: View, places: Record<string, Plac
     c.inner.set(g, [laid.room.w, laid.room.h]);
     if (f && g !== t.root) out[g] = frameOf(g, laid.room, f);
   }
-  const sel = scope.filter((id) => t.parentOf.has(id));
+  return { out, c };
+}
+
+function roomOf(view: View, g: string, kids: string[], stated: Record<string, Place>, at: Record<string, Place>, grid: number) {
+  const r = stated[inside(g)] ?? (view.placed.inner[g] && { w: view.placed.inner[g][0], h: view.placed.inner[g][1] });
+  return r && kids.every((id) => at[id]) ? {
+    w: Math.max(r.w, ...kids.map((id) => at[id].x + at[id].w + 4 * grid)),
+    h: Math.max(r.h, ...kids.map((id) => at[id].y + at[id].h + 4 * grid)),
+  } : undefined;
+}
+
+// ig's own layout of a group's inside, all the way down; a patterned box keeps the inside it has
+function igLayout(g: string, view: View, t: Tree, places: Record<string, Place>): Record<string, Place> {
+  const ig = settle({}, view, {}, null), out = { ...places }, kept = patterned(view);
+  const walk = (id: string) => {
+    if (ig[inside(id)]) out[inside(id)] = ig[inside(id)];
+    for (const k of t.kidsOf.get(id) ?? []) {
+      if (ig[k]) out[k] = ig[k];
+      if (!kept.has(k)) walk(k);
+    }
+  };
+  walk(g);
+  if (g !== t.root && out[g] && ig[g]) out[g] = { ...out[g], w: ig[g].w, h: ig[g].h };
+  return out;
+}
+
+export function arrange(scope: string[], view: View, places: Record<string, Place>, grid: number, stage: Stage = STAGE): Record<string, Place> {
+  const t = treeOf(view, places);
+  const { out: mine, c } = pass(scope, view, t, places, grid, stage);
+  let out = mine;
+  const g = scope[0], kids = t.kidsOf.get(g) ?? [];
+  if (scope.length === 1 && kids.length && !patterned(view).has(g)) {
+    const { out: ig } = pass(scope, view, t, igLayout(g, view, t, places), grid, stage);
+    const dag = flow(kids, linksAmong(view, t, kids, c.kindOf), c.kindOf);
+    const score = (p: Record<string, Place>) => scoreOf(roomOf(view, g, kids, p, p, grid) ?? { w: 1, h: 1 }, dag, (id) => p[id], stage);
+    const a = score(mine), d = score(ig);
+    // never below ig's own layout: a map left in a bad state goes back to it
+    if (a.fit < d.fit - 1e-9 || beats(d, a)) out = ig;
+  }
   // a group arranged alone changed size: its siblings make room and its parents grow
-  if (scope.length === 1 && t.parentOf.has(scope[0]) && out[scope[0]]) return settle(out, view, { [scope[0]]: out[scope[0]] }, scope[0]);
-  const parent = t.parentOf.get(sel[0]);
+  if (scope.length === 1 && t.parentOf.has(g) && out[g]) return settle(out, view, { [g]: out[g] }, g);
+  const sel = scope.filter((id) => t.parentOf.has(id)), parent = t.parentOf.get(sel[0]);
   if (scope.length < 2 || sel.length < 2 || sel.some((id) => t.parentOf.get(id) !== parent)) return out;
-  const before = sel.map(was);
+  const before = sel.map((id) => places[id] ?? view.placed.frames[id]);
   const x0 = Math.round(Math.min(...before.map((p) => p.x)) / grid) * grid, y0 = Math.round(Math.min(...before.map((p) => p.y)) / grid) * grid;
-  const laid = layout(c, [...sel].sort(), out)!.places;
-  const lx = Math.min(...sel.map((id) => laid[id].x)), ly = Math.min(...sel.map((id) => laid[id].y));
-  for (const id of sel) out[id] = { ...laid[id], x: laid[id].x - lx + x0, y: laid[id].y - ly + y0 };
-  const block = "\0these", r = Math.max(...sel.map((id) => out[id].x + out[id].w)), b = Math.max(...sel.map((id) => out[id].y + out[id].h));
-  const others: Record<string, Place> = { [block]: { x: x0, y: y0, w: r - x0, h: b - y0 } };
+  const laid = layout(c, [...sel].sort(), out)!;
+  const lx = Math.min(...sel.map((id) => laid.places[id].x)), ly = Math.min(...sel.map((id) => laid.places[id].y));
+  const block = (p: Record<string, Place>) => {
+    const l = Math.min(...sel.map((id) => p[id].x)), tp = Math.min(...sel.map((id) => p[id].y));
+    return { w: Math.max(...sel.map((id) => p[id].x + p[id].w)) - l + 8 * grid, h: Math.max(...sel.map((id) => p[id].y + p[id].h)) - tp + 8 * grid };
+  };
+  if (!beats(laid.score, scoreOf(block(out), laid.links, (id) => out[id], stage))) return out;
+  for (const id of sel) out[id] = { ...laid.places[id], x: laid.places[id].x - lx + x0, y: laid.places[id].y - ly + y0 };
+  const hold = "\0these", r = Math.max(...sel.map((id) => out[id].x + out[id].w)), b = Math.max(...sel.map((id) => out[id].y + out[id].h));
+  const others: Record<string, Place> = { [hold]: { x: x0, y: y0, w: r - x0, h: b - y0 } };
   for (const k of t.kidsOf.get(parent!) ?? []) if (!sel.includes(k) && out[k]) others[k] = out[k];
-  const moved = nudge(others, block, grid);
-  delete moved[block];
+  const moved = nudge(others, hold, grid);
+  delete moved[hold];
   return { ...out, ...moved };
 }

@@ -231,14 +231,19 @@ const tower = () => {
 };
 const kidsIn = (v: View) => v.boxes.filter((b) => b.parent === "system").map((b) => b.id);
 
-test("on ig's own map Arrange never reads smaller than ig's layout at fit", () => {
-  const before = settle({}, own, {}, null), out = arrange(["system"], own, before, GRID);
-  expect(fitOf(out)).toBeGreaterThanOrEqual(fitOf(before));
-  expect(fitOf(arrange(["system"], own, tower(), GRID))).toBeGreaterThan(2 * fitOf(tower()));
+test("on ig's own map Arrange never reads smaller than ig's layout at fit, even from the old tower", () => {
+  const before = settle({}, own, {}, null);
+  expect(fitOf(arrange(["system"], own, before, GRID))).toBeGreaterThanOrEqual(fitOf(before));
+  const old = tower(), back = arrange(["system"], own, old, GRID);
+  expect(fitOf(back)).toBeGreaterThanOrEqual(fitOf(before));
+  expect(back).toEqual(before);
 });
 
-test("a fan-out wraps into a block: no line holds more than the wrap limit, and arrows flow one way", () => {
-  const out = arrange(["system"], own, tower(), GRID), ids = kidsIn(own);
+test("on a tall stage the flowed map beats ig's grid: the fan-out wraps into a block and arrows flow one way", () => {
+  const tallStage = { w: 875, h: 1400 }, before = settle({}, own, {}, null), out = arrange(["system"], own, before, GRID, tallStage), ids = kidsIn(own);
+  const fit = (p: Record<string, Place>) => fitZoom(p[inside("system")].w, p[inside("system")].h, tallStage);
+  expect(fit(out)).toBeGreaterThan(fit(before));
+  expect(arrange(["system"], own, out, GRID, tallStage)).toEqual(out);
   const links = own.arrows.map((a) => ({ from: a.from, to: a.to, weight: a.count }));
   const kept = flow(ids, links, kindIn(own));
   const right = kept.every((l) => out[l.from].x + out[l.from].w < out[l.to].x), down = kept.every((l) => out[l.from].y + out[l.from].h < out[l.to].y);
@@ -281,4 +286,32 @@ test("layers run top to bottom when that reads larger on the stage", () => {
     expect(wide[x].x + wide[x].w).toBeLessThan(wide[y].x);
     expect(tall[x].y + tall[x].h).toBeLessThan(tall[y].y);
   }
+});
+
+test("Arrange these moves nothing when the selection already reads well", () => {
+  const before = settle({}, own, {}, null), once = arrange(["intent-graph", "ig-wire"], own, before, GRID);
+  expect(once).not.toEqual(before);
+  expect(arrange(["intent-graph", "ig-wire"], own, once, GRID)).toEqual(once);
+});
+
+test("when only insides move, the toast says how many groups it arranged inside", () => {
+  const v = mini([["g", "service"]], []), f = (x: string) => ({ value: x, source: "ig" as const });
+  const c = (360 * 264) / 1176;
+  v.placed.frames.g = { x: 96, y: 96, w: 264, h: c >= 90 ? c + 30 : (c * 4) / 3 };
+  v.placed.inner = { system: [456, 312], g: [1176, 360] };
+  ["c", "b", "a"].forEach((id, i) => {
+    v.boxes.push({ id, parent: "g", level: "component", madeOf: [], files: 0, kind: f("service") as never, title: f(id) });
+    v.placed.frames[id] = { x: 96 + i * 360, y: 96, w: 264, h: 152 };
+  });
+  v.arrows = [["a", "b"], ["b", "c"]].map(([from, to]) => ({ id: `${from}->${to}`, parent: "g", from, to, kind: "calls" as never, count: 1, kinds: ["calls" as never] }));
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  const same = async () => v;
+  const edit = { apply: same, keep: same, drop: same, dropAll: same, undo: same, redo: same } as EditApi;
+  const target = document.createElement("div");
+  document.body.append(target);
+  mount(MapHarness, { target, props: { start: structuredClone(v), edit, size: { w: 1400, h: 875 } } });
+  flushSync();
+  press({ key: "Ï", code: "KeyF", altKey: true, shiftKey: true });
+  expect((target.querySelector(".arranged") as HTMLElement).textContent).toMatch(/^\s*Arranged inside 1 group\s*Undo\s*$/);
+  vi.unstubAllGlobals();
 });
