@@ -33,8 +33,6 @@ export function glide(from: Cam, to: Cam, t: number, ms = GLIDE_MS): Cam {
 
 export const PLACE_MS = 400;
 
-/** The boxes t ms into a glide from `from` to `to`, on the camera's curve; a box new in `to` is
- *  already there. */
 export function tween(from: Record<string, Frame>, to: Record<string, Frame>, t: number, ms = PLACE_MS): Record<string, Frame> {
   const p = t / ms;
   if (p >= 1) return to;

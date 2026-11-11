@@ -1956,3 +1956,39 @@ test("box menu Paste on an open box pastes inside it; on a closed box, beside it
   expect(got.map((e) => e.edits[0].parent)).toEqual(["api", "system"]);
 });
 
+
+test("one Esc closes the panel and keeps the selection; the next clears it", async () => {
+  const { target } = setup(recorder().api);
+  select(target, "web");
+  press("e");
+  await tick();
+  expect(target.querySelector('[data-panel="box"]')).not.toBeNull();
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("Escape");
+  await tick();
+  expect(target.querySelector('[data-panel="box"]')).toBeNull();
+  expect(target.querySelector("section.details")).not.toBeNull();
+  press("Escape");
+  expect(target.querySelector("section.details")).toBeNull();
+});
+
+test("Space held on a box Esc focused pans instead of pressing the box", async () => {
+  const { target } = setup(recorder().api);
+  select(target, "web");
+  press("Escape");
+  await tick();
+  const btn = boxEl(target, "web") as HTMLElement;
+  expect(document.activeElement).toBe(btn);
+  const down = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+  btn.dispatchEvent(down);
+  flushSync();
+  expect(down.defaultPrevented).toBe(true);
+  const world = (target.querySelector(".world") as HTMLElement).style.transform;
+  const left = px(target.querySelector('[data-box="web"]') as HTMLElement, "left");
+  drawBox(btn, { x: 300, y: 300 }, { x: 500, y: 400 });
+  expect((target.querySelector(".world") as HTMLElement).style.transform).not.toBe(world);
+  expect(px(target.querySelector('[data-box="web"]') as HTMLElement, "left")).toBe(left);
+  const up = new KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
+  btn.dispatchEvent(up);
+  expect(up.defaultPrevented).toBe(true);
+});

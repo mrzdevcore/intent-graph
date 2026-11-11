@@ -175,8 +175,8 @@ test("a rename carries the place over, its inside and its renamed children with 
   expect(renamesOf([{ op: "rename", id: "a", to: "b" }, { op: "batch", edits: [{ op: "remove", id: "x" }, { op: "rename", id: "c", to: "d" }] }])).toEqual([["a", "b"], ["c", "d"]]);
   const log = new EditLog(new Clock());
   log.push([["a", "b"], ["b", "c"]]);
-  expect(log.undo()).toEqual([["c", "b"], ["b", "a"]]);
-  expect(log.redo()).toEqual([["a", "b"], ["b", "c"]]);
+  expect(log.undo().renames).toEqual([["c", "b"], ["b", "a"]]);
+  expect(log.redo().renames).toEqual([["a", "b"], ["b", "c"]]);
   const v = mapOf({ svc: box(500, 500) });
   expect(settle(rekey({ ...settle({}, mapOf({ api: box(96, 96) }), {}, null) }, [["api", "svc"]], () => true), v, {}, null).svc).toEqual(box(96, 96));
 });
@@ -219,6 +219,26 @@ test("undo takes the later of a place change and an edit; redo the one undone la
   expect(undoNext(edits, places)).toBe("edit");
   expect(changes(a, a)).toBeNull();
   expect(apply({ x: box(0, 0) }, { x: null })).toEqual({});
+});
+
+test("new work on the page ends both redo lines; an undo from before the page still redoes", () => {
+  const clock = new Clock(), edits = new EditLog(clock), places = new PlaceHistory(clock);
+  expect(redoNext(edits, places)).toBe("edit");
+  edits.undo();
+  expect(redoNext(edits, places)).toBe("edit");
+  edits.redo();
+  const c = changes({ x: box(0, 0) }, { x: box(24, 0) })!;
+  places.push(c.before, c.after);
+  expect(redoNext(edits, places)).toBeNull();
+  edits.push();
+  places.undo();
+  edits.undo();
+  edits.push();
+  expect(redoNext(edits, places)).toBeNull();
+  const failed = edits.undo();
+  failed.failed();
+  expect(undoNext(edits, places)).toBe("edit");
+  expect(redoNext(edits, places)).toBeNull();
 });
 
 // --- in the map
@@ -308,13 +328,14 @@ test("a box an edit adds finds room; the boxes already drawn stay", async () => 
   vi.unstubAllGlobals();
 });
 
-test("an undone delete puts the box back where it was, and what moved there makes room", async () => {
+test("a deleted box that comes back takes its place again, and what moved there makes room", async () => {
   const start = structuredClone(shop) as unknown as View;
   const without = structuredClone(shop) as unknown as View;
   without.boxes = without.boxes.filter((b) => b.id !== "stripe");
   delete without.placed.frames.stripe;
   without.arrows = without.arrows.filter((a) => a.from !== "stripe" && a.to !== "stripe");
-  const { target, glide } = mountMap({ apply: async () => without, redo: async () => start }, start);
+  const views = [without, start];
+  const { target, glide } = mountMap({ apply: async () => views.shift() ?? start }, start);
   const stripe = rect(target, "stripe");
   pick(target, "stripe");
   press("Delete");
@@ -325,11 +346,132 @@ test("an undone delete puts the box back where it was, and what moved there make
   for (let i = 0; i < 11; i++) press("ArrowDown");
   glide();
   expect(overlaps(rect(target, "postgres"), stripe)).toBe(true);
-  press("Escape");
-  press("z", { metaKey: true, shiftKey: true });
+  press("Delete");
   await later();
   glide();
   expect(rect(target, "stripe")).toEqual(stripe);
   expect(overlaps(rect(target, "postgres"), stripe)).toBe(false);
+  vi.unstubAllGlobals();
+});
+
+const dragBy = (t: HTMLElement, id: string, dx: number, dy = 0) => {
+  const at = { bubbles: true, button: 0, clientX: 500, clientY: 400 };
+  slot(t, id).querySelector("button")!.dispatchEvent(new PointerEvent("pointerdown", at));
+  window.dispatchEvent(new PointerEvent("pointermove", { ...at, clientX: 500 + dx, clientY: 400 + dy }));
+  window.dispatchEvent(new PointerEvent("pointerup", { ...at, clientX: 500 + dx, clientY: 400 + dy }));
+  flushSync();
+};
+
+test("after a delete, its undo and a drag, redo brings nothing back", async () => {
+  const start = structuredClone(shop) as unknown as View;
+  const without = structuredClone(shop) as unknown as View;
+  without.boxes = without.boxes.filter((b) => b.id !== "stripe");
+  delete without.placed.frames.stripe;
+  without.arrows = without.arrows.filter((a) => a.from !== "stripe" && a.to !== "stripe");
+  const { target, calls, glide } = mountMap({ apply: async () => without }, start);
+  pick(target, "stripe");
+  press("Delete");
+  await later();
+  press("z", { metaKey: true });
+  await later();
+  glide();
+  expect(calls).toEqual(["undo"]);
+  dragBy(target, "postgres", 200);
+  glide();
+  const moved = rect(target, "postgres");
+  press("z", { metaKey: true, shiftKey: true });
+  await later();
+  glide();
+  expect(calls).toEqual(["undo"]);
+  expect(rect(target, "postgres")).toEqual(moved);
+  vi.unstubAllGlobals();
+});
+
+test("undo a drag, undo the edit before it, make a new edit: redo brings no old drag back", async () => {
+  const { target, calls, glide } = mountMap();
+  const was = rect(target, "postgres");
+  pick(target, "stripe");
+  press("Delete");
+  await later();
+  dragBy(target, "postgres", 200);
+  glide();
+  expect(rect(target, "postgres")).not.toEqual(was);
+  press("z", { metaKey: true });
+  glide();
+  expect(rect(target, "postgres")).toEqual(was);
+  press("z", { metaKey: true });
+  await later();
+  expect(calls).toEqual(["undo"]);
+  pick(target, "stripe");
+  press("Delete");
+  await later();
+  press("z", { metaKey: true, shiftKey: true });
+  await later();
+  glide();
+  expect(calls).toEqual(["undo"]);
+  expect(rect(target, "postgres")).toEqual(was);
+  vi.unstubAllGlobals();
+});
+
+test("an edit confirmed before a drag is undone after it, even when its reply lands after the drag", async () => {
+  const start = structuredClone(shop) as unknown as View;
+  let land = () => {};
+  const { target, calls, glide } = mountMap({ apply: () => new Promise<View>((r) => (land = () => r(start))) }, start);
+  const was = rect(target, "postgres");
+  pick(target, "stripe");
+  press("Delete");
+  dragBy(target, "postgres", 200);
+  glide();
+  land();
+  await later();
+  flushSync();
+  press("z", { metaKey: true });
+  await later();
+  glide();
+  expect(calls).toEqual([]);
+  expect(rect(target, "postgres")).toEqual(was);
+  press("z", { metaKey: true });
+  await later();
+  expect(calls).toEqual(["undo"]);
+  vi.unstubAllGlobals();
+});
+
+const addPick = (t: HTMLElement, id: string) => {
+  slot(t, id).querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }));
+  flushSync();
+};
+
+test("dragging one box of a selection moves the selected boxes of its parent together, as one undo step", async () => {
+  const { target, calls, glide } = mountMap();
+  const was = { web: rect(target, "web"), client: rect(target, "api-client"), api: rect(target, "api") };
+  pick(target, "web");
+  addPick(target, "api-client");
+  dragBy(target, "web", 200);
+  glide();
+  const web = rect(target, "web"), client = rect(target, "api-client");
+  expect(web.x - was.web.x).toBeGreaterThan(0);
+  expect(client.x - was.client.x).toBeCloseTo(web.x - was.web.x);
+  expect(client.y).toBeCloseTo(was.client.y);
+  expect(overlaps(web, rect(target, "api"))).toBe(false);
+  expect(rect(target, "api")).not.toEqual(was.api);
+  press("z", { metaKey: true });
+  glide();
+  expect([rect(target, "web"), rect(target, "api-client"), rect(target, "api")]).toEqual([was.web, was.client, was.api]);
+  expect(calls).toEqual([]);
+  vi.unstubAllGlobals();
+});
+
+test("arrow keys move the whole selection a grid step", () => {
+  const { target, glide } = mountMap();
+  const was = { p: rect(target, "postgres"), s: rect(target, "stripe") };
+  pick(target, "postgres");
+  addPick(target, "stripe");
+  press("ArrowRight");
+  glide();
+  expect(rect(target, "postgres").x).toBeCloseTo(was.p.x + GRID);
+  expect(rect(target, "stripe").x).toBeCloseTo(was.s.x + GRID);
+  press("z", { metaKey: true });
+  glide();
+  expect([rect(target, "postgres"), rect(target, "stripe")]).toEqual([was.p, was.s]);
   vi.unstubAllGlobals();
 });

@@ -33,42 +33,66 @@ export const renamesOf = (edits: Edit[]): Rename[] =>
 
 export class Clock {
   private n = 0;
+  private redos: (() => void)[] = [];
+  // anything new done on this page: the server's redo may still hold entries undone before it
+  dirty = false;
   next(): number {
     return ++this.n;
   }
   get now(): number {
     return this.n;
   }
+  onWork(clear: () => void): void {
+    this.redos.push(clear);
+  }
+  work(): void {
+    this.dirty = true;
+    for (const clear of this.redos) clear();
+  }
 }
 
 type Done = { stamp: number; renames: Rename[] };
+export type Moved = { renames: Rename[]; failed(): void };
 
 // only edits applied here are stamped: keep and drop are not on the server's undo
 export class EditLog {
   private done: Done[] = [];
   private undone: Done[] = [];
-  constructor(private clock: Clock) {}
-  push(renames: Rename[] = []): void {
-    this.done.push({ stamp: this.clock.next(), renames });
-    this.undone = [];
+  constructor(private clock: Clock) {
+    clock.onWork(() => (this.undone = []));
   }
-  undo(): Rename[] {
-    const d = this.done.pop();
-    if (!d) return [];
+  begin(): number {
+    this.clock.work();
+    return this.clock.next();
+  }
+  push(renames: Rename[] = [], stamp = this.begin()): void {
+    this.done.push({ stamp, renames });
+  }
+  // an undo with nothing done here undoes an entry from before this page, older than every stamp
+  undo(): Moved {
+    const d = this.done.pop() ?? { stamp: 0, renames: [] };
     this.undone.push(d);
-    return d.renames.map(([a, b]): Rename => [b, a]).reverse();
+    return {
+      renames: d.renames.map(([a, b]): Rename => [b, a]).reverse(),
+      failed: () => {
+        this.undone = this.undone.filter((x) => x !== d);
+        if (d.stamp) this.done.push(d);
+      },
+    };
   }
-  redo(): Rename[] {
+  redo(): Moved {
     const d = this.undone.pop();
-    if (!d) return [];
-    this.done.push(d);
-    return d.renames;
+    if (d) this.done.push(d);
+    return { renames: d?.renames ?? [], failed: () => void (this.done = this.done.filter((x) => x !== d)) };
   }
   get last(): number | undefined {
     return this.done.at(-1)?.stamp;
   }
   get next(): number | undefined {
     return this.undone.at(-1)?.stamp;
+  }
+  get redoable(): boolean {
+    return this.undone.length > 0 || !this.clock.dirty;
   }
 }
 
@@ -77,17 +101,19 @@ type Step = { stamp: number; before: Change; after: Change };
 export class PlaceHistory {
   private done: Step[] = [];
   private undone: Step[] = [];
-  constructor(private clock: Clock) {}
+  constructor(private clock: Clock) {
+    clock.onWork(() => (this.undone = []));
+  }
   push(before: Change, after: Change): void {
+    this.clock.work();
     this.done.push({ stamp: this.clock.next(), before, after });
-    this.undone = [];
   }
   merge(before: Change, after: Change): void {
     const top = this.done.at(-1);
     if (!top || top.stamp !== this.clock.now) return this.push(before, after);
     top.before = { ...before, ...top.before };
     top.after = { ...top.after, ...after };
-    this.undone = [];
+    this.clock.work();
   }
   undo(): Change | null {
     const s = this.done.pop();
@@ -109,14 +135,14 @@ export class PlaceHistory {
   }
 }
 
-/** An edit when there is no place change: the server's journal may hold edits from before this page. */
 export function undoNext(edits: EditLog, places: PlaceHistory): "edit" | "place" {
   const e = edits.last, p = places.last;
   return p !== undefined && (e === undefined || p > e) ? "place" : "edit";
 }
 
-// the one undone last has the earlier stamp
-export function redoNext(edits: EditLog, places: PlaceHistory): "edit" | "place" {
+// the one undone last has the earlier stamp; nothing once new work ended the redo line
+export function redoNext(edits: EditLog, places: PlaceHistory): "edit" | "place" | null {
   const e = edits.next, p = places.next;
-  return p !== undefined && (e === undefined || p < e) ? "place" : "edit";
+  if (p !== undefined && (e === undefined || p < e)) return "place";
+  return edits.redoable ? "edit" : null;
 }

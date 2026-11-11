@@ -51,7 +51,6 @@ export type KindView = {
   role: "root" | "run" | "design" | "group";
   props: { name: string; means: string; required: boolean; oneOf: string[] }[];
 };
-/** One of `View.arrowKinds`: an arrow kind and the kinds its rules join (empty = any). */
 export type ArrowKindView = { name: ArrowKind; from: string[]; to: string[] };
 export type ArrowKind = "calls" | "sends" | "reads" | "writes" | "uses" | "implements" | "triggers" | "bundle";
 export type MapArrow = {
@@ -63,9 +62,7 @@ export type MapArrow = {
   label?: string;
   note?: string;
   context?: string;
-  /** Where ig/ writes it: "ig/shop.kdl:12". */
   written?: string;
-  /** Where the code does it: a few "file:line". */
   seen?: string[];
   count: number;
   kinds: ArrowKind[];

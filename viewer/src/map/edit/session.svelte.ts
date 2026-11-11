@@ -60,7 +60,6 @@ export class EditSession {
     return { x: f.x * m.k + m.x, y: f.y * m.k + m.y };
   };
   width = (id: string) => this.c.frame(id).w * this.c.cam().k;
-  /** The box lit as the arrow's target. */
   get aim() { return this.link?.to ?? this.end?.to ?? null; }
   private screen(f: Frame): Frame {
     const m = this.c.cam();
@@ -101,7 +100,6 @@ export class EditSession {
     this.ui = null;
     if (refocus && u) this.focusBox(u.id);
   }
-  /** Drop everything in flight (Esc, a box gone). */
   cancel() {
     this.link = this.ui = this.adding = this.draft = this.made = this.kinds = this.asking = this.end = this.writing = this.arrow = this.panel = null;
     this.arrowKinds = false;

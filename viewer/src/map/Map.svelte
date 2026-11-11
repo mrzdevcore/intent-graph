@@ -96,13 +96,14 @@
     if (busy) return (toast("Still saving the last change; try again"), false);
     busy = true;
     applied = [];
-    call().then((v) => {
-      const made = applied;
-      if (as === "undo") renaming = edits.undo();
-      else if (as === "redo") renaming = edits.redo();
-      else if (made.length) edits.push((renaming = renamesOf(made)));
+    const moved = as === "undo" ? edits.undo() : as === "redo" ? edits.redo() : null;
+    const sent = call(), made = applied;
+    const stamp = made.length ? edits.begin() : 0;
+    sent.then((v) => {
+      if (moved) renaming = moved.renames;
+      else if (made.length) edits.push((renaming = renamesOf(made)), stamp || undefined);
       onview?.(v);
-    }, toast).finally(() => (busy = false));
+    }, (e) => (moved?.failed(), toast(e))).finally(() => (busy = false));
     return true;
   };
   const typing = (t: EventTarget | null) => {
@@ -191,15 +192,20 @@
       }
     });
   });
-  let lastStep: { id: string; at: number } | null = null;
+  let lastStep: { ids: string; at: number } | null = null;
   // a parent's inner origin: places are kept from it, its children are drawn from 0
   const origin = (p: string) => (p !== ROOT && truth[innerKey(p)]) || { x: 0, y: 0 };
-  function putBox(id: string, at: { x: number; y: number; w?: number; h?: number }, step = false): boolean {
-    const o = origin(byId.get(id)?.parent ?? ROOT), f = truth[id];
-    if (!f || id === ROOT) return false;
-    const now = performance.now(), merge = step && lastStep?.id === id && now - lastStep.at < 1000;
-    lastStep = step ? { id, at: now } : null;
-    placeAll(settlePlaces(truth, view, { [id]: { x: at.x + o.x, y: at.y + o.y, w: at.w ?? f.w, h: at.h ?? f.h } }, id), [id], merge ? "merge" : "push");
+  type At = { x: number; y: number; w?: number; h?: number };
+  function putBoxes(at: Record<string, At>, step = false): boolean {
+    const ids = Object.keys(at).filter((id) => truth[id] && id !== ROOT);
+    if (!ids.length) return false;
+    const key = ids.join(" "), now = performance.now(), merge = step && lastStep?.ids === key && now - lastStep.at < 1000;
+    lastStep = step ? { ids: key, at: now } : null;
+    const frames = Object.fromEntries(ids.map((id) => {
+      const o = origin(byId.get(id)?.parent ?? ROOT), f = truth[id], a = at[id];
+      return [id, { x: a.x + o.x, y: a.y + o.y, w: a.w ?? f.w, h: a.h ?? f.h }];
+    }));
+    placeAll(settlePlaces(truth, view, frames, ids[0]), ids, merge ? "merge" : "push");
     return true;
   }
   function undo() {
@@ -209,10 +215,11 @@
     } else if (edit) run(() => edit.undo(), "undo");
   }
   function redo() {
-    if (redoNext(edits, history) === "place") {
+    const next = redoNext(edits, history);
+    if (next === "place") {
       const c = history.redo();
       if (c) placeAll(apply(truth, c), [], false);
-    } else if (edit) run(() => edit.redo(), "redo");
+    } else if (next === "edit" && edit) run(() => edit.redo(), "redo");
   }
   let tidied = $state<{ n: number; stamp?: number } | null>(null);
   let tidyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -261,15 +268,16 @@
   const wiring = $derived(new Map([...group([...view.arrows, ...ghosts], (a: Arrow) => a.parent)].map(([p, as]) => [p, wired(as, siblings(p))])));
   const arrows = $derived(group([...view.arrows, ...ghosts].filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));
   // the box being dragged and its shift so far: only it and its parent's arrows follow the pointer
-  let live = $state<{ id: string; x: number; y: number; w?: number; h?: number } | null>(null);
+  // `with`: the other selected boxes of its parent, moved along
+  let live = $state<{ id: string; x: number; y: number; w?: number; h?: number; with?: Record<string, { x: number; y: number }> } | null>(null);
   const drawn = (id: string) => {
-    const f = shown.placed.frames[id];
-    return live?.id === id ? { x: live.x, y: live.y, w: live.w ?? f.w, h: live.h ?? f.h } : f;
+    const f = shown.placed.frames[id], o = live?.with?.[id];
+    return live?.id === id ? { x: live.x, y: live.y, w: live.w ?? f.w, h: live.h ?? f.h } : o ? { ...f, ...o } : f;
   };
   const liveWiring = $derived.by(() => {
     if (!live) return null;
     const p = byId.get(live.id)?.parent ?? ROOT, frames = siblings(p);
-    frames[live.id] = drawn(live.id);
+    for (const id of [live.id, ...Object.keys(live.with ?? {})]) frames[id] = drawn(id);
     return { p, ...wired(arrows.get(p) ?? [], frames) };
   });
   const wiringOf = (p: string) => (liveWiring?.p === p ? liveWiring : wiring.get(p));
@@ -505,10 +513,12 @@
     if (dir && !mod && !e.altKey) {
       if ((e.target as Element | null)?.closest?.("button, summary, a, select, [contenteditable], [role=menu], [role=listbox], [role=slider], [role=tablist]")) return false;
       e.preventDefault();
-      if (selected) {
-        const f = shown.placed.frames[selected];
-        if (f && putBox(selected, { x: f.x - dir[0] * GRID, y: f.y - dir[1] * GRID }, true)) return true;
+      const at: Record<string, At> = {};
+      for (const id of chosen()) {
+        const f = shown.placed.frames[id];
+        if (f) at[id] = { x: f.x - dir[0] * GRID, y: f.y - dir[1] * GRID };
       }
+      if (putBoxes(at, true)) return true;
       const c = camera.cam;
       glideTo({ k: c.k, x: c.x + dir[0] * PAN_STEP, y: c.y + dir[1] * PAN_STEP }, KEY_MS);
       return true;
@@ -516,7 +526,10 @@
     return false;
   }
   function keyup(e: KeyboardEvent) {
-    if (e.key === " ") space = false;
+    if (e.key !== " ") return;
+    // a held Space pans: the focused box's button must not take the keyup as a click
+    if (space && (e.target as Element | null)?.matches?.("[data-box] > button")) e.preventDefault();
+    space = false;
   }
   const shortcuts: Record<string, Act> = { f2: "rename", m: "move", e: "details", o: "code", delete: "delete", backspace: "delete" };
   function key(e: KeyboardEvent) {
@@ -525,7 +538,8 @@
       goStep(step + (e.key === "ArrowRight" ? 1 : -1));
       return;
     }
-    if (e.key === " " && !(e.target as Element | null)?.closest?.("button, summary, a, [data-popover]")) {
+    const onBox = !!(e.target as Element | null)?.matches?.("[data-box] > button");
+    if (e.key === " " && (onBox || !(e.target as Element | null)?.closest?.("button, summary, a, [data-popover]"))) {
       e.preventDefault();
       space = true;
       return;
@@ -587,10 +601,10 @@
       live = null;
       drag = null;
     }
-    const hadArrow = !!sess.arrow;
+    const layer = !!(sess.arrow || sess.panel || sess.ui || sess.adding || sess.draft || sess.kinds || sess.made || sess.link || sess.end || sess.writing || sess.arrowKinds || marquee);
     sess.cancel();
     marquee = null;
-    if (hadArrow) return;
+    if (layer) return;
     if (many.length) many = [];
     else if (selected) close();
     else if (traced) traced = null;
@@ -640,7 +654,7 @@
   // and screen pixels per unit of its parent); a drag's trailing click must not open a box.
   let drag: {
     x: number; y: number; from: Cam; moved: boolean; pointer: number; pan?: boolean; pt?: { x: number; y: number }; track?: { x: number; y: number; t: number }[];
-    box?: { id: string; at: { x: number; y: number }; k: number }; resize?: { id: string; corner: string; f: Frame; k: number }; draw?: { parent: string; x: number; y: number };
+    box?: { id: string; at: { x: number; y: number }; k: number; with: Record<string, { x: number; y: number }> }; resize?: { id: string; corner: string; f: Frame; k: number }; draw?: { parent: string; x: number; y: number };
     mark?: { sx: number; sy: number; add: boolean }; frame?: { parent: string; x: number; y: number; sx: number; sy: number }; letGo?: boolean;
   } | null = null;
   let marquee = $state<{ x0: number; y0: number; x1: number; y1: number; frame: boolean } | null>(null);
@@ -664,9 +678,9 @@
     swallow = false;
     stopCoast();
     if (e.button === 1) e.preventDefault();
-    // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
     // picking or grabbing an arrow unmounts the field before its own blur would keep the text
     (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>("[data-arrow-text], [data-panel] [data-field]")?.blur();
+    // a pad is only ever clicked: it is a button on the box's edge, not a grip on the box
     if ((e.button !== 0 && e.button !== 1) || (e.target as Element | null)?.closest?.("[data-pad], [data-draft]")) return;
     const panning = e.button === 1 || space || tool.current === "hand";
     const grip = !panning && edit ? (e.target as Element | null)?.closest?.("[data-resize]") as HTMLElement | null : null;
@@ -705,13 +719,18 @@
     }
     const b = id ? byId.get(id) : undefined;
     const f = b && shown.placed.frames[b.id];
-    if (b && f) drag.box = { id: b.id, at: { x: f.x, y: f.y }, k: (unit.get(b.parent ?? ROOT) ?? 1) * camera.cam.k };
+    if (b && f) {
+      const along = many.includes(b.id) ? many.filter((m) => m !== b.id && byId.get(m)?.parent === b.parent && shown.placed.frames[m]) : [];
+      const at = (m: string) => ({ x: shown.placed.frames[m].x, y: shown.placed.frames[m].y });
+      drag.box = { id: b.id, at: at(b.id), k: (unit.get(b.parent ?? ROOT) ?? 1) * camera.cam.k, with: Object.fromEntries(along.map((m) => [m, at(m)])) };
+    }
   }
   function placeBox() {
     const b = drag?.box;
     if (!drag || !b || !drag.pt || b.k <= 0) return;
     const dx = drag.pt.x - drag.x - (camera.cam.x - drag.from.x), dy = drag.pt.y - drag.y - (camera.cam.y - drag.from.y);
-    live = { id: b.id, x: b.at.x + dx / b.k, y: b.at.y + dy / b.k };
+    const by = (p: { x: number; y: number }) => ({ x: p.x + dx / b.k, y: p.y + dy / b.k });
+    live = { id: b.id, ...by(b.at), with: Object.fromEntries(Object.entries(b.with).map(([m, p]) => [m, by(p)])) };
   }
   const EDGE_SPEED = 0.5;
   let edgeRaf = 0;
@@ -801,7 +820,7 @@
     }
     const held = live;
     live = null;
-    if (held) putBox(held.id, held);
+    if (held) putBoxes({ ...held.with, [held.id]: held });
     cancelAnimationFrame(edgeRaf);
     edgeRaf = 0;
     drag = null;
@@ -1394,7 +1413,7 @@
   .waiting .muted { font-size: var(--text-sm); color: var(--map-muted); }
   .waiting button { font: inherit; color: var(--map-fg); background: var(--map-surface); border: 1px solid var(--map-line); border-radius: var(--radius-md); padding: var(--space-1) var(--space-2-5); cursor: pointer; }
   .waiting button.go { background: var(--map-trace); border-color: var(--map-trace); color: var(--color-on-accent); font-weight: 600; }
-  .slot.target { outline: 3px solid var(--map-trace); outline-offset: 3px; border-radius: 16px; }
+  .slot.target { outline: 3px solid var(--map-trace); outline-offset: 3px; border-radius: 1rem; }
   .slot.picked { outline: 2px solid var(--map-trace); outline-offset: 4px; border-radius: 1rem; }
   .marquee { position: absolute; z-index: 3; pointer-events: none; box-sizing: border-box; border: 1px dashed var(--map-trace); background: color-mix(in srgb, var(--map-trace) 8%, transparent); }
   .marquee.frame { border-width: 1.5px; border-radius: var(--radius-lg); background: none; }
