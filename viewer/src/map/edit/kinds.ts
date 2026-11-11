@@ -42,3 +42,4 @@ export function mostUsed(boxes: MapBox[], kinds: KindView[], inRun: boolean, n =
   for (const b of boxes) if (b.level !== "code") used.set(kindName(b), (used.get(kindName(b)) ?? 0) + 1);
   return order.map((k, i) => ({ k, i, n: used.get(k.name) ?? 0 })).sort((a, b) => b.n - a.n || a.i - b.i).slice(0, n).map((x) => x.k);
 }
+export const NO_KIND = "no kind yet";

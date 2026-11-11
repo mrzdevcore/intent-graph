@@ -1,6 +1,7 @@
 <!-- A box being drawn, before it is sent: a dashed outline with "no kind yet" in its band and its name typed in place.
      Enter confirms, Tab confirms and asks for the kind, Esc confirms a typed name and drops an empty draft; a click away in the map confirms (the window losing focus does not). -->
 <script lang="ts">
+  import { NO_KIND } from "./kinds";
   let { x, y, w, h, editing, title, ontitle, onfinish }: {
     x: number; y: number; w: number; h: number; editing: boolean; title: string;
     ontitle: (v: string) => void; onfinish: (then: "kinds" | null) => void;
@@ -18,7 +19,7 @@
 </script>
 
 <div class="draft" data-draft data-popover style:left="{x}px" style:top="{y}px" style:width="{w}px" style:height="{h}px">
-  <span class="band">no kind yet</span>
+  <span class="band">{NO_KIND}</span>
   {#if editing}
     <input bind:this={field} value={title} oninput={(e) => ontitle(e.currentTarget.value)} onkeydown={keydown}
       aria-label="Name the box" placeholder="Name" autocomplete="off" spellcheck="false" />

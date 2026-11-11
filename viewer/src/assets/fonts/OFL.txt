@@ -1,6 +1,6 @@
 Excalifont, bundled from @excalidraw/excalidraw 0.18.0 (dist/prod/fonts/Excalifont).
-Copyright (c) 2023 Excalidraw contributors (https://github.com/excalidraw/excalidraw), with Reserved Font Name Excalifont.
-The package ships no licence file; this is the standard SIL Open Font License 1.1 text.
+Copyright (c) 2024 by Excalidraw. All rights reserved.
+The font file embeds the OFL-1.1 licence (source: https://plus.excalidraw.com/excalifont); the standard text follows.
 
 -----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007

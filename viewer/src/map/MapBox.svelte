@@ -12,6 +12,7 @@
   import { boxLogo } from "./logo";
   import { steady } from "./camera";
   import { iconMask, kindOf } from "./edit/add";
+  import { NO_KIND } from "./edit/kinds";
   import Code from "./Code.svelte";
   import Table from "./Table.svelte";
   import type { TableMark } from "./diff";
@@ -92,7 +93,7 @@
   // a shape's outline is its kind's hue unless a status (health, build, drift…) says otherwise
   const neutral = $derived(look.edge === "var(--map-edge)");
   const edge = $derived(code && neutral ? "var(--map-line)" : group && neutral ? "var(--map-faint)" : look.edge);
-  const pad = $derived(drawn ? padOf(drawn, w, h).map((p) => `${p}px`).join(" ") : opened ? "0" : group ? `${gap[2] + 6}px 14px 12px` : far ? "10px 12px" : "12px 14px");
+  const pad = $derived(drawn ? padOf(drawn, w, h).map((p) => `${p}px`).join(" ") : opened ? "0" : group ? `${gap[2] + 6}px 14px 12px` : kind === "box" ? "28px 14px 12px" : far ? "10px 12px" : "12px 14px");
   const centred = $derived(face && detail === "far");
   const shown = $derived(detail === "near" ? chips : face && detail === "mid" ? status : []);
   // open, its corners keep their size on screen
@@ -126,6 +127,7 @@
       <Shape shape="group" {w} {h} edge={neutral ? null : look.edge} dashed width={look.width * m} glow={null} {gap} />
       <b class="edge-label" style:font-size="{labelSize}px" style:line-height="{gap[2]}px" style:padding="0 {labelSize * 0.5}px" style:left="{gap[0]}px">{title}</b>
     {/if}
+    {#if kind === "box"}<span class="band">{NO_KIND}</span>{/if}
     <!-- open, its header and code are drawn at screen size: laid out 1/m as large, scaled by m -->
     <span class="body" class:steady={opened} style:width={opened ? `${100 / m}%` : null} style:height={opened ? `${100 / m}%` : null}
       style:transform={opened ? `scale(${m})` : null}>
@@ -172,6 +174,7 @@
 <style>
   button { font: inherit; color: var(--map-fg); text-align: left; cursor: pointer; font-family: var(--font-sans); }
   .card { position: relative; isolation: isolate; width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .band { position: absolute; left: 0; right: 0; top: 0; padding: 4px 10px; font: 600 11px/14px var(--font-sans); color: var(--map-faint); border-bottom: 1px dashed var(--map-line-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .card.reading { outline: 2px dotted var(--map-gold); outline-offset: 3px; }
   /* the focus ring must stay distinct from the needs-reading dots */
   .card:focus-visible, .card.reading:focus-visible, .figure:focus-visible, .chip-box:focus-visible { outline: 3px solid var(--map-blue); outline-offset: 3px; }

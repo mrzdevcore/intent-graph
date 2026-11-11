@@ -222,3 +222,12 @@ test("the card says what to do with a box not in ig/, and nothing for a group th
   expect(card(box({ origin: "unmanaged" }))).toContain("Not in ig/: add a box named like it, or link one with runs=");
   expect(card(box())).not.toContain("Not in ig/");
 });
+
+test("a box of kind box is dashed, edged and filled like a draft, with its band", () => {
+  const t = render(box({ kind: f("box"), title: f("Thing") }));
+  const card = t.querySelector<HTMLElement>(".card")!;
+  expect(card.style.borderStyle).toBe("dashed");
+  expect(card.style.borderColor).toBe("var(--map-edge)");
+  expect(card.style.background).toContain("var(--map-surface)");
+  expect(t.querySelector(".band")!.textContent).toBe("no kind yet");
+});
