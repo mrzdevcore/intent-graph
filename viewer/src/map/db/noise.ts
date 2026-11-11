@@ -111,8 +111,9 @@ function rebuild(view: View, s: Noise, dropHubs: boolean): View {
     placed: { ...view.placed, frames, inner, regions: view.placed.regions.filter((r) => !emptied.has(r.parent) && !gone.has(r.parent)) },
   };
   const bare = boxesOut.filter((b) => !frames[b.id] && (tables[b.id] || groupsOut[b.id]));
+  const empty = boxesOut.filter((b) => groupsOut[b.id] && frames[b.id] && !inner[b.id] && boxesOut.some((k) => k.parent === b.id && tables[k.id] && !frames[k.id]));
   if (!bare.length) return next;
-  size(next, bare, tables);
+  size(next, bare, empty, tables);
   const prev = settle({}, view, {}, null);
   for (const id of [...gone, ...emptied, ...moved.keys()]) delete prev[id];
   return shownView(next, settle(prev, next, {}, null));
@@ -120,7 +121,7 @@ function rebuild(view: View, s: Noise, dropHubs: boolean): View {
 
 const GUTTER = 96;
 
-function size(view: View, bare: MapBox[], tables: Record<string, Table>) {
+function size(view: View, bare: MapBox[], empty: MapBox[], tables: Record<string, Table>) {
   const { frames, inner } = view.placed;
   const card = (id: string) => {
     const t = tables[id], rows = Math.max(t.columns.length + (t.translations?.length ? 1 : 0), 2);
@@ -128,7 +129,7 @@ function size(view: View, bare: MapBox[], tables: Record<string, Table>) {
   };
   const ratios = Object.keys(view.tableGroups ?? {}).flatMap((g) => (frames[g] && inner[g] ? [frames[g].w / inner[g][0]] : [])).sort((a, b) => a - b);
   const scale = ratios[Math.floor(ratios.length / 2)] ?? 0.4;
-  for (const g of bare.filter((b) => view.tableGroups?.[b.id])) {
+  for (const g of [...bare.filter((b) => view.tableGroups?.[b.id]), ...empty]) {
     const kids = bare.filter((b) => b.parent === g.id && tables[b.id]);
     const cols = Math.max(1, Math.ceil(Math.sqrt(kids.length)));
     const at = (i: number) => ({ c: i % cols, r: Math.floor(i / cols) });
@@ -140,7 +141,7 @@ function size(view: View, bare: MapBox[], tables: Record<string, Table>) {
     });
     const w = GUTTER * 2 + cols * wide + (cols - 1) * GUTTER, h = GUTTER * 2 + rowH.reduce((n, x) => n + x, 0) + (rowH.length - 1) * GUTTER;
     inner[g.id] = [w, h];
-    frames[g.id] = { x: 0, y: 0, w: w * scale, h: h * scale + HEAD };
+    frames[g.id] ??= { x: 0, y: 0, w: w * scale, h: h * scale + HEAD };
   }
   for (const b of bare) if (!frames[b.id] && tables[b.id]) frames[b.id] = card(b.id);
 }

@@ -4,8 +4,8 @@
   import type { View } from "./types";
   import { ends, find, trace, type Trace } from "./search";
 
-  let { view, onopen, ontrace }: {
-    view: View; onopen: (id: string) => void; ontrace: (t: Trace | null) => void;
+  let { view, drawn = view, onopen, ontrace }: {
+    view: View; drawn?: View; onopen: (id: string) => void; ontrace: (t: Trace | null) => void;
   } = $props();
 
   let q = $state("");
@@ -15,8 +15,8 @@
 
   const pair = $derived(ends(q));
   const hits = $derived(pair ? [] : find(view, q));
-  const tips = $derived(pair ? pair.map((e) => find(view, e, 1)[0]) : []);
-  const chain = $derived(tips[0] && tips[1] ? trace(view, tips[0].box.id, tips[1].box.id) : null);
+  const tips = $derived(pair ? pair.map((e) => find(drawn, e, 1)[0]) : []);
+  const chain = $derived(tips[0] && tips[1] ? trace(drawn, tips[0].box.id, tips[1].box.id) : null);
   const title = (id: string) => view.boxes.find((b) => b.id === id)?.title.value ?? id;
   const missing = $derived(pair?.find((_, i) => !tips[i]));
   $effect(() => {

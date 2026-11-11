@@ -529,3 +529,32 @@ fn the_view_names_its_fields_as_the_viewer_reads_them() {
         "translations"
     );
 }
+
+#[test]
+fn a_domain_of_join_tables_only_is_left_out_of_the_layout() {
+    let join = |n: &str| {
+        plain_table(
+            n,
+            vec![
+                Column {
+                    pk: true,
+                    ..fk("a", "alpha")
+                },
+                Column {
+                    pk: true,
+                    ..fk("b", "beta")
+                },
+            ],
+        )
+    };
+    let (t, placed) = laid_out(vec![
+        plain_table("alpha", vec![pk("id")]),
+        plain_table("beta", vec![pk("id")]),
+        join("role_x"),
+        join("role_y"),
+        join("role_z"),
+    ]);
+    assert!(t.folded.contains("db#role_*"));
+    assert!(!placed.frames.contains_key("db#role_*"));
+    assert!(placed.frames.contains_key("db#alpha"));
+}

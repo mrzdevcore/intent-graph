@@ -75,6 +75,11 @@
   const view = $derived(applyNoise(given, noise));
   const homes = $derived(new Map(given.boxes.map((b) => [b.id, b.parent])));
   const shifted = (v: View) => v.boxes.filter((b) => homes.get(b.id) !== b.parent).map((b) => b.id);
+  const aside = () => {
+    const drawn = new Set(view.boxes.map((b) => b.id)), moved = new Set(shifted(view));
+    const bare = (k: string) => (isInside(k) ? k.slice(0, -1) : k);
+    return Object.fromEntries(Object.entries(store.snapshot()).filter(([k]) => homes.has(bare(k)) && (!drawn.has(bare(k)) || moved.has(bare(k)))));
+  };
   const unshifted = (places: Record<string, Place>, v: View) => {
     const out = { ...places };
     for (const id of shifted(v)) delete out[id];
@@ -158,7 +163,7 @@
     if (record) history[record](c.before, c.after);
     const from = showing;
     truth = next;
-    store.replace(unshifted(next, view));
+    store.replace({ ...aside(), ...unshifted(next, view) });
     glidePlaces(from, instant);
   }
   // a confirmed draft: its box lands where and as big as it was drawn once the view holds it
@@ -1425,7 +1430,7 @@
   <Controls {crumbs} {layers} {on} oncrumb={fly} low={!!edit}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     {wheelPref} onwheel={setPref} {arrowPref} arrowHere={shapeHere} onarrows={setArrows} {endsPref} onends={setEnds} {noise} onnoise={setNoise} onarrange={arrangeMap}>
-    <Search view={given} onopen={(id) => { traced = null; byId.has(id) ? openBox(id) : openFocus(id); }} ontrace={lightPath} />
+    <Search view={given} drawn={view} onopen={(id) => { traced = null; byId.has(id) ? openBox(id) : openFocus(id); }} ontrace={lightPath} />
   </Controls>
   {#if edit}
     <Island tool={tool.current} locked={tool.locked} onpick={(t, lock) => tool.pick(t, lock)} onarrange={arrangeMap}

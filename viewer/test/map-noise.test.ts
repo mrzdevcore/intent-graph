@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 import Map from "../src/map/Map.svelte";
 import MapBox from "../src/map/MapBox.svelte";
+import Search from "../src/map/Search.svelte";
 import Controls from "../src/map/Controls.svelte";
 import { Camera } from "../src/map/glide";
 import { fitTo, worldFrame } from "../src/map/camera";
@@ -291,4 +292,76 @@ test("on the map, Fold join tables off draws the join table clear of its neighbo
   const r = rects(drawn);
   r.forEach((a, i) => r.forEach((b, j) => i < j && expect(overlaps(a, b, 0)).toBe(false)));
   target.remove();
+});
+
+function rolesView(frameless: boolean): View {
+  const v = dbView();
+  const R = `${S}#role_*`;
+  const join = (n: string) => table(n, [col("u", { pk: true, ...ref("shop_users") }), col("t", { pk: true, ...ref("shop_tags") })]);
+  v.boxes.push({ id: R, parent: S, level: "component", madeOf: [], files: 1, kind: f("group"), title: f(R) });
+  v.tableGroups![R] = "domain";
+  for (const n of ["role_x", "role_y", "role_z"]) {
+    v.tables![id(n)] = join(n);
+    v.boxes.push({ id: id(n), parent: R, level: "code", madeOf: [], files: 1, kind: f("table"), title: f(n) });
+  }
+  if (!frameless) v.placed.frames[R] = { x: 1100, y: 0, w: 300, h: 300 };
+  v.arrows.push(...["role_x", "role_y", "role_z"].map((n) => link(n, "shop_users", { parent: S, via: n, id: `${id("shop_users")}->${id("shop_tags")} via ${n}`, from: id("shop_users"), to: id("shop_tags") })));
+  return v;
+}
+
+test("a domain of join tables only: joins folded, the group goes with them; unfolded, its cards are laid out and it opens", () => {
+  for (const frameless of [true, false]) {
+    const on = applyNoise(rolesView(frameless));
+    expect(ids(on)).not.toContain(`${S}#role_*`);
+    expect(Object.keys(on.placed.frames).some((k) => k.includes("role_"))).toBe(false);
+    const open = applyNoise(rolesView(frameless), off("joins"));
+    const R = `${S}#role_*`;
+    expect(open.placed.inner[R]).toBeDefined();
+    expect(open.placed.frames[R]).toBeDefined();
+    const cards = ["role_x", "role_y", "role_z"].map((n) => open.placed.frames[id(n)]);
+    cards.forEach((a, i) => cards.forEach((b, j) => i < j && expect(overlaps(a, b, 0)).toBe(false)));
+  }
+});
+
+test("a search path runs over what is drawn, and a hit on a folded table opens it in the focus", () => {
+  const target = document.createElement("div");
+  document.body.append(target);
+  const given = dbView();
+  const m = mount(Search, { target, props: { view: given, drawn: applyNoise(given), onopen: () => {}, ontrace: () => {} } });
+  mounted.push(m);
+  const type = (q: string) => {
+    const input = target.querySelector("input")!;
+    target.querySelector(".search")!.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input.value = q;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    return target.querySelector(".drop")!.textContent!;
+  };
+  expect(type("shop_item_tags to shop_tags")).toContain("No box matches");
+  expect(type("shop_items to shop_tags")).toContain("step");
+  target.remove();
+});
+
+test("on the map, a hit on a folded translations table opens the focus; a persisted place outlives its box being hidden", () => {
+  const kept: Record<string, string> = {};
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => kept[k] ?? null, setItem: (k: string, v: string) => (kept[k] = v), removeItem: (k: string) => delete kept[k],
+  });
+  const { at, fit, flip, target } = mapOf();
+  const places = () => Object.entries(kept).filter(([k]) => k.startsWith("ig-places")).map(([, v]) => JSON.parse(v) as Record<string, unknown>)[0] ?? {};
+  fit(G);
+  flip("Fold join tables");
+  expect(at()).toContain(id("shop_item_tags"));
+  expect(places()[id("shop_item_tags")]).toBeDefined();
+  flip("Fold join tables");
+  expect(at()).not.toContain(id("shop_item_tags"));
+  expect(places()[id("shop_item_tags")]).toBeDefined();
+  const input = target.querySelector('input[aria-label="Search the map"]') as HTMLInputElement;
+  input.value = "shop_orders_translations";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  flushSync();
+  expect(target.querySelector(".focus")).not.toBeNull();
+  target.remove();
+  vi.unstubAllGlobals();
 });

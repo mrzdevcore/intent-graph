@@ -209,6 +209,15 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
             },
         );
     }
+    for gid in out.groups.keys() {
+        let mut kids = out
+            .boxes
+            .iter()
+            .filter(|b| b.parent.as_deref() == Some(gid));
+        if kids.all(|b| out.folded.contains(&b.id)) {
+            out.folded.insert(gid.clone());
+        }
+    }
     out.arrows.retain(|a| a.from != a.to);
     out.arrows.sort_by(|a, b| a.id.cmp(&b.id));
     out.arrows.dedup_by(|a, b| a.id == b.id);
