@@ -76,7 +76,8 @@ diagrams with cardinality (0..1, 1, 0..n, n..n), and a table tree to find and pi
   (join tables and the `(translations)` group get no frame); the viewer places whatever a switch brings
   back. With Pin hubs on, only foreign-key hub arrows are hidden; a pinned `via` arrow stays drawn.
   A table box is as tall as its keys-only card and a domain box takes its tables' shape, so an opened
-  domain reads at fit; near, every column is shrunk into the box once it can be read.
+  domain reads at fit; near, every column is shrunk into the box once it can be read. A store whose
+  children are all tables (no domains) takes their shape the same way.
 - **The viewer draws**: Table.svelte at three distances; cardinality ends drawn at wire ends by a small
   pure module (`viewer/src/map/db/ends.ts`) used by the map's wires and by the focus view; row-to-row
   attachment: a table arrow's end attaches at its column's row on the card (an anchor offset fed to the
