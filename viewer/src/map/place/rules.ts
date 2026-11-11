@@ -51,11 +51,12 @@ function away(b: Place, a: Place, gap: number, avoid: Place[]): Place {
   return best;
 }
 
-export function nudge(placed: Record<string, Place>, held: string, gap: number): Record<string, Place> {
-  const out = { ...placed };
-  if (!out[held]) return out;
-  const ids = Object.keys(out).filter((id) => id !== held && !isInside(id)).sort();
-  const fixed = new Set([held]), queue = [held];
+// several held boxes stay where they are, together: only the others make room
+export function nudge(placed: Record<string, Place>, held: string | string[], gap: number): Record<string, Place> {
+  const out = { ...placed }, hold = (typeof held === "string" ? [held] : held).filter((id) => out[id]);
+  if (!hold.length) return out;
+  const ids = Object.keys(out).filter((id) => !hold.includes(id) && !isInside(id)).sort();
+  const fixed = new Set(hold), queue = [...hold];
   while (queue.length) {
     const a = out[queue.shift()!];
     for (const id of ids) {
@@ -66,7 +67,7 @@ export function nudge(placed: Record<string, Place>, held: string, gap: number):
     }
   }
   for (const id of ids) {
-    const others = [held, ...ids].filter((o) => o !== id), hit = others.find((o) => overlaps(out[o], out[id]));
+    const others = [...hold, ...ids].filter((o) => o !== id), hit = others.find((o) => overlaps(out[o], out[id]));
     if (hit) out[id] = away(out[id], out[hit], gap, others.map((o) => out[o]));
   }
   return out;
@@ -130,7 +131,7 @@ export function rekey(places: Record<string, Place>, renames: [string, string][]
   return out;
 }
 
-function nudgeIn(out: Record<string, Place>, t: Tree, parent: string, held: string) {
+function nudgeIn(out: Record<string, Place>, t: Tree, parent: string, held: string | string[]) {
   const sib: Record<string, Place> = {};
   for (const id of t.kidsOf.get(parent) ?? []) if (out[id]) sib[id] = out[id];
   Object.assign(out, nudge(sib, held, GRID));
@@ -168,10 +169,13 @@ export function settle(prev: Record<string, Place>, next: View, frames: Record<s
     out[id] = freeSpot(p, id, sib, next.arrows);
     touched.add(p);
   }
+  const holds = new Map<string, string[]>();
   for (const id of new Set([...Object.keys(frames), ...(held ? [held] : [])])) {
     const p = t.parentOf.get(id);
-    if (p === undefined || !out[id]) continue;
-    nudgeIn(out, t, p, id);
+    if (p !== undefined && out[id]) holds.set(p, [...(holds.get(p) ?? []), id]);
+  }
+  for (const [p, ids] of holds) {
+    nudgeIn(out, t, p, ids);
     touched.add(p);
   }
   for (const p of touched) growUp(out, t, p);

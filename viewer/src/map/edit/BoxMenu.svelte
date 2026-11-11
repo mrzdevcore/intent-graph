@@ -51,7 +51,7 @@
     } else if ((e.metaKey || e.ctrlKey) && !e.altKey && MOD[k] && items.some(([a]) => a === MOD[k])) {
       e.preventDefault();
       e.stopPropagation();
-      onpick(k === "c" && e.shiftKey ? "copyAll" : MOD[k]);
+      onpick(e.shiftKey && k === "c" ? "copyAll" : e.shiftKey && k === "d" ? "duplicateAll" : MOD[k]);
     } else menuKeys(e, top(), onclose);
   }
 </script>

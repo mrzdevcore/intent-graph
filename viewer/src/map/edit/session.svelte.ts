@@ -24,7 +24,7 @@ export type Ctx = {
   draftAt: (g: { parent: string; x: number; y: number }) => void;
   details: (id: string) => void;
   open: (id: string) => void;
-  clip: (a: Clipped, id: string) => void;
+  clip: (a: Clipped, id: string, p: { x: number; y: number }) => void;
   pasteAt: (g: { parent: string; x: number; y: number }) => void;
 };
 type Pt = { x: number; y: number };
@@ -311,7 +311,7 @@ export class EditSession {
       this.kinds = [id];
     } else if (a === "details") this.c.details(id);
     else if (a === "code") this.c.open(id);
-    else if (a === "copy" || a === "copyAll" || a === "paste" || a === "duplicate") this.c.clip(a, id);
+    else if (a === "copy" || a === "copyAll" || a === "paste" || a === "duplicate" || a === "duplicateAll") this.c.clip(a, id, p);
     else this.remove([id]);
   }
   setKind(ids: string[], value: string) {

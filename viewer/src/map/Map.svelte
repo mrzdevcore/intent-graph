@@ -569,7 +569,7 @@
       }
       if (mod && k === "v" && clip) {
         clearTimeout(pasteTimer);
-        pasteTimer = setTimeout(() => clip && pasteHere(clip.copy), 100);
+        pasteTimer = setTimeout(() => clip && canPaste(document.activeElement) && pasteHere(clip.copy), 100);
       }
       if (plain && selected && shortcuts[k] && (k !== "o" || hasCode(selected))) {
         e.preventDefault();
@@ -899,7 +899,7 @@
   }
   function pasteIn(c: Copy, parent: string, at: { x: number; y: number } | null) {
     if (!api || !c.boxes.length) return;
-    const r = paste(c, parent, at, view), first = r.ids[0];
+    const r = paste(c, parent, at, view, ROOT), first = r.ids[0];
     if (!first) return;
     const was = landing, { [first]: place, ...also } = r.places;
     landing = { id: first, place, also, pick: r.ids };
@@ -909,24 +909,23 @@
     }));
     if (!sent) landing = was;
   }
-  const roomMiddle = (id: string) => {
-    const r = truth[innerKey(id)];
-    return r ? { x: r.x + r.w / 2, y: r.y + r.h / 2 } : null;
-  };
-  // under the pointer: inside the closed box there, else on the ground of the open box; off the map, where the copy came from
-  function pasteHere(c: Copy) {
-    if (!onMap) return pasteIn(c, c.parent && byId.has(c.parent) ? c.parent : ROOT, null);
-    const closed = hot && hot !== ROOT && written(byId.get(hot)) && !stage.querySelector(`[data-box="${CSS.escape(hot)}"][data-open]`);
-    if (closed) return pasteIn(c, hot!, roomMiddle(hot!));
-    const hit = document.elementFromPoint?.(pointer.x, pointer.y), g = groundAt({ clientX: pointer.x, clientY: pointer.y, target: hit && stage.contains(hit) ? hit : stage });
+  const cameFrom = (c: Copy) => (c.parent && byId.has(c.parent) ? c.parent : ROOT);
+  // a closed box under the point is no target: the copy lands beside it, in the open box or group whose inside is there
+  function pasteAtScreen(c: Copy, x: number, y: number, parent?: string) {
+    const hit = document.elementFromPoint?.(x, y), g = groundAt({ clientX: x, clientY: y, target: hit && stage.contains(hit) ? hit : stage }, parent);
     pasteIn(c, g.parent, g);
   }
+  function pasteHere(c: Copy) {
+    if (!onMap) return pasteIn(c, cameFrom(c), null);
+    pasteAtScreen(c, pointer.x, pointer.y);
+  }
+  const canPaste = (t: EventTarget | null) => !!edit && !typing(t) && !sess.ui && !(t as Element | null)?.closest?.("[data-popover]");
   // a webview with no Paste in its menu sends no paste event for Cmd+V: the copy in the page goes in after a moment
   let pasteTimer: ReturnType<typeof setTimeout> | undefined;
   onDestroy(() => clearTimeout(pasteTimer));
   function pasted(e: ClipboardEvent) {
     clearTimeout(pasteTimer);
-    if (!edit || typing(e.target) || sess.ui || (e.target as Element | null)?.closest?.("[data-popover]")) return;
+    if (!canPaste(e.target)) return;
     const text = e.clipboardData?.getData("text/plain") ?? "";
     const c = clip && (!text || text === clip.text) ? clip.copy : text ? fromKdl(text, view.kinds) : null;
     if (!c) return;
@@ -935,13 +934,16 @@
   }
   function duplicate(ids: string[], inside: boolean) {
     const c = copy(ids, view, inside, truth);
-    pasteIn(c, c.parent && byId.has(c.parent) ? c.parent : ROOT, null);
+    pasteIn(c, cameFrom(c), null);
   }
-  function clipAct(a: Clipped, id: string) {
+  function clipAct(a: Clipped, id: string, p: { x: number; y: number }) {
     const ids = chosen().includes(id) ? chosen() : [id];
     if (a === "copy" || a === "copyAll") copyOut(ids, a === "copyAll");
-    else if (a === "duplicate") duplicate(ids, false);
-    else if (clip) pasteIn(clip.copy, id, roomMiddle(id));
+    else if (a === "duplicate" || a === "duplicateAll") duplicate(ids, a === "duplicateAll");
+    else if (clip) {
+      const r = stage.getBoundingClientRect();
+      pasteAtScreen(clip.copy, r.left + p.x, r.top + p.y, byId.get(id)?.parent ?? ROOT);
+    }
   }
   function align(dir: "row" | "column") {
     const ids = many.filter((id) => truth[id]);
@@ -970,7 +972,7 @@
       return { x: (d.x - o.x) * t.s + t.x, y: (d.y - o.y) * t.s + t.y, w: d.w * t.s, h: d.h * t.s };
     },
     ground: (e) => groundAt(e), draftAt: (g) => void draftAt(g), details, open: openBox,
-    clip: (a, id) => clipAct(a, id), pasteAt: (g) => clip && pasteIn(clip.copy, g.parent, g),
+    clip: (a, id, p) => clipAct(a, id, p), pasteAt: (g) => clip && pasteIn(clip.copy, g.parent, g),
   });
   const panelBox = $derived(edit && sess.panel?.box && sess.panel.box === selected ? byId.get(selected) : undefined);
   // the panel follows the selection to another box, and closes with it

@@ -77,6 +77,14 @@ test("an overlap nudges the other the fewest pixels, and repeats outward", () =>
   for (const a of vals) for (const b of vals) if (a !== b) expect(overlaps(a, b)).toBe(false);
 });
 
+test("several held boxes stay put together; a box pushed off one never pushes the other", () => {
+  const h1 = box(0, 0, 100, 100), h2 = box(0, 150, 100, 100);
+  const out = nudge({ h1, h2, b: box(10, 60, 100, 60) }, ["h1", "h2"], GRID);
+  expect([out.h1, out.h2]).toEqual([h1, h2]);
+  const vals = Object.values(out);
+  for (const a of vals) for (const b of vals) if (a !== b) expect(overlaps(a, b)).toBe(false);
+});
+
 test("a dense grid nudges until nothing overlaps, the held box still", () => {
   const placed: Record<string, Place> = {};
   for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) placed[`k${i}${j}`] = box(i * 124, j * 124, 100, 100);

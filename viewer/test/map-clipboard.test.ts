@@ -22,7 +22,8 @@ test("boxes alone: kind, title, own properties, context and size; no children, n
   const v = described(), c = copy(["api", "postgres"], v, false, places(v));
   expect(c.boxes.map((b) => b.id)).toEqual(["api", "postgres"]);
   expect(c.boxes[0]).toMatchObject({ kind: "app", title: "Api", props: { tech: "Node · express", owner: "payments" }, context: "Keep it\nstateless", place: v.placed.frames.api });
-  expect(c.arrows).toEqual([{ from: "api", to: "postgres", kind: "reads" }]);
+  expect(c.arrows).toEqual([]);
+  expect(toKdl(c)).toBe('app "api" title="Api" tech="Node · express" owner="payments" {\n    context "Keep it\\nstateless"\n}\nstore "postgres" title="Postgres"\n');
   expect(c.parent).toBe("system");
 });
 
@@ -39,7 +40,7 @@ test("with what's inside: the children and the arrows between copied boxes, with
 
 test("paste: one batch of adds and arrows, fresh ids, no at, titles get ' copy' next to the original", () => {
   const v = described(), c = copy(["api"], v, true, places(v));
-  const { batch, ids, places: at } = paste(c, "system", { x: 600, y: 600 }, v);
+  const { batch, ids, places: at } = paste(c, "system", { x: 600, y: 600 }, v, "system");
   expect(batch.op).toBe("batch");
   const a = adds(batch);
   expect(a[0]).toEqual({ op: "add", parent: "system", kind: "app", id: "api-2", title: "Api copy", at: [], before: null, props: { tech: "Node · express", owner: "payments" } });
@@ -62,16 +63,16 @@ test("paste: one batch of adds and arrows, fresh ids, no at, titles get ' copy' 
 test("paste again takes the next free id; into another map the ids and titles stay", () => {
   const v = fresh(), c = copy(["postgres"], v, false, places(v));
   v.boxes.push({ ...v.boxes.find((b) => b.id === "postgres")!, id: "postgres-2" });
-  expect(adds(paste(c, "system", null, v).batch)[0]).toMatchObject({ id: "postgres-3", title: "Postgres copy" });
+  expect(adds(paste(c, "system", null, v, "system").batch)[0]).toMatchObject({ id: "postgres-3", title: "Postgres copy" });
   const other = fresh();
   other.boxes = other.boxes.filter((b) => b.id !== "postgres");
-  expect(adds(paste(c, "system", null, other).batch)[0]).toMatchObject({ id: "postgres", title: "Postgres" });
-  expect(adds(paste(c, "web", null, fresh()).batch)[0]).toMatchObject({ id: "postgres-2", title: "Postgres" });
+  expect(adds(paste(c, "system", null, other, "system").batch)[0]).toMatchObject({ id: "postgres", title: "Postgres" });
+  expect(adds(paste(c, "web", null, fresh(), "system").batch)[0]).toMatchObject({ id: "postgres-2", title: "Postgres" });
 });
 
 test("pasted where the copy came from, off the map: beside the original, at the same height", () => {
   const v = fresh(), c = copy(["postgres", "stripe"], v, false, places(v));
-  const { places: at, ids } = paste(c, "system", null, v);
+  const { places: at, ids } = paste(c, "system", null, v, "system");
   const f = v.placed.frames, l = Math.min(f.postgres.x, f.stripe.x), r = Math.max(f.postgres.x + f.postgres.w, f.stripe.x + f.stripe.w);
   expect(ids).toEqual(["postgres-2", "stripe-2"]);
   expect(at["postgres-2"].x - f.postgres.x).toBe(r - l + 48);
@@ -120,7 +121,7 @@ folder "tools" title=r"Tools"
   expect(c.boxes[1].props).toEqual({});
   expect(c.boxes[4].title).toBe("Tools");
   expect(c.arrows).toEqual([{ from: "api/stripe", to: "api/payments", kind: "implements", note: "checked at boot" }, { from: "api", to: "api/orders", kind: "uses" }]);
-  const { batch } = paste(c, "system", { x: 0, y: 0 }, fresh());
+  const { batch } = paste(c, "system", { x: 0, y: 0 }, fresh(), "system");
   expect(adds(batch).map((a) => a.id)).toEqual(["api-2", "api-2/orders", "api-2/payments", "api-2/stripe", "tools"]);
 });
 

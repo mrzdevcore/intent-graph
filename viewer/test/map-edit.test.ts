@@ -1734,6 +1734,7 @@ test("a failed save shows the toast and the field keeps what was typed; a second
 });
 
 // --- copy and paste
+const slotOf = (t: HTMLElement, id: string) => t.querySelector(`[data-box="${id}"]`) as HTMLElement;
 const pasteText = (text: string) => {
   const dt = new DataTransfer();
   dt.setData("text/plain", text);
@@ -1771,7 +1772,7 @@ test("Cmd+C copies the selected box as ig/ text; Cmd+V off the map pastes it bes
   vi.restoreAllMocks();
 });
 
-test("Cmd+Shift+C copies with what's inside; pasting at the pointer goes into the box under it", async () => {
+test("Cmd+Shift+C copies with what's inside; at the pointer over a closed box the paste lands beside it, in its parent", async () => {
   const texts = copied();
   const { api, got } = recorder();
   const target = harness(api);
@@ -1784,7 +1785,7 @@ test("Cmd+Shift+C copies with what's inside; pasting at the pointer goes into th
   await tick();
   expect(got).toHaveLength(1);
   expect((got[0] as Extract<Edit, { op: "batch" }>).edits.filter((x) => x.op === "add").map((x) => [(x as { parent: string }).parent, (x as { id: string }).id]))
-    .toEqual([["postgres", "web-2"], ["web-2", "web-2/pages"]]);
+    .toEqual([["system", "web-2"], ["web-2", "web-2/pages"]]);
   vi.restoreAllMocks();
 });
 
@@ -1859,18 +1860,76 @@ test("several boxes pasted are all selected once the view holds them", async () 
   vi.restoreAllMocks();
 });
 
-test("Cmd+V with no paste event from the webview pastes the copy in the page; with one, only once", async () => {
+test("Cmd+V with no paste event from the webview pastes the copy in the page; with one, only once; not once a popover opened", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const { api, got } = recorder();
   const target = harness(api);
   select(target, "postgres");
   (document.activeElement as HTMLElement | null)?.blur();
   press("c", { metaKey: true });
   press("v", { metaKey: true });
-  await new Promise((r) => setTimeout(r, 150));
+  await vi.advanceTimersByTimeAsync(150);
   expect(got).toHaveLength(1);
-  await tick();
   press("v", { metaKey: true });
   pasteText("");
-  await new Promise((r) => setTimeout(r, 150));
+  await vi.advanceTimersByTimeAsync(150);
   expect(got).toHaveLength(2);
+  press("v", { metaKey: true });
+  rightClick(target, "web");
+  await vi.advanceTimersByTimeAsync(150);
+  expect(got).toHaveLength(2);
+  vi.useRealTimers();
+});
+
+test("plain Copy and Duplicate take no arrows; with what's inside, the arrows between the copied boxes", async () => {
+  const texts = copied();
+  const { api, got } = recorder();
+  const target = harness(api);
+  select(target, "api");
+  shiftClick(target, "postgres");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("c", { metaKey: true });
+  expect(texts[0]).not.toContain("reads");
+  press("d", { metaKey: true });
+  await tick();
+  press("c", { metaKey: true, shiftKey: true });
+  expect(texts[1]).toContain('reads "postgres"');
+  const ops = (e: Edit) => (e as Extract<Edit, { op: "batch" }>).edits.filter((x) => x.op === "arrow");
+  expect(ops(got[0])).toEqual([]);
+  press("d", { metaKey: true, shiftKey: true });
+  await tick();
+  expect(ops(got[1])).toContainEqual({ op: "arrow", from: "api-2", to: "postgres-2", kind: "reads", label: null });
+  rightClick(target, "web");
+  press("d", { metaKey: true, shiftKey: true }, menuOf(target)!);
+  await tick();
+  const adds = (got[2] as Extract<Edit, { op: "batch" }>).edits.flatMap((x) => (x.op === "add" ? [x.id] : []));
+  expect(adds).toEqual(["web-2", "web-2/pages"]);
+  vi.restoreAllMocks();
+});
+
+test("several boxes pasted over others: the neighbours make room, nothing overlaps, the pasted keep their places to each other", async () => {
+  const texts = copied(), v = fresh();
+  for (const [of, id] of [["postgres", "postgres-2"], ["stripe", "stripe-2"]]) {
+    v.boxes.push({ ...structuredClone(v.boxes.find((b) => b.id === of)!), id });
+    v.placed.frames[id] = { ...v.placed.frames[of], y: v.placed.frames[of].y + 800 };
+  }
+  const target = harness(fake({ apply: async () => v }).api);
+  const places = (): Record<string, { x: number; y: number; w: number; h: number }> =>
+    JSON.parse(localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith("ig-places:"))!)!);
+  const [tx, ty, k] = (target.querySelector(".world") as HTMLElement).style.transform.match(/-?[\d.]+/g)!.map(Number);
+  const web = slotOf(target, "web"), at = { x: tx + (px(web, "left") + px(web, "width") / 2) * k, y: ty + (px(web, "top") + px(web, "height") / 2) * k };
+  select(target, "postgres");
+  shiftClick(target, "stripe");
+  (document.activeElement as HTMLElement | null)?.blur();
+  press("c", { metaKey: true });
+  boxEl(target, "web").dispatchEvent(new PointerEvent("pointerover", { bubbles: true, clientX: at.x, clientY: at.y }));
+  pasteText(texts[0]);
+  await tick();
+  flushSync();
+  const p = places(), f = v.placed.frames, ids = ["web", "api", "api-client", "postgres", "stripe", "postgres-2", "stripe-2"];
+  const over = (a: string, b: string) => p[a].x < p[b].x + p[b].w && p[b].x < p[a].x + p[a].w && p[a].y < p[b].y + p[b].h && p[b].y < p[a].y + p[a].h;
+  for (const a of ids) for (const b of ids) if (a < b) expect(over(a, b), `${a} on ${b}`).toBe(false);
+  expect([p["stripe-2"].x - p["postgres-2"].x, p["stripe-2"].y - p["postgres-2"].y]).toEqual([f.stripe.x - f.postgres.x, f.stripe.y - f.postgres.y]);
+  expect(p.web).not.toEqual(f.web);
+  vi.restoreAllMocks();
 });

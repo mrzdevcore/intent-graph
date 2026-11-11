@@ -50,7 +50,7 @@ export function copy(ids: string[], view: View, inside: boolean, places: Record<
   };
   for (const id of tops) take(byId.get(id)!, null, 0);
   const arrows: CopyArrow[] = [], keys = new Set<string>();
-  for (const a of view.arrows.filter((x) => !x.ghost).flatMap(flat)) {
+  for (const a of inside ? view.arrows.filter((x) => !x.ghost).flatMap(flat) : []) {
     const key = `${a.from}>${a.to}`;
     if (a.kind === "bundle" || a.origin === "drift" || a.origin === "unmanaged" || keys.has(key) || !seen.has(a.from) || !seen.has(a.to)) continue;
     keys.add(key);
@@ -301,8 +301,7 @@ function fresh(id: string, parent: string, root: string, taken: Set<string>): st
 
 const BOX = { w: 10 * GRID, h: 6 * GRID };
 
-export function paste(c: Copy, parent: string, at: { x: number; y: number } | null, view: View): { batch: Edit; places: Record<string, Place>; ids: string[] } {
-  const root = view.boxes.find((b) => !b.parent)?.id ?? "system";
+export function paste(c: Copy, parent: string, at: { x: number; y: number } | null, view: View, root: string): { batch: Edit; places: Record<string, Place>; ids: string[] } {
   const byId = new Map(view.boxes.map((b) => [b.id, b])), taken = new Set(view.boxes.map((b) => b.id));
   const ids = new Map<string, string>(), edits: Edit[] = [], places: Record<string, Place> = {}, tops: string[] = [];
   const beside = (b: CopyBox) => byId.has(b.id) && (byId.get(b.id)!.parent ?? root) === parent;
