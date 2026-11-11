@@ -1,10 +1,7 @@
 import type { ArrowShape, Frame, MapArrow } from "./types";
 import { BEND, SPREAD, across, halfway, length, path, pins, pt, r2, straight, type End, type P, type Side } from "./shapes/path";
 
-/** An arrow drawn as a wire: its SVG path and the point halfway along it. */
 export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]] };
-/** "routed": each wire on its own track, spread over the gaps; "ribbon": wires gathered into as
- *  few trunks as they can share, packed close, a sleeve behind each trunk. */
 export type Mode = "routed" | "ribbon";
 export type Wiring = { wires: Map<string, Wire>; sleeves: { d: string; w: number }[] };
 
@@ -156,7 +153,6 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
       chosen[a.id] = rf < rt ? ["b", "t"] : rf > rt ? ["t", "b"] : ["b", "b"];
       more = true;
     }
-    // a box under one end in a chained row: over the top instead, if that way is clear
     if (!more)
       for (const a of live) {
         const c = chosen[a.id], skip = [a.from, a.to];

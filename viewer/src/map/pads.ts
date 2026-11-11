@@ -82,7 +82,6 @@ export const sideAt = (f: Frame, [x, y]: P): Side => {
 
 export type Outside = { frame: Frame; wire: (a: MapArrow) => { ends: [P, P] } | undefined };
 
-// the side the outside wire ends on, else facing the far box; with neither, out right and in left
 export function padsOf(
   view: View, id: string, frame: { w: number; h: number }, childFrame: (id: string) => Frame | undefined, on: Set<string>,
   worldOf?: (id: string) => Frame | undefined, outside?: Outside,
