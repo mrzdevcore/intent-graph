@@ -42,7 +42,6 @@ pub fn discover(
     discover_named(frontends, files, config).map(|(ws, _)| ws)
 }
 
-/// `discover`, and each frontend's own name for the folders it named.
 fn discover_named(
     frontends: &[&dyn LanguageFrontend],
     files: &dyn Files,
@@ -71,7 +70,6 @@ fn discover_named(
     Ok((files.discover(config, &layout)?, own))
 }
 
-/// `ws` with the packages `own` names called by those names.
 fn named_by(ws: &WorkspaceInfo, own: &[Package]) -> Option<WorkspaceInfo> {
     let same = (ws.packages.iter()).all(|p| own.iter().all(|o| o.dir != p.dir || o.name == p.name));
     if same {

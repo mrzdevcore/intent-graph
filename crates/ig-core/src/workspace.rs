@@ -15,7 +15,6 @@ pub struct Package {
 /// files are source.
 pub struct Layout<'a> {
     pub packages: Vec<Package>,
-    /// The root is a package too when none is at `.`.
     pub keep_root: bool,
     pub fences: Vec<&'static str>,
     pub source: &'a (dyn Fn(&str) -> bool + Sync),
