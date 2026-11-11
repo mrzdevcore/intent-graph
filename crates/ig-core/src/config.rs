@@ -117,6 +117,7 @@ impl Default for Config {
                 "**/conftest.py".into(),
                 "**/tests.rs".into(),
                 "**/tests/**/*.rs".into(),
+                "**/*_test.go".into(),
             ],
             test_calls: vec!["describe".into(), "it".into(), "test".into()],
             patterns: vec![],

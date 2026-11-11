@@ -120,6 +120,12 @@ fn prefix_packages() {
 }
 
 #[test]
+fn go_modules() {
+    let (b, _) = map(&[PKG, ("src/a.ts", "github.com/jackc/pgx/v5")], "");
+    assert_eq!(containers(&b), [("postgres", "PostgreSQL", BoxKind::Store)]);
+}
+
+#[test]
 fn only_tests_import_it() {
     let (b, _) = map(&[PKG, ("test/a.ts", "redis")], "tests: ['test/**']\n");
     assert_eq!(containers(&b), []);

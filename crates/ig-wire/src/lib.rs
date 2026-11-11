@@ -10,6 +10,7 @@ use ig_core::ports::{Connector, LanguageFrontend, Vcs};
 use ig_core::workspace::NEVER_WALKED;
 use ig_fs::FsFiles;
 use ig_git::GitVcs;
+use ig_lang_go::GoFrontend;
 use ig_lang_py::PyFrontend;
 use ig_lang_rs::RsFrontend;
 use ig_lang_ts::TsFrontend;
@@ -21,7 +22,8 @@ use std::time::Duration;
 pub use notify::RecommendedWatcher;
 
 /// Every language ig reads, in the order they claim a file.
-pub static FRONTENDS: &[&dyn LanguageFrontend] = &[&TsFrontend, &PyFrontend, &RsFrontend];
+pub static FRONTENDS: &[&dyn LanguageFrontend] =
+    &[&TsFrontend, &PyFrontend, &RsFrontend, &GoFrontend];
 
 /// Every connector `ig view` can read from; nothing else calls one.
 pub static CONNECTORS: &[&dyn Connector] = &[&IncusConnector, &TraefikConnector];

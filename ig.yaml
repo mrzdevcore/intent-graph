@@ -8,6 +8,7 @@ layers:
   ig-desktop: ["ig-desktop"]
   ig-fs: ["ig-fs"]
   ig-git: ["ig-git"]
+  ig-lang-go: ["ig-lang-go"]
   ig-lang-py: ["ig-lang-py"]
   ig-lang-rs: ["ig-lang-rs"]
   ig-lang-ts: ["ig-lang-ts"]
