@@ -8,16 +8,34 @@ pub mod folders;
 use ig_core::config::Config;
 use ig_core::ports::{Files, PortError};
 use ig_core::workspace::{Layout, NEVER_WALKED, WorkspaceInfo, globset, rel};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 /// Files under `root`.
 pub struct FsFiles {
     pub root: PathBuf,
+    git: Mutex<Option<Option<Arc<BTreeSet<String>>>>>,
 }
 
 impl FsFiles {
     pub fn new(root: impl Into<PathBuf>) -> FsFiles {
-        FsFiles { root: root.into() }
+        FsFiles {
+            root: root.into(),
+            git: Mutex::new(None),
+        }
+    }
+
+    // the readers' walks share one git run, and discovery takes it so the next build lists afresh
+    fn listed(&self, take: bool) -> Option<Arc<BTreeSet<String>>> {
+        let mut git = self.git.lock().unwrap_or_else(|e| e.into_inner());
+        let listed = git
+            .get_or_insert_with(|| discover::git_visible(&self.root).map(Arc::new))
+            .clone();
+        if take {
+            *git = None;
+        }
+        listed
     }
 }
 
@@ -140,11 +158,12 @@ impl Files for FsFiles {
         self.find(patterns, &|name| NEVER_WALKED.contains(&name))
     }
     fn walk(&self, patterns: &[String]) -> Result<Vec<String>, PortError> {
-        if let Some(listed) = discover::git_visible(&self.root) {
+        if let Some(listed) = self.listed(false) {
             let set = globset(patterns).map_err(io)?;
             let skip = |p: &str| p.split('/').any(|d| NEVER_WALKED.contains(&d));
-            return Ok((listed.into_iter())
+            return Ok((listed.iter())
                 .filter(|p| set.is_match(p) && !skip(p) && self.root.join(p).is_file())
+                .cloned()
                 .collect());
         }
         self.find(patterns, &|name| {
@@ -155,7 +174,7 @@ impl Files for FsFiles {
         Box::new(FsFiles::new(self.root.join(root)))
     }
     fn discover(&self, config: &Config, layout: &Layout) -> Result<WorkspaceInfo, PortError> {
-        discover(&self.root, config, layout)
+        discover::discover_with(&self.root, config, layout, self.listed(true))
     }
 }
 
