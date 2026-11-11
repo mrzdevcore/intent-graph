@@ -50,6 +50,11 @@ pub struct MapArrow {
     pub note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub context: Option<String>,
+    #[serde(skip_serializing_if = "Written::is_none", default)]
+    pub written: Written,
+    /// Where the code does it: a few `"file:line"`, at most `SEEN`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub seen: Vec<String>,
     /// Graph edges lifted into this arrow.
     pub count: u32,
     pub kinds: Vec<ArrowKind>,
@@ -72,6 +77,41 @@ impl MapArrow {
         let first = TELLING.iter().find(|k| self.kinds.contains(k));
         first.copied().unwrap_or(ArrowKind::Uses)
     }
+}
+
+/// Where ig/ writes an arrow, `"ig/shop.kdl:12"`: not part of what it says, so a reread of the
+/// same arrow elsewhere in the files is equal to it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Written(pub Option<String>);
+
+impl Written {
+    fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
+}
+
+impl PartialEq for Written {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+pub const SEEN: usize = 5;
+
+/// The first `SEEN` distinct places in the code of `edges`.
+pub(super) fn seen<'g>(edges: impl IntoIterator<Item = &'g Edge>) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for e in edges {
+        let at = format!("{}:{}", e.file, e.line);
+        if out.len() == SEEN {
+            break;
+        }
+        if !out.contains(&at) {
+            out.push(at);
+        }
+    }
+    out
 }
 
 /// The graph edges lifted into one arrow, with their arrow kinds.
@@ -219,6 +259,8 @@ pub fn arrows(boxes: &[FactBox], g: &Graph) -> Vec<MapArrow> {
             MapArrow {
                 note: None,
                 context: None,
+                written: Written(None),
+                seen: seen(edges.iter().map(|(e, _)| *e)),
                 id: format!("{from}->{to}"),
                 parent: parent.into(),
                 from: from.into(),
@@ -293,9 +335,17 @@ pub fn lift(parents: &HashMap<&str, &str>, arrows: Vec<MapArrow>) -> Vec<MapArro
         let count = list.iter().map(|a| a.count.max(1)).sum();
         let in_loop = list.iter().any(|a| a.in_loop);
         let parts = list.iter().flat_map(|a| a.parts.clone()).collect();
+        let mut seen: Vec<String> = vec![];
+        for at in list.iter().flat_map(|a| &a.seen) {
+            if seen.len() < SEEN && !seen.contains(at) {
+                seen.push(at.clone());
+            }
+        }
         let first = list.swap_remove(0);
         MapArrow {
             kind: if bundle { ArrowKind::Bundle } else { kinds[0] },
+            written: Written(None),
+            seen,
             label: Some(label),
             count,
             kinds,
@@ -397,6 +447,8 @@ mod tests {
         MapArrow {
             note: None,
             context: None,
+            written: Written(None),
+            seen: vec![],
             id: format!("{from}->{to}"),
             parent: parent.into(),
             from: from.into(),

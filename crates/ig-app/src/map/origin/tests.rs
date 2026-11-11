@@ -7,6 +7,7 @@ use ig_core::testing::MemFiles;
 use std::collections::BTreeMap;
 
 mod moves;
+mod places;
 
 #[test]
 fn an_arrow_touching_a_box_that_runs_is_a_declaration() {
@@ -426,6 +427,8 @@ fn spec_arrow(from: &str, kind: ArrowKind, to: &str) -> MapArrow {
     MapArrow {
         note: None,
         context: None,
+        written: Default::default(),
+        seen: vec![],
         id: format!("{from}->{to}"),
         parent: "system".into(),
         from: from.into(),

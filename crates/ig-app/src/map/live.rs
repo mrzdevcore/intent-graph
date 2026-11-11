@@ -425,6 +425,8 @@ fn draw_links(
                 m.arrows.push(MapArrow {
                     note: None,
                     context: None,
+                    written: Default::default(),
+                    seen: vec![],
                     id: format!("{from}->{to}"),
                     parent: (above(from).into_iter())
                         .find(|p| ends.contains(p))

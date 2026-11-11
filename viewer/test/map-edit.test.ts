@@ -1603,11 +1603,28 @@ test("the box panel's kind dropdown and the kind's own properties: chips for one
   panel.querySelector<HTMLElement>('[data-kinds] [data-kind="service"]')!.click();
   await tick();
   expect(got).toEqual([
-    { op: "set", id: "web", key: "hosted", value: "hosted" },
-    { op: "set", id: "web", key: "hosted", value: null },
-    { op: "set", id: "web", key: "provider", value: "ollama" },
+    { op: "set", id: "web", key: "prop:hosted", value: "hosted" },
+    { op: "set", id: "web", key: "prop:hosted", value: null },
+    { op: "set", id: "web", key: "prop:provider", value: "ollama" },
     { op: "set", id: "web", key: "kind", value: "service" },
   ]);
+});
+
+test("a kind's own property named like a set key is set as prop:<name>; the set chip of a required one sends nothing", async () => {
+  const { api, got } = recorder();
+  const view = fresh();
+  view.kinds.find((k) => k.name === "entry")!.props.find((p) => p.name === "kind")!.required = true;
+  Object.assign(view.boxes.find((b) => b.id === "web")!, { kind: { value: "entry", source: "ig" }, props: { kind: "route" } });
+  const { target } = setup(api, view);
+  openPanel(target, "web");
+  const chip = (v: string) => [...target.querySelectorAll<HTMLButtonElement>('[data-panel="box"] [data-prop="kind"]')].find((b) => b.textContent === v)!;
+  expect(chip("route").getAttribute("aria-pressed")).toBe("true");
+  chip("route").click();
+  await tick();
+  expect(got).toEqual([]);
+  chip("command").click();
+  await tick();
+  expect(got).toEqual([{ op: "set", id: "web", key: "prop:kind", value: "command" }]);
 });
 
 test("the box panel lists its arrows and what is inside; an arrow opens its panel, + Add a box a draft inside", () => {
@@ -1633,7 +1650,9 @@ test("the box panel lists its arrows and what is inside; an arrow opens its pane
 
 test("the arrow panel: kind chips, label, the note of at most 80 and context send arrowset; the preview shows it as written", async () => {
   const { api, got } = recorder();
-  const { target } = setup(api, withArrow("web->api", { note: "retries twice", context: 'Idempotent: send "key".\nSee #12.' }));
+  const { target } = setup(api, withArrow("web->api", {
+    note: "retries twice", context: 'Idempotent: send "key".\nSee #12.', written: "ig/system.kdl:7", seen: ["apps/web/src/cart.ts:12", "apps/web/src/pay.ts:3"],
+  }));
   pickArrow(target, "web->api");
   arrowButton(target, "Details")!.click();
   flushSync();
@@ -1641,6 +1660,8 @@ test("the arrow panel: kind chips, label, the note of at most 80 and context sen
   expect(panel.querySelector(".head b")!.textContent).toBe("Web → Api");
   expect(panel.querySelector("[data-kdl]")!.textContent).toBe(
     'calls "api" label="POST /checkout" note="retries twice" context=#"""\n    Idempotent: send "key".\n    See #12.\n    """#');
+  expect(panel.querySelector("[data-written]")!.textContent).toBe("In ig/system.kdl");
+  expect([...panel.querySelectorAll("[data-seen] li")].map((l) => l.textContent)).toEqual(["apps/web/src/cart.ts:12", "apps/web/src/pay.ts:3"]);
   expect(panel.querySelector('[data-arrow-kind="calls"]')!.getAttribute("aria-pressed")).toBe("true");
   panel.querySelector<HTMLElement>('[data-arrow-kind="sends"]')!.click();
   await tick();
@@ -1667,6 +1688,8 @@ test("Context on the arrow bar opens the panel at the context field", () => {
   flushSync();
   expect(document.activeElement).toBe(panelField(target, "context"));
   expect(target.querySelector("[data-kdl]")!.textContent).toBe('reads "postgres"');
+  expect(target.querySelector("[data-written]")!.textContent).toBe("In ig/");
+  expect(target.querySelector("[data-seen]")).toBeNull();
 });
 
 test("Esc closes the panel, keeps what was typed and gives the focus back to the map", async () => {

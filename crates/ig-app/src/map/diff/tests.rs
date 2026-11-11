@@ -43,6 +43,8 @@ fn arrow(from: &str, to: &str) -> MapArrow {
     MapArrow {
         note: None,
         context: None,
+        written: Default::default(),
+        seen: vec![],
         id: format!("{from}->{to}"),
         parent: "system".into(),
         from: from.into(),

@@ -34,7 +34,11 @@ impl Spec {
             "kind" => self.set_kind(id, value, restore),
             "at" => self.set_at(id, value),
             "context" => self.set_context(id, value, restore),
-            _ => self.set_prop(id, key, value, restore),
+            // the kind's own property, even one named like a key above (an entry's `kind`)
+            _ => match key.strip_prefix("prop:") {
+                Some(own) => self.set_prop(id, own, key, value, restore),
+                None => self.set_prop(id, key, key, value, restore),
+            },
         }
     }
 
@@ -44,6 +48,7 @@ impl Spec {
         &mut self,
         id: &str,
         key: &str,
+        as_key: &str,
         value: Option<&str>,
         restore: &[(usize, String)],
     ) -> Result<Edit, String> {
@@ -56,7 +61,8 @@ impl Spec {
             .flat_map(|d| &d.props)
             .map(|p| p.name.as_str())
             .collect();
-        if !PROPS.contains(&key) && !COMMON.contains(&key) && !own.contains(&key) {
+        let common = as_key == key && (PROPS.contains(&key) || COMMON.contains(&key));
+        if !common && !own.contains(&key) {
             let all = [&PROPS[..], &COMMON, &own].concat().join(", ");
             return Err(format!(
                 "`{key}` is not a property of a {name}: one of {all}, `kind` or `at`"
@@ -86,7 +92,7 @@ impl Spec {
         }
         Ok(Edit::Set {
             id: id.into(),
-            key: key.into(),
+            key: as_key.into(),
             value: old,
             restore: was.filter(|_| value.is_none()).into_iter().collect(),
         })

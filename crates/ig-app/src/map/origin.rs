@@ -1,7 +1,7 @@
 //! The spec (`ig/*.kdl`) against the code: each box and arrow is built (in both), to build (in
 //! the spec only) or drift (in the code only). Pure: no I/O.
 
-use super::arrows::edge_kind;
+use super::arrows::{SEEN, edge_kind};
 use super::facts::slug;
 use super::file::{MapBox, MapFile, fresh};
 use super::{ArrowKind, BoxKind, FactBox, Level, MapArrow, arrows};
@@ -194,6 +194,8 @@ pub fn compare(spec: &MapFile, facts: &[FactBox], g: &Graph, prior: Option<&MapF
     m
 }
 
+type Between = (u32, BTreeSet<ArrowKind>, bool, Vec<String>);
+
 /// Each spec arrow is built when a graph edge of its kind (any kind for a `bundle`) runs from
 /// the code under its tail into the code under its head; an arrow touching a person or a box
 /// that `runs` is a declaration. Each code arrow (lifted over the boxes) that no spec arrow
@@ -225,8 +227,8 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
         let module = id.split('#').next().unwrap_or(id);
         owner.get(id).or_else(|| owner.get(module)).copied()
     };
-    // (tail, head) → edges, their kinds, any in a loop: every pair of ancestors of the ends
-    let mut between: HashMap<(usize, usize), (u32, BTreeSet<ArrowKind>, bool)> = HashMap::new();
+    // (tail, head) → edges, their kinds, any in a loop, where: every pair of ancestors of the ends
+    let mut between: HashMap<(usize, usize), Between> = HashMap::new();
     // each edge's ends' chains and kind
     let mut edges: Vec<(Vec<usize>, Vec<usize>, ArrowKind)> = vec![];
     for e in &g.edges {
@@ -237,6 +239,7 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
             continue;
         };
         let (ca, cb) = (chain(a), chain(b));
+        let at = format!("{}:{}", e.file, e.line);
         edges.push((ca.clone(), cb.clone(), kind));
         for &x in &ca {
             // never a pair where one end holds the other (or the system root)
@@ -245,6 +248,9 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
                 s.0 += 1;
                 s.1.insert(kind);
                 s.2 |= e.in_loop;
+                if s.3.len() < SEEN && !s.3.contains(&at) {
+                    s.3.push(at.clone());
+                }
             }
         }
     }
@@ -273,8 +279,9 @@ fn arrows_against(m: &mut MapFile, g: &Graph) {
             .and_then(|(f, t)| between.get(&(*f, *t)))
             .filter(|s| a.kind == ArrowKind::Bundle || s.1.contains(&a.kind));
         a.origin = match hit {
-            Some((count, kinds, in_loop)) => {
+            Some((count, kinds, in_loop, at)) => {
                 (a.count, a.kinds, a.in_loop) = (*count, kinds.iter().copied().collect(), *in_loop);
+                a.seen = at.clone();
                 Origin::Built
             }
             None => Origin::Build,

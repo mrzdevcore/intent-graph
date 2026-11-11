@@ -637,8 +637,9 @@
     const r = stage.getBoundingClientRect(), c = camera.cam, t = p === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(p), o = origin(p);
     return { parent: p, x: ((e.clientX - r.left - c.x) / c.k - t.x) / t.s + o.x, y: ((e.clientY - r.top - c.y) / c.k - t.y) / t.s + o.y };
   }
-  const draftAt = (g: { parent: string; x: number; y: number }, from?: string) =>
-    (sess.draft = { parent: g.parent, x: snap(g.x - BOX.w / 2), y: snap(g.y - BOX.h / 2), ...BOX, title: "", drawing: false, ...(from ? { from } : {}) });
+  const draftAt = (g: { parent: string; x: number; y: number }, from?: string) => {
+    sess.draft = { parent: g.parent, x: snap(g.x - BOX.w / 2), y: snap(g.y - BOX.h / 2), ...BOX, title: "", drawing: false, ...(from ? { from } : {}) };
+  };
   function spanned(d: { parent: string; x: number; y: number }, e: PointerEvent) {
     const g = groundAt(e, d.parent), x = snap(Math.min(d.x, g.x)), y = snap(Math.min(d.y, g.y));
     return { parent: d.parent, x, y, w: Math.max(MIN.w, snap(Math.max(d.x, g.x)) - x), h: Math.max(MIN.h, snap(Math.max(d.y, g.y)) - y), title: "" };

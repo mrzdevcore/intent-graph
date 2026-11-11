@@ -63,6 +63,10 @@ export type MapArrow = {
   label?: string;
   note?: string;
   context?: string;
+  /** Where ig/ writes it: "ig/shop.kdl:12". */
+  written?: string;
+  /** Where the code does it: a few "file:line". */
+  seen?: string[];
   count: number;
   kinds: ArrowKind[];
   inLoop?: boolean;

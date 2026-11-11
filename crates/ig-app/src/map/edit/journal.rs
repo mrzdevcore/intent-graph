@@ -255,7 +255,10 @@ impl Spec {
         match key {
             "kind" => return Some(Some(n.name().value().into())),
             "at" => {}
-            _ => return Some(n.get(key).and_then(|v| v.as_string()).map(String::from)),
+            _ => {
+                let key = key.strip_prefix("prop:").unwrap_or(key);
+                return Some(n.get(key).and_then(|v| v.as_string()).map(String::from));
+            }
         }
         let kids = n.children().map(|c| c.nodes()).unwrap_or_default();
         let at = kids.iter().find(|n| n.name().value() == "at");

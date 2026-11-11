@@ -427,6 +427,8 @@ fn an_arrows_note_and_context_in_ig_reach_the_view() {
     assert_eq!(a["note"], "retries twice");
     assert_eq!(a["context"], "Idempotent writes only.");
     assert_eq!(a["label"], "save");
+    assert_eq!(a["written"], "ig/system.kdl:5");
     let lifted = arrow("host", "api");
     assert_eq!(lifted["parts"][0]["note"], "through the gateway");
+    assert_eq!(lifted["parts"][0]["written"], "ig/system.kdl:10");
 }

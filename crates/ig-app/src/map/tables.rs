@@ -92,6 +92,8 @@ fn arrow(parent: &str, from: &str, to: &str, kind: ArrowKind, label: Option<Stri
     MapArrow {
         note: None,
         context: None,
+        written: Default::default(),
+        seen: vec![],
         id: format!("{from}->{to}"),
         parent: parent.into(),
         from: from.into(),

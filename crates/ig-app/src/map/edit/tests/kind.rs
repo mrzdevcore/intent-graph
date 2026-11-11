@@ -201,3 +201,39 @@ fn set_kind_from_box_and_back_restores_bytes() {
     let f = MemFiles::with(&[("ig/system.kdl", &want)]);
     check_on(f, kind("b", "box"), &[("ig/system.kdl", src)]);
 }
+
+const ENTRY: &str = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n    app \"api\" title=\"API\" {\n        entry \"api/root\" title=\"Root\" kind=\"route\"\n    }\n}\n";
+
+#[test]
+fn set_prop_names_the_kinds_own_property_even_when_it_is_called_kind() {
+    let f = || MemFiles::with(&[("ig/system.kdl", ENTRY)]);
+    let inv = check_on(
+        f(),
+        prop("api/root", "prop:kind", Some("command")),
+        &[(
+            "ig/system.kdl",
+            &ENTRY.replace("kind=\"route\"", "kind=\"command\""),
+        )],
+    );
+    assert_eq!(inv, prop("api/root", "prop:kind", Some("route")));
+    let inv = check_on(
+        f(),
+        prop("api/root", "prop:kind", None),
+        &[("ig/system.kdl", &ENTRY.replace(" kind=\"route\"", ""))],
+    );
+    assert_eq!(
+        inv,
+        Edit::Set {
+            id: "api/root".into(),
+            key: "prop:kind".into(),
+            value: Some("route".into()),
+            restore: vec![(2, " kind=\"route\"".into())],
+        }
+    );
+    let errs = apply(&f(), &prop("api/root", "prop:title", Some("x"))).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`title` is not a property of a entry")),
+        "{errs:?}"
+    );
+}

@@ -251,6 +251,8 @@ pub fn combine(title: &str, projects: Vec<Project>, mut info: Landscape) -> View
     view.arrows.extend(info.links.iter().map(|l| MapArrow {
         note: None,
         context: None,
+        written: Default::default(),
+        seen: vec![],
         id: format!("{}->{}", l.from, l.to),
         parent: ROOT.into(),
         from: l.from.clone(),
@@ -289,6 +291,8 @@ mod tests {
         let arrow = |from: &str, to: &str, parts: Vec<MapArrow>| MapArrow {
             note: None,
             context: None,
+            written: Default::default(),
+            seen: vec![],
             id: format!("{from}->{to}"),
             parent: ROOT.into(),
             from: from.into(),

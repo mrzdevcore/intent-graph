@@ -78,6 +78,8 @@ fn three_network_hops_is_risk() {
     let net = |from: &str, to: &str| MapArrow {
         note: None,
         context: None,
+        written: Default::default(),
+        seen: vec![],
         id: format!("{from}->{to}"),
         parent: "system".into(),
         from: from.into(),

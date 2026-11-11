@@ -419,6 +419,8 @@ impl Reader {
                 label,
                 note,
                 context,
+                written: crate::map::arrows::Written(Some(place.clone())),
+                seen: vec![],
                 count: 0,
                 kinds: vec![kind],
                 in_loop: false,
