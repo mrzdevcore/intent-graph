@@ -80,7 +80,15 @@ Auto | Circuit | Elbow | Curved | Straight", stored per browser in try/catch, sh
 
 **Files:** `viewer/src/map/pads.ts`, `Pads.svelte`, Map.svelte wiring, tests `map-pads.test.ts`.
 - [ ] Each pad with a `child` gets an inside wire from the pad to the child's facing side, in the
-  shape used inside that box. Hover lights pad, inside and outside wire together (gold).
+  shape used inside that box, routed with the same side and avoidance rules — never a straight line
+  through another child. Hover lights pad, inside and outside wire together (gold).
+- [ ] (User screenshot, Node 3 (site C): lines cut diagonally through boxes, every incoming pad on the
+  left and outgoing on the right whatever the geometry, the same far box listed twice, pads in an order
+  that makes their wires cross.) A pad sits on the edge of the open box that faces where its outside
+  wire comes from (top, bottom, left or right). One pad per far box and child: both directions become one
+  pad with a two-way mark. Pads on an edge are ordered by their child's position along that edge (ties
+  by the far box's position) so inside wires do not cross. Tests: each of these on a fixture shaped like
+  the screenshot (6 children, 12 connections, far boxes above, below, left and right).
 - [ ] A pad with no child shows a "?" chip; dragging its stub end onto a child sends `arrowset`
   `from` (outgoing) or `to` (incoming) = that child; tested.
 - [ ] Commit.
