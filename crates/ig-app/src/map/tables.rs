@@ -41,6 +41,19 @@ pub struct TableView {
     pub table: Table,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub translations: Vec<String>,
+    pub nullability: bool,
+}
+
+impl TableView {
+    // as the viewer's keys-only card draws it (viewer/src/map/db/card.ts)
+    pub fn card_rows(&self) -> u32 {
+        let cols = &self.table.columns;
+        let keys = cols
+            .iter()
+            .filter(|c| c.pk || c.references.is_some())
+            .count();
+        (keys + (cols.len() > keys) as usize + !self.translations.is_empty() as usize) as u32
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -206,6 +219,7 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
             TableView {
                 table: t.clone(),
                 translations,
+                nullability: tells_nullable(t),
             },
         );
     }
@@ -226,7 +240,7 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
     for a in out
         .arrows
         .iter()
-        .filter(|a| a.kind == ArrowKind::Uses && a.via.is_none())
+        .filter(|a| a.kind == ArrowKind::Uses && a.via.is_none() && !out.folded.contains(&a.from))
     {
         pointing.entry(&a.to).or_default().insert(&a.from);
     }
@@ -262,7 +276,7 @@ fn place(
     let set_aside = |name: &str, kind: &str| -> Option<TableGroup> {
         if kind == "view" {
             Some(TableGroup::Views)
-        } else if name.contains("_backup") || name.ends_with("_temp") {
+        } else if leftover(name, by_name) {
             Some(TableGroup::Leftovers)
         } else if translated(name, by_name).is_some() {
             Some(TableGroup::Translations)
@@ -298,6 +312,23 @@ fn place(
         .collect()
 }
 
+// `orders_backup`, `orders_backup_2023_01_01`, `orders_backup_old` (of `orders`), `orders_temp`;
+// not `user_backup_codes`
+fn leftover(name: &str, by_name: &HashMap<String, &Table>) -> bool {
+    if name.ends_with("_temp") {
+        return true;
+    }
+    name.match_indices("_backup").any(|(i, m)| {
+        let Some(rest) = name[i + m.len()..].strip_prefix('_') else {
+            return i + m.len() == name.len();
+        };
+        let dated = rest
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '_' || c == '-');
+        !rest.is_empty() && (dated || by_name.contains_key(&name[..i]))
+    })
+}
+
 // `products_translations` of `products`, `product_type_translations` of `product_types`
 fn translated(name: &str, by_name: &HashMap<String, &Table>) -> Option<String> {
     let p = name
@@ -306,6 +337,10 @@ fn translated(name: &str, by_name: &HashMap<String, &Table>) -> Option<String> {
     [p.to_string(), format!("{p}s")]
         .into_iter()
         .find(|p| by_name.contains_key(p))
+}
+
+fn tells_nullable(t: &Table) -> bool {
+    TELLS_NULLABLE.contains(&t.source.as_str())
 }
 
 fn bookkeeping(c: &Column) -> bool {
@@ -325,7 +360,7 @@ fn referenced(c: &Column, to: &Table) -> Option<String> {
 
 // none rather than a guess: a reader that does not tell nullability, or columns that disagree
 fn ends(t: &Table, cols: &[&Column]) -> Option<Ends> {
-    if !TELLS_NULLABLE.contains(&t.source.as_str()) {
+    if !tells_nullable(t) {
         return None;
     }
     let pk: Vec<&str> = t

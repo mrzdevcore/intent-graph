@@ -103,6 +103,17 @@ fn size(b: &MapBox) -> (f32, f32) {
 /// these.
 pub const TABLE: (f32, f32, f32) = (320.0, 56.0, 26.0);
 
+// a group of tables takes its inside's shape, so opened its tables fill the screen; the viewer's
+// open box has a 30-unit header (HEAD in viewer/src/map/camera.ts)
+fn shaped((w, h): (f32, f32), (iw, ih): (f32, f32)) -> (f32, f32) {
+    const HEAD: f32 = 30.0;
+    if iw <= 0.0 || ih <= 0.0 {
+        return (w, h);
+    }
+    let (tall, wide) = (HEAD + w * ih / iw, (h - HEAD) * iw / ih);
+    (wide.max(w), tall.max(h))
+}
+
 /// A table box's size: its header and a row for each of its `rows` columns (2 at least).
 fn table_size(rows: u32) -> (f32, f32) {
     (TABLE.0, TABLE.1 + TABLE.2 * rows.max(2) as f32 + 8.0)
@@ -134,11 +145,24 @@ pub fn layout_with(
         near.entry(&a.from).or_default().push(&a.to);
         near.entry(&a.to).or_default().push(&a.from);
     }
+    let depth = |id: &str| {
+        let mut at = by_id.get(id).copied();
+        let mut n = 0;
+        while let Some(b) = at.filter(|_| n < 64) {
+            at = b.parent.as_deref().and_then(|p| by_id.get(p).copied());
+            n += 1;
+        }
+        n
+    };
+    let mut parents: Vec<(&&str, &Vec<&MapBox>)> = kids.iter().collect();
+    parents.sort_by_key(|(p, _)| std::cmp::Reverse(depth(p)));
+    let mut sized: BTreeMap<String, (f32, f32)> = BTreeMap::new();
     let mut placed = Placed::default();
-    for (parent, kids) in &kids {
+    for (parent, kids) in parents {
         let mut l = Lay {
             near: &near,
             rows,
+            sized: std::rc::Rc::new(sized.clone()),
             cx: BTreeMap::new(),
             frames: vec![],
             regions: vec![],
@@ -155,6 +179,12 @@ pub fn layout_with(
         l.untangle();
         let (w, h) = l.normalize();
         placed.inner.insert(parent.to_string(), (w, h));
+        if let Some(b) = by_id
+            .get(parent)
+            .filter(|_| kids.iter().all(|k| rows.contains_key(&k.id)))
+        {
+            sized.insert(parent.to_string(), shaped(size(b), (w, h)));
+        }
         for (id, f) in l.frames {
             placed.frames.insert(id.to_string(), f);
         }
@@ -210,6 +240,7 @@ struct Lay<'a> {
     near: &'a BTreeMap<&'a str, Vec<&'a str>>,
     /// See `layout_with`.
     rows: &'a BTreeMap<String, u32>,
+    sized: std::rc::Rc<BTreeMap<String, (f32, f32)>>,
     /// Centers of the boxes placed so far, for the barycenter order.
     cx: BTreeMap<&'a str, f32>,
     frames: Vec<(&'a str, Frame)>,
@@ -224,7 +255,7 @@ impl<'a> Lay<'a> {
     fn size(&self, b: &MapBox) -> (f32, f32) {
         match self.rows.get(&b.id) {
             Some(n) if b.kind.value == BoxKind::Table => table_size(*n),
-            _ => size(b),
+            _ => self.sized.get(&b.id).copied().unwrap_or_else(|| size(b)),
         }
     }
 

@@ -180,3 +180,37 @@ fn a_table_pointed_at_by_ten_tables_is_a_hub() {
             .all(|a| !a.pinned)
     );
 }
+
+#[test]
+fn join_and_translation_tables_do_not_count_towards_a_hub() {
+    let mut ts = vec![
+        plain_table("teams", vec![pk("id")]),
+        plain_table("users", vec![pk("id")]),
+        plain_table(
+            "team_users",
+            vec![
+                Column {
+                    pk: true,
+                    ..fk("team", "teams")
+                },
+                Column {
+                    pk: true,
+                    ..fk("user", "users")
+                },
+            ],
+        ),
+        plain_table(
+            "teams_translations",
+            vec![pk("id"), fk("team", "teams"), plain("name")],
+        ),
+    ];
+    for i in 0..8 {
+        ts.push(plain_table(
+            &format!("t{i}"),
+            vec![pk("id"), fk("team", "teams")],
+        ));
+    }
+    let t = tables(&db(), &schema(ts));
+    assert_eq!(t.arrows.iter().filter(|a| a.to == "db#teams").count(), 10);
+    assert!(t.arrows.iter().all(|a| !a.pinned));
+}

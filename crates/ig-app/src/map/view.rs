@@ -182,10 +182,7 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy], db: &Sche
     }
     sort_marks(&mut marks);
     let rows = (tables.tables.iter())
-        .map(|(id, t)| {
-            let strip = !t.translations.is_empty() as u32;
-            (id.clone(), t.table.columns.len() as u32 + strip)
-        })
+        .map(|(id, t)| (id.clone(), t.card_rows()))
         .collect();
     let kinds = Kinds::load(files).unwrap_or_else(|_| Kinds::builtin().clone());
     let (laid, wired) = super::tables::unfolded(&tables.folded, &boxes, &arrows);

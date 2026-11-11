@@ -359,8 +359,23 @@ fn backups_and_temp_tables_are_set_aside_and_do_not_make_a_domain() {
             plain_table("orders_backup_2023", vec![pk("id")]),
             plain_table("orders_temp", vec![pk("id")]),
             plain_table("orders_lines", vec![pk("id")]),
+            plain_table("orders_backup_2023_01_01", vec![pk("id")]),
+            plain_table("user_backup_codes", vec![pk("id")]),
+            plain_table("orders_lines_backup_refacto", vec![pk("id")]),
+            plain_table("user_temperature", vec![pk("id")]),
         ]),
     );
+    assert_eq!(parent_of(&t, "db#orders_backup"), "db#(leftovers)");
+    assert_eq!(
+        parent_of(&t, "db#orders_backup_2023_01_01"),
+        "db#(leftovers)"
+    );
+    assert_eq!(
+        parent_of(&t, "db#orders_lines_backup_refacto"),
+        "db#(leftovers)"
+    );
+    assert_eq!(parent_of(&t, "db#user_backup_codes"), "db");
+    assert_eq!(parent_of(&t, "db#user_temperature"), "db");
     assert_eq!(parent_of(&t, "db#orders_backup_2023"), "db#(leftovers)");
     assert_eq!(parent_of(&t, "db#orders_temp"), "db#(leftovers)");
     assert_eq!(parent_of(&t, "db#orders"), "db");
@@ -557,4 +572,43 @@ fn a_domain_of_join_tables_only_is_left_out_of_the_layout() {
     assert!(t.folded.contains("db#role_*"));
     assert!(!placed.frames.contains_key("db#role_*"));
     assert!(placed.frames.contains_key("db#alpha"));
+}
+
+#[test]
+fn a_card_has_a_row_per_key_one_for_the_other_columns_and_one_for_its_translations() {
+    let t = tables(
+        &db(),
+        &schema(vec![
+            plain_table("tags", vec![pk("id")]),
+            plain_table(
+                "products",
+                vec![pk("id"), fk("tag", "tags"), plain("price")],
+            ),
+            plain_table(
+                "products_translations",
+                vec![pk("id"), fk("product", "products"), plain("name")],
+            ),
+        ]),
+    );
+    assert_eq!(t.tables["db#tags"].card_rows(), 1);
+    assert_eq!(t.tables["db#products"].card_rows(), 2 + 1 + 1);
+    let v = serde_json::to_value(&t.tables["db#products"]).unwrap();
+    assert_eq!(v["nullability"], true);
+}
+
+#[test]
+fn a_domain_box_takes_the_shape_of_its_tables_so_opened_they_fill_it() {
+    let ts = (0..8)
+        .map(|i| {
+            plain_table(
+                &format!("shop_t{i}"),
+                vec![pk("id"), plain("a"), plain("b")],
+            )
+        })
+        .chain([plain_table("misc_a", vec![pk("id")])])
+        .collect();
+    let (_, placed) = laid_out(ts);
+    let (f, (iw, ih)) = (&placed.frames["db#shop_*"], placed.inner["db#shop_*"]);
+    assert!(((f.h - 30.0) / f.w - ih / iw).abs() < 0.01);
+    assert!(f.w >= 248.0 && f.h >= 152.0);
 }
