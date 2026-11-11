@@ -49,7 +49,7 @@ pub fn tools(k: &Kinds) -> Value {
         op("rename", json!({"id": s("box id"), "to": s("new lowercase slug")}), &["id", "to"]),
         op("set", json!({
             "id": s("box id"),
-            "key": s("title, tech, description, logo, slot, owner, or a property of the box's kind (provider, model, hosted for a model; prompt for an agent; a team kind's own); at takes globs joined by newlines; kind renames the box's kind in place (refused where it would put the box out of place; drops the properties the new kind does not take)"),
+            "key": s("title, tech, description, logo, slot, owner, or a property of the box's kind (provider, model, hosted for a model; prompt for an agent; a team kind's own); at takes globs joined by newlines; kind renames the box's kind in place (refused where it would put the box out of place; drops the properties the new kind does not take); context is the box's longer text for the builder; prop:<name> sets the kind's own property <name> even when it is named like one of these keys"),
             "value": {"type": ["string", "null"], "description": "null removes the key"}
         }), &["id", "key"]),
         op("arrow", json!({
@@ -61,6 +61,11 @@ pub fn tools(k: &Kinds) -> Value {
             "from": s("box id"), "to": s("box id"),
             "kind": {"type": "string", "enum": arrows()}
         }), &["from", "to", "kind"]),
+        op("arrowset", json!({
+            "from": s("box id the arrow starts at"), "to": s("box id the arrow points to"),
+            "key": {"type": "string", "enum": ["kind", "label", "note", "context", "from", "to", "flip"], "description": "kind changes the arrow's kind; label, note (80 characters at most) and context its text; from and to reconnect one end to the box id in value; flip swaps the ends"},
+            "value": {"type": ["string", "null"], "description": "null removes label, note or context; flip takes none"}
+        }), &["from", "to", "key"]),
     ]});
     let batch = op(
         "batch",
@@ -100,7 +105,7 @@ pub fn tools(k: &Kinds) -> Value {
         },
         {
             "name": "ig_edit",
-            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow, batch). Your edits are proposals the user reviews under Proposals in the map (and with `git diff ig/` in a git repository). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. To change a box's kind use `set` with key `kind`: an `app` no person uses that serves routes is most likely a `service`; propose `set kind service` for it. Use `batch` ({\"op\": \"batch\", \"edits\": [...]}) for edits that belong together, like a new box and an arrow to it: all or nothing, one journal entry, one undo, and only the end state has to be valid. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
+            "description": "Edit the system map in ig/ (add, remove, move, rename, set, arrow, unarrow, arrowset, batch). Your edits are proposals the user reviews under Proposals in the map (and with `git diff ig/` in a git repository). Always give `at` (code globs) for a new box. Ids are lowercase slugs. To move a box use `move` (it keeps its id), not remove plus add. To change an arrow (its kind, label, note, context, an end, or its direction) use `arrowset`, not unarrow plus arrow. To change a box's kind use `set` with key `kind`: an `app` no person uses that serves routes is most likely a `service`; propose `set kind service` for it. Use `batch` ({\"op\": \"batch\", \"edits\": [...]}) for edits that belong together, like a new box and an arrow to it: all or nothing, one journal entry, one undo, and only the end state has to be valid. Pass {\"edits\": [...]}: applied in order, stopping at the first error (the ones before it stay recorded). Returns the journal numbers and the plan after the edits.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"edits": {"type": "array", "minItems": 1, "items": one}},

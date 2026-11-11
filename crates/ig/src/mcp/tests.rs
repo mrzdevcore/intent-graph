@@ -288,9 +288,34 @@ fn the_tool_schema_lists_the_kinds_of_the_table() {
         .unwrap();
     let key = set["properties"]["key"]["description"].as_str().unwrap();
     assert!(
-        key.contains("owner") && key.contains("kind renames"),
+        key.contains("owner")
+            && key.contains("kind renames")
+            && key.contains("context")
+            && key.contains("prop:<name>"),
         "{key}"
     );
+    let arrowset = ops
+        .iter()
+        .find(|o| o["properties"]["op"]["const"] == "arrowset")
+        .unwrap();
+    assert_eq!(
+        arrowset["properties"]["key"]["enum"],
+        json!(["kind", "label", "note", "context", "from", "to", "flip"])
+    );
+    assert_eq!(arrowset["required"], json!(["op", "from", "to", "key"]));
+    assert!(edit["description"].as_str().unwrap().contains("arrowset"));
+}
+
+#[test]
+fn ig_edit_takes_an_arrowset() {
+    let spec = "system \"shop\" title=\"Shop\" {\n    at \"**\"\n    app \"web\" title=\"Web\" {\n        at \"web/**\"\n        uses \"api\"\n    }\n    app \"api\" title=\"Api\" {\n        at \"api/**\"\n    }\n}\n";
+    let dir = crate::tests::tmp_with(&[("ig/system.kdl", spec)]);
+    let e =
+        json!({"op": "arrowset", "from": "web", "to": "api", "key": "label", "value": "orders"});
+    let r = call_tool(&dir, "ig_edit", json!({"edits": [e]}));
+    assert!(r.get("isError").is_none(), "{r}");
+    let kdl = std::fs::read_to_string(dir.join("ig/system.kdl")).unwrap();
+    assert!(kdl.contains(r#"uses "api" label="orders""#), "{kdl}");
 }
 
 #[test]

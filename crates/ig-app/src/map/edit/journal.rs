@@ -254,15 +254,19 @@ impl Spec {
         let n = self.node(&self.find(id)?);
         match key {
             "kind" => return Some(Some(n.name().value().into())),
-            "at" => {}
+            "at" | "context" => {}
             _ => {
                 let key = key.strip_prefix("prop:").unwrap_or(key);
                 return Some(n.get(key).and_then(|v| v.as_string()).map(String::from));
             }
         }
         let kids = n.children().map(|c| c.nodes()).unwrap_or_default();
-        let at = kids.iter().find(|n| n.name().value() == "at");
-        Some(at.map(|n| {
+        let child = kids.iter().find(|n| n.name().value() == key);
+        if key == "context" {
+            let v = child.and_then(|n| n.entries().first()?.value().as_string());
+            return Some(v.map(String::from));
+        }
+        Some(child.map(|n| {
             let e = n.entries().iter();
             e.filter_map(|e| e.value().as_string())
                 .collect::<Vec<_>>()

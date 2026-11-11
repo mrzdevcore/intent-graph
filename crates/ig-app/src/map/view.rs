@@ -44,7 +44,6 @@ pub struct View {
     pub warnings: Vec<String>,
     /// Every kind a box in `ig/` may be, the team's among them.
     pub kinds: Vec<KindView>,
-    /// Every arrow kind and the kinds its rules join.
     #[serde(rename = "arrowKinds")]
     pub arrow_kinds: Vec<ArrowKindView>,
     /// The journal's entries nobody kept yet.

@@ -312,3 +312,64 @@ fn a_batch_is_not_undone_after_a_touched_box_changed() {
     assert!(errs.iter().any(|m| m.contains("changed since")), "{errs:?}");
     assert_eq!(ig(&f), now);
 }
+
+fn context(id: &str, v: Option<&str>) -> Edit {
+    Edit::Set {
+        id: id.into(),
+        key: "context".into(),
+        value: v.map(String::from),
+        restore: vec![],
+    }
+}
+
+#[test]
+fn setting_a_context_undoes_and_redoes() {
+    for text in ["for the builder", "two\nlines"] {
+        let f = spec();
+        let before = ig(&f);
+        record(&f, By::Person, &context("db", Some(text))).unwrap();
+        let after = ig(&f);
+        assert_ne!(after, before);
+        undo(&f).unwrap().unwrap();
+        assert_eq!(ig(&f), before, "{text}");
+        redo(&f).unwrap().unwrap();
+        assert_eq!(ig(&f), after, "{text}");
+    }
+}
+
+#[test]
+fn clearing_a_context_undoes_and_redoes() {
+    let f = spec();
+    apply(&f, &context("db", Some("kept"))).unwrap();
+    let before = ig(&f);
+    record(&f, By::Person, &context("db", None)).unwrap();
+    let after = ig(&f);
+    assert!(!after["ig/system.kdl"].contains("kept"));
+    undo(&f).unwrap().unwrap();
+    assert_eq!(ig(&f), before);
+    redo(&f).unwrap().unwrap();
+    assert_eq!(ig(&f), after);
+}
+
+#[test]
+fn replacing_a_context_undoes_and_redoes() {
+    let f = spec();
+    apply(&f, &context("db", Some("old"))).unwrap();
+    let before = ig(&f);
+    record(&f, By::Person, &context("db", Some("new"))).unwrap();
+    let after = ig(&f);
+    undo(&f).unwrap().unwrap();
+    assert_eq!(ig(&f), before);
+    redo(&f).unwrap().unwrap();
+    assert_eq!(ig(&f), after);
+}
+
+#[test]
+fn dropping_a_proposal_that_set_a_context_gives_the_files_back() {
+    let f = spec();
+    let before = ig(&f);
+    let a = record(&f, By::Claude, &context("db", Some("why it is there"))).unwrap();
+    drop(&f, a.n).unwrap();
+    assert_eq!(ig(&f), before);
+    assert!(entries(&f).0.is_empty());
+}

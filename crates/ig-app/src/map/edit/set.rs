@@ -65,7 +65,7 @@ impl Spec {
         if !common && !own.contains(&key) {
             let all = [&PROPS[..], &COMMON, &own].concat().join(", ");
             return Err(format!(
-                "`{key}` is not a property of a {name}: one of {all}, `kind` or `at`"
+                "`{key}` is not a property of a {name}: one of {all}, `kind`, `at`, `context`, or `prop:<name>` for the kind's own property named like one of those"
             ));
         }
         // the common properties in their order, the others after them
@@ -111,7 +111,6 @@ impl Spec {
         let at = nodes.iter().position(|n| n.name().value() == "context");
         let old = at.and_then(|i| nodes[i].entries().first()?.value().as_string());
         let old = old.map(String::from);
-        let was = at.map(|i| (i, nodes[i].to_string()));
         let entry_was = at.and_then(|i| Some((0, nodes[i].entries().first()?.to_string())));
         let child = |i: usize| {
             let (p, mut path) = loc.clone();
@@ -122,17 +121,18 @@ impl Spec {
             (Some(v), Some(i)) => {
                 let cl = child(i);
                 let n = self.node_mut(&cl);
+                let none = || format!("the `context` of `{id}` has no text; write one by hand");
                 let e = match restore.first() {
                     Some((_, text)) => (text.parse::<KdlEntry>())
                         .map_err(|_| format!("cannot read `{text}` back"))?,
                     None => {
-                        let mut e = n.entries()[0].clone();
+                        let mut e = n.entries().first().ok_or_else(none)?.clone();
                         e.set_value(v);
                         e.set_format(context_format(v, &super::tidy::indent_of(n)));
                         e
                     }
                 };
-                n.entries_mut()[0] = e;
+                *n.entries_mut().first_mut().ok_or_else(none)? = e;
                 Ok(Edit::Set {
                     id: id.into(),
                     key: "context".into(),
@@ -181,12 +181,12 @@ impl Spec {
                 })
             }
             (None, Some(i)) => {
-                self.take(&child(i));
+                let (n, _) = self.take(&child(i));
                 Ok(Edit::Set {
                     id: id.into(),
                     key: "context".into(),
                     value: old,
-                    restore: was.into_iter().collect(),
+                    restore: vec![(i, n.to_string())],
                 })
             }
             (None, None) => Ok(Edit::Set {
@@ -293,8 +293,6 @@ impl Spec {
     }
 }
 
-/// A string value as written for the node at `indent`: a raw multi-line string when it has line
-/// breaks that one can write that way, else a quoted one.
 pub(super) fn context_format(v: &str, indent: &str) -> KdlEntryFormat {
     let plain = |c: char| (!c.is_control() || c == '\n' || c == '\t') && !spec::disallowed(c);
     let multi = v.contains('\n')

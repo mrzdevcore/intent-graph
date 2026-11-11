@@ -155,8 +155,7 @@ pub(crate) fn doc(p: &str, text: &str) -> Result<KdlDocument, Vec<String>> {
     })
 }
 
-/// "path:line: message" for each property an arrow does not take, in the files given as
-/// (path, text): the reader skips them so that older maps keep reading.
+// the reader skips these properties so that older maps keep reading
 pub fn arrow_warnings(texts: &[(String, Option<String>)]) -> Vec<String> {
     fn walk(p: &str, text: &str, d: &KdlDocument, out: &mut Vec<String>) {
         for n in d.nodes() {

@@ -54,7 +54,6 @@ pub struct KindView {
     pub props: Vec<PropDef>,
 }
 
-/// An arrow kind as the viewer takes it (`View.arrowKinds`): the kinds it joins, empty = any.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ArrowKindView {
     pub name: String,
@@ -153,7 +152,6 @@ impl Kinds {
             .collect()
     }
 
-    /// Every arrow kind written (not `bundle`) with the kinds its rules join.
     pub fn arrow_views(&self) -> Vec<ArrowKindView> {
         TELLING
             .iter()

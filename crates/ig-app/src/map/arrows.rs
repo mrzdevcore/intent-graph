@@ -52,7 +52,6 @@ pub struct MapArrow {
     pub context: Option<String>,
     #[serde(skip_serializing_if = "Written::is_none", default)]
     pub written: Written,
-    /// Where the code does it: a few `"file:line"`, at most `SEEN`.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub seen: Vec<String>,
     /// Graph edges lifted into this arrow.
@@ -79,8 +78,7 @@ impl MapArrow {
     }
 }
 
-/// Where ig/ writes an arrow, `"ig/shop.kdl:12"`: not part of what it says, so a reread of the
-/// same arrow elsewhere in the files is equal to it.
+// always equal: a reread of the same arrow elsewhere in the files is the same arrow
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Written(pub Option<String>);
@@ -99,7 +97,6 @@ impl PartialEq for Written {
 
 pub const SEEN: usize = 5;
 
-/// The first `SEEN` distinct places in the code of `edges`.
 pub(super) fn seen<'g>(edges: impl IntoIterator<Item = &'g Edge>) -> Vec<String> {
     let mut out: Vec<String> = vec![];
     for e in edges {

@@ -83,3 +83,15 @@ fn context_replaced_by_hand_formatting_is_restored_exactly() {
     let after = with.replace("context   \"hand  written\"", "context \"new\"");
     check_on(f, context("api", Some("new")), &[("ig/system.kdl", &after)]);
 }
+
+#[test]
+fn a_context_without_text_is_refused_not_a_panic() {
+    let with = SHOP.replace(
+        "        at \"apps/api/**\"\n",
+        "        at \"apps/api/**\"\n        context\n",
+    );
+    let f = MemFiles::with(&[("ig/system.kdl", &with)]);
+    let e = apply(&f, &context("api", Some("new"))).unwrap_err();
+    assert!(e.iter().any(|m| m.contains("has no text")), "{e:?}");
+    assert_eq!(texts(&f)["ig/system.kdl"], with);
+}
