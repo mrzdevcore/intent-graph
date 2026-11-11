@@ -31,7 +31,7 @@ export function parentsFor(boxes: MapBox[], kinds: KindView[], id: string, root:
     .sort((a, b) => a.title.value.localeCompare(b.title.value));
 }
 
-const written = (b: MapBox | undefined) => !!b && b.level !== "code" && b.kind.value !== "parts" && b.origin !== "drift" && b.origin !== "unmanaged";
+export const written = (b: MapBox | undefined) => !!b && b.level !== "code" && b.kind.value !== "parts" && b.origin !== "drift" && b.origin !== "unmanaged";
 
 export function removal(boxes: MapBox[], arrows: MapArrow[], ids: string[]): { edit: Edit | null; inside: number } {
   const byId = new Map(boxes.map((b) => [b.id, b])), kids = new Map<string, string[]>();

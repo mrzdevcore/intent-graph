@@ -1,13 +1,18 @@
 // The state of one editing gesture on the map: the arrow being drawn, the box being drawn (its place in its parent's
 // inner units, kept as places are), the new arrow's kind chip, and the one popover (box menu, rename, move picker) or add form that is open. Map.svelte hands it what it knows through `Ctx`.
 import type { EditApi } from "../../api";
-import type { ArrowKind, ArrowKindView, Edit, Frame, KindView, MapBox, View } from "../types";
+import type { ArrowKind, ArrowKindView, Edit, Frame, KindView, MapArrow, MapBox, View } from "../types";
+import { editing, onArrow, specKind } from "./arrows";
 import { baseOf, guessArrow } from "./guess";
 import { removal, type Act } from "./menu";
 import type { Tool } from "./tool.svelte";
 
 export type Draft = { parent: string; x: number; y: number; w: number; h: number; title: string; drawing: boolean; from?: string };
-export type Ui = { t: "menu" | "rename" | "move" | "ground"; id: string; x: number; y: number; gx?: number; gy?: number };
+export type Ui = { t: "menu" | "rename" | "move" | "ground" | "arrow"; id: string; x: number; y: number; gx?: number; gy?: number };
+/** A drawn arrow, or one of a bundle's parts (by its ends). */
+export type ArrowPick = { id: string; part?: { from: string; to: string } };
+/** The details panel's seam (Task 13): which arrow, and the field it opens at. */
+export type Panel = { arrow: ArrowPick; focus: "context" | null };
 export type Ctx = {
   edit: () => EditApi | undefined; view: () => View; box: (id: string) => MapBox | undefined; frame: (id: string) => Frame;
   kinds: () => KindView[]; arrowKinds: () => ArrowKindView[] | undefined;
@@ -35,6 +40,11 @@ export class EditSession {
   draft = $state<Draft | null>(null);
   kinds = $state<string[] | null>(null);
   asking = $state<{ ids: string[]; text: string; edit: Edit } | null>(null);
+  arrow = $state<ArrowPick | null>(null);
+  arrowKinds = $state(false);
+  writing = $state<"label" | "note" | null>(null);
+  panel = $state<Panel | null>(null);
+  end = $state<{ which: "from" | "to"; fixed: string; was: string; to: string | null; x: number; y: number; x0: number; y0: number } | null>(null);
   private c: Ctx;
   private pid = -1;
   constructor(c: Ctx) { this.c = c; }
@@ -51,7 +61,7 @@ export class EditSession {
   };
   width = (id: string) => this.c.frame(id).w * this.c.cam().k;
   /** The box lit as the arrow's target. */
-  get aim() { return this.link?.to ?? null; }
+  get aim() { return this.link?.to ?? this.end?.to ?? null; }
   private screen(f: Frame): Frame {
     const m = this.c.cam();
     return { x: f.x * m.k + m.x, y: f.y * m.k + m.y, w: f.w * m.k, h: f.h * m.k };
@@ -61,6 +71,11 @@ export class EditSession {
     return { x1: p.x, y1: p.y, x2: q.x, y2: q.y };
   }
   get band() {
+    const r = this.end;
+    if (r) {
+      const end = r.to ? centre(this.screen(this.c.frame(r.to))) : { x: r.x, y: r.y }, p = nearest(this.screen(this.c.frame(r.fixed)), end);
+      return { x1: p.x, y1: p.y, x2: end.x, y2: end.y };
+    }
     const l = this.link;
     if (l) {
       const a = this.screen(this.c.frame(l.from));
@@ -88,12 +103,13 @@ export class EditSession {
   }
   /** Drop everything in flight (Esc, a box gone). */
   cancel() {
-    this.link = this.ui = this.adding = this.draft = this.made = this.kinds = this.asking = null;
+    this.link = this.ui = this.adding = this.draft = this.made = this.kinds = this.asking = this.end = this.writing = this.arrow = null;
+    this.arrowKinds = false;
     this.release();
   }
   /** A lost pointer drops the arrow in flight; open forms keep what was typed. */
   dropLink() {
-    this.link = null;
+    this.link = this.end = null;
     this.release();
   }
   /** A pointer press outside the open popover closes it. */
@@ -101,7 +117,10 @@ export class EditSession {
     const t = e.target as Element | null;
     if (t?.closest?.("[data-popover]")) return;
     this.ui = this.made = null;
-    if (!t?.closest?.("[data-bar]")) this.kinds = this.asking = null;
+    if (!t?.closest?.("[data-bar]")) {
+      this.kinds = this.asking = null;
+      this.arrowKinds = false;
+    }
   }
   grab(id: number) {
     this.pid = id;
@@ -184,6 +203,98 @@ export class EditSession {
     const add: Edit = { op: "add", parent: d.parent, kind: "box", id, title, at: [], before: null };
     if (!d.from || !this.c.box(d.from)) return add;
     return { op: "batch", edits: [add, { op: "arrow", from: d.from, to: id, kind: this.guess(d.from, null), label: null }] };
+  }
+
+  /** The picked arrow as the view has it now. */
+  get picked(): MapArrow | undefined {
+    const p = this.arrow, a = p ? this.c.view().arrows.find((x) => x.id === p.id) : undefined;
+    return p?.part ? a?.parts?.find((x) => x.from === p.part!.from && x.to === p.part!.to) : a;
+  }
+  get editing() {
+    const a = this.picked;
+    return a ? editing(a, this.c.box) : "none";
+  }
+  pickArrow(p: ArrowPick | null) {
+    this.arrow = p;
+    this.arrowKinds = false;
+    this.writing = this.ui = this.kinds = this.asking = this.made = null;
+    if (p) this.c.select(null);
+  }
+  /** A change to the picked arrow (a drift arrow is kept in ig/ with it); `next` is where the arrow is after it. */
+  private change(edits: Edit[], next?: { from: string; to: string }) {
+    const a = this.picked, how = this.editing;
+    if (!a || !this.c.edit() || (how !== "edit" && how !== "drift")) return;
+    const e = onArrow(a, edits);
+    if (!e || !this.c.run(() => this.c.edit()!.apply(e))) return;
+    if (next && this.arrow) this.arrow = this.arrow.part ? { id: this.arrow.id, part: next } : { id: `${next.from}->${next.to}` };
+  }
+  arrowSet(key: "kind" | "label" | "note" | "context", value: string | null) {
+    const a = this.picked;
+    this.arrowKinds = false;
+    this.writing = null;
+    if (!a || (key === "kind" ? specKind(a) : this.text(a, key)) === value) return;
+    this.change([{ op: "arrowset", from: a.from, to: a.to, key, value }]);
+  }
+  /** What ig/ says: a bundle's label is a count, not something written. */
+  text(a: MapArrow, key: "label" | "note" | "context") {
+    return key === "label" && a.kind === "bundle" ? null : a[key] ?? null;
+  }
+  keepArrow() {
+    this.change([]);
+  }
+  flip() {
+    const a = this.picked;
+    if (a) this.change([{ op: "arrowset", from: a.from, to: a.to, key: "flip", value: null }], { from: a.to, to: a.from });
+  }
+  unarrow() {
+    const a = this.picked;
+    if (!a || this.editing !== "edit") return;
+    this.change([{ op: "unarrow", from: a.from, to: a.to, kind: specKind(a) }]);
+    this.pickArrow(null);
+  }
+  /** The details panel, at `focus` (Task 13 draws it). */
+  openPanel(focus: "context" | null) {
+    if (this.arrow) this.panel = { arrow: this.arrow, focus };
+  }
+  startEnd(e: PointerEvent): boolean {
+    const t = (e.target as Element | null)?.closest?.("[data-end]") as HTMLElement | null, a = this.picked, how = this.editing;
+    if (!t || !a || !this.c.edit() || (how !== "edit" && how !== "drift")) return false;
+    const which = t.dataset.end === "from" ? "from" : "to", p = this.rel(e);
+    this.end = { which, fixed: which === "to" ? a.from : a.to, was: a[which], to: null, ...p, x0: p.x, y0: p.y };
+    this.grab(e.pointerId);
+    return true;
+  }
+  moveEnd(e: PointerEvent): boolean {
+    const r = this.end;
+    if (!r) return false;
+    const to = this.boxAt(e);
+    this.end = { ...r, to: to && to !== r.fixed && this.c.box(to) ? to : null, ...this.rel(e) };
+    return true;
+  }
+  endEnd(e: PointerEvent): boolean {
+    const r = this.end, a = this.picked;
+    if (!r) return false;
+    this.end = null;
+    this.release();
+    const to = this.boxAt(e);
+    if (!a || !to || to === r.fixed || to === r.was || !this.c.box(to)) return true;
+    this.change([{ op: "arrowset", from: a.from, to: a.to, key: r.which, value: to }], r.which === "to" ? { from: a.from, to } : { from: to, to: a.to });
+    return true;
+  }
+  arrowMenuAt(e: MouseEvent, id: string) {
+    e.preventDefault();
+    this.pickArrow({ id });
+    this.ui = { t: "arrow", id, ...this.rel(e) };
+  }
+  /** What the arrow menu's item does (the bar's buttons do the same). */
+  arrowAct(a: "kind" | "label" | "note" | "context" | "flip" | "details" | "delete" | "keep") {
+    this.ui = null;
+    if (a === "kind") this.arrowKinds = true;
+    else if (a === "label" || a === "note") this.writing = a;
+    else if (a === "context" || a === "details") this.openPanel(a === "context" ? "context" : null);
+    else if (a === "flip") this.flip();
+    else if (a === "delete") this.unarrow();
+    else this.keepArrow();
   }
 
   act(a: Act, id: string, p = this.at(id)) {

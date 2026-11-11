@@ -34,6 +34,10 @@
   import AddBox from "./edit/AddBox.svelte";
   import { freeId, inside, kindOf } from "./edit/add";
   import BoxBar from "./edit/BoxBar.svelte";
+  import ArrowBar from "./edit/ArrowBar.svelte";
+  import ArrowMenu from "./edit/ArrowMenu.svelte";
+  import ArrowText from "./edit/ArrowText.svelte";
+  import { arrowKindNames, specKind } from "./edit/arrows";
   import { kindName } from "./edit/kinds";
   import { sharedParent } from "./edit/menu";
   import EditLayer from "./edit/EditLayer.svelte";
@@ -455,6 +459,7 @@
     away = false;
   }
   function openBox(id: string) {
+    if (sess.arrow) sess.pickArrow(null);
     many = [];
     selected = id;
     fly(id);
@@ -536,6 +541,11 @@
     if (edit && e.key !== "Escape") {
       if (owned) return;
       const k = e.key.toLowerCase(), plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+      if (plain && sess.arrow && (k === "delete" || k === "backspace")) {
+        e.preventDefault();
+        sess.unarrow();
+        return;
+      }
       if (plain && many.length > 1 && (k === "delete" || k === "backspace" || (k === "a" && many.length === 2))) {
         e.preventDefault();
         if (k === "a") sess.connect(many[0], many[1]);
@@ -558,8 +568,10 @@
       live = null;
       drag = null;
     }
+    const hadArrow = !!sess.arrow;
     sess.cancel();
     marquee = null;
+    if (hadArrow) return;
     if (many.length) many = [];
     else if (selected) close();
     else if (traced) traced = null;
@@ -643,6 +655,14 @@
         resize: { id: gripped, corner: grip!.dataset.resize!, f: shown.placed.frames[gripped], k: (unit.get(byId.get(gripped)?.parent ?? ROOT) ?? 1) * camera.cam.k } };
       return;
     }
+    if (e.button === 0 && !space && sess.startEnd(e)) return;
+    const hit = e.button === 0 && !space && edit && tool.current === "select" ? arrowHit(e) : undefined;
+    if (hit) return void sess.pickArrow({ id: hit });
+    if (sess.arrow) {
+      // the typed label or note is kept before the arrow lets go
+      (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>("[data-arrow-text]")?.blur();
+      sess.pickArrow(null);
+    }
     if (e.button === 0 && !space && sess.startLink(e, tool.current === "arrow")) return;
     drag = { x: e.clientX, y: e.clientY, from: camera.cam, moved: false, pointer: e.pointerId };
     if (!panning && edit && tool.current === "box") {
@@ -703,7 +723,7 @@
   }
   function move(e: PointerEvent) {
     pointer = { x: e.clientX, y: e.clientY };
-    if (sess.moveLink(e) || !drag) return;
+    if (sess.moveLink(e) || sess.moveEnd(e) || !drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 4) return;
     if (!drag.moved) sess.grab(drag.pointer);
@@ -726,7 +746,7 @@
     }
   }
   function up(e: PointerEvent) {
-    if (sess.endLink(e)) {
+    if (sess.endLink(e) || sess.endEnd(e)) {
       swallow = true;
       return;
     }
@@ -780,6 +800,7 @@
   }
   const chosen = () => (many.length ? many : selected ? [selected] : []);
   function choose(ids: string[]) {
+    if (ids.length && sess.arrow) sess.pickArrow(null);
     if (ids.length > 1) [many, selected] = [ids, null];
     else [many, selected] = [[], ids[0] ?? null];
   }
@@ -887,7 +908,13 @@
     e.preventDefault();
   }
   function dblclick(e: MouseEvent) {
-    const t = e.target as Element | null, b = t?.closest?.("[data-box]");
+    const t = e.target as Element | null, b = t?.closest?.("[data-box]"), hit = edit && tool.current === "select" ? arrowHit(e) : undefined;
+    if (hit) {
+      e.preventDefault();
+      sess.pickArrow({ id: hit });
+      if (sess.editing === "edit" || sess.editing === "drift") sess.writing = "label";
+      return;
+    }
     if (!edit || tool.current !== "select" || space || t?.closest?.("[data-draft], [data-pad], [data-arrow], [data-label], [data-popover]") || (b && !b.hasAttribute("data-open"))) return;
     e.preventDefault();
     draftAt(groundAt(e));
@@ -985,7 +1012,7 @@
     // an open popover or form on a box that is gone has nothing to act on
     const gone = (id: string) => id !== ROOT && !byId.has(id);
     const u = sess.ui;
-    if ((u && gone(u.id)) || (sess.adding && gone(sess.adding.parent)) || (sess.draft && gone(sess.draft.parent))) sess.cancel();
+    if ((u && u.t !== "arrow" && gone(u.id)) || (sess.adding && gone(sess.adding.parent)) || (sess.draft && gone(sess.draft.parent))) sess.cancel();
   });
   const dots = $derived.by(() => {
     const { step, fade } = gridLevel(cam.k, GRID), sp = GRID * step * cam.k;
@@ -1012,6 +1039,53 @@
     };
   });
 
+  const arrowHit = (e: Event) => {
+    const t = e.target as Element | null;
+    return t?.closest?.("[data-hit]") ? (t.closest("[data-arrow]") as HTMLElement | null)?.dataset.arrow : undefined;
+  };
+  const toScreen = (parent: string, [x, y]: [number, number]) => {
+    const t = parent === ROOT ? { x: 0, y: 0, s: 1 } : place.inside(parent), c = cam;
+    return { x: (t.x + x * t.s) * c.k + c.x, y: (t.y + y * t.s) * c.k + c.y };
+  };
+  const centreOf = (id: string) => {
+    const f = frameOf(id), c = cam;
+    return { x: (f.x + f.w / 2) * c.k + c.x, y: (f.y + f.h / 2) * c.k + c.y };
+  };
+  /** The picked arrow's middle on screen: its wire's, or halfway between a bundle part's boxes. */
+  const arrowAt = $derived.by(() => {
+    const p = sess.arrow, a = p && view.arrows.find((x) => x.id === p.id);
+    if (!p || !a) return null;
+    if (p.part) {
+      const [f, t] = [centreOf(p.part.from), centreOf(p.part.to)];
+      return { x: (f.x + t.x) / 2, y: (f.y + t.y) / 2 };
+    }
+    const mode = (unit.get(a.parent) ?? 1) * lod.k < RIBBON ? "ribbon" : "routed", w = wiringOf(a.parent)?.[mode].wires.get(a.id);
+    if (w) return toScreen(a.parent, w.mid);
+    const [f, t] = [centreOf(a.from), centreOf(a.to)];
+    return { x: (f.x + t.x) / 2, y: (f.y + t.y) / 2 };
+  });
+  const arrowBar = $derived.by(() => {
+    const a = sess.picked, at = arrowAt, drawnAs = sess.arrow && view.arrows.find((x) => x.id === sess.arrow!.id);
+    if (!edit || !a || !at || !drawnAs || live || sess.link || sess.end || sess.draft || marquee) return null;
+    const how = sess.editing, title = `${sess.titleOf(a.from)} → ${sess.titleOf(a.to)}`;
+    const parts = how === "bundle" ? (a.parts ?? []).map((p) => ({ title: `${sess.titleOf(p.from)} → ${sess.titleOf(p.to)}`, kind: specKind(p) })) : [];
+    return { ...at, y: Math.max(barTop, at.y), how, title, a, parts, bundle: drawnAs };
+  });
+  function pickPart(bundle: Arrow, i: number) {
+    const p = bundle.parts?.[i];
+    if (!p) return;
+    sess.pickArrow({ id: bundle.id, part: { from: p.from, to: p.to } });
+    const [f, t] = [frameOf(p.from), frameOf(p.to)], x = Math.min(f.x, t.x), y = Math.min(f.y, t.y);
+    glideTo(fitTo({ x, y, w: Math.max(f.x + f.w, t.x + t.w) - x, h: Math.max(f.y + f.h, t.y + t.h) - y }, { w: vw, h: vh }, 0.2));
+  }
+  // a new view can drop the picked arrow (a change made elsewhere, an undo)
+  $effect(() => {
+    void view;
+    untrack(() => {
+      if (sess.arrow && !sess.picked) sess.pickArrow(null);
+    });
+  });
+
   /** A box's inner space inside its own frame, below its header (as place.inside, locally). */
   function local(id: string) {
     const f = shown.placed.frames[id], [iw, ih] = shown.placed.inner[id] ?? [0, 0];
@@ -1026,6 +1100,7 @@
   {@const path = traced?.parent === pid ? traced : null}
   {@const ans = path ? null : answer}
   {@const lit = path ? all.filter((a) => path.arrows.includes(a)) : all.filter((a) => touches(a) || (ans && arrowLit(ans, a) && (!marks || (nowOn.has(a.from) && nowOn.has(a.to)))))}
+  {@const labelled = all.filter((a) => lit.includes(a) || !!a.note || sess.arrow?.id === a.id)}
   {@const answered = ans && (kids.get(pid) ?? []).some((b) => states?.has(b.id))}
   {@const mode = zoom < RIBBON ? "ribbon" : "routed"}
   {#if near}{#each regions.get(pid) ?? [] as r, i (i)}<Region region={r} {zoom} />{/each}{/if}
@@ -1041,7 +1116,7 @@
     {@const changeLook = !marks ? null : a.ghost ? "ghost" : marks.addedArrows.has(arrowKey(a.from, a.to)) ? "added" : null}
     <div class="arrow" data-arrow={a.id}>
       <MapArrow d={c.d} mid={c.mid} arrowLook={changeLook ? diffLook(drawnLook, changeLook) : asked ? { ...drawnLook, color: "var(--map-trace)" } : drawnLook} {zoom}
-        lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
+        lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)} picked={sess.arrow?.id === a.id}
         onhover={(h) => (hotArrow = h ? a.id : hotArrow === a.id ? null : hotArrow)} />
       {#if ans && arrowNumber(ans, a)}
         <span class="number on-arrow" class:now={arrowNumber(ans, a) === step + 1} style:left="{c.mid[0]}px" style:top="{c.mid[1]}px" style:scale={1 / zoom}>{arrowNumber(ans, a)}</span>
@@ -1097,10 +1172,12 @@
       ontitle={(v) => sess.draft && (sess.draft.title = v)} onfinish={finishDraft} />
   {/if}
   <!-- the focused arrows' labels, above the boxes -->
-  {#each lit as a (a.id)}
+  {#each labelled as a (a.id)}
     {@const c = pathOf(a, mode)}
+    {@const here = sess.arrow?.id === a.id}
     <div class="arrow" data-label={a.id}>
-      <MapArrow part="label" d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom} />
+      <MapArrow part="label" d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom} note={a.note} len={c.len} picked={here}
+        ends={here && !sess.arrow?.part && (sess.editing === "edit" || sess.editing === "drift") ? c.ends : undefined} />
     </div>
   {/each}
 {/snippet}
@@ -1113,7 +1190,7 @@
     <div class="dots" aria-hidden="true" style:opacity={d.opacity} style:background-size="{d.sp}px {d.sp}px" style:background-position="{d.x}px {d.y}px"></div>
   {/each}
   <div class="stage" class:hand={tool.current === "hand" || space} class:draw={!!edit && (tool.current === "box" || tool.current === "frame") && !space} bind:this={stage} role="presentation"
-    onpointerdown={down} onclickcapture={clickCapture} ondblclick={dblclick} oncontextmenu={(e) => sess.menuAt(e)}
+    onpointerdown={down} onclickcapture={clickCapture} ondblclick={dblclick} oncontextmenu={(e) => { const hit = edit ? arrowHit(e) : undefined; if (hit) sess.arrowMenuAt(e, hit); else sess.menuAt(e); }}
     onpointerover={over} onpointerleave={() => (hot = hotArrow = null)}>
     <div class="world" style:transform="translate({base.x}px, {base.y}px) scale({base.k})">{@render level(anchor)}</div>
   </div>
@@ -1175,6 +1252,23 @@
       ondetails={() => details(one)} onarrow={() => sess.act("arrow", one)} oncode={() => openBox(one)} onmore={(e) => sess.menuFrom(e)}
       ongroup={() => bar.shared && makeGroup(bar.shared, [...picked])} onalign={align} onarrange={() => arrangeIn([...picked])}
       ondelete={() => sess.remove([...picked])} onconfirm={() => sess.confirmRemove()} onkeep={() => (sess.asking = null)} />
+  {/if}
+  {#if arrowBar}
+    {@const ab = arrowBar}
+    {#if sess.writing}
+      <ArrowText what={sess.writing} value={sess.text(ab.a, sess.writing) ?? ""} x={ab.x} y={ab.y} max={sess.writing === "note" ? 80 : undefined}
+        onsubmit={(v) => sess.arrowSet(sess.writing!, v)} onclose={() => (sess.writing = null)} />
+    {:else}
+      <ArrowBar x={ab.x} y={ab.y} how={ab.how} title={ab.title} kind={specKind(ab.a)} kinds={arrowKindNames(view.arrowKinds)} picking={sess.arrowKinds}
+        note={!!ab.a.note} context={!!ab.a.context} parts={ab.parts}
+        onkinds={(o) => (sess.arrowKinds = o)} onpick={(k) => sess.arrowSet("kind", k)} onnote={() => (sess.writing = "note")} oncontext={() => sess.openPanel("context")}
+        onflip={() => sess.flip()} ondetails={() => sess.openPanel(null)} ondelete={() => sess.unarrow()} onkeep={() => sess.keepArrow()} onpart={(i) => pickPart(ab.bundle, i)} />
+    {/if}
+  {/if}
+  {#if edit && sess.ui?.t === "arrow" && arrowBar}
+    {@const ab = arrowBar}
+    <ArrowMenu x={sess.ui.x} y={sess.ui.y} title={ab.title} how={ab.how} parts={ab.parts.map((p) => `${p.kind} · ${p.title}`)}
+      onpick={(a) => sess.arrowAct(a)} onpart={(i) => { sess.ui = null; pickPart(ab.bundle, i); }} onclose={() => (sess.ui = null)} />
   {/if}
   {#if edit}<EditLayer s={sess} {arrangeable} boxes={view.boxes} kinds={view.kinds} arrowKinds={view.arrowKinds} root={ROOT} />{/if}
   {#if view.landscape}

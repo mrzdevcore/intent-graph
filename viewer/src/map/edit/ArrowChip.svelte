@@ -2,7 +2,7 @@
   import type { ArrowKind } from "../types";
 
   let { kind, kinds, x, y, open, ontoggle, onpick }: {
-    kind: ArrowKind; kinds: ArrowKind[]; x: number; y: number; open: boolean; ontoggle: (open: boolean) => void; onpick: (k: ArrowKind) => void;
+    kind: ArrowKind; kinds: ArrowKind[]; x?: number; y?: number; open: boolean; ontoggle: (open: boolean) => void; onpick: (k: ArrowKind) => void;
   } = $props();
   let list = $state<HTMLDivElement>();
   $effect(() => {
@@ -28,7 +28,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="chip" data-popover data-chip style:left="{x}px" style:top="{y}px" onkeydown={keydown}>
+<div class="chip" class:inline={x === undefined} data-popover data-chip style:left={x === undefined ? undefined : `${x}px`} style:top={y === undefined ? undefined : `${y}px`} onkeydown={keydown}>
   <button type="button" class="kind" aria-haspopup="menu" aria-expanded={open} aria-label="Arrow kind: {kind}" onclick={() => ontoggle(!open)}>{kind}</button>
   {#if open}
     <div role="menu" aria-label="Arrow kinds" bind:this={list}>
@@ -41,6 +41,7 @@
 
 <style>
   .chip { position: absolute; z-index: 5; translate: -50% -50%; font-size: var(--text-sm); color: var(--map-fg); }
+  .chip.inline { position: relative; translate: none; z-index: auto; }
   .kind { font: inherit; padding: var(--space-0-5) var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--map-trace); background: var(--map-surface);
     color: inherit; cursor: pointer; box-shadow: 0 0.125rem 0.5rem var(--map-shadow); }
   [role="menu"] { position: absolute; left: 50%; top: calc(100% + var(--space-1)); translate: -50% 0; display: flex; flex-direction: column; min-width: 8rem; padding: var(--space-1);

@@ -393,3 +393,40 @@ fn view_sends_arrow_kinds_and_rules() {
     let json = serde_json::to_value(&v).unwrap();
     assert_eq!(json["arrowKinds"][3]["name"], "writes");
 }
+
+#[test]
+fn an_arrows_note_and_context_in_ig_reach_the_view() {
+    let spec = r#"system "system" title="Lab" {
+    at "**"
+    service "api" title="API" {
+        at "src/api/**"
+        calls "db" label="save" note="retries twice" context="Idempotent writes only."
+    }
+    store "db" title="DB"
+    group "host" title="Host" {
+        service "edge" title="Edge" {
+            calls "api" note="through the gateway"
+        }
+    }
+}
+"#;
+    let files = MemFiles::with(&[
+        ("ig/system.kdl", spec),
+        ("src/api/a.ts", "export function f() {}\n"),
+    ]);
+    let v = run(&env(&files, None, &Fake)).unwrap();
+    assert!(!v.broken, "{:?}", v.notices);
+    let json = serde_json::to_value(&v).unwrap();
+    let arrow = |from: &str, to: &str| {
+        (json["arrows"].as_array().unwrap().iter())
+            .find(|a| a["from"] == from && a["to"] == to)
+            .cloned()
+            .unwrap_or_else(|| panic!("no {from}->{to} in {:#}", json["arrows"]))
+    };
+    let a = arrow("api", "db");
+    assert_eq!(a["note"], "retries twice");
+    assert_eq!(a["context"], "Idempotent writes only.");
+    assert_eq!(a["label"], "save");
+    let lifted = arrow("host", "api");
+    assert_eq!(lifted["parts"][0]["note"], "through the gateway");
+}

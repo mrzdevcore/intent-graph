@@ -23,7 +23,7 @@
 {#if chip && s.made}
   <ArrowChip kind={s.made.kind} kinds={arrowKindNames(arrowKinds)} x={chip.x} y={chip.y} open={s.made.open} ontoggle={(o) => s.chipOpen(o)} onpick={(k) => s.rekind(k)} />
 {/if}
-{#if ui}
+{#if ui && ui.t !== "arrow"}
   {@const id = ui.id}
   {@const box = boxes.find((b) => b.id === id)}
   {#if ui.t === "ground"}

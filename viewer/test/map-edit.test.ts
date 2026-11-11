@@ -1213,3 +1213,193 @@ test("E with a box selected focuses its details", async () => {
   await tick();
   expect(document.activeElement).toBe(target.querySelector("section.details"));
 });
+
+// --- an arrow: select, bar, reconnect, label and note
+const hitOf = (t: HTMLElement, id: string) => t.querySelector<SVGElement>(`[data-arrow="${id}"] [data-hit]`)!;
+const pickArrow = (t: HTMLElement, id: string) => {
+  ptr(hitOf(t, id), "pointerdown");
+  ptr(window, "pointerup");
+};
+const arrowBar = (t: HTMLElement) => t.querySelector<HTMLElement>('[data-bar][aria-label^="Arrow"]');
+const arrowButton = (t: HTMLElement, name: string) => [...arrowBar(t)!.querySelectorAll<HTMLButtonElement>(":scope > button")].find((b) => b.textContent!.startsWith(name));
+const typeIn = (el: HTMLInputElement, v: string) => {
+  el.value = v;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+};
+const withArrow = (id: string, over: Record<string, unknown>) => {
+  const v = fresh();
+  Object.assign(v.arrows.find((a) => a.id === id)!, over);
+  return v;
+};
+
+test("a click on an arrow picks it: gold, a handle on each end, and its bar; Esc lets go", () => {
+  const { target } = setup(recorder().api);
+  expect(arrowBar(target)).toBeNull();
+  pickArrow(target, "web->api");
+  expect(target.querySelector('[data-arrow="web->api"] [data-state]')!.getAttribute("data-state")).toBe("picked");
+  expect([...target.querySelectorAll('[data-label="web->api"] [data-end]')].map((e) => e.getAttribute("data-end"))).toEqual(["from", "to"]);
+  const bar = arrowBar(target)!;
+  expect(bar.getAttribute("aria-label")).toBe("Arrow Web → Api");
+  expect(bar.querySelector("[data-chip] button.kind")!.textContent).toBe("calls");
+  expect([...bar.querySelectorAll(":scope > button")].map((b) => b.textContent)).toEqual(["Note", "Context", "Flip", "Details", "Delete"]);
+  press("Escape");
+  expect(arrowBar(target)).toBeNull();
+  expect(target.querySelector('[data-state="picked"]')).toBeNull();
+});
+
+test("the arrow bar's kind sends arrowset kind; flip and delete send theirs; Backspace deletes too", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  pickArrow(target, "web->api");
+  arrowBar(target)!.querySelector<HTMLElement>("[data-chip] button.kind")!.click();
+  flushSync();
+  kindItems(target).find((b) => b.textContent === "sends")!.click();
+  await tick();
+  arrowButton(target, "Flip")!.click();
+  await tick();
+  pickArrow(target, "api->postgres");
+  arrowButton(target, "Delete")!.click();
+  await tick();
+  pickArrow(target, "api->stripe");
+  press("Backspace");
+  await tick();
+  expect(got).toEqual([
+    { op: "arrowset", from: "web", to: "api", key: "kind", value: "sends" },
+    { op: "arrowset", from: "web", to: "api", key: "flip", value: null },
+    { op: "unarrow", from: "api", to: "postgres", kind: "reads" },
+    { op: "unarrow", from: "api", to: "stripe", kind: "calls" },
+  ]);
+  expect(arrowBar(target)).toBeNull();
+});
+
+test("Note opens a field on the arrow, one line of at most 80, and Enter sends arrowset note", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  pickArrow(target, "web->api");
+  arrowButton(target, "Note")!.click();
+  flushSync();
+  const field = target.querySelector<HTMLInputElement>('[data-arrow-text="note"]')!;
+  expect(field.maxLength).toBe(80);
+  expect(document.activeElement).toBe(field);
+  typeIn(field, "  retries twice ");
+  press("Enter", {}, field);
+  await tick();
+  expect(got).toEqual([{ op: "arrowset", from: "web", to: "api", key: "note", value: "retries twice" }]);
+});
+
+test("a double-click on an arrow edits its label in place; Esc leaves it", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  const dbl = () => {
+    pickArrow(target, "web->api");
+    hitOf(target, "web->api").dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+    flushSync();
+    return target.querySelector<HTMLInputElement>('[data-arrow-text="label"]')!;
+  };
+  let field = dbl();
+  expect(field.value).toBe("POST /checkout");
+  press("Escape", {}, field);
+  expect(target.querySelector("[data-arrow-text]")).toBeNull();
+  field = dbl();
+  typeIn(field, "POST /orders");
+  press("Enter", {}, field);
+  await tick();
+  expect(got).toEqual([{ op: "arrowset", from: "web", to: "api", key: "label", value: "POST /orders" }]);
+  expect(draftOf(target)).toBeNull();
+});
+
+test("dragging an end handle to another box sends arrowset to or from", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  const drag = (end: "from" | "to", onto: string) => {
+    pickArrow(target, "api->postgres");
+    ptr(target.querySelector(`[data-end="${end}"]`)!, "pointerdown");
+    ptr(boxEl(target, onto), "pointermove", far);
+    expect(target.querySelector(`[data-box="${onto}"]`)!.classList.contains("target")).toBe(true);
+    ptr(boxEl(target, onto), "pointerup", far);
+  };
+  drag("to", "stripe");
+  await tick();
+  drag("from", "web");
+  await tick();
+  expect(got).toEqual([
+    { op: "arrowset", from: "api", to: "postgres", key: "to", value: "stripe" },
+    { op: "arrowset", from: "api", to: "postgres", key: "from", value: "web" },
+  ]);
+});
+
+test("a bundle is read-only: its bar lists its parts, and picking one selects it there", async () => {
+  const { api, got } = recorder();
+  const v = withArrow("api->stripe", {
+    parts: [
+      { id: "api/infra-stripe->stripe", parent: "system", from: "api/infra-stripe", to: "stripe", kind: "calls", count: 1, kinds: ["calls"] },
+      { id: "api/application-refund->stripe", parent: "system", from: "api/application-refund", to: "stripe", kind: "sends", count: 1, kinds: ["sends"] },
+    ],
+  });
+  const { target } = setup({ ...api, apply: async (e) => (got.push(e), v) }, v);
+  pickArrow(target, "api->stripe");
+  expect(target.querySelector("[data-end]")).toBeNull();
+  const bar = arrowBar(target)!;
+  expect(bar.querySelector("[data-chip]")).toBeNull();
+  expect([...bar.querySelectorAll("[data-part]")].map((b) => b.textContent)).toEqual(["callsStripe → Stripe", "sendsRefund → Stripe"]);
+  bar.querySelector<HTMLElement>('[data-part="1"]')!.click();
+  flushSync();
+  expect(arrowBar(target)!.querySelector("[data-chip] button.kind")!.textContent).toBe("sends");
+  arrowButton(target, "Note")!.click();
+  flushSync();
+  const field = target.querySelector<HTMLInputElement>('[data-arrow-text="note"]')!;
+  typeIn(field, "refunds go out as events");
+  press("Enter", {}, field);
+  await tick();
+  expect(got).toEqual([{ op: "arrowset", from: "api/application-refund", to: "stripe", key: "note", value: "refunds go out as events" }]);
+});
+
+test("a drift arrow offers Keep it in ig/ first; a change to it is written with it, in one batch", async () => {
+  const { api, got } = recorder();
+  const v = withArrow("web->api", { origin: "drift" });
+  const { target } = setup({ ...api, apply: async (e) => (got.push(e), v) }, v);
+  pickArrow(target, "web->api");
+  const buttons = [...arrowBar(target)!.querySelectorAll(":scope > button")].map((b) => b.textContent);
+  expect(buttons[0]).toBe("Keep it in ig/");
+  expect(buttons).not.toContain("Delete");
+  arrowButton(target, "Keep it in ig/")!.click();
+  await tick();
+  arrowButton(target, "Flip")!.click();
+  await tick();
+  const written = { op: "arrow", from: "web", to: "api", kind: "calls", label: "POST /checkout" };
+  expect(got).toEqual([
+    { op: "batch", edits: [written] },
+    { op: "batch", edits: [written, { op: "arrowset", from: "web", to: "api", key: "flip", value: null }] },
+  ]);
+});
+
+test("the note shows under the label, cut to the arrow's length; context never shows; Context has a dot when set", () => {
+  const long = "a note far too long to fit along the arrow ".repeat(8);
+  const v = withArrow("web->api", { note: "retries twice", context: "Idempotent writes only." });
+  Object.assign(v.arrows.find((a) => a.id === "api->postgres")!, { note: long });
+  const { target } = setup(recorder().api, v);
+  expect(target.querySelector('[data-label="web->api"] [data-note]')!.textContent).toBe("retries twice");
+  const cut = target.querySelector('[data-label="api->postgres"] [data-note]')!.textContent!;
+  expect(cut.endsWith("…")).toBe(true);
+  expect(cut.length).toBeLessThan(long.length);
+  expect(target.textContent).not.toContain("Idempotent");
+  pickArrow(target, "web->api");
+  expect(arrowButton(target, "Context")!.querySelector("[data-dot]")).not.toBeNull();
+  expect(arrowButton(target, "Note")!.classList.contains("set")).toBe(true);
+  pickArrow(target, "api->postgres");
+  expect(arrowButton(target, "Context")!.querySelector("[data-dot]")).toBeNull();
+});
+
+test("right-click on an arrow gives its bar as a menu", async () => {
+  const { api, got } = recorder();
+  const { target } = setup(api);
+  hitOf(target, "api->postgres").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+  flushSync();
+  const items = [...menuOf(target)!.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  expect(items.map((b) => b.textContent)).toEqual(["Kind", "Label", "Note", "Context", "Flip", "Edit details", "Delete⌫"]);
+  expect(document.activeElement).toBe(items[0]);
+  items.find((b) => b.dataset.item === "delete")!.click();
+  await tick();
+  expect(got).toEqual([{ op: "unarrow", from: "api", to: "postgres", kind: "reads" }]);
+});

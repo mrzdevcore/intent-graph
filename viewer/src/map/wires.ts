@@ -1,7 +1,7 @@
 import type { Frame, MapArrow } from "./types";
 
-/** An arrow drawn as a wire: its SVG path and the point halfway along it. */
-export type Wire = { d: string; mid: [number, number] };
+/** An arrow drawn as a wire: its SVG path, the point halfway along it, its length, and its ends (tail, head). */
+export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]] };
 /** "routed": each wire on its own track, spread over the gaps; "ribbon": wires gathered into as
  *  few trunks as they can share, packed close, a sleeve behind each trunk. */
 export type Mode = "routed" | "ribbon";
@@ -129,7 +129,7 @@ export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: M
       : [[w.xa, ya], [w.xa, w.y1], [w.xz, w.y1], [w.xz, yz]];
     const p = straight(pts);
     if (w.flip) p.reverse();
-    out.set(w.a.id, { d: chamfer(p, bend), mid: halfway(p) });
+    out.set(w.a.id, { d: chamfer(p, bend), mid: halfway(p), len: r2(length(p)), ends: [p[0], p[p.length - 1]] });
   }
   return { wires: out, sleeves };
 }
@@ -162,10 +162,12 @@ function chamfer(p: P[], r: number): string {
   return `${d} L${pt(p[p.length - 1])}`;
 }
 
+const length = (p: P[]) => p.slice(1).reduce((s, q, i) => s + Math.hypot(q[0] - p[i][0], q[1] - p[i][1]), 0);
+
 /** The point halfway along the polyline. */
 function halfway(p: P[]): [number, number] {
   const len = (i: number) => Math.hypot(p[i + 1][0] - p[i][0], p[i + 1][1] - p[i][1]);
-  let left = p.slice(1).reduce((s, _, i) => s + len(i), 0) / 2;
+  let left = length(p) / 2;
   for (let i = 0; i < p.length - 1; i++) {
     const l = len(i);
     if (left <= l && l > 0) return [r2(p[i][0] + ((p[i + 1][0] - p[i][0]) * left) / l), r2(p[i][1] + ((p[i + 1][1] - p[i][1]) * left) / l)];
