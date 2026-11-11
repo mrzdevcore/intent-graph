@@ -242,23 +242,31 @@ export function crossings(view: View, places: Record<string, Place>, parent: str
 // 0.8: fitTo's margin
 export const fitZoom = (w: number, h: number, stage: Stage = STAGE) => Math.min((stage.w * 0.8) / w, (stage.h * 0.8) / h);
 
-export type Score = { fit: number; score: number };
-export function scoreOf(room: { w: number; h: number }, ls: Link[], at: (id: string) => Place, stage: Stage = STAGE): Score {
-  const fit = fitZoom(room.w, room.h, stage), n = crossCount(ls, at);
+export const COMFORT = 0.6;
+export type Score = { fit: number; readable: number; back: number; cross: number; wire: number };
+// past a comfortable zoom a larger one buys nothing: arrows that flow one way, few crossings, short wires do
+export function scoreOf(room: { w: number; h: number }, ls: Link[], at: (id: string) => Place, stage: Stage = STAGE, comfort = COMFORT): Score {
+  const fit = fitZoom(room.w, room.h, stage);
   let wire = 0, right = 0, down = 0;
   for (const l of ls) {
-    const p = centre(at(l.from)), q = centre(at(l.to));
-    wire += Math.hypot(p.x - q.x, p.y - q.y);
+    const a = at(l.from), b = at(l.to), p = centre(a), q = centre(b);
+    // the wire seen runs between the boxes' edges: centres would favour the shorter axis of a wide box
+    wire += Math.hypot(Math.max(0, a.x - b.x - b.w, b.x - a.x - a.w), Math.max(0, a.y - b.y - b.h, b.y - a.y - a.h));
     if (q.x <= p.x) right++;
     if (q.y <= p.y) down++;
   }
-  const back = ls.length ? Math.min(right, down) / ls.length : 0;
-  const wirePenalty = ls.length ? 0.01 * Math.min(1, (wire * fit) / ls.length / stage.w) : 0;
-  return { fit, score: fit * (1 - Math.min(0.25, 0.01 * n) - 0.1 * back) - wirePenalty };
+  return { fit, readable: Math.min(fit, comfort), back: Math.min(right, down), cross: crossCount(ls, at), wire };
 }
 
-const GAIN = 1.02;
-const beats = (a: Score, b: Score) => a.fit >= b.fit - 1e-9 && a.score > b.score * GAIN;
+// between new layouts the larger zoom settles a tie; what is on screen keeps it unless 10% smaller
+const beats = (a: Score, b: Score, fresh = false) => {
+  if (Math.abs(a.readable - b.readable) > 1e-6) return a.readable > b.readable;
+  if (a.back !== b.back) return a.back < b.back;
+  if (a.cross !== b.cross) return a.cross < b.cross;
+  // within 15% the wires are a wash (rows sit closer than columns): the larger zoom decides
+  if (a.wire < b.wire * 0.85 || b.wire < a.wire * 0.85) return a.wire < b.wire;
+  return a.fit > b.fit * (fresh ? 1 : 1.1) + 1e-6;
+};
 
 // the head an open box keeps above its inside (fitInner's, in the box's own units)
 const withHead = (c: number) => (c >= 3 * HEAD ? c + HEAD : (c * 4) / 3);
@@ -266,7 +274,7 @@ const withHead = (c: number) => (c >= 3 * HEAD ? c + HEAD : (c * 4) / 3);
 type Lay = { view: View; t: Tree; kindOf: (id: string) => string; inner: Map<string, [number, number]>; kept: Set<string>; grid: number; stage: Stage };
 type Laid = { places: Record<string, Place>; room: { w: number; h: number }; links: Link[]; score: Score };
 
-function layout(c: Lay, ids: string[], places: Record<string, Place>, stage: Stage = c.stage, fits: (room: { w: number; h: number }) => boolean = () => true): Laid | undefined {
+function layout(c: Lay, ids: string[], places: Record<string, Place>, stage: Stage = c.stage, fits: (room: { w: number; h: number }) => boolean = () => true, comfort = COMFORT): Laid | undefined {
   const { view, t, kindOf, inner, kept, grid } = c;
   const up = (v: number) => Math.ceil(v / grid) * grid;
   const size = (id: string) => places[id] ?? view.placed.frames[id];
@@ -282,14 +290,13 @@ function layout(c: Lay, ids: string[], places: Record<string, Place>, stage: Sta
   const lims = [...new Set([Math.min(longest, WRAP), ...[5, 4, 3, 2].filter((n) => n < longest)])];
   let best: Laid | undefined;
   for (const across of ["right", "down"] as const) {
-    const key = (id: string) => (across === "right" ? size(id).y : size(id).x);
-    const now = cols.map((col) => [...col].sort((a, b) => key(a) - key(b) || (a < b ? -1 : 1)));
-    for (const o of [now, ...order(cols, links)]) for (const lim of lims) {
+    // the candidates never depend on where boxes are now, so arranging twice finds the same best
+    for (const o of order(cols, links)) for (const lim of lims) {
       const p = place(o, links, size, tall, grid, across, lim);
       const room = { w: up(Math.max(...ids.map((id) => p[id].x + p[id].w)) + 4 * grid), h: up(Math.max(...ids.map((id) => p[id].y + p[id].h)) + 4 * grid) };
       if (!fits(room)) continue;
-      const score = scoreOf(room, dag, (id) => p[id], stage);
-      if (!best || score.score > best.score.score) best = { places: p, room, links: dag, score };
+      const score = scoreOf(room, dag, (id) => p[id], stage, comfort);
+      if (!best || beats(score, best.score, true)) best = { places: p, room, links: dag, score };
     }
   }
   return best;
@@ -339,8 +346,9 @@ function pass(scope: string[], view: View, t: Tree, places: Record<string, Place
       const n = top || !f ? undefined : frameOf(g, r, f);
       return !n || (n.w <= f.w + 0.5 && n.h <= f.h + 0.5);
     };
-    const laid = layout(c, kids, out, own, fits);
-    const now = room ? scoreOf(room, laid?.links ?? [], (id) => out[id], own) : undefined;
+    // a group's inside is read at its parent's zoom: there only the larger scale counts
+    const comfort = top || !f ? COMFORT : Infinity, laid = layout(c, kids, out, own, fits, comfort);
+    const now = room ? scoreOf(room, laid?.links ?? [], (id) => out[id], own, comfort) : undefined;
     if (!laid || (now && !beats(laid.score, now))) {
       if (kids.every((id) => out[id].w === was(id).w && out[id].h === was(id).h)) c.kept.add(g);
       continue;
@@ -386,8 +394,8 @@ export function arrange(scope: string[], view: View, places: Record<string, Plac
     const dag = flow(kids, linksAmong(view, t, kids, c.kindOf), c.kindOf);
     const score = (p: Record<string, Place>) => scoreOf(roomOf(view, g, kids, p, p, grid) ?? { w: 1, h: 1 }, dag, (id) => p[id], stage);
     const a = score(mine), d = score(ig);
-    // never below ig's own layout: a map left in a bad state goes back to it
-    if (a.fit < d.fit - 1e-9 || beats(d, a)) out = ig;
+    // ig's own layout is one more candidate: a map left in a bad state goes back to it
+    if (beats(d, a)) out = ig;
   }
   // a group arranged alone changed size: its siblings make room and its parents grow
   if (scope.length === 1 && t.parentOf.has(g) && out[g]) return settle(out, view, { [g]: out[g] }, g);

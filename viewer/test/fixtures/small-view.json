@@ -1,0 +1,17 @@
+{"version":1,
+"boxes":[
+{"id":"system","level":"system","kind":{"value":"system","source":"person"},"title":{"value":"small","source":"person"},"madeOf":[],"files":0},
+{"id":"ai-agent","parent":"system","level":"container","kind":{"value":"box","source":"person"},"title":{"value":"AI Agent","source":"person"},"madeOf":[],"files":0},
+{"id":"cli","parent":"system","level":"container","kind":{"value":"app","source":"person"},"title":{"value":"cli","source":"person"},"madeOf":[],"files":0},
+{"id":"mcp-server","parent":"system","level":"container","kind":{"value":"box","source":"person"},"title":{"value":"MCP Server","source":"person"},"madeOf":[],"files":0},
+{"id":"postgresql","parent":"system","level":"container","kind":{"value":"store","source":"person"},"title":{"value":"postgresql","source":"person"},"madeOf":[],"files":0},
+{"id":"user-api","parent":"system","level":"container","kind":{"value":"service","source":"person"},"title":{"value":"User API","source":"person"},"madeOf":[],"files":0},
+{"id":"webui","parent":"system","level":"container","kind":{"value":"app","source":"person"},"title":{"value":"Webui","source":"person"},"madeOf":[],"files":0}],
+"arrows":[
+{"id":"cli->user-api","parent":"system","from":"cli","to":"user-api","kind":"calls","count":1,"kinds":["calls"]},
+{"id":"webui->user-api","parent":"system","from":"webui","to":"user-api","kind":"calls","count":1,"kinds":["calls"]},
+{"id":"mcp-server->user-api","parent":"system","from":"mcp-server","to":"user-api","kind":"calls","count":1,"kinds":["calls"]},
+{"id":"ai-agent->mcp-server","parent":"system","from":"ai-agent","to":"mcp-server","kind":"calls","count":1,"kinds":["calls"]},
+{"id":"user-api->postgresql","parent":"system","from":"user-api","to":"postgresql","kind":"calls","count":1,"kinds":["calls"]}],
+"marks":[],"notices":[],"warnings":[],"kinds":[],
+"placed":{"frames":{"ai-agent":{"x":96,"y":96,"w":264,"h":152},"cli":{"x":456,"y":96,"w":264,"h":152},"mcp-server":{"x":816,"y":96,"w":264,"h":152},"postgresql":{"x":96,"y":344,"w":264,"h":152},"user-api":{"x":456,"y":344,"w":264,"h":152},"webui":{"x":816,"y":344,"w":264,"h":152}},"inner":{"system":[1176,592]},"regions":[]}}

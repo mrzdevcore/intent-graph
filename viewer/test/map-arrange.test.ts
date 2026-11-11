@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { expect, test, vi } from "vitest";
 import { flushSync, mount } from "svelte";
-import { WRAP, arrange, arranged, crossings, fitZoom, flow } from "../src/map/place/arrange";
+import { COMFORT, WRAP, arrange, arranged, crossings, fitZoom, flow } from "../src/map/place/arrange";
 import { inside, type Place } from "../src/map/place/places";
 import { overlaps, settle } from "../src/map/place/rules";
 import { Clock, PlaceHistory, apply, changes } from "../src/map/place/history";
@@ -12,6 +12,7 @@ import type { View } from "../src/map/types";
 import MapHarness from "./MapHarness.svelte";
 import shop from "./fixtures/shop-view.json";
 import igMap from "./fixtures/ig-system-view.json";
+import small from "./fixtures/small-view.json";
 
 // ig's own layout of the shop already reads well; these cases arrange it after someone stacked each group's boxes in one column
 const drawn = (v: View, groups: string[]): View => {
@@ -231,12 +232,12 @@ const tower = () => {
 };
 const kidsIn = (v: View) => v.boxes.filter((b) => b.parent === "system").map((b) => b.id);
 
-test("on ig's own map Arrange never reads smaller than ig's layout at fit, even from the old tower", () => {
-  const before = settle({}, own, {}, null);
-  expect(fitOf(arrange(["system"], own, before, GRID))).toBeGreaterThanOrEqual(fitOf(before));
-  const old = tower(), back = arrange(["system"], own, old, GRID);
-  expect(fitOf(back)).toBeGreaterThanOrEqual(fitOf(before));
-  expect(back).toEqual(before);
+test("on ig's own map Arrange reads at a comfortable zoom or as large as ig's layout, the same from the old tower", () => {
+  const before = settle({}, own, {}, null), out = arrange(["system"], own, before, GRID);
+  expect(fitOf(out)).toBeGreaterThanOrEqual(Math.min(COMFORT, fitOf(before)));
+  expect(arrange(["system"], own, tower(), GRID)).toEqual(out);
+  const narrow = { w: 1300, h: 875 };
+  expect(arrange(["system"], own, tower(), GRID, narrow)).toEqual(before);
 });
 
 test("on a tall stage the flowed map beats ig's grid: the fan-out wraps into a block and arrows flow one way", () => {
@@ -263,20 +264,32 @@ test("arranging ig's own map twice changes nothing", () => {
 });
 
 test("where ig's layout already reads best, Arrange moves nothing and says so", () => {
-  const before = settle({}, own, {}, null);
-  expect(arrange(["system"], own, before, GRID)).toEqual(before);
+  const before = settle({}, own, {}, null), narrow = { w: 1300, h: 875 };
+  expect(arrange(["system"], own, before, GRID, narrow)).toEqual(before);
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
   const same = async () => own;
   const edit = { apply: same, keep: same, drop: same, dropAll: same, undo: same, redo: same } as EditApi;
   const target = document.createElement("div");
   document.body.append(target);
-  mount(MapHarness, { target, props: { start: structuredClone(own), edit, size: { w: 1400, h: 875 } } });
+  mount(MapHarness, { target, props: { start: structuredClone(own), edit, size: narrow } });
   flushSync();
   press({ key: "Ï", code: "KeyF", altKey: true, shiftKey: true });
   const toast = target.querySelector(".arranged") as HTMLElement;
   expect(toast.textContent?.trim()).toBe("Already reads well");
   expect(toast.querySelector("button")).toBeNull();
   vi.unstubAllGlobals();
+});
+
+test("past a comfortable zoom flow wins: callers left, the store right, every arrow pointing right", () => {
+  const v = structuredClone(small) as unknown as View, before = settle({}, v, {}, null), out = arrange(["system"], v, before, GRID);
+  const cols = [["ai-agent", "cli", "webui"], ["mcp-server"], ["user-api"], ["postgresql"]];
+  cols.forEach((col, i) => {
+    for (const id of col) expect(out[id].x, id).toBe(out[cols[i][0]].x);
+    if (i) expect(out[cols[i - 1][0]].x).toBeLessThan(out[col[0]].x);
+  });
+  for (const a of v.arrows) expect(out[a.from].x + out[a.from].w, a.id).toBeLessThan(out[a.to].x);
+  expect(fitOf(out)).toBeGreaterThanOrEqual(COMFORT);
+  expect(arrange(["system"], v, out, GRID)).toEqual(out);
 });
 
 test("layers run top to bottom when that reads larger on the stage", () => {

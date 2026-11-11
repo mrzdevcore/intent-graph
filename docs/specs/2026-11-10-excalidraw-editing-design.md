@@ -176,16 +176,16 @@ kind yet) → `uses`. The chip on the new arrow opens the kind list at once; one
     menu, a group's right-click menu ("Arrange inside"), and the bar of a multi-selection ("Arrange
     these"). It arranges what is open on screen, or the group or selection it was asked on, and the
     groups inside, from the innermost out.
-  - **Never worse than what is on screen**: the map must read at least as large when fitted to the
-    stage (16:10, 1400×875, or the real stage) as before, so ig's first layout is the bar. Every
-    layout is scored by one function: the zoom at which the scope fits the stage, lowered a little
-    for crossings and arrows against the flow, then for wire length. A new layout replaces the
-    current one only when it fits at least as large and scores 2% higher; otherwise nothing moves
-    and the toast says "Already reads well". ig's own layout of the scope (its server frames, all
-    the way down) is one more candidate, so a map left in a bad state goes back to it when nothing
-    reads better: Arrange is never worse than ig's layout either. A group inside the one arranged
-    keeps its frame or shrinks it, so what holds it never gets worse. "Arrange these" compares the
-    selection's flowed block with the selection as it is the same way.
+  - **Readable first, then flow** (the user: "flow should win"): every layout is scored by one
+    function. Readability is the zoom at which the scope fits the stage (16:10, 1400×875, or the
+    real stage), counted only up to a comfortable 60% (`COMFORT`). Among layouts that reach it, the
+    one whose arrows flow one way wins, then fewer crossings, then shorter wires (within 15% a
+    wash, then the larger zoom); below it, the larger zoom wins. The candidates are the places on
+    screen, ig's own layout of the scope (its server frames, all the way down), and the flowed
+    layouts left to right and top to bottom. What is on screen wins a tie (or a zoom gain under
+    10%), and then nothing moves and the toast says "Already reads well". A group inside the one
+    arranged keeps its frame or shrinks it, so what holds it never gets worse. "Arrange these"
+    compares the selection's flowed block with the selection as it is the same way.
   - **The toast** counts only the boxes at the level on screen; when only insides moved it says
     "Arranged inside 3 groups".
   - **What good looks like**, in this order of weight:
