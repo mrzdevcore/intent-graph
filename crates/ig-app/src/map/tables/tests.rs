@@ -292,6 +292,63 @@ fn with_no_domain_the_tables_sit_in_the_store_itself() {
     );
 }
 
+fn laid_out(ts: Vec<Table>) -> (Tables, crate::map::layout::Placed) {
+    let mut t = tables(&db(), &schema(ts));
+    let mut boxes = vec![store("db", "Database")];
+    boxes.append(&mut t.boxes);
+    let parents: HashMap<&str, &str> = (boxes.iter())
+        .filter_map(|b| Some((b.id.as_str(), b.parent.as_deref()?)))
+        .collect();
+    let arrows = lift(&parents, t.arrows.clone());
+    let rows = (t.tables.iter())
+        .map(|(id, v)| (id.clone(), v.table.columns.len() as u32))
+        .collect();
+    let (boxes, arrows) = unfolded(&t.folded, &boxes, &arrows);
+    let (placed, unrouted) = layout_with(&boxes, &arrows, &rows);
+    assert!(unrouted.is_empty(), "{unrouted:?}");
+    (t, placed)
+}
+
+#[test]
+fn join_tables_and_the_translations_group_are_left_out_of_the_layout() {
+    let base = || {
+        vec![
+            plain_table("shop_a", vec![pk("id")]),
+            plain_table("shop_b", vec![pk("id")]),
+            plain_table("shop_c", vec![pk("id")]),
+            plain_table("shop_d", vec![pk("id")]),
+        ]
+    };
+    let mut with = base();
+    with.push(plain_table(
+        "shop_a_b",
+        vec![
+            Column {
+                pk: true,
+                ..fk("a", "shop_a")
+            },
+            Column {
+                pk: true,
+                ..fk("b", "shop_b")
+            },
+        ],
+    ));
+    with.push(plain_table(
+        "shop_a_translations",
+        vec![pk("id"), fk("shop_a_id", "shop_a"), plain("name")],
+    ));
+    let (t, placed) = laid_out(with);
+    let (_, plain_placed) = laid_out(base());
+    assert!(t.folded.contains("db#shop_a_b"));
+    assert!(t.folded.contains("db#shop_a_translations"));
+    assert!(t.folded.contains("db#(translations)"));
+    assert!(!placed.frames.contains_key("db#shop_a_b"));
+    assert!(!placed.frames.contains_key("db#(translations)"));
+    assert!(!placed.frames.contains_key("db#shop_a_translations"));
+    assert_eq!(placed.inner["db#shop_*"], plain_placed.inner["db#shop_*"]);
+    assert_eq!(placed.inner["db"], plain_placed.inner["db"]);
+}
+
 #[test]
 fn backups_and_temp_tables_are_set_aside_and_do_not_make_a_domain() {
     let t = tables(

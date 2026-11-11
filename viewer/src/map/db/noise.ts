@@ -1,4 +1,6 @@
 import type { ArrowKind, MapArrow, MapBox, Table, View } from "../types";
+import { HEAD } from "../camera";
+import { settle, shownView } from "../place/rules";
 import type { Folds } from "./focus";
 
 export type Noise = Folds;
@@ -95,7 +97,7 @@ function rebuild(view: View, s: Noise, dropHubs: boolean): View {
   }
   out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
-  const frames = { ...view.placed.frames };
+  const frames = { ...view.placed.frames }, inner = { ...view.placed.inner };
   for (const b of view.boxes) if (dropBox(b) || moved.has(b.id)) delete frames[b.id];
   const boxesOut = view.boxes.filter((b) => !dropBox(b)).map((b) => (moved.has(b.id) ? { ...b, parent: moved.get(b.id) } : b));
   const tablesOut: Record<string, Table> = {};
@@ -104,10 +106,43 @@ function rebuild(view: View, s: Noise, dropHubs: boolean): View {
     tablesOut[id] = !s.translations && t.translations ? { ...t, translations: undefined } : t;
   }
   const groupsOut = Object.fromEntries(Object.entries(groups).filter(([g]) => !emptied.has(g)));
-  return {
+  const next: View = {
     ...view, boxes: boxesOut, arrows: out, tables: tablesOut, tableGroups: groupsOut,
-    placed: { ...view.placed, frames, regions: view.placed.regions.filter((r) => !emptied.has(r.parent) && !gone.has(r.parent)) },
+    placed: { ...view.placed, frames, inner, regions: view.placed.regions.filter((r) => !emptied.has(r.parent) && !gone.has(r.parent)) },
   };
+  const bare = boxesOut.filter((b) => !frames[b.id] && (tables[b.id] || groupsOut[b.id]));
+  if (!bare.length) return next;
+  size(next, bare, tables);
+  const prev = settle({}, view, {}, null);
+  for (const id of [...gone, ...emptied, ...moved.keys()]) delete prev[id];
+  return shownView(next, settle(prev, next, {}, null));
+}
+
+const GUTTER = 96;
+
+function size(view: View, bare: MapBox[], tables: Record<string, Table>) {
+  const { frames, inner } = view.placed;
+  const card = (id: string) => {
+    const t = tables[id], rows = Math.max(t.columns.length + (t.translations?.length ? 1 : 0), 2);
+    return { x: 0, y: 0, w: 320, h: 56 + 26 * rows + 8 };
+  };
+  const ratios = Object.keys(view.tableGroups ?? {}).flatMap((g) => (frames[g] && inner[g] ? [frames[g].w / inner[g][0]] : [])).sort((a, b) => a - b);
+  const scale = ratios[Math.floor(ratios.length / 2)] ?? 0.4;
+  for (const g of bare.filter((b) => view.tableGroups?.[b.id])) {
+    const kids = bare.filter((b) => b.parent === g.id && tables[b.id]);
+    const cols = Math.max(1, Math.ceil(Math.sqrt(kids.length)));
+    const at = (i: number) => ({ c: i % cols, r: Math.floor(i / cols) });
+    const wide = Math.max(...kids.map((k) => card(k.id).w), 0);
+    const rowH = Array.from({ length: Math.ceil(kids.length / cols) }, (_, r) => Math.max(...kids.filter((_, i) => at(i).r === r).map((k) => card(k.id).h)));
+    kids.forEach((k, i) => {
+      const { c, r } = at(i), c0 = card(k.id);
+      frames[k.id] = { ...c0, x: GUTTER + c * (wide + GUTTER), y: GUTTER + rowH.slice(0, r).reduce((n, h) => n + h + GUTTER, 0) };
+    });
+    const w = GUTTER * 2 + cols * wide + (cols - 1) * GUTTER, h = GUTTER * 2 + rowH.reduce((n, x) => n + x, 0) + (rowH.length - 1) * GUTTER;
+    inner[g.id] = [w, h];
+    frames[g.id] = { x: 0, y: 0, w: w * scale, h: h * scale + HEAD };
+  }
+  for (const b of bare) if (!frames[b.id] && tables[b.id]) frames[b.id] = card(b.id);
 }
 
 const hasTables = (view: View) => !!view.tables && Object.keys(view.tables).length > 0;

@@ -8,7 +8,10 @@ import { Camera } from "../src/map/glide";
 import { fitTo, worldFrame } from "../src/map/camera";
 import { look } from "../src/map/looks";
 import { cardFacts } from "../src/map/db/card";
+import { overlaps } from "../src/map/place/rules";
+import { treeOf } from "../src/map/db/focus";
 import { NOISE, applyNoise, foldNoise, loadNoise, saveNoise, type Noise } from "../src/map/db/noise";
+import type { Place } from "../src/map/place/places";
 import type { Column, MapArrow, MapBox as Box, Table, View } from "../src/map/types";
 import shop from "./fixtures/shop-view.json";
 
@@ -55,9 +58,14 @@ function dbView(): View {
     { ...bundled, from: LEFT, to: G, parts: [bundled] },
     link("shop_orders_old_temp", "shop_orders_backup", { parent: LEFT }),
   ];
-  const frames = Object.fromEntries(Object.keys(tables).map((t, i) => [t, { x: 40 + (i % 4) * 320, y: 40 + Math.floor(i / 4) * 520, w: 280, h: 480 }]));
+  const folded = [id("shop_item_tags"), id("shop_orders_translations")];
+  const frames: Record<string, Place> = {};
+  Object.keys(tables).filter((t) => !folded.includes(t) && parent[t] === G).forEach((t, i) => (frames[t] = { x: 96 + (i % 2) * 416, y: 96 + Math.floor(i / 2) * 416, w: 320, h: 300 }));
+  Object.keys(tables).filter((t) => parent[t] === LEFT).forEach((t, i) => (frames[t] = { x: 96, y: 96 + i * 416, w: 320, h: 300 }));
+  frames[G] = { x: 0, y: 0, w: 600, h: 500 };
+  frames[LEFT] = { x: 700, y: 0, w: 300, h: 500 };
   return {
-    version: 1, boxes, arrows, marks: [], placed: { frames, inner: { [S]: [1400, 1200] }, regions: [] }, tables,
+    version: 1, boxes, arrows, marks: [], placed: { frames, inner: { [S]: [1000, 500], [G]: [1000, 1000], [LEFT]: [600, 1000] }, regions: [] }, tables,
     tableGroups: { [G]: "domain", [LEFT]: "leftovers", [TR]: "translations" }, notices: [], warnings: [], kinds: [],
   };
 }
@@ -92,13 +100,22 @@ test("Fold translations: off, the translations group and its tables are on the m
   expect(a).toMatchObject({ parent: S, from: TR, to: G });
   expect(a.parts![0].from).toBe(id("shop_orders_translations"));
   expect(v.tables![id("shop_orders")].translations).toBeUndefined();
+  const f = v.placed.frames;
+  expect(f[TR]).toBeDefined();
+  expect(overlaps(f[TR], f[G], 0) || overlaps(f[TR], f[LEFT], 0)).toBe(false);
+  expect(f[id("shop_orders_translations")]).toBeDefined();
+  expect(v.placed.inner[TR]![0]).toBeGreaterThanOrEqual(f[id("shop_orders_translations")].x + 320);
+});
+
+test("Fold translations: on, the default layout has no slot for the group and its tables", () => {
+  const v = applyNoise(dbView());
+  expect(v.placed.frames).toEqual(dbView().placed.frames);
 });
 
 test("Fold translations: on, the i18n strip stays and no arrow touches the folded tables", () => {
   const v = applyNoise(dbView());
   expect(v.tables![id("shop_orders")].translations).toEqual(["label"]);
   expect(v.arrows.flatMap((a) => (a.parts?.length ? a.parts : [a])).some((a) => a.from.includes("translations"))).toBe(false);
-  expect(v.placed.frames[id("shop_orders_translations")]).toBeUndefined();
 });
 
 test("Set leftovers aside: off, they return to their domain, or to the store when it has none", () => {
@@ -106,7 +123,13 @@ test("Set leftovers aside: off, they return to their domain, or to the store whe
   expect(ids(v)).not.toContain(LEFT);
   expect(v.tableGroups![LEFT]).toBeUndefined();
   expect(parentOf(v, id("shop_orders_backup"))).toBe(G);
-  expect(v.placed.frames[id("shop_orders_backup")]).toBeUndefined();
+  const f = v.placed.frames, mine = [id("shop_orders_backup"), id("shop_orders_old_temp")];
+  const siblings = Object.keys(f).filter((k) => v.boxes.find((b) => b.id === k)?.parent === G);
+  for (const m of mine) {
+    expect(f[m]).toMatchObject({ w: 320 });
+    expect(siblings.filter((k) => k !== m && overlaps(f[m], f[k], 0))).toEqual([]);
+  }
+  expect(v.placed.inner[G]![0]).toBeGreaterThanOrEqual(0);
   expect(v.arrows.find((a) => a.from === id("shop_orders_backup"))).toMatchObject({ parent: G, to: id("shop_orders") });
   expect(v.arrows.find((a) => a.from === id("shop_orders_old_temp"))).toMatchObject({ parent: G });
   const loose = dbView();
@@ -139,6 +162,17 @@ test("Fold join tables: off, the join table is a table with its two arrows and t
   expect(ids(v)).toContain(id("shop_item_tags"));
   expect(v.arrows.filter((a) => a.from === id("shop_item_tags")).map((a) => a.to).sort()).toEqual([id("shop_items"), id("shop_tags")]);
   expect(v.arrows.some((a) => a.via)).toBe(false);
+  const f = v.placed.frames, j = f[id("shop_item_tags")];
+  expect(j).toBeDefined();
+  const sib = v.boxes.filter((b) => b.parent === G && b.id !== id("shop_item_tags")).map((b) => f[b.id]);
+  expect(sib.filter((o) => overlaps(j, o, 0))).toEqual([]);
+});
+
+test("with joins and translations folded, the tree still lists them for the focus to fold", () => {
+  const t = treeOf(dbView(), S);
+  const names = JSON.stringify(t);
+  expect(names).toContain("shop_item_tags");
+  expect(names).toContain("shop_orders_translations");
 });
 
 test("Fold bookkeeping: a card lists every column when off", () => {
@@ -186,42 +220,75 @@ test("More offers the five switches, on, and reports each change", () => {
 const mounted: object[] = [];
 afterEach(() => mounted.splice(0).forEach((m) => unmount(m)));
 
-test("on the map, the Fold translations switch takes the translations group off and puts it back", () => {
+function mapOf() {
   const view = structuredClone(shop) as unknown as View;
   const s = dbView();
-  const root = view.boxes.find((b) => b.id === "postgres");
   s.boxes.forEach((b) => b.id !== S && view.boxes.push(b));
-  if (!root) view.boxes.push(s.boxes[0]);
   view.arrows.push(...s.arrows);
   view.tables = s.tables;
   view.tableGroups = s.tableGroups;
   Object.assign(view.placed.frames, s.placed.frames);
-  [G, LEFT, TR].forEach((g, i) => {
-    view.placed.frames[g] = { x: 40 + i * 1500, y: 40, w: 1400, h: 1200 };
-    view.placed.inner[g] = [1400, 1200];
-  });
-  view.placed.inner[S] = [4600, 1400];
+  Object.assign(view.placed.inner, s.placed.inner);
   const camera = new Camera();
   const target = document.createElement("div");
   document.body.append(target);
   const m = mount(Map, { target, props: { view, camera, size: { w: 1000, h: 800 } } });
   mounted.push(m);
   flushSync();
-  camera.to(fitTo(worldFrame(S, view), { w: 1000, h: 800 }), 0);
-  m.tick(800);
-  flushSync();
   const at = () => [...target.querySelectorAll("[data-box]")].map((e) => e.getAttribute("data-box"));
-  const switchFor = (text: string) => [...target.querySelectorAll("label")].find((l) => l.textContent?.trim() === text)!.querySelector("input")!;
-  expect(switchFor("Fold translations").checked).toBe(true);
+  const fit = (box: string) => {
+    camera.to(fitTo(worldFrame(box, view), { w: 1000, h: 800 }), 0);
+    m.tick(800);
+    flushSync();
+  };
+  const flip = (text: string) => {
+    const input = [...target.querySelectorAll("label")].find((l) => l.textContent?.trim() === text)!.querySelector("input")!;
+    input.checked = !input.checked;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    flushSync();
+    m.tick(performance.now() + 5000);
+    flushSync();
+  };
+  const rects = (ids: string[]) => ids.map((i) => {
+    const e = target.querySelector(`[data-box="${CSS.escape(i)}"]`) as HTMLElement;
+    return { x: parseFloat(e.style.left), y: parseFloat(e.style.top), w: parseFloat(e.style.width), h: parseFloat(e.style.height) };
+  });
+  return { at, fit, flip, rects, target };
+}
+
+test("on the map, the Fold translations switch takes the translations group off and puts it back", () => {
+  const { at, fit, flip, target } = mapOf();
+  fit(S);
   expect(at()).not.toContain(TR);
   expect(at()).toContain(G);
-  const box = switchFor("Fold translations");
-  box.checked = false;
-  box.dispatchEvent(new Event("change", { bubbles: true }));
-  flushSync();
-  m.tick(1600);
-  flushSync();
+  flip("Fold translations");
   expect(at()).toContain(TR);
-  expect(switchFor("Fold translations").checked).toBe(false);
+  target.remove();
+});
+
+test("on the map, Set leftovers aside off draws them inside the domain, clear of its tables", () => {
+  const { at, fit, flip, rects, target } = mapOf();
+  fit(G);
+  const mine = [id("shop_orders_backup"), id("shop_orders_old_temp")];
+  expect(at()).not.toContain(mine[0]);
+  flip("Set leftovers aside");
+  fit(G);
+  expect(at()).toEqual(expect.arrayContaining(mine));
+  const drawn = at().filter((i) => i!.startsWith(`${S}#shop_`) && i !== G) as string[];
+  const r = rects(drawn);
+  r.forEach((a, i) => r.forEach((b, j) => i < j && expect(overlaps(a, b, 0)).toBe(false)));
+  target.remove();
+});
+
+test("on the map, Fold join tables off draws the join table clear of its neighbours", () => {
+  const { at, fit, flip, rects, target } = mapOf();
+  fit(G);
+  expect(at()).not.toContain(id("shop_item_tags"));
+  flip("Fold join tables");
+  fit(G);
+  expect(at()).toContain(id("shop_item_tags"));
+  const drawn = at().filter((i) => i!.startsWith(`${S}#shop_`) && i !== G && i !== id("shop_orders_backup") && i !== id("shop_orders_old_temp")) as string[];
+  const r = rects(drawn);
+  r.forEach((a, i) => r.forEach((b, j) => i < j && expect(overlaps(a, b, 0)).toBe(false)));
   target.remove();
 });

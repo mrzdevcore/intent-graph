@@ -31,6 +31,7 @@ pub struct Tables {
     pub arrows: Vec<MapArrow>,
     pub tables: BTreeMap<String, TableView>,
     pub groups: BTreeMap<String, TableGroup>,
+    pub folded: BTreeSet<String>,
     pub notices: Vec<String>,
 }
 
@@ -110,6 +111,9 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
             nodes: vec![],
             guess: guess(BoxKind::Group, title.clone()),
         }));
+        if *kind == TableGroup::Translations {
+            out.folded.insert(gid.clone());
+        }
         out.groups.insert(gid, *kind);
     }
 
@@ -168,7 +172,11 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
             out.arrows.push(a);
         }
         let translation = placed[&t.name.to_lowercase()].1 == TableGroup::Translations;
+        if translation {
+            out.folded.insert(tid.clone());
+        }
         if let Some((a, ca, b, cb)) = join(t, &of).filter(|_| !translation) {
+            out.folded.insert(tid.clone());
             let mut v = arrow(
                 &parent(a, b),
                 &id(a),
@@ -221,6 +229,21 @@ pub fn tables(m: &MapFile, db: &Schema) -> Tables {
         a.pinned = hubs.contains(&a.to);
     }
     out
+}
+
+pub(super) fn unfolded(
+    folded: &BTreeSet<String>,
+    boxes: &[MapBox],
+    arrows: &[MapArrow],
+) -> (Vec<MapBox>, Vec<MapArrow>) {
+    let kept = |id: &String| !folded.contains(id);
+    (
+        (boxes.iter()).filter(|b| kept(&b.id)).cloned().collect(),
+        (arrows.iter())
+            .filter(|a| kept(&a.from) && kept(&a.to))
+            .cloned()
+            .collect(),
+    )
 }
 
 fn place(

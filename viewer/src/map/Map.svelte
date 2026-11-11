@@ -73,6 +73,13 @@
   let noise = $state<Noise>(untrack(() => loadNoise()));
   const folded = $derived(foldNoise(given, noise));
   const view = $derived(applyNoise(given, noise));
+  const homes = $derived(new Map(given.boxes.map((b) => [b.id, b.parent])));
+  const shifted = (v: View) => v.boxes.filter((b) => homes.get(b.id) !== b.parent).map((b) => b.id);
+  const unshifted = (places: Record<string, Place>, v: View) => {
+    const out = { ...places };
+    for (const id of shifted(v)) delete out[id];
+    return out;
+  };
   const diffed = $derived(diff ? diffAnswer(view, diff) : null);
   let cleared = $state(false);
   const showingDiff = $derived(!!diffed && !cleared);
@@ -124,7 +131,7 @@
   // each box's place in its parent's inner units, kept per map: once drawn, a box stays where it is
   const title = $derived(view.boxes.find((b) => b.id === ROOT)?.title.value ?? "");
   let store = untrack(() => new Places(title, view.placed.frames));
-  let truth = $state.raw<Record<string, Place>>(untrack(() => settlePlaces(store.snapshot(), view, {}, null)));
+  let truth = $state.raw<Record<string, Place>>(untrack(() => settlePlaces(unshifted(store.snapshot(), view), view, {}, null)));
   let lastView = untrack(() => view);
   // the places of boxes since removed: an undone delete puts them back
   const gone: Record<string, Place> = {};
@@ -151,7 +158,7 @@
     if (record) history[record](c.before, c.after);
     const from = showing;
     truth = next;
-    store.replace(next);
+    store.replace(unshifted(next, view));
     glidePlaces(from, instant);
   }
   // a confirmed draft: its box lands where and as big as it was drawn once the view holds it
@@ -167,7 +174,7 @@
       renaming = [];
       if (t !== store.system) {
         store = new Places(t, v.placed.frames);
-        truth = settlePlaces(store.snapshot(), v, {}, null);
+        truth = settlePlaces(unshifted(store.snapshot(), v), v, {}, null);
         anim = null;
         lastView = v;
         return;
@@ -346,7 +353,7 @@
   let off = $state(new Set<string>());
   const on = $derived(new Set(layers.filter((l) => !off.has(l))));
   const counts = $derived(insideCounts(view, view.marks, on));
-  const cards = $derived(noise.hubs ? cardFacts(folded) : new Map());
+  const cards = $derived(cardFacts(folded));
   const reading = $derived(view.boxes.some((b) => b.needsReading));
 
   let cw = $state(0), ch = $state(0);
@@ -538,8 +545,8 @@
   }
   let focusing = $state<{ store: string; table: string | null } | null>(null);
   function openFocus(id: string) {
-    const store = storeOf(view, id);
-    if (store && view.tables?.[id]) focusing = { store, table: id };
+    const store = storeOf(given, id);
+    if (store && given.tables?.[id]) focusing = { store, table: id };
   }
   const hasTables = (id: string) => storeHasTables(view, id);
   function openTables(id: string) {
@@ -1418,7 +1425,7 @@
   <Controls {crumbs} {layers} {on} oncrumb={fly} low={!!edit}
     ontoggle={(l) => { const s = new Set(off); if (!s.delete(l)) s.add(l); off = s; }}
     {wheelPref} onwheel={setPref} {arrowPref} arrowHere={shapeHere} onarrows={setArrows} {endsPref} onends={setEnds} {noise} onnoise={setNoise} onarrange={arrangeMap}>
-    <Search {view} onopen={(id) => { traced = null; openBox(id); }} ontrace={lightPath} />
+    <Search view={given} onopen={(id) => { traced = null; byId.has(id) ? openBox(id) : openFocus(id); }} ontrace={lightPath} />
   </Controls>
   {#if edit}
     <Island tool={tool.current} locked={tool.locked} onpick={(t, lock) => tool.pick(t, lock)} onarrange={arrangeMap}
@@ -1501,7 +1508,7 @@
     <p class="reading" class:lifted={!!view.proposals?.length}>{#if view.landscape}Dotted projects are not read yet.{:else}Some boxes are ig's guess.{/if} Run <code>ig analyse</code> to let an AI agent read them.</p>
   {/if}
   {#if focusing}
-    <Focus view={folded} folds={noise} store={focusing.store} table={focusing.table} ends={endsPref} onends={setEnds} onclose={closeFocus}
+    <Focus view={given} folds={noise} store={focusing.store} table={focusing.table} ends={endsPref} onends={setEnds} onclose={closeFocus}
       onpick={(id) => focusing && (focusing = { ...focusing, table: id })} />
   {/if}
   {#if panelBox}

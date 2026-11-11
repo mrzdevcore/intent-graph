@@ -1,5 +1,4 @@
-<!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles and More (scroll wheel,
-     arrows, Arrange the map) top right. Zoom sits in the bottom-left corner. -->
+<!-- Over the map: the breadcrumb (top left), the search (`children`), the layers toggles and More top right. Zoom sits in the bottom-left corner. -->
 <script lang="ts">
   import type { Snippet } from "svelte";
   import type { ArrowShape } from "./types";

@@ -188,7 +188,8 @@ pub fn view(files: &dyn Files, m: &MapFile, g: &Graph, ui: &[Anatomy], db: &Sche
         })
         .collect();
     let kinds = Kinds::load(files).unwrap_or_else(|_| Kinds::builtin().clone());
-    let (placed, mut unrouted) = layout_with(&boxes, &arrows, &rows);
+    let (laid, wired) = super::tables::unfolded(&tables.folded, &boxes, &arrows);
+    let (placed, mut unrouted) = layout_with(&laid, &wired, &rows);
     notices.append(&mut unrouted);
     View {
         version: m.version,
