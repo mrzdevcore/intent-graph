@@ -264,3 +264,54 @@ fn root_files_dot_folders_and_build_output_are_not_listed_as_not_read() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_root_stays_read_beside_found_packages() {
+    let sys = "system \"s\" title=\"S\" description=\"d\" {\n    at \"**\"\n    \
+               service \"manage\" title=\"Manage\" description=\"d\" {\n        at \"manage.py\"\n        uses \"shop\"\n    }\n    \
+               service \"shop\" title=\"Shop\" description=\"d\" {\n        at \"shop/**\"\n    }\n    \
+               app \"web\" title=\"Web\" description=\"d\" {\n        at \"frontend/**\"\n    }\n}\n";
+    let dir = repo(
+        "django",
+        &[
+            ("ig/system.kdl", sys),
+            ("requirements.txt", "django\n"),
+            ("manage.py", "import shop.views\n"),
+            ("shop/views.py", "def index():\n    return 1\n"),
+            ("frontend/package.json", r#"{"name": "web"}"#),
+            ("frontend/src/a.ts", "export const a = 1;\n"),
+        ],
+    );
+    let out = run_ig(&dir, &["check"]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.starts_with("ig check: 0 to build, 0 drift"),
+        "{}",
+        out.stdout
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_go_module_at_the_root_keeps_other_code_read() {
+    let sys = "system \"s\" title=\"S\" description=\"d\" {\n    at \"**\"\n    \
+               service \"api\" title=\"Api\" description=\"d\" {\n        at \"cmd/api/**\"\n    }\n    \
+               box \"seed\" title=\"Seed\" description=\"d\" {\n        at \"scripts/**\"\n    }\n}\n";
+    let dir = repo(
+        "goloose",
+        &[
+            ("ig/system.kdl", sys),
+            ("go.mod", "module example.com/loose\n"),
+            ("cmd/api/main.go", "package main\n\nfunc main() {}\n"),
+            ("scripts/seed.py", "def seed():\n    return 1\n"),
+        ],
+    );
+    let out = run_ig(&dir, &["check"]);
+    assert_eq!(out.code, 0, "{}{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.starts_with("ig check: 0 to build, 0 drift"),
+        "{}",
+        out.stdout
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

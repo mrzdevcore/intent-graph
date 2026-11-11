@@ -45,29 +45,34 @@ fn workspace_patterns(files: &dyn Files) -> Option<Vec<String>> {
     )
 }
 
-/// The workspace packages (folders the patterns match that hold a `package.json`, outside
-/// `.`-folders), else the root's own `package.json`, else the outermost `package.json` folders a
-/// few levels down; named by their `package.json`, else their folder.
-pub fn packages(files: &dyn Files, config: &Config) -> Vec<Package> {
-    let name = |dir: &str| {
-        let pj = files
-            .read(&join(dir, "package.json"))
-            .and_then(|t| parse_jsonc(&t));
-        pj.and_then(|v| v.get("name")?.as_str().map(str::to_string))
-            .unwrap_or_else(|| dir.rsplit('/').next().unwrap_or(dir).to_string())
-    };
-    let clean = |p: &str| p.trim_start_matches("./").trim_end_matches('/').to_string();
-    let declared = workspace_patterns(files);
-    if declared.is_none() && !files.exists("package.json") {
-        return nested(files, config)
-            .into_iter()
-            .map(|dir| Package {
-                name: name(&dir),
-                dir,
-            })
-            .collect();
+fn named(files: &dyn Files, dir: String) -> Package {
+    let pj = files
+        .read(&join(&dir, "package.json"))
+        .and_then(|t| parse_jsonc(&t));
+    let name = pj
+        .and_then(|v| v.get("name")?.as_str().map(str::to_string))
+        .unwrap_or_else(|| dir.rsplit('/').next().unwrap_or(&dir).to_string());
+    Package { name, dir }
+}
+
+/// With no workspace and no root `package.json`, the outermost `package.json` folders a few
+/// levels down.
+pub fn found(files: &dyn Files, config: &Config) -> Vec<Package> {
+    if workspace_patterns(files).is_some() || files.exists("package.json") {
+        return vec![];
     }
-    let patterns = declared.unwrap_or_default();
+    (nested(files, config).into_iter())
+        .map(|dir| named(files, dir))
+        .collect()
+}
+
+/// The workspace packages (folders the patterns match that hold a `package.json`, outside
+/// `.`-folders), else the root's own `package.json`; named by their `package.json`, else their
+/// folder.
+pub fn packages(files: &dyn Files) -> Vec<Package> {
+    let name = |dir: &str| named(files, dir.into()).name;
+    let clean = |p: &str| p.trim_start_matches("./").trim_end_matches('/').to_string();
+    let patterns = workspace_patterns(files).unwrap_or_default();
     let (neg, pos): (Vec<_>, Vec<_>) = patterns.iter().partition(|p| p.starts_with('!'));
     let exclude = globset(&neg.iter().map(|p| clean(&p[1..])).collect::<Vec<_>>());
     let manifests: Vec<String> = pos
@@ -113,7 +118,7 @@ fn nested(files: &dyn Files, config: &Config) -> Vec<String> {
         .iter()
         .map(|d| format!("{d}package.json"))
         .collect();
-    let mut dirs: Vec<String> = (files.glob(&manifests).unwrap_or_default().iter())
+    let mut dirs: Vec<String> = (files.walk(&manifests).unwrap_or_default().iter())
         .filter_map(|m| m.strip_suffix("/package.json"))
         .filter(|d| {
             !d.split('/')
@@ -227,10 +232,8 @@ mod tests {
             ("apps/old/package.json", "{}"),
             ("apps/docs/readme.md", ""),
         ]);
-        let got: Vec<(String, String)> = packages(&f, &Config::default())
-            .into_iter()
-            .map(|p| (p.dir, p.name))
-            .collect();
+        let got: Vec<(String, String)> =
+            packages(&f).into_iter().map(|p| (p.dir, p.name)).collect();
         assert_eq!(
             got,
             [
@@ -240,14 +243,14 @@ mod tests {
         );
         let one = MemFiles::with(&[("package.json", r#"{"name": "app"}"#)]);
         assert_eq!(
-            packages(&one, &Config::default()),
+            packages(&one),
             [Package {
                 name: "app".into(),
                 dir: ".".into()
             }]
         );
         let none = MemFiles::with(&[("main.py", "")]);
-        assert_eq!(packages(&none, &Config::default()), []);
+        assert_eq!(packages(&none), []);
     }
 
     #[test]
@@ -268,7 +271,7 @@ mod tests {
             ignore: vec!["**/generated/**".into()],
             ..Config::default()
         };
-        let got: Vec<(String, String)> = packages(&f, &config)
+        let got: Vec<(String, String)> = found(&f, &config)
             .into_iter()
             .map(|p| (p.dir, p.name))
             .collect();
@@ -280,9 +283,9 @@ mod tests {
                 ("web".into(), "@shop/web".into()),
             ]
         );
+        assert!(packages(&f).is_empty());
         let with_root = MemFiles::with(&[("package.json", "{}"), ("web/package.json", "{}")]);
-        let got = packages(&with_root, &Config::default());
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].dir, ".");
+        assert!(found(&with_root, &Config::default()).is_empty());
+        assert_eq!(packages(&with_root).len(), 1);
     }
 }

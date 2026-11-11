@@ -93,6 +93,19 @@ fn default_name(path: &str) -> &str {
     last.split_once(".v").map_or(last, |(n, _)| n)
 }
 
+fn left_out(src: &str) -> bool {
+    let header = src
+        .lines()
+        .take_while(|l| !l.trim_start().starts_with("package "));
+    header.map(str::trim).any(|l| {
+        let constraint = l
+            .strip_prefix("//go:build ")
+            .or_else(|| l.strip_prefix("// +build "));
+        constraint.is_some_and(|c| c.split_whitespace().any(|t| t == "ignore"))
+            || (l.starts_with("// Code generated ") && l.ends_with("DO NOT EDIT."))
+    })
+}
+
 fn package_clause(src: &str) -> Option<String> {
     src.lines()
         .find_map(|l| l.trim().strip_prefix("package "))
@@ -104,7 +117,7 @@ impl LanguageFrontend for GoFrontend {
         path.ends_with(".go")
     }
 
-    fn packages(&self, files: &dyn Files, config: &Config) -> Vec<Package> {
+    fn found(&self, files: &dyn Files, config: &Config) -> Vec<Package> {
         let ignore = globset(&config.ignore).ok();
         let skipped = |p: &str| {
             let hidden = dir_of(p).split('/').any(|d| {
@@ -127,15 +140,7 @@ impl LanguageFrontend for GoFrontend {
         for d in work.iter().flat_map(|w| work_uses(w)) {
             add(&mut modules, &d);
         }
-        // ponytail: a shallow look first, so a tree without Go is never walked in full
-        let shallow: Vec<String> = ["", "*/", "*/*/", "*/*/*/"]
-            .iter()
-            .map(|d| format!("{d}go.mod"))
-            .collect();
-        if modules.is_empty() && files.glob(&shallow).unwrap_or_default().is_empty() {
-            return vec![];
-        }
-        let found = files.glob(&["**/go.mod".into(), "**/*.go".into()]);
+        let found = files.walk(&["**/go.mod".into(), "**/*.go".into()]);
         let (mods, sources): (Vec<String>, Vec<String>) = (found.unwrap_or_default().into_iter())
             .filter(|f| !skipped(f))
             .partition(|f| f.ends_with("go.mod"));
@@ -157,7 +162,8 @@ impl LanguageFrontend for GoFrontend {
                     Some((path, rest)) => format!("{path}/{rest}"),
                     None if dir == "." => (sources.iter())
                         .filter(|f| !f.contains('/'))
-                        .find_map(|f| files.read(f).and_then(|s| package_clause(&s)))
+                        .filter_map(|f| files.read(f))
+                        .find_map(|s| (!left_out(&s)).then(|| package_clause(&s)).flatten())
                         .unwrap_or_else(|| "main".into()),
                     None => dir.into(),
                 };
@@ -182,7 +188,15 @@ impl LanguageFrontend for GoFrontend {
                 let is_test = f.path.ends_with("_test.go")
                     || tests.as_ref().is_some_and(|t| t.is_match(&f.path));
                 let pkg = ws.packages.get(f.package).map(|p| p.name.as_str());
-                (f, extract::extract(&f.path, src, pkg, is_test))
+                let mut x = extract::extract(&f.path, src, pkg, is_test);
+                if left_out(src) {
+                    x.nodes.truncate(1);
+                    x.package = None;
+                    x.imports.clear();
+                    x.calls.clear();
+                    x.qualified.clear();
+                }
+                (f, x)
             })
             .collect();
         let index = Index::new(ws, &extracted);
@@ -220,24 +234,32 @@ struct Index<'a> {
     files: BTreeMap<&'a str, Vec<&'a str>>,
     quals: HashMap<(&'a str, &'a str), &'a str>,
     named: HashMap<&'a str, Vec<&'a str>>,
+    left_out: HashSet<&'a str>,
+    ours: HashSet<String>,
 }
 
 impl<'a> Index<'a> {
     fn new(ws: &'a WorkspaceInfo, extracted: &'a [(&'a SourceFile, Extracted)]) -> Index<'a> {
         let go_dirs: HashSet<&str> = extracted.iter().map(|(f, _)| dir_of(&f.path)).collect();
+        let dirs: HashMap<&str, &str> = (ws.packages.iter())
+            .filter(|p| go_dirs.contains(p.dir.as_str()))
+            .map(|p| (p.name.as_str(), p.dir.as_str()))
+            .collect();
         let mut ix = Index {
-            dirs: (ws.packages.iter())
-                .filter(|p| go_dirs.contains(p.dir.as_str()))
-                .map(|p| (p.name.as_str(), p.dir.as_str()))
-                .collect(),
+            ours: dirs.keys().map(|d| third_party_module(d)).collect(),
+            dirs,
             clause: HashMap::new(),
             files: BTreeMap::new(),
             quals: HashMap::new(),
             named: HashMap::new(),
+            left_out: HashSet::new(),
         };
         for (f, x) in extracted {
             let dir = dir_of(&f.path);
             let test = f.path.ends_with("_test.go");
+            if x.package.is_none() {
+                ix.left_out.insert(&f.path);
+            }
             if !test {
                 ix.files.entry(dir).or_default().push(&f.path);
                 if let Some(p) = &x.package {
@@ -322,8 +344,7 @@ impl<'a> Index<'a> {
             let Some(&dir) = self.dirs.get(i.path.as_str()) else {
                 let first = i.path.split('/').next().unwrap_or("");
                 let module = third_party_module(&i.path);
-                let ours = (self.dirs.keys()).any(|d| third_party_module(d) == module);
-                if first.contains('.') && !ours {
+                if first.contains('.') && !self.ours.contains(&module) {
                     out.packages.push((file.into(), module, i.line));
                 }
                 continue;
@@ -338,7 +359,13 @@ impl<'a> Index<'a> {
                 .map(|id| id.split('#').next().unwrap_or(id))
                 .collect();
             let targets: Vec<&str> = match used.is_empty() {
-                true => self.files.get(dir).cloned().unwrap_or_default(),
+                true => {
+                    let all = self.files.get(dir).cloned().unwrap_or_default();
+                    let kept: Vec<&str> = (all.iter().copied())
+                        .filter(|f| !self.left_out.contains(f))
+                        .collect();
+                    if kept.is_empty() { all } else { kept }
+                }
                 false => used.into_iter().collect(),
             };
             for t in targets.into_iter().filter(|t| *t != file) {
