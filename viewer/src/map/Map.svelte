@@ -222,7 +222,7 @@
   let tidyTimer: ReturnType<typeof setTimeout> | undefined;
   onDestroy(() => clearTimeout(tidyTimer));
   function arrangeIn(scope: string[]) {
-    const laid = arrange(scope, view, truth, GRID);
+    const laid = arrange(scope, view, truth, GRID, vw > 0 && vh > 0 ? { w: vw, h: vh } : undefined);
     // a selection laid out as a block may leave its parent: the parent grows
     const next = scope.length > 1 ? settlePlaces(laid, view, Object.fromEntries(scope.filter((id) => laid[id]).map((id) => [id, laid[id]])), null) : laid;
     const c = changes(truth, next);
@@ -1306,7 +1306,7 @@
     {#if edit}<div class="toast" role="status" aria-live="polite">{note}</div>{/if}
     {#if tidied}
       <div class="arranged" role="status">
-        {tidied.n ? `Arranged ${tidied.n} ${tidied.n === 1 ? "box" : "boxes"}` : "Already arranged"}
+        {tidied.n ? `Arranged ${tidied.n} ${tidied.n === 1 ? "box" : "boxes"}` : "Already reads well"}
         {#if tidied.stamp !== undefined}<button type="button" onclick={undoArrange}>Undo</button>{/if}
       </div>
     {/if}

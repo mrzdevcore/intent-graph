@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { expect, test, vi } from "vitest";
 import { flushSync, mount } from "svelte";
-import { arrange, arranged, crossings, flow } from "../src/map/place/arrange";
+import { WRAP, arrange, arranged, crossings, fitZoom, flow } from "../src/map/place/arrange";
 import { inside, type Place } from "../src/map/place/places";
 import { overlaps, settle } from "../src/map/place/rules";
 import { Clock, PlaceHistory, apply, changes } from "../src/map/place/history";
@@ -11,11 +11,25 @@ import type { EditApi } from "../src/api";
 import type { View } from "../src/map/types";
 import MapHarness from "./MapHarness.svelte";
 import shop from "./fixtures/shop-view.json";
+import igMap from "./fixtures/ig-system-view.json";
 
+// ig's own layout of the shop already reads well; these cases arrange it after someone stacked each group's boxes in one column
+const drawn = (v: View, groups: string[]): View => {
+  for (const g of groups) {
+    const ids = v.boxes.filter((b) => (b.parent ?? "system") === g && b.id !== g && v.placed.frames[b.id]).map((b) => b.id).sort().reverse();
+    let y = 4 * GRID;
+    for (const id of ids) (v.placed.frames[id] = { ...v.placed.frames[id], x: 4 * GRID, y }), (y += v.placed.frames[id].h + 2 * GRID);
+    v.placed.inner[g] = [8 * GRID + Math.max(...ids.map((id) => v.placed.frames[id].w)), y + 2 * GRID];
+  }
+  return v;
+};
 // api's onion keeps its inside as the server drew it: most cases arrange the fixture without it
 const view = structuredClone(shop) as unknown as View;
 delete view.boxes.find((b) => b.id === "api")!.pattern;
+drawn(view, ["system", "api", "api/domain-order"]);
 const start = () => settle({}, view, {}, null);
+const ig = structuredClone(shop) as unknown as View;
+delete ig.boxes.find((b) => b.id === "api")!.pattern;
 const groups = ["system", "api", "web", "api-client", "api/domain-order"];
 const kidsOf = (p: string) => view.boxes.filter((b) => (b.parent ?? "") === p && view.placed.frames[b.id]).map((b) => b.id);
 
@@ -32,10 +46,10 @@ test("arrows point left to right after arrange, but those turned round to break 
   expect(out.stripe.x).toBeGreaterThan(out.api.x);
 });
 
-test("no more crossings than before, nothing overlaps, columns on the grid, everything inside its margin", () => {
-  const before = start(), out = arrange(["system"], view, before, GRID);
+test("no more crossings than ig's own layout, nothing overlaps, columns on the grid, everything inside its margin", () => {
+  const out = arrange(["system"], view, start(), GRID), own = settle({}, ig, {}, null);
   for (const g of groups) {
-    expect(crossings(view, out, g)).toBeLessThanOrEqual(crossings(view, before, g));
+    expect(crossings(view, out, g)).toBeLessThanOrEqual(crossings(ig, own, g));
     const ids = kidsOf(g), room = out[inside(g)];
     for (const a of ids) {
       for (const b of ids) if (a !== b) expect(overlaps(out[a], out[b], GRID)).toBe(false);
@@ -139,9 +153,11 @@ test("the toast's Undo leaves an ig/ edit made after the arrange alone", async (
   vi.unstubAllGlobals();
 });
 
-test("a group becomes one block its frame shows at the same scale or larger, without empty bands", () => {
+test("a group Arrange lays out becomes one block its frame shows at the same scale or larger, without empty bands", () => {
   const before = start(), out = arrange(["system"], view, before, GRID);
-  for (const g of ["api", "web", "api-client", "api/domain-order"]) {
+  const laid = ["api", "web", "api-client", "api/domain-order"].filter((g) => out[inside(g)] !== before[inside(g)]);
+  expect(laid).toEqual(["api", "api/domain-order"]);
+  for (const g of laid) {
     const f = out[g], r = out[inside(g)], was = fitInner(before[g], before[inside(g)].w, before[inside(g)].h).s;
     const fit = fitInner(f, r.w, r.h);
     expect(fit.x, g).toBeCloseTo(0, 6);
@@ -181,7 +197,7 @@ test("people sit in the first column, stores and outside systems in the last", (
 });
 
 test("a box with a pattern keeps its inside; it still moves as a whole", () => {
-  const real = shop as unknown as View, before = settle({}, real, {}, null), out = arrange(["system"], real, before, GRID);
+  const real = drawn(structuredClone(shop) as unknown as View, ["system"]), before = settle({}, real, {}, null), out = arrange(["system"], real, before, GRID);
   for (const k of Object.keys(before).filter((k) => k === "api/" || (k.startsWith("api/") && !k.startsWith("api-")))) expect(out[k], k).toEqual(before[k]);
   expect([out.api.w, out.api.h]).toEqual([before.api.w, before.api.h]);
   expect(out["api-client"]).not.toEqual(before["api-client"]);
@@ -202,4 +218,67 @@ test("the order already drawn is kept when nothing beats it", () => {
 test("a place no box has keeps its key", () => {
   const extra: Record<string, Place> = { ...start(), gone: { x: 0, y: 0, w: 10, h: 10 } };
   expect(arrange(["system"], view, extra, GRID).gone).toEqual(extra.gone);
+});
+
+const own = structuredClone(igMap) as unknown as View;
+const kindIn = (v: View) => (id: string) => v.boxes.find((b) => b.id === id)!.kind.value;
+const fitOf = (p: Record<string, Place>) => fitZoom(p[inside("system")].w, p[inside("system")].h, { w: 1400, h: 875 });
+const tower = () => {
+  const p = settle({}, own, {}, null), ids = kidsIn(own);
+  ids.forEach((id, i) => (p[id] = { ...p[id], x: 4 * GRID, y: 4 * GRID + i * 200 }));
+  p[inside("system")] = { x: 0, y: 0, w: 456, h: 8 * GRID + ids.length * 200 };
+  return p;
+};
+const kidsIn = (v: View) => v.boxes.filter((b) => b.parent === "system").map((b) => b.id);
+
+test("on ig's own map Arrange never reads smaller than ig's layout at fit", () => {
+  const before = settle({}, own, {}, null), out = arrange(["system"], own, before, GRID);
+  expect(fitOf(out)).toBeGreaterThanOrEqual(fitOf(before));
+  expect(fitOf(arrange(["system"], own, tower(), GRID))).toBeGreaterThan(2 * fitOf(tower()));
+});
+
+test("a fan-out wraps into a block: no line holds more than the wrap limit, and arrows flow one way", () => {
+  const out = arrange(["system"], own, tower(), GRID), ids = kidsIn(own);
+  const links = own.arrows.map((a) => ({ from: a.from, to: a.to, weight: a.count }));
+  const kept = flow(ids, links, kindIn(own));
+  const right = kept.every((l) => out[l.from].x + out[l.from].w < out[l.to].x), down = kept.every((l) => out[l.from].y + out[l.from].h < out[l.to].y);
+  expect(right || down).toBe(true);
+  const lines = new Map<number, number>();
+  for (const id of ids) lines.set(right ? out[id].x : out[id].y, (lines.get(right ? out[id].x : out[id].y) ?? 0) + 1);
+  expect(Math.max(...lines.values())).toBeLessThanOrEqual(WRAP);
+  expect(lines.size).toBeLessThan(ids.length);
+  for (const a of ids) for (const b of ids) if (a !== b) expect(overlaps(out[a], out[b], GRID)).toBe(false);
+});
+
+test("arranging ig's own map twice changes nothing", () => {
+  for (const start of [settle({}, own, {}, null), tower()]) {
+    const once = arrange(["system"], own, start, GRID);
+    expect(arrange(["system"], own, once, GRID)).toEqual(once);
+  }
+});
+
+test("where ig's layout already reads best, Arrange moves nothing and says so", () => {
+  const before = settle({}, own, {}, null);
+  expect(arrange(["system"], own, before, GRID)).toEqual(before);
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  const same = async () => own;
+  const edit = { apply: same, keep: same, drop: same, dropAll: same, undo: same, redo: same } as EditApi;
+  const target = document.createElement("div");
+  document.body.append(target);
+  mount(MapHarness, { target, props: { start: structuredClone(own), edit, size: { w: 1400, h: 875 } } });
+  flushSync();
+  press({ key: "Ï", code: "KeyF", altKey: true, shiftKey: true });
+  const toast = target.querySelector(".arranged") as HTMLElement;
+  expect(toast.textContent?.trim()).toBe("Already reads well");
+  expect(toast.querySelector("button")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("layers run top to bottom when that reads larger on the stage", () => {
+  const v = mini([["a", "service"], ["b", "service"], ["c", "service"], ["d", "service"]], [["a", "b", "calls"], ["b", "c", "calls"], ["c", "d", "calls"]]);
+  const wide = arrange(["system"], v, settle({}, v, {}, null), GRID), tall = arrange(["system"], v, settle({}, v, {}, null), GRID, { w: 875, h: 1400 });
+  for (const [x, y] of [["a", "b"], ["b", "c"], ["c", "d"]]) {
+    expect(wide[x].x + wide[x].w).toBeLessThan(wide[y].x);
+    expect(tall[x].y + tall[x].h).toBeLessThan(tall[y].y);
+  }
 });

@@ -144,41 +144,71 @@ function strongest(id: string, near: Map<string, Map<string, number>>, ok: (o: s
   return best;
 }
 
-function place(cols: string[][], links: Link[], size: (id: string) => Place, tall: (id: string, w: number) => number, grid: number): Record<string, Place> {
+export type Across = "right" | "down";
+export type Stage = { w: number; h: number };
+export const STAGE: Stage = { w: 1400, h: 875 };
+export const WRAP = 6;
+
+// the sub-lines a long layer wraps into, row by row so the barycentre order still reads across
+function wrap(layer: string[], lim: number): string[][] {
+  const k = Math.ceil(layer.length / lim);
+  return Array.from({ length: k }, (_, j) => layer.filter((_, i) => i % k === j));
+}
+
+function place(cols: string[][], links: Link[], size: (id: string) => Place, tall: (id: string, w: number) => number, grid: number, across: Across, lim: number): Record<string, Place> {
   const up = (v: number) => Math.ceil(v / grid) * grid;
-  const margin = 4 * grid, colGap = 4 * grid, rowGap = 2 * grid;
+  const margin = 4 * grid, layerGap = 4 * grid, lineGap = 2 * grid, gap = 2 * grid, right = across === "right";
   const near = new Map<string, Map<string, number>>();
   for (const l of links) for (const [a, b] of [[l.from, l.to], [l.to, l.from]]) {
     const m = near.get(a) ?? new Map<string, number>();
     m.set(b, (m.get(b) ?? 0) + l.weight);
     near.set(a, m);
   }
-  const out: Record<string, Place> = {};
-  let x = margin;
-  for (const c of cols) {
-    const w = Math.max(...c.map((id) => size(id).w));
-    let y = margin;
-    for (const id of c) {
-      out[id] = { x, y, w, h: tall(id, w) };
-      y = up(y + out[id].h + rowGap);
-    }
-    x = up(x + w + colGap);
+  // u runs along the flow, v across it
+  const box: Record<string, { u: number; v: number; du: number; dv: number; w: number; h: number }> = {};
+  const layers = cols.map((c) => wrap(c, c.length > lim ? lim : c.length || 1));
+  let u = margin;
+  for (const lines of layers) {
+    lines.forEach((line, j) => {
+      const sized = line.map((id) => {
+        const w = right ? Math.max(...line.map((o) => size(o).w)) : size(id).w;
+        return { id, w, h: tall(id, w) };
+      });
+      const du = Math.max(...sized.map((b) => (right ? b.w : b.h)));
+      let v = margin;
+      for (const b of sized) {
+        box[b.id] = { u, v, du, dv: right ? b.h : b.w, w: b.w, h: b.h };
+        v = up(v + box[b.id].dv + gap);
+      }
+      u = up(u + du + (j < lines.length - 1 ? lineGap : layerGap));
+    });
   }
   const done = new Set<string>();
-  const mid = (id: string) => out[id].y + out[id].h / 2;
-  for (const c of cols) {
-    let floor = -Infinity;
-    for (const id of c) {
-      const to = strongest(id, near, (o) => done.has(o)) ?? strongest(id, near, () => true);
-      // level centres, not grid tops: the arrow between them is then straight
-      const y = to ? Math.max(floor, mid(to) - out[id].h / 2) : Math.max(floor, margin);
-      out[id] = { ...out[id], y };
-      floor = up(y + out[id].h + rowGap);
+  const mid = (id: string) => box[id].v + box[id].dv / 2;
+  for (const lines of layers) {
+    if (lines.length > 1) {
+      const rows = Math.max(...lines.map((l) => l.length)), slot = Math.max(...lines.flat().map((id) => box[id].dv));
+      let s = 0, w = 0;
+      for (const id of lines.flat()) for (const [o, ow] of near.get(id) ?? []) if (done.has(o)) [s, w] = [s + mid(o) * ow, w + ow];
+      const span = rows * slot + (rows - 1) * gap, v0 = w ? up(s / w - span / 2) : margin;
+      for (const line of lines) line.forEach((id, r) => (box[id].v = v0 + r * up(slot + gap) + (slot - box[id].dv) / 2));
+    } else {
+      let floor = -Infinity;
+      for (const id of lines[0]) {
+        const to = strongest(id, near, (o) => done.has(o)) ?? strongest(id, near, () => true);
+        // level centres, not grid tops: the arrow between them is then straight
+        box[id].v = to ? Math.max(floor, mid(to) - box[id].dv / 2) : Math.max(floor, margin);
+        floor = up(box[id].v + box[id].dv + gap);
+      }
     }
-    for (const id of c) done.add(id);
+    for (const id of lines.flat()) done.add(id);
   }
-  const top = Math.floor((Math.min(...Object.values(out).map((p) => p.y)) - margin) / grid) * grid;
-  if (top) for (const id of Object.keys(out)) out[id] = { ...out[id], y: out[id].y - top };
+  const top = Math.floor((Math.min(...Object.values(box).map((b) => b.v)) - margin) / grid) * grid;
+  const out: Record<string, Place> = {};
+  for (const [id, b] of Object.entries(box)) {
+    const v = b.v - top;
+    out[id] = right ? { x: b.u, y: v, w: b.w, h: b.h } : { x: v, y: b.u, w: b.w, h: b.h };
+  }
   return out;
 }
 
@@ -194,10 +224,7 @@ const kindsOf = (view: View) => {
   return (id: string) => kinds.get(id) ?? "box";
 };
 
-export function crossings(view: View, places: Record<string, Place>, parent: string, members?: string[]): number {
-  const t = treeOf(view, places), ids = members ?? t.kidsOf.get(parent) ?? [];
-  const at = (id: string) => places[id] ?? view.placed.frames[id];
-  const ls = linksAmong(view, t, ids, kindsOf(view));
+function crossCount(ls: Link[], at: (id: string) => Place): number {
   let n = 0;
   for (let i = 0; i < ls.length; i++) for (let j = i + 1; j < ls.length; j++) {
     const a = ls[i], b = ls[j];
@@ -207,26 +234,63 @@ export function crossings(view: View, places: Record<string, Place>, parent: str
   return n;
 }
 
+export function crossings(view: View, places: Record<string, Place>, parent: string, members?: string[]): number {
+  const t = treeOf(view, places), ids = members ?? t.kidsOf.get(parent) ?? [];
+  return crossCount(linksAmong(view, t, ids, kindsOf(view)), (id) => places[id] ?? view.placed.frames[id]);
+}
+
+// 0.8: fitTo's margin
+export const fitZoom = (w: number, h: number, stage: Stage = STAGE) => Math.min((stage.w * 0.8) / w, (stage.h * 0.8) / h);
+
+export type Score = { fit: number; score: number };
+export function scoreOf(room: { w: number; h: number }, ls: Link[], at: (id: string) => Place, stage: Stage = STAGE): Score {
+  const fit = fitZoom(room.w, room.h, stage), n = crossCount(ls, at);
+  let wire = 0, right = 0, down = 0;
+  for (const l of ls) {
+    const p = centre(at(l.from)), q = centre(at(l.to));
+    wire += Math.hypot(p.x - q.x, p.y - q.y);
+    if (q.x <= p.x) right++;
+    if (q.y <= p.y) down++;
+  }
+  const back = ls.length ? Math.min(right, down) / ls.length : 0;
+  const wirePenalty = ls.length ? 0.01 * Math.min(1, (wire * fit) / ls.length / stage.w) : 0;
+  return { fit, score: fit * (1 - Math.min(0.25, 0.01 * n) - 0.1 * back) - wirePenalty };
+}
+
+const GAIN = 1.02;
+const beats = (a: Score, b: Score) => a.fit >= b.fit - 1e-9 && a.score > b.score * GAIN;
+
 // the head an open box keeps above its inside (fitInner's, in the box's own units)
 const withHead = (c: number) => (c >= 3 * HEAD ? c + HEAD : (c * 4) / 3);
 
-type Lay = { view: View; t: Tree; kindOf: (id: string) => string; inner: Map<string, [number, number]>; grid: number };
+type Lay = { view: View; t: Tree; kindOf: (id: string) => string; inner: Map<string, [number, number]>; kept: Set<string>; grid: number; stage: Stage };
+type Laid = { places: Record<string, Place>; room: { w: number; h: number }; links: Link[]; score: Score };
 
-function layout(c: Lay, ids: string[], places: Record<string, Place>): Record<string, Place> {
-  const { view, t, kindOf, inner, grid } = c;
+function layout(c: Lay, ids: string[], places: Record<string, Place>, stage: Stage = c.stage, fits: (room: { w: number; h: number }) => boolean = () => true): Laid | undefined {
+  const { view, t, kindOf, inner, kept, grid } = c;
+  const up = (v: number) => Math.ceil(v / grid) * grid;
   const size = (id: string) => places[id] ?? view.placed.frames[id];
   const tall = (id: string, w: number) => {
     const r = inner.get(id), f = size(id);
+    if (kept.has(id) && w === f.w) return f.h;
     if (r) return withHead((r[1] * w) / r[0]);
     return t.kidsOf.get(id)?.length ? withHead(((f.h - Math.min(HEAD, f.h / 4)) * w) / f.w) : f.h;
   };
-  const links = linksAmong(view, t, ids, kindOf);
-  const cols = layers(ids, flow(ids, links, kindOf), kindOf);
-  const now = cols.map((col) => [...col].sort((a, b) => size(a).y - size(b).y || (a < b ? -1 : 1)));
-  let best: Record<string, Place> = {}, fewest = Infinity;
-  for (const o of [now, ...order(cols, links)]) {
-    const p = place(o, links, size, tall, grid), n = crossings(view, p, "", ids);
-    if (n < fewest) [best, fewest] = [p, n];
+  const links = linksAmong(view, t, ids, kindOf), dag = flow(ids, links, kindOf);
+  const cols = layers(ids, dag, kindOf);
+  const longest = Math.max(...cols.map((col) => col.length));
+  const lims = [...new Set([Math.min(longest, WRAP), ...[5, 4, 3, 2].filter((n) => n < longest)])];
+  let best: Laid | undefined;
+  for (const across of ["right", "down"] as const) {
+    const key = (id: string) => (across === "right" ? size(id).y : size(id).x);
+    const now = cols.map((col) => [...col].sort((a, b) => key(a) - key(b) || (a < b ? -1 : 1)));
+    for (const o of [now, ...order(cols, links)]) for (const lim of lims) {
+      const p = place(o, links, size, tall, grid, across, lim);
+      const room = { w: up(Math.max(...ids.map((id) => p[id].x + p[id].w)) + 4 * grid), h: up(Math.max(...ids.map((id) => p[id].y + p[id].h)) + 4 * grid) };
+      if (!fits(room)) continue;
+      const score = scoreOf(room, dag, (id) => p[id], stage);
+      if (!best || score.score > best.score.score) best = { places: p, room, links: dag, score };
+    }
   }
   return best;
 }
@@ -258,29 +322,46 @@ function widthOf(view: View, id: string, iw: number, ih: number): number {
   return f && r ? Math.max(f.w, iw * fitInner(f, r[0], r[1]).s) : Math.max(iw, ih) / 4;
 }
 
-export function arrange(scope: string[], view: View, places: Record<string, Place>, grid: number): Record<string, Place> {
-  const t = treeOf(view, places), out = { ...places }, up = (v: number) => Math.ceil(v / grid) * grid;
-  const c: Lay = { view, t, kindOf: kindsOf(view), inner: new Map(), grid };
+export function arrange(scope: string[], view: View, places: Record<string, Place>, grid: number, stage: Stage = STAGE): Record<string, Place> {
+  const t = treeOf(view, places), out = { ...places };
+  const c: Lay = { view, t, kindOf: kindsOf(view), inner: new Map(), kept: new Set(), grid, stage };
+  const was = (id: string) => places[id] ?? view.placed.frames[id];
+  const frameOf = (g: string, { w, h }: { w: number; h: number }, f: Place) => {
+    const fw = widthOf(view, g, w, h);
+    return { x: f.x, y: f.y, w: fw, h: withHead((h * fw) / w) };
+  };
   for (const g of groupsOf(scope, t, patterned(view))) {
-    const kids = t.kidsOf.get(g)!, laid = layout(c, kids, out);
-    Object.assign(out, laid);
-    const r = Math.max(...kids.map((id) => laid[id].x + laid[id].w)), b = Math.max(...kids.map((id) => laid[id].y + laid[id].h));
-    const w = up(r + 4 * grid), h = up(b + 4 * grid), f = out[g] ?? view.placed.frames[g];
-    out[inside(g)] = { x: 0, y: 0, w, h };
-    c.inner.set(g, [w, h]);
-    if (f && g !== t.root) {
-      const fw = widthOf(view, g, w, h);
-      out[g] = { x: f.x, y: f.y, w: fw, h: withHead((h * fw) / w) };
+    const kids = t.kidsOf.get(g)!, f = out[g] ?? view.placed.frames[g], top = g === t.root || (scope.length === 1 && scope[0] === g);
+    const stated = places[inside(g)] ?? (view.placed.inner[g] && { w: view.placed.inner[g][0], h: view.placed.inner[g][1] });
+    const room = stated && kids.every((id) => out[id]) && {
+      w: Math.max(stated.w, ...kids.map((id) => out[id].x + out[id].w + 4 * grid)),
+      h: Math.max(stated.h, ...kids.map((id) => out[id].y + out[id].h + 4 * grid)),
+    };
+    // a group inside the one arranged keeps its frame or shrinks it, so what holds it never gets worse
+    const own = top || !f ? stage : { w: f.w / 0.8, h: (f.h - Math.min(HEAD, f.h / 4)) / 0.8 };
+    const fits = (r: { w: number; h: number }) => {
+      const n = top || !f ? undefined : frameOf(g, r, f);
+      return !n || (n.w <= f.w + 0.5 && n.h <= f.h + 0.5);
+    };
+    const laid = layout(c, kids, out, own, fits);
+    const now = room ? scoreOf(room, laid?.links ?? [], (id) => out[id], own) : undefined;
+    if (!laid || (now && !beats(laid.score, now))) {
+      if (kids.every((id) => out[id].w === was(id).w && out[id].h === was(id).h)) c.kept.add(g);
+      continue;
     }
+    Object.assign(out, laid.places);
+    out[inside(g)] = { x: 0, y: 0, w: laid.room.w, h: laid.room.h };
+    c.inner.set(g, [laid.room.w, laid.room.h]);
+    if (f && g !== t.root) out[g] = frameOf(g, laid.room, f);
   }
   const sel = scope.filter((id) => t.parentOf.has(id));
   // a group arranged alone changed size: its siblings make room and its parents grow
   if (scope.length === 1 && t.parentOf.has(scope[0]) && out[scope[0]]) return settle(out, view, { [scope[0]]: out[scope[0]] }, scope[0]);
   const parent = t.parentOf.get(sel[0]);
   if (scope.length < 2 || sel.length < 2 || sel.some((id) => t.parentOf.get(id) !== parent)) return out;
-  const was = sel.map((id) => places[id] ?? view.placed.frames[id]);
-  const x0 = Math.round(Math.min(...was.map((p) => p.x)) / grid) * grid, y0 = Math.round(Math.min(...was.map((p) => p.y)) / grid) * grid;
-  const laid = layout(c, [...sel].sort(), out);
+  const before = sel.map(was);
+  const x0 = Math.round(Math.min(...before.map((p) => p.x)) / grid) * grid, y0 = Math.round(Math.min(...before.map((p) => p.y)) / grid) * grid;
+  const laid = layout(c, [...sel].sort(), out)!.places;
   const lx = Math.min(...sel.map((id) => laid[id].x)), ly = Math.min(...sel.map((id) => laid[id].y));
   for (const id of sel) out[id] = { ...laid[id], x: laid[id].x - lx + x0, y: laid[id].y - ly + y0 };
   const block = "\0these", r = Math.max(...sel.map((id) => out[id].x + out[id].w)), b = Math.max(...sel.map((id) => out[id].y + out[id].h));

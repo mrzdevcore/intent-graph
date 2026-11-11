@@ -354,14 +354,14 @@ test("right-click opens the menu, Esc closes it", () => {
   }
 });
 
-test("Arrange inside lays out the box's inside and says how many boxes moved", () => {
+test("Arrange inside a box whose one child already reads well says so", () => {
   const { target } = setup(recorder().api);
   boxEl(target, "web").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
   flushSync();
   ([...menuOf(target)!.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.startsWith("Arrange inside")) as HTMLButtonElement).click();
   flushSync();
   expect(menuOf(target)).toBeNull();
-  expect(target.querySelector(".arranged")?.textContent).toMatch(/Arranged \d+ box/);
+  expect(target.querySelector(".arranged")?.textContent?.trim()).toBe("Already reads well");
 });
 
 test("F2, typing and Enter sets the title", async () => {

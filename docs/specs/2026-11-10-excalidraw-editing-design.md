@@ -176,9 +176,18 @@ kind yet) → `uses`. The chip on the new arrow opens the kind list at once; one
     menu, a group's right-click menu ("Arrange inside"), and the bar of a multi-selection ("Arrange
     these"). It arranges what is open on screen, or the group or selection it was asked on, and the
     groups inside, from the innermost out.
+  - **Never worse than what is on screen**: the map must read at least as large when fitted to the
+    stage (16:10, 1400×875, or the real stage) as before, so ig's first layout is the bar. Every
+    layout is scored by one function: the zoom at which the scope fits the stage, lowered a little
+    for crossings and arrows against the flow, then for wire length. A new layout replaces the
+    current one only when it fits at least as large and scores 2% higher; otherwise nothing moves
+    and the toast says "Already reads well". A group inside the one arranged keeps its frame or
+    shrinks it, so what holds it never gets worse.
   - **What good looks like**, in this order of weight:
-    1. Arrows flow one way: callers before what they call, left to right (people and apps at the
-       left, stores and outside systems at the right), so most arrows point the same way.
+    1. Arrows flow one way: callers before what they call, left to right or top to bottom, whichever
+       reads larger (people and apps first, stores and outside systems last), so most arrows point
+       the same way. A layer longer than 6 boxes, or one that would make the map too long, wraps
+       into several lines of the same layer, row by row, so a fan-out becomes a block, not a tower.
     2. Few crossings: within each column, boxes are ordered to cross as few arrows as possible.
     3. Short, straight arrows: a box sits level with the box it talks to most, so that arrow is
        straight.
@@ -188,8 +197,8 @@ kind yet) → `uses`. The chip on the new arrow opens the kind list at once; one
        arranged inside it.
   - **Deterministic**: the same map gives the same result, and arranging twice changes nothing,
     like a formatter. It never changes `ig/`, only places and sizes.
-  - **Kind rules it knows**: people at the left edge, outside systems and stores at the right or
-    bottom edge, queues between their senders and readers.
+  - **Kind rules it knows**: people first (left or top), outside systems and stores last (right or
+    bottom), queues between their senders and readers.
   - Everything glides to its new place; a toast says "Arranged 14 boxes" with **Undo**.
   - **Undo**: places live in the browser, not in the server journal, so the viewer keeps its own
     history of place changes (arrange, drag, resize, nudges). ⌘Z undoes whichever came last, a
