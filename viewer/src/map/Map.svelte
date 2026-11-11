@@ -267,7 +267,8 @@
   const area = (f: Frame) => f.w * f.h;
   const regions = $derived(group([...view.placed.regions].sort((a, b) => area(b.frame) - area(a.frame)), (r: R) => r.parent));
   /** Each parent's wires both ways, from its children's frames as drawn. */
-  const wired = (as: Arrow[], frames: Record<string, Frame>) => ({ routed: wires(as, frames, "routed"), ribbon: wires(as, frames, "ribbon") });
+  const kindById = $derived(Object.fromEntries(view.boxes.map((b) => [b.id, b.kind.value])));
+  const wired = (as: Arrow[], frames: Record<string, Frame>) => ({ routed: wires(as, frames, "routed", kindById), ribbon: wires(as, frames, "ribbon") });
   const siblings = (p: string) => Object.fromEntries((kids.get(p) ?? []).map((b) => [b.id, shown.placed.frames[b.id]]));
   const wiring = $derived(new Map([...group([...view.arrows, ...ghosts], (a: Arrow) => a.parent)].map(([p, as]) => [p, wired(as, siblings(p))])));
   const arrows = $derived(group([...view.arrows, ...ghosts].filter((a) => wiring.get(a.parent)?.routed.wires.has(a.id)), (a: Arrow) => a.parent));

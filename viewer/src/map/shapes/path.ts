@@ -6,16 +6,15 @@ export type P = [number, number];
 export type End = { from: P; to: P; sides: [Side, Side] };
 export type Path = { d: string; mid: P; len: number; head: [P, P]; ends: [P, P] };
 
-const SPREAD = 0.6;
-// the circuit's chamfer (wires.ts LOOK.routed.bend)
-const BEND = 8;
+export const SPREAD = 0.6;
+export const BEND = 8;
 const REACH = 0.4;
 const HEAD = 10;
 const SAMPLES = 24;
 const CLEAR = 8;
 
 const NORMAL: Record<Side, P> = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
-const across = (s: Side) => s === "l" || s === "r";
+export const across = (s: Side) => s === "l" || s === "r";
 
 export function sides(a: Frame, b: Frame): [Side, Side] {
   const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
@@ -36,6 +35,7 @@ export function pins(
   arrows: { id: string; from: string; to: string }[],
   frames: Record<string, Frame>,
   kinds: Record<string, string | undefined> = {},
+  chosen: Record<string, [Side, Side]> = {},
 ): Map<string, End> {
   const rect = (id: string) => figure(frames[id], kinds[id]);
   const centre = (f: Frame): P => [f.x + f.w / 2, f.y + f.h / 2];
@@ -45,7 +45,7 @@ export function pins(
   for (const a of [...arrows].sort((x, y) => x.id.localeCompare(y.id))) {
     if (a.from === a.to || !frames[a.from] || !frames[a.to]) continue;
     const [fa, fb] = [rect(a.from), rect(a.to)];
-    const end: End = { from: [0, 0], to: [0, 0], sides: sides(fa, fb) };
+    const end: End = { from: [0, 0], to: [0, 0], sides: chosen[a.id] ?? sides(fa, fb) };
     out.set(a.id, end);
     for (const [box, side, far, key] of [[a.from, end.sides[0], fb, "from"], [a.to, end.sides[1], fa, "to"]] as const) {
       const k = `${box}\u0000${side}`;
@@ -82,7 +82,7 @@ function elbow(end: End): Path {
     : !h1 && !h2 ? [[x1, y1], [x1, (y1 + y2) / 2], [x2, (y1 + y2) / 2], [x2, y2]]
     : h1 ? [[x1, y1], [x2, y1], [x2, y2]]
     : [[x1, y1], [x1, y2], [x2, y2]];
-  return line(clean(pts), end);
+  return line(straight(pts), end);
 }
 
 function line(p: P[], end: End): Path {
@@ -131,14 +131,14 @@ function head(tip: P, dir: P, end: End): [P, P] {
   return [[r2(tip[0] - u[0] * HEAD), r2(tip[1] - u[1] * HEAD)], tip];
 }
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
-const pt = (p: P) => `${r2(p[0])},${r2(p[1])}`;
+export const r2 = (n: number) => Math.round(n * 100) / 100;
+export const pt = (p: P) => `${r2(p[0])},${r2(p[1])}`;
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const add = (a: P, u: P, k: number): P => [a[0] + u[0] * k, a[1] + u[1] * k];
 const dist = (a: P, b: P) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 const towards = (a: P, b: P, t: number): P => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 const inside = (p: P, f: Frame, m: number) => p[0] > f.x - m && p[0] < f.x + f.w + m && p[1] > f.y - m && p[1] < f.y + f.h + m;
-const length = (p: P[]) => p.slice(1).reduce((s, q, i) => s + dist(p[i], q), 0);
+export const length = (p: P[]) => p.slice(1).reduce((s, q, i) => s + dist(p[i], q), 0);
 
 function cubic(a: P, b: P, c: P, d: P, t: number): P {
   const u = 1 - t;
@@ -148,7 +148,7 @@ function cubic(a: P, b: P, c: P, d: P, t: number): P {
   ];
 }
 
-function clean(pts: P[]): P[] {
+export function straight(pts: P[]): P[] {
   const out: P[] = [];
   for (const p of pts) {
     const b = out[out.length - 1], a = out[out.length - 2];
@@ -159,7 +159,7 @@ function clean(pts: P[]): P[] {
   return out;
 }
 
-function halfway(p: P[]): P {
+export function halfway(p: P[]): P {
   let left = length(p) / 2;
   for (let i = 0; i < p.length - 1; i++) {
     const l = dist(p[i], p[i + 1]);

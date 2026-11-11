@@ -35,7 +35,7 @@ function check(mode: Mode) {
   return w;
 }
 
-test("wires leave the upper box's bottom, enter the lower box's top, and cross no box", () => {
+test("routed wires leave the facing sides, go round the rows past a box in the way, and cross no box", () => {
   const w = check("routed");
   const p = points(w.get("a->g")!.d);
   expect(p[0][1]).toBe(60);
@@ -44,10 +44,46 @@ test("wires leave the upper box's bottom, enter the lower box's top, and cross n
   const up = points(w.get("g->b")!.d);
   expect(up[0][1]).toBe(312);
   expect(up[up.length - 1][1]).toBe(60);
-  // two boxes of one row: out of one bottom, into the other's
+  // b stands between a and c: out of one bottom, into the other's
   const side = points(w.get("a->c")!.d);
   expect([side[0][1], side[side.length - 1][1]]).toEqual([60, 60]);
+  // nothing between d and e: one straight run, right side to left side
+  expect(w.get("d->e")!.d).toBe("M100,186 L392,186");
   check("ribbon");
+});
+
+test("two boxes side by side: one straight wire between their facing sides", () => {
+  const w = wires([arrow("a", "b")], { a: box(0, 0), b: box(200, 0) }, "routed").wires.get("a->b")!;
+  expect(w.d).toBe("M100,30 L200,30");
+  expect(w.ends).toEqual([[100, 30], [200, 30]]);
+  const back = wires([arrow("b", "a")], { a: box(0, 0), b: box(200, 0) }, "routed").wires.get("b->a")!;
+  expect(back.d).toBe("M200,30 L100,30");
+});
+
+test("stacked boxes: bottom to top, straight when the pins line up", () => {
+  const w = wires([arrow("a", "b")], { a: box(0, 0), b: box(0, 156) }, "routed").wires.get("a->b")!;
+  expect(w.d).toBe("M50,60 L50,156");
+});
+
+test("a person left of a box: from the figure's right edge into the box's left side, one bend", () => {
+  const frames = { u: { x: 0, y: 0, w: 200, h: 160 }, s: { x: 400, y: 100, w: 100, h: 160 } };
+  const p = points(wires([arrow("u", "s")], frames, "routed", { u: "person" }).wires.get("u->s")!.d);
+  expect(p[0]).toEqual([160, 80]);
+  expect(p[p.length - 1]).toEqual([400, 180]);
+  // level out, down the track between them, level in: two 45° cuts, so six points
+  expect(p.length).toBe(6);
+  expect(p[1][1]).toBe(80);
+  expect(p[4][1]).toBe(180);
+  expect(p[2][0]).toBeGreaterThan(200);
+  expect(p[3][0]).toBeLessThan(400);
+});
+
+test("wires from different boxes never share a pin", () => {
+  const w = wires(all, frames, "routed").wires;
+  const ends = [...w.values()].flatMap((x) => x.ends.map((e) => e.join()));
+  expect(new Set(ends).size).toBe(ends.length);
+  const into = wires([arrow("a", "c"), arrow("b", "c")], { a: box(0, 0), b: box(200, 0), c: box(100, 200) }, "routed").wires;
+  expect(into.get("a->c")!.ends[1]).not.toEqual(into.get("b->c")!.ends[1]);
 });
 
 test("runs along one channel take lanes of their own, a pitch apart", () => {

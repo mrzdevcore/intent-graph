@@ -1,4 +1,5 @@
 import type { Frame, MapArrow } from "./types";
+import { BEND, SPREAD, across, halfway, length, pins, pt, r2, straight, type End, type P, type Side } from "./shapes/path";
 
 /** An arrow drawn as a wire: its SVG path and the point halfway along it. */
 export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]] };
@@ -7,29 +8,34 @@ export type Wire = { d: string; mid: [number, number]; len: number; ends: [[numb
 export type Mode = "routed" | "ribbon";
 export type Wiring = { wires: Map<string, Wire>; sleeves: { d: string; w: number }[] };
 
-type P = [number, number];
 const LOOK = {
-  routed: { pitch: 8, bend: 8, load: 60 },
+  routed: { pitch: 8, bend: BEND, load: 60 },
   // a negative load: a gap already used is cheaper, so wires gather
   ribbon: { pitch: 5, bend: 5, load: -200 },
 };
 /** How far a wire running past a box keeps from it. */
 const CLEAR = 16;
-/** The share of a box's side its wires spread over, around the middle. */
-const SPREAD = 0.6;
 /** The room taken left or right of every box, and under the last row, when a wire goes round. */
 const OUTSIDE = 48;
 
+type Run = { id: string; span: () => P; set: (v: number) => void };
+type Grid = ReturnType<typeof grid>;
+type Kinds = Record<string, string | undefined>;
+
 /**
  * The wires of `arrows` between sibling boxes `frames` (in their parent's inner units), laid like a
- * circuit board: the boxes fall into rows, a wire runs along the channel between two rows on a
- * track of its own, and one that skips rows drops down a gap clear of the rows between. A wire
- * leaves the bottom of the upper box and enters the top of the lower (both bottoms in one row);
- * the wires of one side spread along it in the order they head off, and bends are cut at 45°.
+ * circuit board, bends cut at 45°. "routed": from the facing sides' pins (`pins`), straight when they
+ * line up, else one bend on a track of its own between the rows or columns, a drop down a gap only
+ * when a box is in the way. "ribbon": the upper box's bottom to the lower's top, on shared trunks.
  * An arrow from a box to itself, or to a box with no frame, has none.
  */
-export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode): Wiring {
-  const { pitch, bend, load: weight } = LOOK[mode];
+export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode, kinds: Kinds = {}): Wiring {
+  const g = grid(frames, mode);
+  return { wires: mode === "routed" ? routed(arrows, frames, kinds, g) : ribbon(arrows, frames, g), sleeves: g.sleeves };
+}
+
+function grid(frames: Record<string, Frame>, mode: Mode) {
+  const { pitch } = LOOK[mode];
   // rows: boxes whose heights overlap, top to bottom
   const rows: { top: number; bottom: number; ids: string[] }[] = [];
   const ids = Object.keys(frames).sort((a, b) => frames[a].y - frames[b].y || a.localeCompare(b));
@@ -43,16 +49,162 @@ export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: M
   // ponytail: a hand-moved box can chain rows into one tall row; a drop out of it may then cross a box
   const rowOf = new Map(rows.flatMap((r, i) => r.ids.map((id) => [id, i] as const)));
   const channel = (c: number) => ({ top: rows[c].bottom, bottom: rows[c + 1]?.top ?? rows[c].bottom + 2 * OUTSIDE });
-  /** The x spans clear of every box in rows `a` to `b`, as (centre, width). */
-  function gaps(a: number, b: number): [number, number][] {
-    let spans: P[] = [[-Infinity, Infinity]];
+  /** The x spans clear of every box in rows `a` to `b`. */
+  function spans(a: number, b: number): P[] {
+    let out: P[] = [[-Infinity, Infinity]];
     for (let r = a; r <= b; r++)
       for (const id of rows[r].ids) {
         const f = frames[id], lo = f.x - CLEAR, hi = f.x + f.w + CLEAR;
-        spans = spans.flatMap(([x, y]): P[] => (hi <= x || lo >= y ? [[x, y]] : ([[x, lo], [hi, y]] as P[]).filter(([s, t]) => t > s)));
+        out = out.flatMap(([x, y]): P[] => (hi <= x || lo >= y ? [[x, y]] : ([[x, lo], [hi, y]] as P[]).filter(([s, t]) => t > s)));
       }
-    return spans.map(([x, y]) => (x === -Infinity ? [y - OUTSIDE, 2 * OUTSIDE] : y === Infinity ? [x + OUTSIDE, 2 * OUTSIDE] : [(x + y) / 2, y - x]));
+    return out;
   }
+  const gaps = (sp: P[]): P[] =>
+    sp.map(([x, y]) => (x === -Infinity ? [y - OUTSIDE, 2 * OUTSIDE] : y === Infinity ? [x + OUTSIDE, 2 * OUTSIDE] : [(x + y) / 2, y - x]));
+  const sleeves: Wiring["sleeves"] = [];
+  function lay(runs: Run[], mid: number, room: number, vertical: boolean) {
+    const at = new Map(runs.map((r) => [r, r.span()] as const));
+    const ends: number[] = [], lane = new Map<Run, number>();
+    for (const r of [...runs].sort((x, y) => at.get(x)![0] - at.get(y)![0] || at.get(x)![1] - at.get(y)![1] || x.id.localeCompare(y.id))) {
+      const [lo, hi] = at.get(r)!, k = ends.findIndex((e) => e + 2 * pitch < lo);
+      lane.set(r, k < 0 ? ends.push(hi) - 1 : k);
+      if (k >= 0) ends[k] = hi;
+    }
+    const n = ends.length, step = n > 1 ? Math.max(1, Math.min(pitch, (room - 2 * CLEAR) / (n - 1))) : 0;
+    for (const r of runs) r.set(mid + (lane.get(r)! - (n - 1) / 2) * step);
+    if (mode === "ribbon" && n > 1) {
+      const lo = Math.min(...runs.map((r) => at.get(r)![0])), hi = Math.max(...runs.map((r) => at.get(r)![1]));
+      sleeves.push({ d: vertical ? `M${r2(mid)},${r2(lo)} L${r2(mid)},${r2(hi)}` : `M${r2(lo)},${r2(mid)} L${r2(hi)},${r2(mid)}`, w: (n - 1) * step + 2 * pitch });
+    }
+  }
+  return { rowOf, channel, spans, gaps, lay, sleeves };
+}
+
+const span = (x: number, y: number): P => [Math.min(x, y), Math.max(x, y)];
+const orient = (p: P[], flip: boolean) => (flip ? [...p].reverse() : p);
+const wire = (p: P[], bend: number): Wire => ({ d: chamfer(p, bend), mid: halfway(p), len: r2(length(p)), ends: [p[0], p[p.length - 1]] });
+
+function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, g: Grid): Map<string, Wire> {
+  const { pitch, bend, load } = LOOK.routed;
+  const live = arrows.filter((a) => a.from !== a.to && frames[a.from] && frames[a.to]).sort((x, y) => x.id.localeCompare(y.id));
+  const row = (id: string) => g.rowOf.get(id)!;
+  const byX = Object.entries(frames).sort(([, a], [, b]) => a.x - b.x), widest = Math.max(0, ...byX.map(([, f]) => f.w));
+  function within(x1: number, x2: number, skip: string[]): Frame[] {
+    let lo = 0, hi = byX.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (byX[m][1].x <= x1 - widest) lo = m + 1;
+      else hi = m;
+    }
+    const out: Frame[] = [];
+    for (let i = lo; i < byX.length && byX[i][1].x < x2; i++) {
+      const [id, f] = byX[i];
+      if (f.x + f.w > x1 && id !== skip[0] && id !== skip[1]) out.push(f);
+    }
+    return out;
+  }
+  const used = new Map<string, number>(), key = (x: number) => `v${Math.round(x)}`;
+  const blocked = (near: Frame[], x0: number, x1: number, y0: number, y1: number) =>
+    near.some((f) => f.x < Math.max(x0, x1) && f.x + f.w > Math.min(x0, x1) && f.y < Math.max(y0, y1) && f.y + f.h > Math.min(y0, y1));
+  const facing = (a: MapArrow, e: End) =>
+    e.sides[0] === "l" ? { skip: [a.to, a.from], p: e.to, q: e.from, flip: true } : { skip: [a.from, a.to], p: e.from, q: e.to, flip: false };
+  function sideways(a: MapArrow, e: End): { y: number } | { mid: number; room: number } | null {
+    const { skip, p: [x1, y1], q: [x2, y2] } = facing(a, e), y = (y1 + y2) / 2;
+    if (x2 <= x1) return null;
+    const near = within(x1, x2, skip);
+    if (Math.abs(y1 - y2) <= pitch / 2 && !blocked(near, x1, x2, y, y)) return { y };
+    let [from, reach] = [x1, x2];
+    for (const f of near) {
+      if (f.y < y1 && f.y + f.h > y1) reach = Math.min(reach, f.x);
+      if (f.y < y2 && f.y + f.h > y2) from = Math.max(from, f.x + f.w);
+    }
+    if (from >= reach) return null;
+    const [lo, hi] = span(y1, y2);
+    let free: P[] = [[from, reach]];
+    for (const f of near) {
+      if (f.y >= hi || f.y + f.h <= lo || f.x >= reach || f.x + f.w <= from) continue;
+      free = free.flatMap(([s, t]): P[] => (f.x + f.w <= s || f.x >= t ? [[s, t]] : ([[s, f.x], [f.x + f.w, t]] as P[]).filter(([u, v]) => v - u >= 2 * pitch)));
+    }
+    let best: { mid: number; room: number } | null = null, score = Infinity;
+    for (const [s, t] of free) {
+      const mid = (s + t) / 2, c = Math.abs(mid - (x1 + x2) / 2) + load * (used.get(key(mid)) ?? 0);
+      if (c < score) [best, score] = [{ mid, room: t - s }, c];
+    }
+    return best;
+  }
+
+  // a left/right wire with a box in the way goes round through the rows instead
+  const chosen: Record<string, [Side, Side]> = {};
+  let ends = pins(live, frames, kinds);
+  for (let pass = 0; pass < 3; pass++) {
+    let more = false;
+    for (const a of live) {
+      const e = ends.get(a.id)!, [rf, rt] = [row(a.from), row(a.to)];
+      if (chosen[a.id] || (across(e.sides[0]) ? sideways(a, e) : rf !== rt)) continue;
+      chosen[a.id] = rf < rt ? ["b", "t"] : rf > rt ? ["t", "b"] : ["b", "b"];
+      more = true;
+    }
+    if (!more) break;
+    ends = pins(live, frames, kinds, chosen);
+  }
+
+  const lanes = new Map<string, { mid: number; room: number; vertical: boolean; runs: Run[] }>();
+  const slot = (k: string, mid: number, room: number, vertical: boolean, id: string, sp: () => P) => {
+    const s = { v: mid }, r: Run = { id, span: sp, set: (v) => (s.v = v) }, l = lanes.get(k);
+    if (l) {
+      l.runs.push(r);
+      l.room = Math.min(l.room, room);
+    } else lanes.set(k, { mid, room, vertical, runs: [r] });
+    if (vertical) used.set(k, (used.get(k) ?? 0) + 1);
+    return s;
+  };
+  const along = (c: number, id: string, sp: () => P) => {
+    const ch = g.channel(c);
+    return slot(`c${c}`, (ch.top + ch.bottom) / 2, ch.bottom - ch.top, false, id, sp);
+  };
+  const down = (mid: number, room: number, id: string, sp: () => P) => slot(key(mid), mid, room, true, id, sp);
+
+  const draws: [string, () => P[]][] = [];
+  for (const a of live) {
+    const e = ends.get(a.id)!, [sa, sz] = e.sides;
+    if (across(sa)) {
+      const { p, q, flip } = facing(a, e), plan = sideways(a, e) ?? { mid: (p[0] + q[0]) / 2, room: 0 };
+      if ("y" in plan) draws.push([a.id, () => orient([[p[0], plan.y], [q[0], plan.y]], flip)]);
+      else {
+        const s = down(plan.mid, plan.room, a.id, () => span(p[1], q[1]));
+        draws.push([a.id, () => orient([p, [s.v, p[1]], [s.v, q[1]], q], flip)]);
+      }
+    } else if (sa === sz) {
+      const s = along(row(a.from), a.id, () => span(e.from[0], e.to[0]));
+      draws.push([a.id, () => [e.from, [e.from[0], s.v], [e.to[0], s.v], e.to]]);
+    } else {
+      const flip = sa === "t";
+      const [u, l] = flip ? [e.to, e.from] : [e.from, e.to];
+      const [ra, rb] = flip ? [row(a.to), row(a.from)] : [row(a.from), row(a.to)];
+      const free = rb - ra > 1 ? g.spans(ra + 1, rb - 1) : [[-Infinity, Infinity] as P];
+      const clear = (x: number) => free.some(([lo, hi]) => x > lo && x < hi);
+      const x = (u[0] + l[0]) / 2;
+      if (Math.abs(u[0] - l[0]) <= pitch / 2 && clear(x)) draws.push([a.id, () => orient([[x, u[1]], [x, l[1]]], flip)]);
+      else if (clear(l[0]) || clear(u[0])) {
+        const s = along(clear(l[0]) ? ra : rb - 1, a.id, () => span(u[0], l[0]));
+        draws.push([a.id, () => orient([u, [u[0], s.v], [l[0], s.v], l], flip)]);
+      } else {
+        const cost = ([c]: P) => Math.abs(c - u[0]) + Math.abs(c - l[0]) + load * (used.get(key(c)) ?? 0);
+        const [gx, gw] = g.gaps(free).reduce((m, o) => (cost(o) < cost(m) ? o : m));
+        const s1 = along(ra, a.id, () => span(u[0], gx)), s2 = along(rb - 1, a.id, () => span(gx, l[0]));
+        const sg = down(gx, gw, a.id, () => [s1.v, s2.v]);
+        draws.push([a.id, () => orient([u, [u[0], s1.v], [sg.v, s1.v], [sg.v, s2.v], [l[0], s2.v], l], flip)]);
+      }
+    }
+  }
+  for (const t of lanes.values()) if (!t.vertical) g.lay(t.runs, t.mid, t.room, false);
+  for (const t of lanes.values()) if (t.vertical) g.lay(t.runs, t.mid, t.room, true);
+  return new Map(draws.map(([id, draw]) => [id, wire(straight(draw()), bend)]));
+}
+
+function ribbon(arrows: MapArrow[], frames: Record<string, Frame>, g: Grid): Map<string, Wire> {
+  const { bend, load: weight } = LOOK.ribbon;
+  const { rowOf, channel, spans, gaps, lay } = g;
   const cx = (id: string) => frames[id].x + frames[id].w / 2;
 
   type W = { a: MapArrow; top: string; bot: string; flip: boolean; same: boolean; gap?: [number, number]; xa: number; xz: number; y1: number; y2: number; xg: number };
@@ -67,7 +219,7 @@ export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: M
     let gap: [number, number] | undefined;
     if (rb - ra > 1) {
       const cost = ([c]: [number, number]) => Math.abs(c - cx(top)) + Math.abs(c - cx(bot)) + weight * (used.get(c) ?? 0);
-      gap = gaps(ra + 1, rb - 1).reduce((m, g) => (cost(g) < cost(m) ? g : m));
+      gap = gaps(spans(ra + 1, rb - 1)).reduce((m, o) => (cost(o) < cost(m) ? o : m));
       used.set(gap[0], (used.get(gap[0]) ?? 0) + 1);
     }
     ws.push({ a, top, bot, flip, same: ra === rb, gap, xa: 0, xz: 0, y1: 0, y2: 0, xg: 0 });
@@ -84,32 +236,15 @@ export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: M
     list.sort((x, y) => x.head - y.head || x.w.a.id.localeCompare(y.w.a.id));
     list.forEach((e, i) => (e.w[e.end] = f.x + f.w * ((1 - SPREAD) / 2 + (SPREAD * (i + 0.5)) / list.length)));
   }
-  // tracks: the runs along one channel, then the drops down one gap, each on a lane of its own
-  type Run = { w: W; lo: number; hi: number; at: "y1" | "y2" | "xg" };
-  const sleeves: Wiring["sleeves"] = [];
-  function lay(runs: Run[], mid: number, room: number, vertical: boolean) {
-    const ends: number[] = [], lane = new Map<Run, number>();
-    for (const r of [...runs].sort((x, y) => x.lo - y.lo || x.hi - y.hi || x.w.a.id.localeCompare(y.w.a.id))) {
-      const k = ends.findIndex((e) => e + 2 * pitch < r.lo);
-      lane.set(r, k < 0 ? ends.push(r.hi) - 1 : k);
-      if (k >= 0) ends[k] = r.hi;
-    }
-    const n = ends.length, step = n > 1 ? Math.max(1, Math.min(pitch, (room - 2 * CLEAR) / (n - 1))) : 0;
-    for (const r of runs) r.w[r.at] = mid + (lane.get(r)! - (n - 1) / 2) * step;
-    if (mode === "ribbon" && n > 1) {
-      const lo = Math.min(...runs.map((r) => r.lo)), hi = Math.max(...runs.map((r) => r.hi));
-      sleeves.push({ d: vertical ? `M${r2(mid)},${r2(lo)} L${r2(mid)},${r2(hi)}` : `M${r2(lo)},${r2(mid)} L${r2(hi)},${r2(mid)}`, w: (n - 1) * step + 2 * pitch });
-    }
-  }
+  // tracks: the runs along one channel, then the drops down one gap
   const byChannel = new Map<number, Run[]>();
   const run = (c: number, r: Run) => byChannel.set(c, [...(byChannel.get(c) ?? []), r]);
   for (const w of ws) {
-    const [ra, rb] = [rowOf.get(w.top)!, rowOf.get(w.bot)!];
-    const span = (x: number, y: number) => ({ lo: Math.min(x, y), hi: Math.max(x, y) });
-    if (!w.gap) run(ra, { w, ...span(w.xa, w.xz), at: "y1" });
+    const [ra, rb] = [rowOf.get(w.top)!, rowOf.get(w.bot)!], id = w.a.id;
+    if (!w.gap) run(ra, { id, span: () => span(w.xa, w.xz), set: (v) => (w.y1 = v) });
     else {
-      run(ra, { w, ...span(w.xa, w.gap[0]), at: "y1" });
-      run(rb - 1, { w, ...span(w.gap[0], w.xz), at: "y2" });
+      run(ra, { id, span: () => span(w.xa, w.gap![0]), set: (v) => (w.y1 = v) });
+      run(rb - 1, { id, span: () => span(w.gap![0], w.xz), set: (v) => (w.y2 = v) });
     }
   }
   for (const [c, runs] of byChannel) {
@@ -118,7 +253,7 @@ export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: M
   }
   const byGap = new Map<number, W[]>();
   for (const w of ws) if (w.gap) byGap.set(w.gap[0], [...(byGap.get(w.gap[0]) ?? []), w]);
-  for (const [c, list] of byGap) lay(list.map((w) => ({ w, lo: w.y1, hi: w.y2, at: "xg" })), c, list[0].gap![1], true);
+  for (const [c, list] of byGap) lay(list.map((w) => ({ id: w.a.id, span: () => [w.y1, w.y2], set: (v) => (w.xg = v) })), c, list[0].gap![1], true);
 
   const out = new Map<string, Wire>();
   for (const w of ws) {
@@ -128,23 +263,7 @@ export function wires(arrows: MapArrow[], frames: Record<string, Frame>, mode: M
       ? [[w.xa, ya], [w.xa, w.y1], [w.xg, w.y1], [w.xg, w.y2], [w.xz, w.y2], [w.xz, yz]]
       : [[w.xa, ya], [w.xa, w.y1], [w.xz, w.y1], [w.xz, yz]];
     const p = straight(pts);
-    if (w.flip) p.reverse();
-    out.set(w.a.id, { d: chamfer(p, bend), mid: halfway(p), len: r2(length(p)), ends: [p[0], p[p.length - 1]] });
-  }
-  return { wires: out, sleeves };
-}
-
-const r2 = (n: number) => Math.round(n * 100) / 100;
-const pt = (p: P) => `${r2(p[0])},${r2(p[1])}`;
-
-/** Without repeated points or the middle points of straight runs. */
-function straight(pts: P[]): P[] {
-  const out: P[] = [];
-  for (const p of pts) {
-    if (out.length && out[out.length - 1][0] === p[0] && out[out.length - 1][1] === p[1]) continue;
-    const [a, b] = [out[out.length - 2], out[out.length - 1]];
-    if (a && ((a[0] === b[0] && b[0] === p[0]) || (a[1] === b[1] && b[1] === p[1]))) out.pop();
-    out.push(p);
+    out.set(w.a.id, wire(orient(p, w.flip), bend));
   }
   return out;
 }
@@ -160,18 +279,4 @@ function chamfer(p: P[], r: number): string {
     d += ` L${pt([c[0] + ((b[0] - c[0]) / lb) * k, c[1] + ((b[1] - c[1]) / lb) * k])}`;
   }
   return `${d} L${pt(p[p.length - 1])}`;
-}
-
-const length = (p: P[]) => p.slice(1).reduce((s, q, i) => s + Math.hypot(q[0] - p[i][0], q[1] - p[i][1]), 0);
-
-/** The point halfway along the polyline. */
-function halfway(p: P[]): [number, number] {
-  const len = (i: number) => Math.hypot(p[i + 1][0] - p[i][0], p[i + 1][1] - p[i][1]);
-  let left = length(p) / 2;
-  for (let i = 0; i < p.length - 1; i++) {
-    const l = len(i);
-    if (left <= l && l > 0) return [r2(p[i][0] + ((p[i + 1][0] - p[i][0]) * left) / l), r2(p[i][1] + ((p[i + 1][1] - p[i][1]) * left) / l)];
-    left -= l;
-  }
-  return [r2(p[0][0]), r2(p[0][1])];
 }
