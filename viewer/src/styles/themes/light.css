@@ -10,8 +10,8 @@
   --color-accent: #E8A317; --color-on-accent: #161615; --color-accent-text: #9a6a00;
 
   /* map: ground, surfaces, text */
-  /* --map-dots: the ground's dot grid; transparent hides it */
-  --map-ground: #faf8f3; --map-dots: transparent; --map-surface: #fffdf8; --map-sunken: #f2eee5; --map-track: #efe9dc;
+  /* --map-dots: the ground's dot grid. */
+  --map-ground: #faf8f3; --map-dots: #e2dccd; --map-surface: #fffdf8; --map-sunken: #f2eee5; --map-track: #efe9dc;
   --map-line: #d9d2c3; --map-line-soft: #ece6d8; --map-shadow: rgba(35, 33, 30, 0.12);
   --map-fg: #23211e; --map-fg-2: #3a3631; --map-muted: #5c5850; --map-faint: #8a8378; --map-edge: #a39b8e;
   /* map: kinds of box and arrow */

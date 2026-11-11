@@ -6,7 +6,7 @@ export type Level = "system" | "container" | "component" | "code";
 export type BoxKind =
   | "person" | "system" | "external" | "app" | "service" | "job" | "store" | "queue" | "model"
   | "module" | "entry" | "usecase" | "port" | "adapter" | "agent" | "domain" | "group"
-  | "folder" | "file" | "component" | "parts" | "task" | "table" | "function" | "class" | "method";
+  | "box" | "folder" | "file" | "component" | "parts" | "task" | "table" | "function" | "class" | "method";
 export type Pattern =
   | { kind: "onion" } | { kind: "hexagonal" } | { kind: "none" } | { kind: "layered"; bands: string[] };
 export type MapBox = {

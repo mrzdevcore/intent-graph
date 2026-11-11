@@ -3,8 +3,8 @@
 :root {
   --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* the map's box titles: Kalam is not bundled (ig view is offline), so a handwriting stack */
-  --font-hand: Kalam, "Comic Sans MS", cursive;
+  /* the map's box titles: Excalidraw's hand, bundled below (ig view is offline) */
+  --font-hand: Excalifont, Kalam, "Comic Sans MS", cursive;
 
   --text-2xs: 0.625rem;   /* 10 */
   --text-xs: 0.6875rem;   /* 11 */
@@ -32,4 +32,13 @@
   --radius-lg: 0.5rem;    /* 8 */
   --radius-xl: 0.75rem;   /* 12 */
   --radius-pill: 999px;
+}
+
+@font-face {
+  font-family: Excalifont; font-display: swap; src: url("../assets/fonts/Excalifont-Latin.woff2") format("woff2");
+  unicode-range: U+20-7e,U+a0-a3,U+a5-a6,U+a8-ab,U+ad-b1,U+b4,U+b6-b8,U+ba-ff,U+131,U+152-153,U+2bc,U+2c6,U+2da,U+2dc,U+304,U+308,U+2013-2014,U+2018-201a,U+201c-201e,U+2020,U+2022,U+2024-2026,U+2030,U+2039-203a,U+20ac,U+2122,U+2212;
+}
+@font-face {
+  font-family: Excalifont; font-display: swap; src: url("../assets/fonts/Excalifont-LatinExt.woff2") format("woff2");
+  unicode-range: U+100-130,U+132-137,U+139-149,U+14c-151,U+154-17e,U+192,U+1fc-1ff,U+218-21b,U+237,U+1e80-1e85,U+1ef2-1ef3,U+2113;
 }

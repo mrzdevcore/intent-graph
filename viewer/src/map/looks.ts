@@ -9,7 +9,7 @@ export type Look = {
 const TRACE = "var(--map-trace)";
 const WARN = "var(--map-warn)", BAD = "var(--map-bad)", DOWN = "var(--map-faint)", OK = "var(--map-green)", NEUTRAL = "var(--map-edge)";
 const KIND: Partial<Record<BoxKind, { edge: string; dashed?: boolean }>> = {
-  entry: { edge: "var(--map-blue)" }, usecase: { edge: OK }, port: { edge: OK, dashed: true }, domain: { edge: "var(--map-gold)" },
+  entry: { edge: "var(--map-blue)" }, usecase: { edge: OK }, port: { edge: OK, dashed: true }, domain: { edge: "var(--map-gold)" }, box: { edge: NEUTRAL, dashed: true },
 };
 const STATE: Record<Exclude<MarkState, "ok">, { edge: string; tone: Tone; bg: string }> = {
   warn: { edge: WARN, tone: "warn", bg: "var(--map-warn-bg)" },
