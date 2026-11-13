@@ -1,6 +1,6 @@
-<!-- Bottom left, two small islands: zoom out, the zoom readout (fits the map on click), zoom in; and, when the map can be edited, undo and redo. -->
+<!-- Bottom left, two small islands: zoom out, the zoom readout (fits the map on click), zoom in, Fit; and, when the map can be edited, undo and redo. -->
 <script lang="ts">
-  import { Minus, Plus, Redo2, Undo2 } from "lucide-static";
+  import { Minus, Plus, Redo2, Scan, Undo2 } from "lucide-static";
 
   let { k, onzoom, onfit, onundo, onredo }: {
     k: number; onzoom: (f: number) => void; onfit: () => void; onundo?: () => void; onredo?: () => void;
@@ -14,6 +14,7 @@
     <button type="button" aria-label="Zoom out" onclick={() => onzoom(1 / 1.6)}><i style:mask-image={mask(Minus)} aria-hidden="true"></i></button>
     <button type="button" class="pct" aria-label="Fit the map" title="Fit the map (⇧1)" onclick={onfit}>{pct}</button>
     <button type="button" aria-label="Zoom in" onclick={() => onzoom(1.6)}><i style:mask-image={mask(Plus)} aria-hidden="true"></i></button>
+    <button type="button" class="fit" title="Fit the map (⇧1)" onclick={onfit}><i style:mask-image={mask(Scan)} aria-hidden="true"></i>Fit</button>
   </div>
   {#if onundo && onredo}
     <div class="isle">
@@ -32,5 +33,6 @@
   button:hover { background: var(--map-sunken); }
   button:focus-visible { outline: 2px solid var(--map-trace); outline-offset: 1px; }
   .pct { min-width: 3.25rem; }
+  .fit { gap: var(--space-1); margin-left: var(--space-0-5); border-left: 1px solid var(--map-line); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
   i { width: 1rem; height: 1rem; background: currentColor; mask-repeat: no-repeat; mask-position: center; mask-size: contain; }
 </style>

@@ -592,11 +592,13 @@ test("two authors: counts per author; Keep on a row calls keep(n), Drop all call
   expect(calls).toEqual([["keep", 3], "dropAll"]);
 });
 
-test("read-only: the bar shows but nothing acts", () => {
+test("read-only: the bar shows, nothing acts, and it says to run ig app", () => {
   const { target } = setup(undefined, withProposals(two));
+  expect(target.querySelector(".bar")!.textContent).toContain("keep or drop in ig app");
   btn(target, "Review").click();
   flushSync();
   expect(target.textContent).toContain("Claude proposed 2 edits");
+  expect(target.textContent).toContain("git diff ig/");
   for (const n of ["Keep all", "Drop all", "Keep", "Drop"]) expect(btn(target, n)).toBeUndefined();
 });
 

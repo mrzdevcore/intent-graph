@@ -1,5 +1,5 @@
 <!-- The proposals bar (bottom centre, clear of the tools and search) and its list, opening upward: one row per edit Claude or the AI reading made that nobody
-     kept. Hovering a row lights its boxes and arrows on the map. Without `edit` (ig view) it only shows. -->
+     kept. Hovering a row lights its boxes and arrows on the map. Without `edit` (ig view) it only shows, and says what to run. -->
 <script lang="ts">
   import { untrack } from "svelte";
   import type { EditApi } from "../../api";
@@ -30,6 +30,8 @@
     {#if edit}
       <button type="button" onclick={() => run(() => edit.dropAll())}>Drop all</button>
       <button type="button" class="go" onclick={() => run(() => edit.keep())}>Keep all</button>
+    {:else}
+      <span class="how">Already in ig/ · keep or drop in <code>ig app</code></span>
     {/if}
   </div>
   {#if open}
@@ -45,7 +47,12 @@
           {/if}
         </div>
       {/each}
-      <span class="hint">Hover an edit to light it on the map.{edit ? " Dropping undoes it; it refuses if you changed the same thing since." : ""}</span>
+      {#if edit}
+        <span class="hint">Hover an edit to light it on the map. Dropping undoes it; it refuses if you changed the same thing since.</span>
+      {:else}
+        <span class="hint">Hover an edit to light it on the map. These edits are already written to ig/: see them with <code>git diff ig/</code>,
+          and run <code>ig app</code> to keep or drop them one by one.</span>
+      {/if}
     </section>
   {/if}
 {/if}
@@ -63,6 +70,8 @@
   .item:hover button, .item:focus-within button { opacity: 1; }
   .text { flex: 1; overflow-wrap: anywhere; }
   .tag { font-size: var(--text-xs); padding: var(--space-0-5) 0.4375rem; border-radius: var(--radius-pill); background: var(--map-sunken); color: var(--map-trace); font-weight: 600; }
+  .how { color: var(--map-muted); font-size: var(--text-sm); }
+  code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--map-fg); background: var(--map-sunken); padding: 0 var(--space-1); border-radius: var(--radius-sm); }
   .hint { font-size: var(--text-sm); color: var(--map-muted); padding: var(--space-1) var(--space-1-5) 0; }
   button { font: inherit; font-size: var(--text-md); border: 1px solid var(--map-line); background: var(--map-surface); color: var(--map-fg); border-radius: var(--radius-lg); padding: 0.25rem var(--space-2-5); min-height: 2rem; cursor: pointer; }
   button.go { border-color: var(--map-trace); background: var(--map-trace); color: var(--map-ground); font-weight: 600; }
