@@ -38,7 +38,7 @@
         {#each g.tables as t (t.id)}
           <li>
             <button type="button" class="table" class:on={t.id === focus} class:view={t.kind === "view"} aria-current={t.id === focus ? "true" : undefined} data-table={t.id} onclick={() => onpick(t.id)}>
-              <span class="name">{t.name}</span>
+              <span class="name" title={t.name}>{t.name}</span>
               {#each t.matched as c (c)}<span class="matched">· {c}</span>{/each}
             </button>
           </li>
@@ -76,6 +76,7 @@
   .caret { width: 0.75rem; color: var(--map-muted); }
   .count { font-size: var(--text-sm); color: var(--map-muted); font-variant-numeric: tabular-nums; }
   .table { flex-wrap: wrap; font-family: var(--font-mono); font-size: var(--text-sm); }
+  .table .name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .table.view .name { font-style: italic; }
   .table.on { background: var(--map-trace); color: var(--map-surface); }
   .matched { flex-basis: 100%; padding-left: var(--space-2); color: var(--map-muted); }

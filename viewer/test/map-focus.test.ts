@@ -338,3 +338,46 @@ test("an end's label sits above its row, on the straight stub out of the card, c
   const line = l.lines.find((x) => x.id === "pg#manual_entries.batch_id->pg#batches")!;
   expect(Number(label.getAttribute("y"))).toBe(line.a.y - 9);
 });
+
+test("an opened card lists every column and folds back, the centre unfolds its bookkeeping", () => {
+  const v = dbView(), site = id("plants_sites"), centre = id("batches");
+  const l = focusLayout(v, centre, 1, undefined, (x) => x === site || x === centre)!;
+  const card = l.cards.find((k) => k.id === site)!;
+  expect(card.rows.filter((r) => r.t === "col")).toHaveLength(v.tables![site].columns.length);
+  expect(card.rows.at(-1)).toEqual({ t: "less" });
+  const middle = l.cards.find((k) => k.id === centre)!;
+  expect(middle.rows.some((r) => r.t === "col" && r.col.name === "deleted_at")).toBe(true);
+  expect(middle.rows).toContainEqual({ t: "less" });
+});
+
+test("a card is as wide as its longest name, up to a cap", () => {
+  const v = dbView(), long = "x".repeat(40);
+  v.tables![id("plants_sites")].columns.push(col(long));
+  const l = focusLayout(v, id("batches"))!;
+  const side = l.cards.find((k) => k.id === id("plants_sites"))!;
+  expect(side.w).toBeGreaterThan(SIZE.side);
+  expect(side.w).toBeLessThanOrEqual(SIZE.wide);
+  expect(l.cards.filter((k) => k.col === side.col).every((k) => k.w === side.w)).toBe(true);
+});
+
+test("the focus view: +n columns opens a card, All columns opens them all, the list resizes", () => {
+  const { target, calls } = focus();
+  const site = id("plants_sites");
+  const rows = () => target.querySelectorAll(`[data-card="${CSS.escape(site)}"] .row`).length;
+  const before = rows();
+  (target.querySelector(`[data-toggle="${CSS.escape(site)}"]`) as HTMLButtonElement).click();
+  flushSync();
+  expect(rows()).toBeGreaterThan(before);
+  expect(calls).toEqual([]);
+  (target.querySelector(`[data-toggle="${CSS.escape(site)}"]`) as HTMLButtonElement).click();
+  flushSync();
+  expect(rows()).toBe(before);
+  [...target.querySelectorAll("header button")].find((b) => b.textContent === "All columns")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flushSync();
+  expect(target.querySelectorAll('[data-toggle][aria-expanded="true"]').length).toBeGreaterThan(1);
+  const handle = target.querySelector<HTMLElement>("[role=separator]")!;
+  const w = Number(handle.getAttribute("aria-valuenow"));
+  handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  flushSync();
+  expect(Number(handle.getAttribute("aria-valuenow"))).toBe(w + 1);
+});

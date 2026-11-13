@@ -10,13 +10,14 @@ export type Row =
   | { t: "col"; col: Column }
   | { t: "fold"; names: string[] }
   | { t: "i18n"; names: string[] }
-  | { t: "more"; n: number };
+  | { t: "more"; n: number }
+  | { t: "less" };
 export type Card = { id: string; table: Table; col: number; x: number; y: number; w: number; h: number; rows: Row[] };
 export type Tip = { x: number; y: number; out: [number, number]; end?: End; shared?: boolean };
 export type Line = { id: string; from: string; to: string; a: Tip; b: Tip; d: string; via?: string; read?: boolean; mid: [number, number] };
 export type Focus = { cards: Card[]; lines: Line[]; w: number; h: number };
 
-export const SIZE = { centre: 300, side: 240, head: 44, row: 26, pad: 8, gapX: 150, gapY: 16, margin: 32, loop: 56, stub: 30 };
+export const SIZE = { centre: 300, side: 240, wide: 520, head: 44, row: 26, pad: 8, gapX: 150, gapY: 16, margin: 32, loop: 56, stub: 30 };
 
 export function relations(view: View): Rel[] {
   const seen = new Map<string, Rel>();
@@ -83,19 +84,29 @@ export function visible(view: View, centre: string, folds: Noise = NOISE): Rel[]
   return rels.filter((r) => (folds.joins ? true : !r.via) && !off.has(r.from) && !off.has(r.to));
 }
 
-function rowsOf(t: Table, centre: boolean, need: Set<string>, folds: Noise): Row[] {
+function rowsOf(t: Table, centre: boolean, need: Set<string>, folds: Noise, open: boolean): Row[] {
   if (centre) {
     const folded = folds.bookkeeping ? t.columns.filter((c) => isBookkeeping(c) && !isKey(c)) : [];
-    const rows: Row[] = t.columns.filter((c) => !folded.includes(c)).map((col) => ({ t: "col", col }));
-    if (folded.length) rows.push({ t: "fold", names: folded.map((c) => c.name) });
+    const rows: Row[] = t.columns.filter((c) => open || !folded.includes(c)).map((col) => ({ t: "col", col }));
+    if (folded.length) rows.push(open ? { t: "less" } : { t: "fold", names: folded.map((c) => c.name) });
     if (folds.translations && t.translations?.length) rows.push({ t: "i18n", names: t.translations });
     return rows;
   }
-  const shown = t.columns.filter((c) => need.has(c.name.toLowerCase()));
+  const shown = t.columns.filter((c) => open || need.has(c.name.toLowerCase()));
   const rows: Row[] = shown.map((col) => ({ t: "col", col }));
   if (t.columns.length > shown.length) rows.push({ t: "more", n: t.columns.length - shown.length });
+  else if (open && need.size < t.columns.length) rows.push({ t: "less" });
   return rows;
 }
+
+// sized for the longest name at --text-sm mono and --text-base bold, so a name is cut only past SIZE.wide
+const MONO = 7.3, BOLD = 8.6, TYPE = 160;
+export function widthOf(t: Table, min: number): number {
+  const row = Math.max(0, ...t.columns.map((c) => 24 + 44 + 16 + MONO * c.name.length + Math.min(TYPE, MONO * (c.type.length + 1))));
+  return Math.round(Math.min(SIZE.wide, Math.max(min, row, 26 + BOLD * t.name.length)));
+}
+
+export const toggles = (k: Card) => k.rows.findIndex((r) => r.t === "more" || r.t === "fold" || r.t === "less");
 
 export function anchor(card: Card, column?: string): number {
   const name = column?.toLowerCase();
@@ -116,7 +127,7 @@ export function columnEnds(t: Table, c: Column): { from: End; to: End } | undefi
   };
 }
 
-export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: Noise = NOISE): Focus | null {
+export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: Noise = NOISE, open: (id: string) => boolean = () => false): Focus | null {
   const me = view.tables?.[centre];
   if (!me) return null;
   const rels = visible(view, centre, folds);
@@ -162,7 +173,8 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: N
 
   const columns = [...new Set(col.values())].sort((a, b) => a - b);
   const byCol = new Map(columns.map((c) => [c, [...col].filter(([, k]) => k === c).map(([id]) => id)]));
-  const width = (c: number) => (c === 0 ? SIZE.centre : SIZE.side);
+  const widths = new Map(columns.map((c) => [c, Math.max(...byCol.get(c)!.map((id) => widthOf(view.tables![id], c === 0 ? SIZE.centre : SIZE.side)))]));
+  const width = (c: number) => widths.get(c)!;
   // many lines into one column fan out over a wider gap, so each can be followed
   const across = (c: number) => specs.filter((r) => Math.min(col.get(r.from)!, col.get(r.to)!) === c).length;
   const gap = (c: number) => SIZE.gapX + Math.min(120, 12 * Math.max(0, across(c) - 3));
@@ -176,7 +188,7 @@ export function focusLayout(view: View, centre: string, hops: Hops = 1, folds: N
   for (const c of columns) {
     let y = 0;
     for (const id of byCol.get(c)!) {
-      const rows = rowsOf(view.tables![id], c === 0, need.get(id) ?? new Set(), folds);
+      const rows = rowsOf(view.tables![id], c === 0, need.get(id) ?? new Set(), folds, open(id));
       const h = SIZE.head + rows.length * SIZE.row + SIZE.pad;
       cards.push({ id, table: view.tables![id], col: c, x: xs.get(c)!, y, w: width(c), h, rows });
       y += h + SIZE.gapY;
