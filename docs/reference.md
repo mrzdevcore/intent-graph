@@ -214,7 +214,8 @@ ig reads only each instance's name, type, status and addresses. It never reads a
   functions; a database, its tables.
 - **Esc** closes the card and gives the focus back to the box.
 - **Breadcrumb** (top left) jumps to any level above you.
-- **Layers** (top right) turns each layer on and off; **-**, **Fit** and **+** zoom, and Fit returns to the whole system.
+- **Layers** (top right) turns each layer on and off. Bottom left, **-** and **+** zoom, and **Fit** (or the zoom readout, or ⇧1) returns to the whole system.
+- **Proposed edits** (bottom centre) lists the edits Claude or the AI reading wrote to `ig/` that nobody kept yet; hovering one lights it. The desktop app keeps or drops them; `ig view` only shows them and says to see them with `git diff ig/` and keep or drop them in `ig app`.
 - Boxes are buttons: Tab moves between them, Enter opens one.
 
 ## Commands
@@ -249,14 +250,14 @@ Plumbing:
 
 | Command | Reads and writes |
 |---|---|
-| `ig init [claude\|codex\|all]` | `ig.yaml`, the explore, view, draw and apply skills for the chosen agents (default all), an `AGENTS.md` snippet (an ig block you edited only gets a missing `/ig:apply` line), `.gitignore` entries. Never overwrites your edits, never writes `ig/`. |
+| `ig init [claude\|codex\|all]` | `ig.yaml`, the explore, view, draw, plan and apply skills for the chosen agents (default all), an `AGENTS.md` snippet (an ig block you edited only gets the `/ig:apply` and `/ig:plan` lines it lacks), `.gitignore` entries. Never overwrites your edits, never writes `ig/`. |
 | `ig analyse [--agent <name>] [--no-agent]` | Writes `ig/` (above). |
 | `ig view [--no-open] [--json]` | Writes `.ig/view.html`. `--json` prints the map instead. |
 | `ig explore [--agent claude] [--no-open] <question>` | Writes `.ig/show.json` and `.ig/view.html`; prints the answer. |
 | `ig diff [<base> [<head>]] [--json] [--no-open]` | Prints what a change does to the map and writes `.ig/diff.html` with the change drawn on it; `--json` prints it as JSON, no page. Exit 2 outside git. |
-| `ig plan [--json]` | Read-only. Prints the plan: boxes and arrows still to build, boxes to move (their `at` changed since the last commit), drift (code in no box, arrows `ig/` does not have) and code ig does not read (outside every package). Exit 2 without `ig/`. |
+| `ig plan [--json] [-v]` | Read-only. Prints the plan in sections: `+` boxes and arrows still to build, `~` boxes to move (their `at` changed since the last commit), `?` drift (code in no box, arrows `ig/` does not have) and `-` code ig does not read (outside every package). Arrows sit under the box they leave, each with the id `ig accept` takes; a summary line and the commands to run next end it. Colour in a terminal unless `NO_COLOR` is set. Notices are folded into one count line; `-v` prints them. `--json` keeps the flat lists. Exit 2 without `ig/`. The plan skill (`/ig:plan`, `$ig-plan` in Codex) reads the code behind each drift item and sorts it: take it into `ig/`, or fix the code. |
 | `ig apply [--yes] [--allow-bash] [--agent claude] [<id>...]` | Claude writes the code for the plan's boxes and arrows to build and its moves (all, or the ids named), after you say yes; never `ig/` or `ig.yaml`. Prints its summary and the new plan. Exit 0 when every chosen item was built, 1 when some are left, 2 on error or when `ig/` changed. Run it only on an `ig/` you trust. |
-| `ig check [--json]` | The plan, read-only: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. |
+| `ig check [--json] [-v]` | The plan, read-only, one line per item for CI logs and scripts: exit 1 when anything is left (CI), 2 on a broken or missing `ig/`. Notices folded as in `ig plan`. |
 | `ig accept [--all \| <id>...]` | Takes drift into `ig/`: each box or arrow id from `ig plan` (quote arrow ids: `ig accept 'web->api'`), written one by one. |
 | `ig fmt [--check]` | Re-indents `ig/*.kdl` (four spaces a level, at most one blank line between nodes); comments and order stay. `--check` writes nothing and exits 1 when a file would change. |
 | `ig app [<dir>]` | Opens the desktop app on a folder. |

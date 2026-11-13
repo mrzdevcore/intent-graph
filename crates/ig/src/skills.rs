@@ -20,6 +20,10 @@ pub const SKILLS: &[Skill] = &[
         body: include_str!("../assets/skills/view.md"),
     },
     Skill {
+        name: "plan",
+        body: include_str!("../assets/skills/plan.md"),
+    },
+    Skill {
         name: "apply",
         body: include_str!("../assets/skills/apply.md"),
     },

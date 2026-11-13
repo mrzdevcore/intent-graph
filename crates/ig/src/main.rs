@@ -42,6 +42,19 @@ fn say_all(quiet: bool, v: &view::View) {
     }
 }
 
+fn notices_folded(notices: &[String], cmd: &str) -> String {
+    let mut kinds: Vec<&str> = (notices.iter())
+        .map(|n| n.split_once(':').map_or("other", |(k, _)| k))
+        .collect();
+    kinds.sort();
+    kinds.dedup();
+    format!(
+        "ig: {} notices hidden ({}); ig {cmd} -v shows them",
+        notices.len(),
+        kinds.join(", ")
+    )
+}
+
 fn run_view(root: &Path, a: &ViewArgs, quiet: bool) -> Result<u8> {
     if a.read || a.agent.is_some() {
         eprintln!("ig: the reading moved to `ig analyse`");
@@ -117,7 +130,7 @@ fn real_main() -> Result<u8> {
         Cmd::Explore(a) => explore::run(&root, &a, quiet),
         Cmd::Diff(a) => diff::run(&root, &a, quiet),
         Cmd::Apply(a) => apply::run(&root, &a, quiet),
-        Cmd::Plan { json } | Cmd::Check { json } => {
+        Cmd::Plan { json, verbose } | Cmd::Check { json, verbose } => {
             let check = matches!(command, Cmd::Check { .. });
             let name = if check { "check" } else { "plan" };
             if !has_spec(&env)? {
@@ -125,7 +138,15 @@ fn real_main() -> Result<u8> {
                 return Ok(2);
             }
             let v = view::run(&env)?;
-            say_all(quiet, &v);
+            match verbose || v.broken || v.notices.is_empty() {
+                true => say_all(quiet, &v),
+                false => {
+                    say(quiet, &notices_folded(&v.notices, name));
+                    v.warnings
+                        .iter()
+                        .for_each(|w| say(quiet, &format!("warning: {w}")));
+                }
+            }
             if v.broken {
                 return Ok(2);
             }
@@ -133,8 +154,10 @@ fn real_main() -> Result<u8> {
             let p = origin::plan_of(&v.boxes, &v.arrows, &unread);
             if json {
                 println!("{}", serde_json::to_string_pretty(&plan::json(&p))?);
-            } else {
+            } else if check {
                 println!("{}", p.text(name));
+            } else {
+                print!("{}", plan::pretty(&p, plan::color()));
             }
             Ok(u8::from(check && !p.is_empty()))
         }

@@ -27,46 +27,6 @@ pub fn is_built(o: &Origin) -> bool {
     *o == Origin::Built
 }
 
-/// What is left to build or move, what the code does that the spec does not say and the code
-/// ig does not read, one line each.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Plan {
-    pub build: Vec<String>,
-    pub moves: Vec<String>,
-    pub drift: Vec<String>,
-    pub not_read: Vec<String>,
-}
-
-impl Plan {
-    /// Nothing left to build, move, describe or read.
-    pub fn is_empty(&self) -> bool {
-        self.lines().next().is_none()
-    }
-
-    pub fn lines(&self) -> impl Iterator<Item = &String> {
-        (self.build.iter())
-            .chain(&self.moves)
-            .chain(&self.drift)
-            .chain(&self.not_read)
-    }
-
-    /// `ig <cmd>: …` and every line; moves and code not read are counted only when there are some.
-    pub fn text(&self, cmd: &str) -> String {
-        let mut t = format!(
-            "ig {cmd}: {} to build, {} drift",
-            self.build.len(),
-            self.drift.len()
-        );
-        if !self.moves.is_empty() {
-            t += &format!(", {} to move", self.moves.len());
-        }
-        if !self.not_read.is_empty() {
-            t += &format!(", {} not read", self.not_read.len());
-        }
-        self.lines().fold(t, |t, l| format!("{t}\n{l}"))
-    }
-}
-
 pub(super) fn glob(g: &str) -> Option<globset::Glob> {
     GlobBuilder::new(g).literal_separator(true).build().ok()
 }
@@ -502,80 +462,8 @@ pub fn not_read(read: &BTreeSet<&str>, unread: &[&str]) -> Vec<String> {
         .collect()
 }
 
-fn name<T: Serialize>(v: &T) -> String {
-    serde_json::to_value(v)
-        .ok()
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default()
-}
-
-/// One line per box or arrow not built, sorted.
-pub fn plan(m: &MapFile) -> Plan {
-    plan_of(&m.boxes, &m.arrows, &[])
-}
-
-/// `plan` over a view's boxes and arrows, and the code ig does not read (`not_read`'s globs).
-pub fn plan_of(boxes: &[MapBox], arrows: &[MapArrow], unread: &[String]) -> Plan {
-    let mut p = Plan {
-        build: vec![],
-        moves: vec![],
-        drift: vec![],
-        not_read: (unread.iter())
-            .map(|g| format!(
-                    "not read: {g} (outside every package ig reads; add it to a workspace or to `ignore` in ig.yaml)"
-                ))
-            .collect(),
-    };
-    for b in boxes {
-        match b.origin {
-            Origin::Built | Origin::Unmanaged => {}
-            Origin::Build => {
-                let mut l = format!("to build: {} {}", name(&b.kind.value), b.id);
-                if b.kind.value == BoxKind::Box {
-                    l.push_str(", kind not decided");
-                }
-                if !b.made_of.is_empty() {
-                    l.push_str(&format!(" ({})", b.made_of.join(", ")));
-                }
-                p.build.push(l)
-            }
-            Origin::Moved => p.moves.push(format!(
-                "move: {} → {} ({})",
-                b.moved_from.join(", "),
-                b.made_of.join(", "),
-                b.id
-            )),
-            Origin::Drift => p.drift.push(match b.made_of.first() {
-                Some(g) => format!("drift: code under {g} is in no box ({})", b.id),
-                None => format!(
-                    "drift: {} {} is in the code, not in ig/",
-                    name(&b.kind.value),
-                    b.id
-                ),
-            }),
-        }
-    }
-    // each arrow as written: what ig/ says, not the boxes it is drawn between
-    let written = arrows.iter().flat_map(|a| match a.parts.is_empty() {
-        true => std::slice::from_ref(a),
-        false => &a.parts[..],
-    });
-    for a in written {
-        let (from, kind, to) = (&a.from, name::<ArrowKind>(&a.kind), &a.to);
-        match a.origin {
-            Origin::Built | Origin::Moved | Origin::Unmanaged => {}
-            Origin::Build => p.build.push(format!("to build: {from} {kind} {to}")),
-            Origin::Drift => p
-                .drift
-                .push(format!("drift: {from} {kind} {to}, not in ig/ ({})", a.id)),
-        }
-    }
-    p.build.sort();
-    p.moves.sort();
-    p.drift.sort();
-    p.not_read.sort();
-    p
-}
+mod plan;
+pub use plan::{Item, Plan, Step, plan, plan_of};
 
 #[cfg(test)]
 mod tests;

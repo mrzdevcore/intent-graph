@@ -54,6 +54,8 @@ pub enum Cmd {
     Plan {
         #[arg(long, help = "Print the plan as JSON")]
         json: bool,
+        #[arg(short, long, help = "Print the notices, not only their count")]
+        verbose: bool,
     },
     #[command(
         about = "Let an agent build what the plan lists",
@@ -64,6 +66,8 @@ pub enum Cmd {
     Check {
         #[arg(long, help = "Print the plan as JSON")]
         json: bool,
+        #[arg(short, long, help = "Print the notices, not only their count")]
+        verbose: bool,
     },
     #[command(
         about = "Take drift into the map",

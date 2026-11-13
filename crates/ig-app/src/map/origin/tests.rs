@@ -113,6 +113,7 @@ fn the_unchanged_code_matches_its_spec() {
             moves: vec![],
             drift: vec![],
             not_read: vec![],
+            items: vec![],
         }
     );
 }

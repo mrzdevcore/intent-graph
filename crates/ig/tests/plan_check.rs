@@ -70,11 +70,15 @@ fn check_passes_after_analyse_writes_ig_then_fails_on_drift() {
     );
     let out = run_ig(&dir, &["plan"]);
     assert_eq!(out.code, 0);
+    let lines: Vec<&str> = out.stdout.lines().collect();
     assert!(
-        out.stdout.starts_with("ig plan: 0 to build, 1 drift"),
+        lines.contains(&"  ? code under lib/** is in no box  lib")
+            && lines.contains(&"Plan: 0 to build, 0 to move, 1 drift.")
+            && lines.iter().any(|l| l.starts_with("  ig accept lib")),
         "{}",
         out.stdout
     );
+    assert!(!out.stdout.contains('\x1b'), "{}", out.stdout);
 }
 
 #[test]
@@ -205,7 +209,7 @@ fn a_move_is_named_after_its_spec_file_is_renamed() {
     let out = run_ig(&dir, &["plan"]);
     assert!(
         out.stdout
-            .contains(&format!("move: {old} → {new} (api/application-refund)")),
+            .contains(&format!("  ~ api/application-refund\n      {old} → {new}\n")),
         "{}{}",
         out.stdout,
         out.stderr
@@ -228,7 +232,7 @@ fn a_move_is_named_after_a_staged_git_mv_of_its_spec_file() {
     let out = run_ig(&dir, &["plan"]);
     assert!(
         out.stdout
-            .contains(&format!("move: {old} → {new} (api/application-refund)")),
+            .contains(&format!("  ~ api/application-refund\n      {old} → {new}\n")),
         "{}{}",
         out.stdout,
         out.stderr
