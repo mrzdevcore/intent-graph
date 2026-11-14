@@ -5,8 +5,9 @@
 <script lang="ts">
   import { onDestroy, tick as flushed, untrack } from "svelte";
   import type { ArrowShape, Edit, Frame, MapArrow as Arrow, MapBox as Box, Region as R, View } from "./types";
-  import { HEAD, detailFor, fitInner, fitInside, fitTo, placer, showsInside, type Cam } from "./camera";
+  import { HEAD, detailFor, fitInner, fitInside, fitTo, placer, showsInside, steady, type Cam } from "./camera";
   import { arrowLook, diffLook, insideCounts, linksOf, look } from "./looks";
+  import { pairLook, spots } from "./labels";
   import { Camera, PLACE_MS, tween, wheelFactor } from "./glide";
   import { GRID, edgePan, gridLevel, momentum, softK, wheelIntent, type WheelPref } from "./nav";
   import { wires, type Mode, type Wire } from "./wires";
@@ -347,6 +348,23 @@
   const outsideOf = (id: string): Outside => ({ frame: drawn(id), wire: (a) => wiringOf(a.parent)?.routed.wires.get(a.id) });
   const pathOf = (a: Arrow, mode: Mode) => wiringOf(a.parent)![mode].wires.get(a.id)!;
   const lineAt = (a: Arrow) => lineOf(a, shapeAt.get(a.parent) ?? "circuit");
+  // on a curved, elbow or straight map: one label per line, slid off the boxes and the other labels
+  function labelsAt(pid: string, all: Arrow[], zoom: number, mode: Mode) {
+    if (mode !== "routed" || (shapeAt.get(pid) ?? "circuit") === "circuit") return null;
+    const twins = wiringOf(pid)?.routed.twins ?? new Map<string, string>(), members = new Map<string, Arrow[]>();
+    for (const a of all) {
+      const r = twins.get(a.id) ?? a.id;
+      members.set(r, [...(members.get(r) ?? []), a]);
+    }
+    const looks = new Map([...members].map(([id, ms]) => [id, pairLook(ms, view.marks, on)]));
+    const m = steady(zoom), byArrow = new Map(all.map((a) => [a.id, a]));
+    const pills = [...looks].flatMap(([id, l]) => {
+      const a = byArrow.get(id), pts = a && pathOf(a, mode).pts;
+      return l.label && pts ? [{ id, pts, w: (l.label.length * 7.4 + 18) * m, h: 22 * m }] : [];
+    });
+    const boxes = (kids.get(pid) ?? []).map((b) => drawn(b.id));
+    return { skip: new Set(twins.keys()), looks, at: spots(pills, boxes) };
+  }
   const FADE = 240;
   let fading = $state.raw<{ a: Arrow; w: Wire }[]>([]);
   let fresh = $state.raw(new Set<string>());
@@ -1438,11 +1456,12 @@
       <div class="arrow fade-out" aria-hidden="true"><MapArrow part="label" d={f.w.d} mid={f.w.mid} arrowLook={arrowLook(f.a, view.marks, on)} {zoom} note={f.a.note} len={f.w.len} /></div>
     {/each}
   {/if}
-  {#each mode === "ribbon" ? all.filter((a) => lit.includes(a) || sess.arrow?.id === a.id) : all as a (`${a.id} ${lineAt(a)}`)}
+  {@const labels = labelsAt(pid, all, zoom, mode)}
+  {#each mode === "ribbon" ? all.filter((a) => lit.includes(a) || sess.arrow?.id === a.id) : all.filter((a) => !labels?.skip.has(a.id)) as a (`${a.id} ${lineAt(a)}`)}
     {@const c = pathOf(a, mode)}
     {@const here = sess.arrow?.id === a.id}
     <div class="arrow" class:fresh={mode === "routed" && fresh.has(a.id)} data-label={a.id}>
-      <MapArrow part="label" d={c.d} mid={c.mid} arrowLook={arrowLook(a, view.marks, on)} {zoom} note={a.note} len={c.len} picked={here}
+      <MapArrow part="label" d={c.d} mid={labels?.at.get(a.id) ?? c.mid} arrowLook={labels?.looks.get(a.id) ?? arrowLook(a, view.marks, on)} {zoom} note={a.note} len={c.len} picked={here}
         lit={lit.includes(a)} dim={lit.length > 0 && !lit.includes(a)}
         ends={here && !sess.arrow?.part && (sess.editing === "edit" || sess.editing === "drift") ? c.ends : undefined} />
     </div>

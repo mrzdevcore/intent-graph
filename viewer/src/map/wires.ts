@@ -1,9 +1,10 @@
 import type { ArrowShape, Frame, MapArrow } from "./types";
 import { BEND, OUT, SPREAD, across, halfway, leaving, length, path, pins, pt, r2, straight, type Anchor, type End, type P, type Side } from "./shapes/path";
 
-export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]]; out: [[number, number], [number, number]] };
+export type Wire = { d: string; mid: [number, number]; len: number; ends: [[number, number], [number, number]]; out: [[number, number], [number, number]]; pts?: P[] };
 export type Mode = "routed" | "ribbon";
-export type Wiring = { wires: Map<string, Wire>; sleeves: { d: string; w: number }[] };
+/** `twins`: an arrow drawn on the line of another between the same two boxes, to that one. */
+export type Wiring = { wires: Map<string, Wire>; sleeves: { d: string; w: number }[]; twins: Map<string, string> };
 
 const LOOK = {
   routed: { pitch: 8, bend: BEND, load: 60 },
@@ -25,8 +26,8 @@ export function wires(
   arrows: MapArrow[], frames: Record<string, Frame>, mode: Mode, kinds: Kinds = {}, shape: ShapeOf = () => "circuit", anchors: Record<string, Anchor> = {},
   bounds?: [number, number],
 ): Wiring {
-  const g = grid(frames, mode);
-  return { wires: mode === "routed" ? routed(arrows, frames, kinds, shape, g, anchors, bounds) : ribbon(arrows, frames, g), sleeves: g.sleeves };
+  const g = grid(frames, mode), twins = new Map<string, string>();
+  return { wires: mode === "routed" ? routed(arrows, frames, kinds, shape, g, anchors, bounds, twins) : ribbon(arrows, frames, g), sleeves: g.sleeves, twins };
 }
 
 function grid(frames: Record<string, Frame>, mode: Mode) {
@@ -80,9 +81,22 @@ const span = (x: number, y: number): P => [Math.min(x, y), Math.max(x, y)];
 const orient = (p: P[], flip: boolean) => (flip ? [...p].reverse() : p);
 const wire = (p: P[], bend: number): Wire => ({ d: chamfer(p, bend), mid: halfway(p), len: r2(length(p)), ends: [p[0], p[p.length - 1]], out: leaving(p) });
 
-function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, shape: ShapeOf, g: Grid, anchors: Record<string, Anchor>, bounds?: [number, number]): Map<string, Wire> {
+function routed(
+  arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds, shape: ShapeOf, g: Grid, anchors: Record<string, Anchor>, bounds: [number, number] | undefined,
+  twins: Map<string, string>,
+): Map<string, Wire> {
   const { pitch, bend, load } = LOOK.routed;
-  const live = arrows.filter((a) => a.from !== a.to && frames[a.from] && frames[a.to]).sort((x, y) => x.id.localeCompare(y.id));
+  const all = arrows.filter((a) => a.from !== a.to && frames[a.from] && frames[a.to]).sort((x, y) => x.id.localeCompare(y.id));
+  // a curve, elbow or straight line both ways between two boxes is drawn once, its twins on it
+  const first = new Map<string, MapArrow>(), twinOf = new Map<MapArrow, MapArrow>();
+  for (const a of all) {
+    if (shape(a) === "circuit" || anchors[a.id]) continue;
+    const k = [a.from, a.to].sort().join("\u0000"), f = first.get(k);
+    if (f && shape(f) === shape(a)) twinOf.set(a, f);
+    else if (!f) first.set(k, a);
+  }
+  for (const [a, f] of twinOf) twins.set(a.id, f.id);
+  const live = all.filter((a) => !twinOf.has(a));
   const row = (id: string) => g.rowOf.get(id)!;
   const byX = Object.entries(frames).sort(([, a], [, b]) => a.x - b.x), widest = Math.max(0, ...byX.map(([, f]) => f.w));
   function within(x1: number, x2: number, skip: string[]): Frame[] {
@@ -272,7 +286,11 @@ function routed(arrows: MapArrow[], frames: Record<string, Frame>, kinds: Kinds,
   for (const t of lanes.values()) if (!t.vertical) g.lay(t.runs, t.mid, t.room, false);
   for (const t of lanes.values()) if (t.vertical) g.lay(t.runs, t.mid, t.room, true);
   for (const [id, draw] of draws) drawn.set(id, wire(straight(draw()), bend));
-  return new Map(live.filter((a) => drawn.has(a.id)).map((a) => [a.id, drawn.get(a.id)!]));
+  for (const [a, f] of twinOf) {
+    const e = ends.get(f.id)!, back = a.from !== f.from;
+    drawn.set(a.id, path(shape(a) as Exclude<ArrowShape, "circuit">, back ? { from: e.to, to: e.from, sides: [e.sides[1], e.sides[0]] } : e, walls));
+  }
+  return new Map(all.filter((a) => drawn.has(a.id)).map((a) => [a.id, drawn.get(a.id)!]));
 }
 
 function ribbon(arrows: MapArrow[], frames: Record<string, Frame>, g: Grid): Map<string, Wire> {

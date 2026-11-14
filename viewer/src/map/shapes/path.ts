@@ -3,7 +3,7 @@ import type { Frame } from "../types";
 export type Side = "l" | "r" | "t" | "b";
 export type P = [number, number];
 export type End = { from: P; to: P; sides: [Side, Side] };
-export type Path = { d: string; mid: P; len: number; head: [P, P]; ends: [P, P]; out: [P, P] };
+export type Path = { d: string; mid: P; len: number; head: [P, P]; ends: [P, P]; out: [P, P]; pts?: P[] };
 export type Band = { y: number; h: number };
 export type Anchor = { from?: Band; to?: Band };
 
@@ -96,10 +96,7 @@ export function pins(
 export function path(shape: "elbow" | "curved" | "straight", end: End, avoid: Frame[] = []): Path {
   if (shape === "straight") return line([end.from, end.to], end);
   if (shape === "elbow") return elbow(end);
-  const c = curved(end, avoid);
-  if (!c) return elbow(end);
-  const { pts: _, ...p } = c;
-  return p;
+  return curved(end, avoid) ?? elbow(end);
 }
 
 export const rounded = (p: P[]) => line(p, { from: p[0], to: p[p.length - 1], sides: ["r", "l"] }).d;
@@ -126,10 +123,10 @@ function line(p: P[], end: End): Path {
   }
   d += ` L${pt(p[p.length - 1])}`;
   const tip = p[p.length - 1];
-  return { d, mid: halfway(p), len: r2(length(p)), head: head(tip, p.length > 1 ? sub(tip, p[p.length - 2]) : [0, 0], end), ends: [end.from, end.to], out: leaving(p, end) };
+  return { d, mid: halfway(p), len: r2(length(p)), head: head(tip, p.length > 1 ? sub(tip, p[p.length - 2]) : [0, 0], end), ends: [end.from, end.to], out: leaving(p, end), pts: p };
 }
 
-export function curved(end: End, avoid: Frame[]): (Path & { pts: P[] }) | undefined {
+export function curved(end: End, avoid: Frame[]): Path | undefined {
   const { from, to, sides: [sa, sz] } = end;
   const reach = Math.max(sa === sz ? Math.min(dist(from, to) * REACH, 2 * OUT) : dist(from, to) * REACH, 1);
   const base: [P, P] = [add(from, NORMAL[sa], reach), add(to, NORMAL[sz], reach)];

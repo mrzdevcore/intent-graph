@@ -46,7 +46,7 @@ export function inside(ports: Port[], box: { w: number; h: number }, kids: Recor
     if (shape === "straight" && !walls.some((w) => cuts(s, pin, w))) out[i] = { d: `${lead}${pt(s)} L${pt(pin)}`, pts: [...leg, s, pin] };
     else if (shape === "curved") {
       const c = curved({ from: s, to: pin, sides: [INTO[p.edge], p.edge] }, walls);
-      out[i] = c ? { d: lead + c.d.slice(1), pts: [...leg, ...c.pts] } : way && { d: rounded(way), pts: way };
+      out[i] = c ? { d: lead + c.d.slice(1), pts: [...leg, ...(c.pts ?? [])] } : way && { d: rounded(way), pts: way };
     } else out[i] = way && { d: shape === "circuit" ? chamfer(way, BEND) : rounded(way), pts: way };
   }
   return out;
