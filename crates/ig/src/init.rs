@@ -262,7 +262,9 @@ fn renew_agents_block(text: &str) -> Option<(String, &'static str)> {
         bullets |= l.starts_with("- ");
     }
     let (block, rest) = (&text[start..end], &text[end..]);
-    let ours = [BEFORE_APPLY, BEFORE_PLAN].iter().any(|o| block.trim_end() == o.trim_end());
+    let ours = [BEFORE_APPLY, BEFORE_PLAN]
+        .iter()
+        .any(|o| block.trim_end() == o.trim_end());
     if block.contains("/ig:setup") || ours {
         let sep = if rest.is_empty() { "" } else { "\n" };
         let new = format!("{}{AGENTS_SNIPPET}{sep}{rest}", &text[..start]);
@@ -378,7 +380,11 @@ mod tests {
     fn an_edited_block_keeps_its_bullets_and_gets_the_apply_line() {
         let mine = BEFORE_APPLY.replace("ig/.\n", "ig/.\n- Ask Ana before editing ig/.\n");
         let (new, what) = renew_agents_block(&format!("{mine}\n# Mine\n")).unwrap();
-        assert_eq!(new, format!("{mine}{APPLY_LINE}{PLAN_LINE}\n# Mine\n"), "{new}");
+        assert_eq!(
+            new,
+            format!("{mine}{APPLY_LINE}{PLAN_LINE}\n# Mine\n"),
+            "{new}"
+        );
         assert!(what.contains("added"), "{what}");
         assert_eq!(renew_agents_block(&new), None);
         let no_newline = mine.trim_end();

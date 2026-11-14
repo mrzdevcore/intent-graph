@@ -208,8 +208,9 @@ fn a_move_is_named_after_its_spec_file_is_renamed() {
     std::fs::remove_file(dir.join("ig/api.kdl")).unwrap();
     let out = run_ig(&dir, &["plan"]);
     assert!(
-        out.stdout
-            .contains(&format!("  ~ api/application-refund\n      {old} → {new}\n")),
+        out.stdout.contains(&format!(
+            "  ~ api/application-refund\n      {old} → {new}\n"
+        )),
         "{}{}",
         out.stdout,
         out.stderr
@@ -231,8 +232,9 @@ fn a_move_is_named_after_a_staged_git_mv_of_its_spec_file() {
     git(&dir, &["add", "ig/backend.kdl"]);
     let out = run_ig(&dir, &["plan"]);
     assert!(
-        out.stdout
-            .contains(&format!("  ~ api/application-refund\n      {old} → {new}\n")),
+        out.stdout.contains(&format!(
+            "  ~ api/application-refund\n      {old} → {new}\n"
+        )),
         "{}{}",
         out.stdout,
         out.stderr
