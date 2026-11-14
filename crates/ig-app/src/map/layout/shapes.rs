@@ -63,7 +63,7 @@ impl<'a> Lay<'a, '_> {
         let tall = ((inner.h + GUTTER) / (h + GUTTER)).floor() as usize;
         let n = items.len();
         let opts = (1..=n.max(1)).flat_map(|c| (0..=tall.min(n / 2)).map(move |s| (c, s)));
-        self.pick(opts, |l, o| {
+        self.pick(opts, false, |l, o| {
             let r = l.around(items.clone(), inner, GUTTER, o).grow(PAD);
             if let Some(name) = name {
                 l.regions.push((RegionKind::Ring, name.into(), r));
@@ -75,7 +75,7 @@ impl<'a> Lay<'a, '_> {
     /// Three rings, domain innermost, each as near 16:10 as its insides let it.
     pub(super) fn onion(&mut self, in_slot: &dyn Fn(&[&str]) -> Vec<&'a MapBox>) {
         let domain = in_slot(&["domain"]);
-        self.pick(1..=domain.len(), |l, c| {
+        self.pick(1..=domain.len(), false, |l, c| {
             l.grid(domain.clone(), c, 0.0, false);
         });
         let mut ring = self
@@ -101,7 +101,7 @@ impl<'a> Lay<'a, '_> {
         in_slot: &dyn Fn(&[&str]) -> Vec<&'a MapBox>,
     ) {
         let n = bands.iter().map(|b| in_slot(&[b]).len()).max().unwrap_or(0);
-        self.pick(1..=n.max(1), |l, c| l.bands(bands, in_slot, c));
+        self.pick(1..=n.max(1), false, |l, c| l.bands(bands, in_slot, c));
     }
 
     fn bands(
@@ -150,7 +150,7 @@ impl<'a> Lay<'a, '_> {
         let pw = k as f32 * ports.iter().map(|b| self.size(b).0).fold(0.0, f32::max)
             + (k as f32 - 1.0).max(0.0) * GUTTER;
         let core = in_slot(&["core", "domain"]);
-        self.pick(1..=core.len().max(1), |l, cols| {
+        self.pick(1..=core.len().max(1), false, |l, cols| {
             l.hex_core(core.clone(), cols, ports.clone(), (k.max(1), ph, pw))
         });
         let all = self.bounds().expect("the core is placed");

@@ -81,6 +81,15 @@ const UNTANGLE: usize = 6;
 const THROUGH: f32 = 1.5;
 /// The arrow length that costs as much as two arrows crossing.
 const LONG: f32 = 1200.0;
+/// Up to this many boxes, the system's shape is also chosen for how tangled its arrows are (the
+/// viewer's small map, `SMALL` in viewer/src/map/shapes/auto.ts).
+const SMALL: usize = 12;
+/// What a unit of tangle weighs against a unit of skew when choosing a small system's shape.
+const UNTWIST: f32 = 0.25;
+/// What a small system's shape outside `SHAPED` costs, so one inside it wins whatever its tangle.
+const OFF_SHAPE: f32 = 100.0;
+/// The widths over heights a small system's shape keeps to while it is untangled.
+const SHAPED: std::ops::RangeInclusive<f32> = 1.2..=2.4;
 /// The width of the people's and the outside systems' rows.
 const ROW: usize = 6;
 const CHIP: (f32, f32) = (120.0, 40.0);
@@ -289,13 +298,27 @@ impl<'a> Lay<'a, '_> {
         })
     }
 
-    /// Runs `f` with each option on a copy and keeps the copy nearest 16:10 (the first of equals).
-    fn pick<T>(&mut self, opts: impl IntoIterator<Item = T>, f: impl Fn(&mut Self, T)) {
+    fn wide_enough(&self) -> bool {
+        self.bounds()
+            .is_none_or(|b| SHAPED.contains(&((b.w + 2.0 * GUTTER) / (b.h + 2.0 * GUTTER))))
+    }
+
+    /// Runs `f` with each option on a copy and keeps the copy nearest 16:10 (the first of equals);
+    /// with `tangled`, each copy untangled and its arrows' tangle counted too.
+    fn pick<T>(
+        &mut self,
+        opts: impl IntoIterator<Item = T>,
+        tangled: bool,
+        f: impl Fn(&mut Self, T),
+    ) {
         let mut best: Option<(f32, Self)> = None;
         for o in opts {
             let mut l = self.clone();
             f(&mut l, o);
-            let s = l.skew();
+            let s = match tangled && l.wide_enough() {
+                true => l.untangle().map_or(0.0, |t| UNTWIST * t) + l.skew(),
+                false => l.skew() + if tangled { OFF_SHAPE } else { 0.0 },
+            };
             if best.as_ref().is_none_or(|b| s < b.0) {
                 best = Some((s, l));
             }
@@ -372,7 +395,7 @@ impl<'a> Lay<'a, '_> {
             |r| -> Vec<&'a MapBox> { kids.iter().filter(|b| rank(b) == r).copied().collect() };
         let sides = [(false, false), (true, false), (false, true), (true, true)];
         let opts = (1..=kids.len()).flat_map(|c| sides.map(|s| (c, s)));
-        self.pick(opts, |l, (c, (left, right))| {
+        self.pick(opts, kids.len() <= SMALL, |l, (c, (left, right))| {
             let (mut y, mut people) = (0.0, None);
             if left {
                 people = l.column(row(0), 0.0, 0.0);
@@ -445,7 +468,8 @@ impl<'a> Lay<'a, '_> {
             &[false]
         };
         let opts = (1..=loose.len()).flat_map(|c| sides.iter().map(move |&s| (c, s)));
-        self.pick(opts, |l, (c, beside)| {
+        let small = shape.is_none() && loose.len() <= SMALL;
+        self.pick(opts, small, |l, (c, beside)| {
             let Some(s) = shape else {
                 l.grid(loose.clone(), c, 0.0, false);
                 return;
@@ -459,7 +483,7 @@ impl<'a> Lay<'a, '_> {
             }
         });
         for u in unread {
-            self.pick([false, true], |l, right| {
+            self.pick([false, true], false, |l, right| {
                 let (x, y) = l.bounds().map_or((0.0, 0.0), |b| {
                     if right {
                         (b.right() + GUTTER, b.bottom() - CHIP.1)
@@ -476,7 +500,9 @@ impl<'a> Lay<'a, '_> {
     /// Boxes of one group trade places while that leaves the arrows between them all less
     /// tangled (see `tangle`), each drawn straight between box centres; the first trade found
     /// better is kept, until none is.
-    fn untangle(&mut self) {
+    /// Swaps boxes of a group while that makes their arrows less tangled; the tangle left, None
+    /// with fewer than two arrows.
+    fn untangle(&mut self) -> Option<f32> {
         let at: BTreeMap<&str, usize> = (self.frames.iter().enumerate())
             .map(|(i, f)| (f.0, i))
             .collect();
@@ -490,7 +516,7 @@ impl<'a> Lay<'a, '_> {
             }
         }
         if edges.len() < 2 {
-            return;
+            return None;
         }
         let mut best = self.tangle(&edges);
         for _ in 0..UNTANGLE {
@@ -516,6 +542,7 @@ impl<'a> Lay<'a, '_> {
                 break;
             }
         }
+        Some(best)
     }
 
     /// Boxes `i` and `j` swap centres.
