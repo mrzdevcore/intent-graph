@@ -44,7 +44,6 @@ Both sides are built from a temporary checkout, so ig never touches your branche
 
 ```sh
 brew install mrzdevcore/tap/ig
-brew install --cask mrzdevcore/tap/ig-app   # the desktop app, for `ig app .` (macOS)
 ```
 
 **From source** (needs Rust, node and pnpm):
