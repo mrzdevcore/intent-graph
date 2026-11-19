@@ -150,11 +150,29 @@ impl<'s, 'a> Extractor<'s, 'a> {
                     },
                     obj => match self.type_of(obj) {
                         Some(t) => Pending::Typed(Box::new(t), prop),
-                        None => Pending::Ready(Callee::Guess(prop)),
+                        None => match self.import_root(obj) {
+                            Some(spec) => Pending::Ready(Callee::Chained(spec, prop)),
+                            None => Pending::Ready(Callee::Guess(prop)),
+                        },
                     },
                 })
             }
             _ => None,
+        }
+    }
+
+    /// The import specifier a call/member chain starts from: `nock` in `nock(h).post`.
+    fn import_root(&self, mut e: &Expression) -> Option<String> {
+        loop {
+            e = match e.get_inner_expression() {
+                Expression::CallExpression(c) => &c.callee,
+                Expression::NewExpression(n) => &n.callee,
+                Expression::AwaitExpression(a) => &a.argument,
+                Expression::StaticMemberExpression(m) => &m.object,
+                Expression::ComputedMemberExpression(m) => &m.object,
+                Expression::Identifier(id) => return self.import_of(id).map(|(spec, _)| spec),
+                _ => return None,
+            };
         }
     }
 

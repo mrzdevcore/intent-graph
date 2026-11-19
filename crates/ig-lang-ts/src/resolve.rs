@@ -513,8 +513,11 @@ impl<'f> Index<'f> {
                         self.export(&t, &ImportName::named(prop), &mut HashSet::new()),
                         "resolved",
                     ),
+                    _ if is_package(f, spec) => (None, "resolved"),
                     _ => (self.guess(prop), "guessed"),
                 },
+                Callee::Chained(spec, _) if is_package(f, spec) => (None, "resolved"),
+                Callee::Chained(_, prop) => (self.guess(prop), "guessed"),
                 Callee::Member {
                     class,
                     name,
@@ -541,4 +544,11 @@ impl<'f> Index<'f> {
         }
         out
     }
+}
+
+fn is_package(f: &FileFacts, spec: &str) -> bool {
+    !f.resolved.contains_key(spec)
+        && !spec.starts_with('.')
+        && !spec.starts_with('/')
+        && !spec.starts_with('#')
 }

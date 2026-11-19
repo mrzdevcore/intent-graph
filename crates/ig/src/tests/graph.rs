@@ -174,6 +174,32 @@ fn typed_base_class_and_external_receivers() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// `nock(h).post()` or `axios.post()` on a package import never guesses `post` by name; a chain
+// from a local import still does.
+#[test]
+fn package_receivers_never_guess() {
+    let dir = tmp_with(&[
+        (
+            "gateway.ts",
+            "export class Gateway { post() {} put() {} }\n",
+        ),
+        ("make.ts", "export const make = () => ({});\n"),
+        (
+            "sdk.spec.ts",
+            "import nock from 'nock';\nimport axios from 'axios';\nimport { make } from './make';\nexport function t() { nock('h').post('/x'); axios.post('/x'); make().put(); }\n",
+        ),
+    ]);
+    let g = build(&dir, &Config::default(), None).unwrap().graph;
+    let to = |n: &str| {
+        g.edges
+            .iter()
+            .any(|e| e.from == "sdk.spec.ts#t" && e.to == n)
+    };
+    assert!(!to("gateway.ts#Gateway.post"), "{:#?}", g.edges);
+    assert!(to("gateway.ts#Gateway.put"), "{:#?}", g.edges);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // A page calling an auto-imported composable resolves.
 #[test]
 fn auto_imported_calls_resolve() {

@@ -89,6 +89,9 @@ pub enum Callee {
         name: String,
         skip_self: bool,
     },
+    /// `f(x).m()` / `a.b.m()`: `m` on a value built from import `spec`; never guessed when `spec`
+    /// is a package.
+    Chained(String, String),
     /// Anything else: matched by bare name.
     Guess(String),
     /// An identifier bound nowhere in the file (a global): an `autoImports` name, else guessed.
@@ -426,7 +429,7 @@ pub fn extract(input: &FileInput, resolve: &dyn Fn(&str) -> Option<String>) -> F
     let classes = x
         .classes
         .iter()
-        .map(|(id, e)| (id.clone(), e.as_ref().map(&finish)))
+        .map(|(id, e)| (id.clone(), e.as_ref().map(finish)))
         .collect();
     let mut resolved = HashMap::new();
     for i in &x.import_refs {
