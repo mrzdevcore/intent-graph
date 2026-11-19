@@ -66,15 +66,54 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: viewer/pnpm-lock.yaml
+      - name: Signing
+        id: signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ] && [ -n "$APPLE_API_ISSUER" ] && [ -n "$APPLE_API_KEY" ] && [ -n "$APPLE_API_KEY_P8" ]; then
+            key="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
+            printf '%s' "$APPLE_API_KEY_P8" > "$key"
+            echo "APPLE_API_KEY_PATH=$key" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Apple signing secrets are not set: the app is built to check it, but not published"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
       - run: rustup target add ${{ matrix.target }}
-      - run: make app TARGET=${{ matrix.target }}
+      - name: Build, sign and notarize
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: make app TARGET=${{ matrix.target }}
+      - name: Build (unsigned, not published)
+        if: steps.signing.outputs.signed != 'true'
+        run: make app TARGET=${{ matrix.target }}
+      - name: Verify signature, notarization and Gatekeeper
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          app="target/${{ matrix.target }}/release/bundle/macos/ig.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --verify --strict --verbose=2 "$app/Contents/MacOS/ig"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
       - name: Package
+        if: steps.signing.outputs.signed == 'true'
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           name="ig-app-$version-${{ matrix.target }}"
           ditto -c -k --keepParent "target/${{ matrix.target }}/release/bundle/macos/ig.app" "$name.zip"
           shasum -a 256 "$name.zip" > "$name.zip.sha256"
       - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.signed == 'true'
         with:
           name: app-${{ matrix.target }}
           path: ig-app-*.zip*
@@ -98,19 +137,21 @@ jobs:
       - name: Formula and cask
         run: |
           packaging/homebrew/formula.sh "${GITHUB_REF_NAME#v}" dist > ig.rb && cat ig.rb
-          packaging/homebrew/cask.sh "${GITHUB_REF_NAME#v}" dist > ig-app.rb && cat ig-app.rb
+          if ls dist/ig-app-*.zip >/dev/null 2>&1; then
+            packaging/homebrew/cask.sh "${GITHUB_REF_NAME#v}" dist > ig-app.rb && cat ig-app.rb
+          fi
       - name: Update the tap
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "$TAP_TOKEN" ]; then echo "::warning::HOMEBREW_TAP_TOKEN is not set: the tap was not updated"; exit 0; fi
           git clone "https://x-access-token:$TAP_TOKEN@github.com/mrzdevcore/homebrew-tap.git" tap
-          mkdir -p tap/Formula tap/Casks
+          mkdir -p tap/Formula
           cp ig.rb tap/Formula/ig.rb
-          cp ig-app.rb tap/Casks/ig-app.rb
+          if [ -f ig-app.rb ]; then mkdir -p tap/Casks && cp ig-app.rb tap/Casks/ig-app.rb; fi
           cd tap
           git config user.name "ig release"
           git config user.email "release@ig.invalid"
-          git add Formula/ig.rb Casks/ig-app.rb
+          git add -A
           git commit -m "ig ${GITHUB_REF_NAME#v}"
           git push origin HEAD

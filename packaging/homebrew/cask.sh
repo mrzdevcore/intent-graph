@@ -19,10 +19,5 @@ cask "ig-app" do
   homepage "https://github.com/mrzdevcore/intent-graph"
 
   app "ig.app"
-
-  # The app is not signed: without this, Gatekeeper refuses to open it.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/ig.app"]
-  end
 end
 EOF

@@ -19,21 +19,16 @@ Desktop app: see [Desktop app](#desktop-app). The workspace includes it, so
 ## Desktop app
 
 `crates/ig-desktop` is a Tauri 2 app: the map, editable (boxes, arrows, rename, move, delete, undo), beside a chat panel that runs Claude Code on your project. `ig app [<dir>]` opens it on a folder: it runs `$IG_APP` if set, else the app built next to this `ig` (`target/<profile>/ig-desktop`), else the installed `ig.app`.
-Each release ships it for macOS (Apple silicon and Intel), unsigned and without auto-update:
+No build of the app is published yet: distribution waits for Anthropic's written confirmation and an Apple Developer ID. Build it from source; a local build is not quarantined, so Gatekeeper opens it:
 
 ```sh
-brew install --cask mrzdevcore/tap/ig-app   # ig.app in /Applications
-```
-
-The cask clears the quarantine flag so Gatekeeper opens the unsigned app. The zips are also on the release page; one unzipped by hand needs `xattr -dr com.apple.quarantine ig.app` once.
-
-From source:
-
-```sh
-make app                               # target/release/bundle/macos/ig.app (unsigned)
+make app-install                       # builds ig.app and puts it in /Applications, with ig on the PATH
+make app                               # target/<host triple>/release/bundle/macos/ig.app
 make app TARGET=x86_64-apple-darwin    # target/x86_64-apple-darwin/release/bundle/macos/ig.app
 make app-dev                           # run it in development
 ```
+
+Releases build the app on macOS (Apple silicon and Intel) to check it. They publish it only signed with a Developer ID, notarized by Apple and stapled, as `ig-app-<version>-<target>.zip` and the Homebrew cask `mrzdevcore/tap/ig-app`. Signing runs through Tauri when these repository secrets are set: `APPLE_CERTIFICATE` (the Developer ID Application `.p12`, base64), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, and for notarization an App Store Connect API key: `APPLE_API_ISSUER`, `APPLE_API_KEY` (its ID) and `APPLE_API_KEY_P8` (the `.p8` contents). Without them, the release has no app and no cask.
 
 The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in development) and puts it first on the agent's `PATH`, so the plugin's skills and `ig mcp` match the app even when it is opened from Finder.
 
