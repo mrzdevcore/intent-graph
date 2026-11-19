@@ -13,17 +13,26 @@ built into one offline HTML file), then `cargo build --release -p intent-graph`,
 viewer, runs its tests, then `cargo test --workspace`. Dependency build scripts stay off; the supply-chain settings are in `viewer/pnpm-workspace.yaml`.
 Without a built viewer, `cargo build` still works and `ig view` writes a placeholder page with the data as JSON.
 
-Desktop app: see [Desktop app (local build)](#desktop-app-local-build). The workspace includes it, so
+Desktop app: see [Desktop app](#desktop-app). The workspace includes it, so
 `cargo build` and `cargo test --workspace` compile Tauri too (on Linux that needs webkit2gtk).
 
-## Desktop app (local build)
+## Desktop app
 
 `crates/ig-desktop` is a Tauri 2 app: the map, editable (boxes, arrows, rename, move, delete, undo), beside a chat panel that runs Claude Code on your project. `ig app [<dir>]` opens it on a folder: it runs `$IG_APP` if set, else the app built next to this `ig` (`target/<profile>/ig-desktop`), else the installed `ig.app`.
-It is built locally and not distributed (no signing, no auto-update), pending Anthropic's written confirmation.
+Each release ships it for macOS (Apple silicon and Intel), unsigned and without auto-update:
 
 ```sh
-make app       # target/release/bundle/macos/ig.app (unsigned)
-make app-dev   # run it in development
+brew install --cask mrzdevcore/tap/ig-app   # ig.app in /Applications
+```
+
+The cask clears the quarantine flag so Gatekeeper opens the unsigned app. The zips are also on the release page; one unzipped by hand needs `xattr -dr com.apple.quarantine ig.app` once.
+
+From source:
+
+```sh
+make app                               # target/release/bundle/macos/ig.app (unsigned)
+make app TARGET=x86_64-apple-darwin    # target/x86_64-apple-darwin/release/bundle/macos/ig.app
+make app-dev                           # run it in development
 ```
 
 The app ships its own `ig` (`Contents/MacOS/ig`; `target/debug/ig` in development) and puts it first on the agent's `PATH`, so the plugin's skills and `ig mcp` match the app even when it is opened from Finder.
