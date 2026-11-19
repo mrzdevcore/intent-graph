@@ -82,11 +82,11 @@ impl Spec {
                 })
             }
             k if PROPS.contains(&k) => {
-                if let (Some(v), "shape") = (value, k) {
-                    if named::<Shape>(v).is_none() {
-                        let all = Shape::NAMES.join(", ");
-                        return Err(format!("`{v}` is not an arrow shape: one of {all}"));
-                    }
+                if let (Some(v), "shape") = (value, k)
+                    && named::<Shape>(v).is_none()
+                {
+                    let all = Shape::NAMES.join(", ");
+                    return Err(format!("`{v}` is not an arrow shape: one of {all}"));
                 }
                 let n = self.node_mut(&at(i));
                 let (old, was) = prop(n, k, value, restore)?;

@@ -195,7 +195,7 @@ fn reads_a_box_with_no_kind_yet() {
     let m = parse(&sys("  box \"billing\" title=\"billing\"")).unwrap();
     let b = m.boxes.iter().find(|b| b.id == "billing").unwrap();
     assert_eq!(b.kind.value, BoxKind::Box);
-    assert!(crate::map::warn::warnings(&m, &crate::map::kinds::Kinds::builtin()).is_empty());
+    assert!(crate::map::warn::warnings(&m, crate::map::kinds::Kinds::builtin()).is_empty());
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn a_box_holds_run_and_design_blocks() {
     ))
     .unwrap();
     assert_eq!(
-        crate::map::warn::warnings(&m, &crate::map::kinds::Kinds::builtin()),
+        crate::map::warn::warnings(&m, crate::map::kinds::Kinds::builtin()),
         Vec::<String>::new()
     );
 }

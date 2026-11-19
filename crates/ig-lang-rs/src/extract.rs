@@ -216,7 +216,7 @@ impl<'s> X<'s> {
                 self.out.uses.push((alias, p, at));
             }
             "scoped_use_list" => {
-                let p = t.child_by_field_name("path").map(&seg).unwrap_or_default();
+                let p = t.child_by_field_name("path").map(seg).unwrap_or_default();
                 let p = join(p);
                 if let Some(list) = t.child_by_field_name("list") {
                     self.uses(list, &p, at);
@@ -231,11 +231,7 @@ impl<'s> X<'s> {
             }
             "use_wildcard" => {
                 let mut c = t.walk();
-                let p = t
-                    .named_children(&mut c)
-                    .next()
-                    .map(&seg)
-                    .unwrap_or_default();
+                let p = t.named_children(&mut c).next().map(seg).unwrap_or_default();
                 let p = self.anchor(join(p));
                 self.out.globs.push((p, at));
             }
