@@ -34,10 +34,11 @@ app-dev: viewer viewer-app
 
 # A local build, unsigned: target/release/bundle/macos/ig.app on macOS.
 # The bundle takes ig from crates/ig-desktop/bin/ig (gitignored), wherever cargo's target dir is.
+# TARGET=<triple> builds for that target: target/<triple>/release/bundle/macos/ig.app.
 app: viewer viewer-app
-	cargo build --release -p intent-graph
-	mkdir -p crates/ig-desktop/bin && cp "$${CARGO_TARGET_DIR:-target}/release/ig" crates/ig-desktop/bin/ig
-	$(TAURI) build
+	cargo build --release -p intent-graph $(if $(TARGET),--target $(TARGET))
+	mkdir -p crates/ig-desktop/bin && cp "$${CARGO_TARGET_DIR:-target}/$(if $(TARGET),$(TARGET)/)release/ig" crates/ig-desktop/bin/ig
+	$(TAURI) build $(if $(TARGET),--target $(TARGET))
 
 # Everything on this Mac: the app in /Applications (replacing the old one) and `ig` on the PATH,
 # so `ig .` opens the app on a folder.
