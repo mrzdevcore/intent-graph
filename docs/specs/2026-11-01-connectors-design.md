@@ -57,7 +57,7 @@ to open a box's logs and monitoring, comes later: the design leaves room and bui
 - Read-only for now. Logs and monitoring from a box come later.
 - An Ansible role and its instance are **one box**.
 - Inside a box: the "routes inside Traefik" mockup, board `PadsRoutes` on the
-  [wiring canvas](the design canvas): routes as boxes on the left,
+  The wiring board on the design canvas: routes as boxes on the left,
   a wire from each to a labelled pad on the box's edge, a stopped target shown as a grey dotted wire
   with a "stopped" chip. Clicking a pad goes to the box at the other end.
 - Security rule above: allowlist the fields parsed; never read config or environment.

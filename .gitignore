@@ -6,3 +6,6 @@
 /viewer/dev-data.json
 /crates/ig-desktop/bin
 /viewer/dist-app
+/.superpowers
+/docs/feedback
+/.claude/settings.local.json

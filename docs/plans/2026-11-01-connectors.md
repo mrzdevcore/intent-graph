@@ -313,7 +313,7 @@ test("a declared arrow counts as one link", () => { expect(linkCount({ ...a, cou
   - `export type Pad = { side: "in" | "out"; other: string; title: string; child?: string; down: boolean; y: number }`, where `child` is the direct child of the box holding the part's end, and absent for a stub.
   - `export function padsOf(view: View, id: string, frame: { w: number; h: number }, childFrame: (id: string) => Frame | undefined, on: Set<string>): Pad[]`, with `y` in the box's own units.
 
-Mockup: board `PadsRoutes` on the wiring canvas (the design canvas). Follow its shape, and use theme tokens rather than its literal colours.
+Mockup: board `PadsRoutes` on the wiring board of the design canvas. Follow its shape, and use theme tokens rather than its literal colours.
 
 - [ ] **Step 1: Write the failing tests** in `map-pads.test.ts`
 

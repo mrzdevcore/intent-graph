@@ -4,8 +4,8 @@
 
 
 Status: design, not implemented. Date: 2026-10-29. Replaces the add-only draft of this file and
-`2026-10-25-ig-design-workspace-design.md`. Mockups: the "Design mode" row of the design canvas
-(the design canvas); they predate the multi-repo and refactoring
+`2026-10-25-ig-design-workspace-design.md`. Mockups: the "Design mode" row of the design canvas;
+they predate the multi-repo and refactoring
 decisions below, so the decisions win where they differ.
 
 ## Intent
