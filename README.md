@@ -44,7 +44,6 @@ Both sides are built from a temporary checkout, so ig never touches your branche
 
 ```sh
 brew install mrzdevcore/tap/ig
-brew install --cask mrzdevcore/tap/ig-app   # the desktop app, for `ig app .` (macOS)
 ```
 
 **From source** (needs Rust, node and pnpm):
@@ -65,6 +64,8 @@ ig view                          # draw the map and open it
 ig explore "how does X work"     # the answer on stdout, drawn on the map
 ig diff main                     # what this branch does to the architecture
 ```
+
+<p align="center"><img alt="ig init, ig analyse and ig view on listmonk, then zooming from the whole system into the server, its handlers and down to the functions of one file, and into PostgreSQL to read its tables" src="assets/screenshots/ig-view.gif"></p>
 
 Review `ig/` with `git diff ig/` and commit it. From then on it is yours: edit it by hand, or let `ig accept` and your agent propose changes.
 
@@ -92,7 +93,7 @@ Review `ig/` with `git diff ig/` and commit it. From then on it is yours: edit i
 | `ig fmt` | Rewrites `ig/` in canonical form |
 | `ig mcp` | Serves the map to an agent over MCP |
 
-Every flag, the `ig.yaml` keys, layers, connectors and the desktop app are in the **[reference](docs/reference.md)**.
+Every flag, layers, connectors and the desktop app are in the **[reference](docs/reference.md)**; what `ig init` puts in `ig.yaml` and every key it takes are in the **[`ig.yaml` guide](docs/ig-yaml.md)**.
 
 ## How it works
 
