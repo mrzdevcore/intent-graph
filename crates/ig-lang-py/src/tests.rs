@@ -249,3 +249,31 @@ fn packages_from_manifests() {
         ]
     );
 }
+
+#[test]
+fn requirements_make_a_package_when_python_sits_beside_them() {
+    let f = MemFiles::with(&[
+        ("src/email/requirements.txt", "grpcio\n"),
+        ("src/email/server.py", "def main(): pass\n"),
+        ("src/recs/requirements.in", "grpcio\n"),
+        ("src/recs/app/server.py", "def main(): pass\n"),
+        ("src/api/pyproject.toml", "[project]\nname = \"api\"\n"),
+        ("src/api/requirements.txt", "fastapi\n"),
+        ("src/api/main.py", ""),
+        ("docs/requirements.txt", "mkdocs\n"),
+        ("docs/index.md", ""),
+    ]);
+    let got: Vec<(String, String)> = PyFrontend
+        .packages(&f, &Config::default())
+        .into_iter()
+        .map(|p| (p.dir, p.name))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("src/api".into(), "api".into()),
+            ("src/email".into(), "email".into()),
+            ("src/recs".into(), "recs".into()),
+        ]
+    );
+}

@@ -432,3 +432,23 @@ fn an_arrows_note_and_context_in_ig_reach_the_view() {
     assert_eq!(lifted["parts"][0]["note"], "through the gateway");
     assert_eq!(lifted["parts"][0]["written"], "ig/system.kdl:10");
 }
+
+#[test]
+fn a_minified_line_is_cut_in_every_snippet() {
+    let long = "x".repeat(100_000);
+    let files = MemFiles::with(&[("dist/app.js", &format!("{long}\nshort\n"))]);
+    let span = |id: &str| {
+        let r = Range {
+            start_line: 1,
+            end_line: 2,
+        };
+        (id.to_string(), "dist/app.js".to_string(), r, 1)
+    };
+    let got = snippets(&files, &[span("a"), span("b")]);
+    for s in got.values() {
+        let first = s.text.lines().next().unwrap();
+        assert!(first.chars().count() <= SNIPPET_LINE + 1, "{}", first.len());
+        assert!(first.ends_with('…'));
+        assert_eq!(s.text.lines().nth(1), Some("short"));
+    }
+}

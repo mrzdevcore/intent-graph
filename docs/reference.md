@@ -300,9 +300,8 @@ patterns:                     # ast-grep patterns that become graph nodes
     id: "{METHOD} {PATH}"
 ```
 
-`tests` and `testCalls` (what counts as a test file and test call) also exist. Keys from the removed
-checker (`complexity`, `checkers`, `severity`, `blockOn`, `editor`, `hookMaxRounds`, `entryPoints`,
-`review`) are ignored with a notice. All keys are described in the [design](specs/design.md#igyaml).
+`tests`, `testCalls`, `blueprint` and `connectors` also exist. Every key, its default and an
+example is in the **[`ig.yaml` guide](ig-yaml.md)**.
 
 ## Integrations
 
@@ -320,5 +319,5 @@ ig view --json > viewer/dev-data.json && cd viewer && pnpm run dev   # the viewe
 Layout: a Cargo workspace in `crates/`. `ig-core` is pure domain plus the ports; `ig-app` holds the use cases;
 `ig-lang-ts`, `ig-lang-py`, `ig-lang-rs`, `ig-lang-go`, `ig-fs` and `ig-git` are adapters; `ig` is the binary that wires them.
 The dependency rule (core and adapters depend only on `ig-core`) and a 600-line file limit are enforced by
-`crates/ig/tests/architecture.rs`. A language is a `LanguageFrontend`: it says which files are its source, which packages the tree declares (npm/pnpm workspaces or the outermost nested `package.json` folders, `pyproject.toml`, Cargo workspaces, a folder per Go package) and which manifests fence a nested project off, then builds their nodes and edges; core and `ig-fs` know no language. A new one goes in `ig_wire::FRONTENDS`. Still TS-shaped: `prepare_checkout`'s `link_auto_imports` flag, and outside systems known by one list of npm, Python, Rust and Go client library names.
+`crates/ig/tests/architecture.rs`. A language is a `LanguageFrontend`: it says which files are its source, which packages the tree declares (npm/pnpm workspaces or the outermost nested `package.json` folders, `pyproject.toml`, `setup.py` or a `requirements.txt` beside Python code, Cargo workspaces, a folder per Go package) and which manifests fence a nested project off, then builds their nodes and edges; core and `ig-fs` know no language. A new one goes in `ig_wire::FRONTENDS`. Still TS-shaped: `prepare_checkout`'s `link_auto_imports` flag, and outside systems known by one list of npm, Python, Rust and Go client library names.
 See [Architecture](specs/design.md#architecture).
