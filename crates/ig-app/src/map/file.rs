@@ -289,6 +289,30 @@ fn annotate_with(map: &mut MapFile, json: &str, prefixed: bool) -> Result<usize,
         }
         b.needs_reading = false;
     }
+    let by: std::collections::HashMap<&str, &MapBox> =
+        m.boxes.iter().map(|b| (b.id.as_str(), b)).collect();
+    let out_of_place: Vec<(String, Field<BoxKind>)> = (m.boxes.iter())
+        .filter(|b| b.kind.source == Source::Agent)
+        .filter(|b| {
+            let name = super::kinds::base_name(b.kind.value);
+            super::warn::misplaced(&by, b, b.kind.value, &name).is_some()
+        })
+        .map(|b| {
+            let was = map.boxes.iter().find(|o| o.id == b.id);
+            let kind = match was {
+                Some(o) if o.kind.source != Source::Agent => o.kind.clone(),
+                // an earlier batch's kind, made wrong by this batch moving the parent
+                _ => Field::ig(BoxKind::Module),
+            };
+            (b.id.clone(), kind)
+        })
+        .collect();
+    for (id, kind) in out_of_place {
+        if let Some(b) = m.boxes.iter_mut().find(|b| b.id == id) {
+            b.kind = kind;
+            n = n.saturating_sub(1);
+        }
+    }
     // ig's own slots follow a pattern the agent changed; its own and pinned ones must fit
     let igs = |b: &MapBox| !b.pins("slot") && b.slot.as_ref().is_some_and(|s| is_ig(&s.source));
     refresh::fit_slots(&mut m.boxes, &[], &igs);

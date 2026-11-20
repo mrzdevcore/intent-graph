@@ -3,6 +3,8 @@ use crate::map::{FactBox, facts};
 use ig_core::testing::MemFiles;
 use ig_core::workspace::SourceFile;
 
+mod placement;
+
 fn get<'a>(m: &'a MapFile, id: &str) -> &'a MapBox {
     m.boxes
         .iter()
