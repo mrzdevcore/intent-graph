@@ -80,6 +80,15 @@ fn is_zero(n: &u32) -> bool {
 
 /// The most lines a snippet holds.
 const SNIPPET: u32 = 400;
+// a minified bundle is one line: every function in it would carry the whole file
+const SNIPPET_LINE: usize = 500;
+
+fn clip(line: &str) -> std::borrow::Cow<'_, str> {
+    match line.char_indices().nth(SNIPPET_LINE) {
+        Some((at, _)) => format!("{}…", &line[..at]).into(),
+        None => line.into(),
+    }
+}
 
 /// Each span's lines (box id, file, lines, complexity), read once per file; none for a file
 /// that cannot be read.
@@ -107,7 +116,11 @@ fn snippets(
             Snippet {
                 file: file.clone(),
                 line: first,
-                text: lines[first as usize - 1..shown as usize].join("\n"),
+                text: lines[first as usize - 1..shown as usize]
+                    .iter()
+                    .map(|l| clip(l))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 cut: last - shown,
                 complexity: *complexity,
             },
