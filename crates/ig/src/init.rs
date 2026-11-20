@@ -5,7 +5,7 @@ use anyhow::Result;
 use ig_core::config::Config;
 use ig_core::workspace::{self, WorkspaceInfo};
 use regex::Regex;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 const AGENTS_MARKER: &str = "<!-- ig:agents -->";
@@ -121,12 +121,16 @@ pub fn run(root: &Path, agents: &[&crate::skills::Agent], quiet: bool) -> Result
         };
         let mut layers = String::new();
         if ws.packages.len() > 1 || ws.packages[0].dir != "." {
+            let mut by_layer: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
             for p in &ws.packages {
-                layers.push_str(&format!(
-                    "  {}: [{}]\n",
-                    layer_name(&p.name),
-                    yaml_str(&p.name)
-                ));
+                by_layer
+                    .entry(layer_name(&p.name))
+                    .or_default()
+                    .insert(&p.name);
+            }
+            for (layer, names) in by_layer {
+                let sel: Vec<String> = names.iter().map(|n| yaml_str(n)).collect();
+                layers.push_str(&format!("  {layer}: [{}]\n", sel.join(", ")));
             }
         } else {
             let mut dirs = BTreeSet::new();

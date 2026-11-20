@@ -311,6 +311,29 @@ fn init_does_not_write_ig() {
 }
 
 #[test]
+fn init_merges_packages_that_share_a_layer_name() {
+    let dir = repo("init-dup");
+    for svc in ["shop", "billing"] {
+        let d = dir.join(format!("src/{svc}/genproto"));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("go.mod"),
+            format!("module example.test/{svc}/genproto\n\ngo 1.22\n"),
+        )
+        .unwrap();
+        std::fs::write(d.join("x.go"), "package genproto\n").unwrap();
+    }
+    let out = ig_in(&dir, &["init", "claude"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    let cfg = std::fs::read_to_string(dir.join("ig.yaml")).unwrap();
+    assert_eq!(cfg.matches("  genproto:").count(), 1, "{cfg}");
+    assert!(cfg.contains("example.test/billing/genproto"), "{cfg}");
+    assert!(cfg.contains("example.test/shop/genproto"), "{cfg}");
+    let out = ig_in(&dir, &["analyse", "--no-agent"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+}
+
+#[test]
 fn init_notices_go_to_stderr_and_quiet_drops_them() {
     let dir = repo("init-quiet");
     let out = ig_in(&dir, &["init", "claude"]);
