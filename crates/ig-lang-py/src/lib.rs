@@ -47,7 +47,7 @@ impl LanguageFrontend for PyFrontend {
         path.to_ascii_lowercase().ends_with(".py")
     }
 
-    /// Every folder with a `pyproject.toml` or `setup.py`, at most two folders down.
+    /// Every folder with a `pyproject.toml` or `setup.py`, or a `requirements.txt`/`.in` beside Python, at most two folders down.
     // ponytail: two levels covers services/x and packages/x; deeper Python projects join their parent
     fn packages(&self, files: &dyn Files, _: &Config) -> Vec<Package> {
         let manifests: Vec<String> = ["", "*/", "*/*/"]
@@ -68,6 +68,36 @@ impl LanguageFrontend for PyFrontend {
                 dir: dir.into(),
             });
         }
+        let reqs: Vec<String> = ["", "*/", "*/*/"]
+            .iter()
+            .flat_map(|d| {
+                [
+                    format!("{d}requirements.txt"),
+                    format!("{d}requirements.in"),
+                ]
+            })
+            .collect();
+        let mut more: Vec<Package> = vec![];
+        for m in files.glob(&reqs).unwrap_or_default() {
+            let dir = m.rsplit_once('/').map_or(".", |(d, _)| d);
+            if out.iter().chain(&more).any(|p| p.dir == dir) {
+                continue;
+            }
+            let py = if dir == "." {
+                "**/*.py".into()
+            } else {
+                format!("{dir}/**/*.py")
+            };
+            if files.glob(&[py]).unwrap_or_default().is_empty() {
+                continue;
+            }
+            more.push(Package {
+                name: dir.rsplit('/').next().unwrap_or(dir).into(),
+                dir: dir.into(),
+            });
+        }
+        out.extend(more);
+        out.sort_by(|a, b| a.dir.cmp(&b.dir));
         out
     }
 
