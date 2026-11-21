@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "ig-app"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "globset",
@@ -2137,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "ig-conn-incus"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-core",
  "serde",
@@ -2146,7 +2146,7 @@ dependencies = [
 
 [[package]]
 name = "ig-conn-traefik"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-core",
  "serde",
@@ -2155,7 +2155,7 @@ dependencies = [
 
 [[package]]
 name = "ig-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "globset",
  "regex",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "ig-desktop"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "agent-client-protocol",
  "async-process",
@@ -2188,21 +2188,21 @@ dependencies = [
 
 [[package]]
 name = "ig-fs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-core",
 ]
 
 [[package]]
 name = "ig-git"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-core",
 ]
 
 [[package]]
 name = "ig-lang-go"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-core",
  "tree-sitter",
@@ -2211,7 +2211,7 @@ dependencies = [
 
 [[package]]
 name = "ig-lang-py"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-core",
  "regex",
@@ -2221,7 +2221,7 @@ dependencies = [
 
 [[package]]
 name = "ig-lang-rs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-core",
  "toml 1.1.8+spec-1.1.0",
@@ -2231,7 +2231,7 @@ dependencies = [
 
 [[package]]
 name = "ig-lang-ts"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ast-grep-core",
  "ast-grep-language",
@@ -2254,7 +2254,7 @@ dependencies = [
 
 [[package]]
 name = "ig-schema"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-core",
  "regex",
@@ -2262,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "ig-wire"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ig-app",
  "ig-conn-incus",
@@ -2348,7 +2348,7 @@ dependencies = [
 
 [[package]]
 name = "intent-graph"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",

@@ -19,15 +19,7 @@ Desktop app: see [Desktop app](#desktop-app). The workspace includes it, so
 ## Desktop app
 
 `crates/ig-desktop` is a Tauri 2 app: the map, editable (boxes, arrows, rename, move, delete, undo), beside a chat panel that runs Claude Code on your project. `ig app [<dir>]` opens it on a folder: it runs `$IG_APP` if set, else the app built next to this `ig` (`target/<profile>/ig-desktop`), else the installed `ig.app`.
-Each release ships it for macOS (Apple silicon and Intel), unsigned and without auto-update:
-
-```sh
-brew install --cask mrzdevcore/tap/ig-app   # ig.app in /Applications
-```
-
-The cask clears the quarantine flag so Gatekeeper opens the unsigned app. The zips are also on the release page; one unzipped by hand needs `xattr -dr com.apple.quarantine ig.app` once.
-
-From source:
+It is not released yet: releases will ship it once it is signed and notarized for macOS. Until then, build it from source:
 
 ```sh
 make app                               # target/release/bundle/macos/ig.app (unsigned)

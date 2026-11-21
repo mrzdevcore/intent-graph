@@ -1,8 +1,9 @@
 {
-  ".claude-plugin/plugin.json": "7b14df97ac1c0b9b",
+  ".claude-plugin/plugin.json": "71be3dff090a087a",
   ".mcp.json": "bf744fa95cf30d37",
   "skills/apply/SKILL.md": "ec98b37fcb0b470b",
   "skills/draw/SKILL.md": "b8f62014d6f1dfd1",
   "skills/explore/SKILL.md": "15ca287c8e092cc9",
+  "skills/plan/SKILL.md": "bd9d8bb9b990330f",
   "skills/view/SKILL.md": "d77f3f417c740357"
 }
